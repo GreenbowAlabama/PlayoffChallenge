@@ -214,7 +214,7 @@ app.get('/players', async (req, res) => {
     const result = await pool.query('SELECT * FROM players ORDER BY team, position');
     
     if (result.rows.length === 0) {
-      return res.status(200).json({ message: 'No players found', players: [] });
+      return res.status(200).json({ message: 'No players found - Admins can Sync with sleeper bot', players: [] });
     }
 
     res.json(result.rows);
