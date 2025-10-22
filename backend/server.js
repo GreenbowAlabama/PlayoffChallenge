@@ -41,7 +41,10 @@ app.get('/health', (req, res) => {
 // Auth routes
 app.post('/auth/apple', async (req, res) => {
   try {
-    const { appleUserId, username } = req.body;
+    const { appleUserId, username, email } = req.body;
+    
+    // Use username if provided, otherwise use email, otherwise use "User"
+    const displayName = username && username !== 'User' ? username : (email || 'User');
     
     // Check if user exists
     let result = await pool.query(
@@ -55,7 +58,7 @@ app.post('/auth/apple', async (req, res) => {
       // Create new user
       const insertResult = await pool.query(
         'INSERT INTO users (apple_user_id, username, team_name, paid) VALUES ($1, $2, $3, $4) RETURNING *',
-        [appleUserId, username, username + "'s Team", false]
+        [appleUserId, displayName, displayName + "'s Team", false]
       );
       user = insertResult.rows[0];
     } else {
@@ -209,9 +212,14 @@ app.post('/admin/sync-players', async (req, res) => {
 app.get('/players', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM players ORDER BY team, position');
+    
+    if (result.rows.length === 0) {
+      return res.status(200).json({ message: 'No players found', players: [] });
+    }
+
     res.json(result.rows);
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching players:', err);
     res.status(500).json({ error: 'Failed to fetch players' });
   }
 });
