@@ -298,8 +298,8 @@ app.get('/user/:userId/payment-status', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://${HOST}:${PORT}`);
 });
 
 module.exports = app;
