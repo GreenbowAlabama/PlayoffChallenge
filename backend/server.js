@@ -141,11 +141,28 @@ app.get('/admin/settings', async (req, res) => {
 // Admin: Update game settings
 app.put('/admin/settings', async (req, res) => {
   try {
-    const { entryAmount, venmoHandle, cashappHandle, zelleHandle, gameMode } = req.body;
+    const { 
+      entryAmount, venmoHandle, cashappHandle, zelleHandle, gameMode,
+      qbLimit, rbLimit, wrLimit, teLimit, kLimit, defLimit 
+    } = req.body;
     
     const result = await pool.query(
-      'UPDATE game_settings SET entry_amount = $1, venmo_handle = $2, cashapp_handle = $3, zelle_handle = $4, game_mode = $5, updated_at = NOW() RETURNING *',
-      [entryAmount, venmoHandle, cashappHandle, zelleHandle, gameMode]
+      `UPDATE game_settings SET 
+        entry_amount = $1, 
+        venmo_handle = $2, 
+        cashapp_handle = $3, 
+        zelle_handle = $4, 
+        game_mode = $5,
+        qb_limit = $6,
+        rb_limit = $7,
+        wr_limit = $8,
+        te_limit = $9,
+        k_limit = $10,
+        def_limit = $11,
+        updated_at = NOW() 
+      RETURNING *`,
+      [entryAmount, venmoHandle, cashappHandle, zelleHandle, gameMode,
+       qbLimit, rbLimit, wrLimit, teLimit, kLimit, defLimit]
     );
     
     res.json(result.rows[0]);
@@ -302,6 +319,30 @@ app.get('/user/:userId/payment-status', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to check payment status' });
+  }
+});
+
+// New endpoint: Get position limits for app
+app.get('/settings/position-limits', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1'
+    );
+    if (result.rows.length === 0) {
+      return res.json({ QB: 1, RB: 2, WR: 3, TE: 1, K: 1, DEF: 1 });
+    }
+    const limits = result.rows[0];
+    res.json({
+      QB: limits.qb_limit,
+      RB: limits.rb_limit,
+      WR: limits.wr_limit,
+      TE: limits.te_limit,
+      K: limits.k_limit,
+      DEF: limits.def_limit
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch limits' });
   }
 });
 
