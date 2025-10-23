@@ -194,8 +194,15 @@ app.post('/admin/sync-players', async (req, res) => {
             player.position &&                     // Must have a position
             ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(player.position);
     });
-    
-    console.log(`Found ${relevantPlayers.length} playoff players`);
+
+    // Sort by popularity (search_rank: lower = more popular)
+    relevantPlayers.sort((a, b) => {
+      const rankA = a.search_rank || 999999;
+      const rankB = b.search_rank || 999999;
+      return rankA - rankB;
+    });
+
+    console.log(`Found ${relevantPlayers.length} active playoff players`);
     
     // Clear existing players (optional - or update instead)
     await pool.query('DELETE FROM players');
