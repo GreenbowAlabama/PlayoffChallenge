@@ -191,7 +191,7 @@ app.post('/admin/sync-players', async (req, res) => {
       'WR': 3,
       'TE': 2,
       'K': 2,
-      'DEF': 2
+      'DEF': 1
     };
     
     // Filter to active players on playoff teams with depth chart limits
