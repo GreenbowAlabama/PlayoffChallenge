@@ -177,37 +177,63 @@ app.post('/admin/sync-players', async (req, res) => {
   try {
     console.log('Fetching players from Sleeper API...');
     
-    // Fetch all NFL players from Sleeper
     const response = await fetch('https://api.sleeper.app/v1/players/nfl');
     const allPlayers = await response.json();
     
-    // Playoff teams for 2024-2025 season (update these as needed)
+    // Playoff teams for 2024-2025 season
     const playoffTeams = ['KC', 'BUF', 'BAL', 'HOU', 'LAC', 'PIT', 'DEN', 
                           'PHI', 'DET', 'TB', 'LAR', 'MIN', 'GB', 'WAS'];
     
-    // Filter to relevant players
-    const relevantPlayers = Object.values(allPlayers).filter(player => {
-      // Must have all these conditions
-      return player.active === true &&              // Must be active
-            player.team &&                         // Must have a team
-            //playoffTeams.includes(player.team) &&  // Must be on playoff team
-            player.position &&                     // Must have a position
-            ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(player.position);
-    });
-
-    // Sort by popularity (search_rank: lower = more popular)
-    relevantPlayers.sort((a, b) => {
-      const rankA = a.search_rank || 999999;
-      const rankB = b.search_rank || 999999;
-      return rankA - rankB;
-    });
-
-    console.log(`Found ${relevantPlayers.length} active playoff players`);
+    // Depth chart limits by position
+    const depthLimits = {
+      'QB': 2,
+      'RB': 2,
+      'WR': 3,
+      'TE': 2,
+      'K': 2,
+      'DEF': 2
+    };
     
-    // Clear existing players (optional - or update instead)
+    // Filter to active players on playoff teams with depth chart limits
+    const relevantPlayers = Object.values(allPlayers).filter(player => {
+      if (!player.active || 
+          !player.team || 
+          !playoffTeams.includes(player.team) ||
+          !player.position ||
+          !['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(player.position)) {
+        return false;
+      }
+      
+      // Check depth chart limit for position
+      const depthLimit = depthLimits[player.position] || 2;
+      const depth = player.depth_chart_order || 999;
+      
+      return depth <= depthLimit;
+    });
+    
+    // Sort by position first, then by depth chart within position
+    relevantPlayers.sort((a, b) => {
+      // Position priority
+      const positionPriority = { QB: 1, RB: 2, WR: 3, TE: 4, K: 5, DEF: 6 };
+      const posA = positionPriority[a.position] || 99;
+      const posB = positionPriority[b.position] || 99;
+      
+      if (posA !== posB) {
+        return posA - posB;
+      }
+      
+      // Within same position, sort by depth chart (starters first)
+      const depthA = a.depth_chart_order || 999;
+      const depthB = b.depth_chart_order || 999;
+      return depthA - depthB;
+    });
+    
+    console.log(`Found ${relevantPlayers.length} active playoff players (with depth limits)`);
+    
+    // Clear existing players
     await pool.query('DELETE FROM players');
     
-    // Insert players into database
+    // Insert players
     let insertedCount = 0;
     for (const player of relevantPlayers) {
       try {
@@ -225,7 +251,7 @@ app.post('/admin/sync-players', async (req, res) => {
     res.json({ 
       success: true, 
       count: insertedCount,
-      message: `Synced ${insertedCount} players from Sleeper API`
+      message: `Synced ${insertedCount} active players from Sleeper API`
     });
     
   } catch (err) {
