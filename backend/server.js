@@ -187,10 +187,12 @@ app.post('/admin/sync-players', async (req, res) => {
     
     // Filter to relevant players
     const relevantPlayers = Object.values(allPlayers).filter(player => {
-      return player.team && 
-             playoffTeams.includes(player.team) && 
-             player.active === true &&
-             ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(player.position);
+      // Must have all these conditions
+      return player.active === true &&              // Must be active
+            player.team &&                         // Must have a team
+            //playoffTeams.includes(player.team) &&  // Must be on playoff team
+            player.position &&                     // Must have a position
+            ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(player.position);
     });
     
     console.log(`Found ${relevantPlayers.length} playoff players`);
