@@ -6,7 +6,6 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
-const axios = require('axios');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -655,8 +654,13 @@ app.put('/api/settings', verifyAdmin, async (req, res) => {
 // Sync players from Sleeper API (admin only)
 app.post('/api/admin/sync-players', verifyAdmin, async (req, res) => {
   try {
-    const response = await axios.get('https://api.sleeper.app/v1/players/nfl');
-    const players = response.data;
+    const response = await fetch('https://api.sleeper.app/v1/players/nfl');
+    
+    if (!response.ok) {
+      throw new Error(`Sleeper API error: ${response.status}`);
+    }
+    
+    const players = await response.json();
     
     let syncedCount = 0;
     
