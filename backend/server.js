@@ -198,7 +198,7 @@ app.post('/admin/sync-players', async (req, res) => {
     const relevantPlayers = Object.values(allPlayers).filter(player => {
       if (!player.active || 
           !player.team || 
-          !playoffTeams.includes(player.team) ||
+          // !playoffTeams.includes(player.team) ||
           !player.position ||
           !['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(player.position)) {
         return false;
@@ -244,6 +244,7 @@ app.post('/admin/sync-players', async (req, res) => {
         insertedCount++;
       } catch (err) {
         console.error(`Error inserting player ${player.full_name}:`, err.message);
+        player
       }
     }
     
