@@ -97,22 +97,22 @@ app.post('/api/users', async (req, res) => {
   
   try {
     // Check if user exists
-    let result = await pool.query('SELECT * FROM users WHERE apple_user_id = $1', [apple_id]);
+    let result = await pool.query('SELECT * FROM users WHERE apple_id = $1', [apple_id]);
     
     if (result.rows.length > 0) {
       return res.json(result.rows[0]);
     }
     
-    // Create new user - map to correct column names
+    // Create new user
     result = await pool.query(
-      'INSERT INTO users (apple_user_id, username) VALUES ($1, $2) RETURNING *',
-      [apple_id, name || email || 'User']
+      'INSERT INTO users (apple_id, email, name) VALUES ($1, $2, $3) RETURNING *',
+      [apple_id, email, name]
     );
     
     res.json(result.rows[0]);
   } catch (error) {
     console.error('User creation error:', error);
-    res.status(500).json({ error: 'Failed to create user', details: error.message });
+    res.status(500).json({ error: 'Failed to create user' });
   }
 });
 
@@ -120,9 +120,17 @@ app.post('/api/users', async (req, res) => {
 app.get('/api/players', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT * FROM players 
-      WHERE is_active = true 
-      ORDER BY position, team, full_name
+      SELECT 
+        id,
+        name as full_name,
+        position,
+        team,
+        available as is_active,
+        id as sleeper_id,
+        NULL as game_time
+      FROM players 
+      WHERE available = true 
+      ORDER BY position, team, name
     `);
     res.json(result.rows);
   } catch (error) {
@@ -141,20 +149,20 @@ app.get('/api/picks/:user_id', async (req, res) => {
         p.id,
         p.user_id,
         p.player_id,
-        p.position,
-        p.week_number,
-        pl.full_name,
+        'FLEX' as position,
+        p.week as week_number,
+        pl.name as full_name,
         pl.team,
         pl.position as player_position,
-        pl.sleeper_id,
+        pl.id as sleeper_id,
         pm.consecutive_weeks,
         pm.multiplier,
         pm.is_bye_week
       FROM picks p
       JOIN players pl ON p.player_id = pl.id
-      LEFT JOIN pick_multipliers pm ON p.id = pm.pick_id AND pm.week_number = p.week_number
+      LEFT JOIN pick_multipliers pm ON p.id = pm.pick_id AND pm.week_number = p.week
       WHERE p.user_id = $1
-      ORDER BY p.week_number, p.position
+      ORDER BY p.week, pl.position
     `, [user_id]);
     
     res.json(result.rows);
@@ -192,8 +200,8 @@ app.post('/api/picks', async (req, res) => {
     // Insert new picks
     for (const pick of picks) {
       const pickResult = await pool.query(
-        'INSERT INTO picks (user_id, player_id, position, week_number) VALUES ($1, $2, $3, $4) RETURNING id',
-        [user_id, pick.player_id, pick.position, week_number]
+        'INSERT INTO picks (user_id, player_id, week) VALUES ($1, $2, $3) RETURNING id',
+        [user_id, pick.player_id, week_number]
       );
       
       // Initialize multiplier
@@ -217,15 +225,15 @@ app.get('/api/leaderboard', async (req, res) => {
     const result = await pool.query(`
       SELECT 
         u.id,
-        u.name,
-        u.email,
+        u.username as name,
+        NULL as email,
         COALESCE(SUM(s.points * COALESCE(pm.multiplier, 1.0)), 0) as total_points,
-        u.has_paid
+        u.paid as has_paid
       FROM users u
       LEFT JOIN picks p ON u.id = p.user_id
-      LEFT JOIN scores s ON p.player_id = s.player_id AND p.week_number = s.week_number
-      LEFT JOIN pick_multipliers pm ON p.id = pm.pick_id AND p.week_number = pm.week_number
-      GROUP BY u.id, u.name, u.email, u.has_paid
+      LEFT JOIN scores s ON p.player_id = s.player_id AND p.week = s.week_number
+      LEFT JOIN pick_multipliers pm ON p.id = pm.pick_id AND p.week = pm.week_number
+      GROUP BY u.id, u.username, u.paid
       ORDER BY total_points DESC
     `);
     
@@ -338,10 +346,10 @@ app.get('/api/payouts', async (req, res) => {
       ORDER BY place
     `);
     
-    const settingsResult = await pool.query('SELECT entry_amount FROM game_settings WHERE id = 1');
-    const entryAmount = settingsResult.rows[0]?.entry_amount || 0;
+    const settingsResult = await pool.query('SELECT entry_amount FROM game_settings LIMIT 1');
+    const entryAmount = parseFloat(settingsResult.rows[0]?.entry_amount || '50');
     
-    const usersResult = await pool.query('SELECT COUNT(*) as total FROM users WHERE has_paid = true');
+    const usersResult = await pool.query('SELECT COUNT(*) as total FROM users WHERE paid = true');
     const paidUsers = parseInt(usersResult.rows[0].total);
     
     const totalPot = entryAmount * paidUsers;
@@ -624,7 +632,7 @@ app.put('/api/admin/users/:id/payment', verifyAdmin, async (req, res) => {
 // Get game settings
 app.get('/api/settings', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM game_settings WHERE id = 1');
+    const result = await pool.query('SELECT * FROM game_settings LIMIT 1');
     res.json(result.rows[0] || {});
   } catch (error) {
     console.error('Get settings error:', error);
@@ -637,12 +645,26 @@ app.put('/api/settings', verifyAdmin, async (req, res) => {
   const { entry_amount, venmo_handle, cashapp_handle, zelle_handle } = req.body;
   
   try {
+    // Get the first (and likely only) settings record
+    const existingResult = await pool.query('SELECT id FROM game_settings LIMIT 1');
+    
+    if (existingResult.rows.length === 0) {
+      // Insert if doesn't exist
+      const result = await pool.query(`
+        INSERT INTO game_settings (entry_amount, venmo_handle, cashapp_handle, zelle_handle)
+        VALUES ($1, $2, $3, $4)
+        RETURNING *
+      `, [entry_amount, venmo_handle, cashapp_handle, zelle_handle]);
+      return res.json(result.rows[0]);
+    }
+    
+    const settingsId = existingResult.rows[0].id;
     const result = await pool.query(`
       UPDATE game_settings 
-      SET entry_amount = $1, venmo_handle = $2, cashapp_handle = $3, zelle_handle = $4 
-      WHERE id = 1 
+      SET entry_amount = $1, venmo_handle = $2, cashapp_handle = $3, zelle_handle = $4, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $5
       RETURNING *
-    `, [entry_amount, venmo_handle, cashapp_handle, zelle_handle]);
+    `, [entry_amount, venmo_handle, cashapp_handle, zelle_handle, settingsId]);
     
     res.json(result.rows[0]);
   } catch (error) {
