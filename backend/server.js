@@ -97,22 +97,22 @@ app.post('/api/users', async (req, res) => {
   
   try {
     // Check if user exists
-    let result = await pool.query('SELECT * FROM users WHERE apple_id = $1', [apple_id]);
+    let result = await pool.query('SELECT * FROM users WHERE apple_user_id = $1', [apple_id]);
     
     if (result.rows.length > 0) {
       return res.json(result.rows[0]);
     }
     
-    // Create new user
+    // Create new user - map to correct column names
     result = await pool.query(
-      'INSERT INTO users (apple_id, email, name) VALUES ($1, $2, $3) RETURNING *',
-      [apple_id, email, name]
+      'INSERT INTO users (apple_user_id, username) VALUES ($1, $2) RETURNING *',
+      [apple_id, name || email || 'User']
     );
     
     res.json(result.rows[0]);
   } catch (error) {
     console.error('User creation error:', error);
-    res.status(500).json({ error: 'Failed to create user' });
+    res.status(500).json({ error: 'Failed to create user', details: error.message });
   }
 });
 
