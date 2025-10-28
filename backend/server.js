@@ -355,8 +355,11 @@ app.get('/api/payouts', async (req, res) => {
     const totalPot = entryAmount * paidUsers;
     
     const payouts = payoutsResult.rows.map(payout => ({
-      ...payout,
-      amount: (totalPot * payout.percentage / 100).toFixed(2)
+      id: payout.id,
+      place: payout.place,
+      percentage: parseFloat(payout.percentage),
+      description: payout.description,
+      amount: (totalPot * parseFloat(payout.percentage) / 100).toFixed(2)
     }));
     
     res.json({
@@ -599,7 +602,7 @@ app.get('/api/admin/users', async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
-    const result = await pool.query('SELECT * FROM users ORDER BY name');
+    const result = await pool.query('SELECT * FROM users ORDER BY username');
     res.json(result.rows);
   } catch (error) {
     console.error('Get users error:', error);
@@ -614,7 +617,7 @@ app.put('/api/admin/users/:id/payment', verifyAdmin, async (req, res) => {
   
   try {
     const result = await pool.query(
-      'UPDATE users SET has_paid = $1 WHERE id = $2 RETURNING *',
+      'UPDATE users SET paid = $1 WHERE id = $2 RETURNING *',
       [has_paid, id]
     );
     
