@@ -709,11 +709,11 @@ app.post('/api/admin/sync-players', verifyAdmin, async (req, res) => {
       if (teamCounts[teamKey] > positionLimits[position]) continue;
       
       await pool.query(`
-        INSERT INTO players (sleeper_id, full_name, position, team, is_active)
+        INSERT INTO players (id, name, position, team, available)
         VALUES ($1, $2, $3, $4, true)
-        ON CONFLICT (sleeper_id) 
-        DO UPDATE SET full_name = $2, position = $3, team = $4, is_active = true
-      `, [playerId, player.full_name, position, team]);
+        ON CONFLICT (id) 
+        DO UPDATE SET name = $2, position = $3, team = $4, available = true
+      `, [playerId, player.full_name || player.first_name + ' ' + player.last_name, position, team]);
       
       syncedCount++;
     }
