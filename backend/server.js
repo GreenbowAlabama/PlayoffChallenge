@@ -140,7 +140,8 @@ app.get('/api/players', async (req, res) => {
 });
 
 // Get user picks
-app.get('/api/picks/:user_id', async (req, res) => {
+// Get user picks
+app.get('/api/picks/user/:user_id', async (req, res) => {
   const { user_id } = req.params;
   
   try {
@@ -195,7 +196,7 @@ app.post('/api/picks', async (req, res) => {
     }
     
     // Delete existing picks for this week
-    await pool.query('DELETE FROM picks WHERE user_id = $1 AND week_number = $2', [user_id, week_number]);
+    await pool.query('DELETE FROM picks WHERE user_id = $1 AND week = $2', [user_id, week_number]);
     
     // Insert new picks
     for (const pick of picks) {
@@ -216,6 +217,33 @@ app.post('/api/picks', async (req, res) => {
   } catch (error) {
     console.error('Submit picks error:', error);
     res.status(500).json({ error: 'Failed to submit picks' });
+  }
+});
+
+// Delete a single pick
+app.delete('/api/picks/:pick_id', async (req, res) => {
+  const { pick_id } = req.params;
+  const { user_id } = req.body;
+  
+  try {
+    // Verify pick belongs to user
+    const pickCheck = await pool.query('SELECT user_id FROM picks WHERE id = $1', [pick_id]);
+    
+    if (pickCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Pick not found' });
+    }
+    
+    if (pickCheck.rows[0].user_id !== user_id) {
+      return res.status(403).json({ error: 'Not authorized to delete this pick' });
+    }
+    
+    // Delete pick (cascades to pick_multipliers)
+    await pool.query('DELETE FROM picks WHERE id = $1', [pick_id]);
+    
+    res.json({ success: true, message: 'Pick deleted successfully' });
+  } catch (error) {
+    console.error('Delete pick error:', error);
+    res.status(500).json({ error: 'Failed to delete pick' });
   }
 });
 
@@ -645,7 +673,7 @@ app.get('/api/settings', async (req, res) => {
 
 // Update game settings (admin only)
 app.put('/api/settings', verifyAdmin, async (req, res) => {
-  const { entry_amount, venmo_handle, cashapp_handle, zelle_handle } = req.body;
+  const { entry_amount, venmo_handle, cashapp_handle, zelle_handle, qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit } = req.body;
   
   try {
     // Get the first (and likely only) settings record
@@ -654,20 +682,70 @@ app.put('/api/settings', verifyAdmin, async (req, res) => {
     if (existingResult.rows.length === 0) {
       // Insert if doesn't exist
       const result = await pool.query(`
-        INSERT INTO game_settings (entry_amount, venmo_handle, cashapp_handle, zelle_handle)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO game_settings (entry_amount, venmo_handle, cashapp_handle, zelle_handle, qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
-      `, [entry_amount, venmo_handle, cashapp_handle, zelle_handle]);
+      `, [entry_amount, venmo_handle, cashapp_handle, zelle_handle, qb_limit || 1, rb_limit || 2, wr_limit || 3, te_limit || 1, k_limit || 1, def_limit || 1]);
       return res.json(result.rows[0]);
     }
     
     const settingsId = existingResult.rows[0].id;
+    
+    // Build dynamic update query
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+    
+    if (entry_amount !== undefined) {
+      updates.push(`entry_amount = $${paramCount++}`);
+      values.push(entry_amount);
+    }
+    if (venmo_handle !== undefined) {
+      updates.push(`venmo_handle = $${paramCount++}`);
+      values.push(venmo_handle);
+    }
+    if (cashapp_handle !== undefined) {
+      updates.push(`cashapp_handle = $${paramCount++}`);
+      values.push(cashapp_handle);
+    }
+    if (zelle_handle !== undefined) {
+      updates.push(`zelle_handle = $${paramCount++}`);
+      values.push(zelle_handle);
+    }
+    if (qb_limit !== undefined) {
+      updates.push(`qb_limit = $${paramCount++}`);
+      values.push(qb_limit);
+    }
+    if (rb_limit !== undefined) {
+      updates.push(`rb_limit = $${paramCount++}`);
+      values.push(rb_limit);
+    }
+    if (wr_limit !== undefined) {
+      updates.push(`wr_limit = $${paramCount++}`);
+      values.push(wr_limit);
+    }
+    if (te_limit !== undefined) {
+      updates.push(`te_limit = $${paramCount++}`);
+      values.push(te_limit);
+    }
+    if (k_limit !== undefined) {
+      updates.push(`k_limit = $${paramCount++}`);
+      values.push(k_limit);
+    }
+    if (def_limit !== undefined) {
+      updates.push(`def_limit = $${paramCount++}`);
+      values.push(def_limit);
+    }
+    
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(settingsId);
+    
     const result = await pool.query(`
       UPDATE game_settings 
-      SET entry_amount = $1, venmo_handle = $2, cashapp_handle = $3, zelle_handle = $4, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $5
+      SET ${updates.join(', ')}
+      WHERE id = $${paramCount}
       RETURNING *
-    `, [entry_amount, venmo_handle, cashapp_handle, zelle_handle, settingsId]);
+    `, values);
     
     res.json(result.rows[0]);
   } catch (error) {
