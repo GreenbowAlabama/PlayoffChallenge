@@ -233,9 +233,9 @@ app.delete('/api/picks/:pick_id', async (req, res) => {
       return res.status(404).json({ error: 'Pick not found' });
     }
     
-    // Compare UUIDs as strings
-    const pickUserId = pickCheck.rows[0].user_id.toString();
-    const requestUserId = user_id.toString();
+    // Compare UUIDs as strings (case-insensitive)
+    const pickUserId = pickCheck.rows[0].user_id.toString().toLowerCase();
+    const requestUserId = user_id.toString().toLowerCase();
     
     if (pickUserId !== requestUserId) {
       console.log('User ID mismatch:', { pickUserId, requestUserId });
