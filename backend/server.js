@@ -279,7 +279,7 @@ app.get('/api/leaderboard', async (req, res) => {
         u.paid as has_paid
       FROM users u
       LEFT JOIN picks p ON u.id = p.user_id
-      LEFT JOIN scores s ON p.player_id = s.player_id AND p.week = s.week_number
+      LEFT JOIN scores s ON p.player_id = s.player_id AND p.week = s.week
       LEFT JOIN pick_multipliers pm ON p.id = pm.pick_id AND p.week = pm.week_number
       GROUP BY u.id, u.username, u.paid
       ORDER BY total_points DESC
