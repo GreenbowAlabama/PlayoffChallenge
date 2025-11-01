@@ -178,20 +178,35 @@ app.post('/api/picks', async (req, res) => {
   const { user_id, picks, week_number } = req.body;
   
   try {
-    // Validate position requirements
-    const reqResult = await pool.query('SELECT * FROM position_requirements WHERE is_active = true');
-    const requirements = reqResult.rows;
+    // Optional: Validate position limits (not requirements)
+    // Allow partial lineups for saving progress
+    const settingsResult = await pool.query('SELECT * FROM game_settings LIMIT 1');
+    const settings = settingsResult.rows[0];
     
-    const picksCount = {};
-    picks.forEach(pick => {
-      picksCount[pick.position] = (picksCount[pick.position] || 0) + 1;
-    });
-    
-    for (const req of requirements) {
-      if (picksCount[req.position] !== req.required_count) {
-        return res.status(400).json({ 
-          error: `Invalid roster: Need ${req.required_count} ${req.display_name}` 
-        });
+    if (settings) {
+      const picksCount = {};
+      picks.forEach(pick => {
+        picksCount[pick.position] = (picksCount[pick.position] || 0) + 1;
+      });
+      
+      // Check limits (not strict requirements)
+      if (picksCount['QB'] > (settings.qb_limit || 1)) {
+        return res.status(400).json({ error: `Max ${settings.qb_limit || 1} QB allowed` });
+      }
+      if (picksCount['RB'] > (settings.rb_limit || 2)) {
+        return res.status(400).json({ error: `Max ${settings.rb_limit || 2} RB allowed` });
+      }
+      if (picksCount['WR'] > (settings.wr_limit || 3)) {
+        return res.status(400).json({ error: `Max ${settings.wr_limit || 3} WR allowed` });
+      }
+      if (picksCount['TE'] > (settings.te_limit || 1)) {
+        return res.status(400).json({ error: `Max ${settings.te_limit || 1} TE allowed` });
+      }
+      if (picksCount['K'] > (settings.k_limit || 1)) {
+        return res.status(400).json({ error: `Max ${settings.k_limit || 1} K allowed` });
+      }
+      if (picksCount['DEF'] > (settings.def_limit || 1)) {
+        return res.status(400).json({ error: `Max ${settings.def_limit || 1} DEF allowed` });
       }
     }
     
