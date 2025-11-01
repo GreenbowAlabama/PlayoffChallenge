@@ -233,7 +233,12 @@ app.delete('/api/picks/:pick_id', async (req, res) => {
       return res.status(404).json({ error: 'Pick not found' });
     }
     
-    if (pickCheck.rows[0].user_id !== user_id) {
+    // Compare UUIDs as strings
+    const pickUserId = pickCheck.rows[0].user_id.toString();
+    const requestUserId = user_id.toString();
+    
+    if (pickUserId !== requestUserId) {
+      console.log('User ID mismatch:', { pickUserId, requestUserId });
       return res.status(403).json({ error: 'Not authorized to delete this pick' });
     }
     
