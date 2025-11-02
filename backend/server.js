@@ -274,15 +274,14 @@ app.get('/api/leaderboard', async (req, res) => {
       SELECT 
         u.id,
         u.username as name,
-        NULL as email,
-        COALESCE(SUM(s.points * COALESCE(pm.multiplier, 1.0)), 0) as total_points,
-        u.paid as has_paid
+        u.email,
+        u.paid as has_paid,
+        COALESCE(SUM(s.final_points), 0) as total_points,
+        COUNT(DISTINCT s.week_number) as weeks_played
       FROM users u
-      LEFT JOIN picks p ON u.id = p.user_id
-      LEFT JOIN scores s ON p.player_id = s.player_id AND p.week = s.week
-      LEFT JOIN pick_multipliers pm ON p.id = pm.pick_id AND p.week = pm.week_number
-      GROUP BY u.id, u.username, u.paid
-      ORDER BY total_points DESC
+      LEFT JOIN scores s ON u.id = s.user_id
+      GROUP BY u.id, u.username, u.email, u.paid
+      ORDER BY total_points DESC, u.username
     `);
     
     res.json(result.rows);
@@ -822,6 +821,314 @@ app.post('/api/admin/sync-players', verifyAdmin, async (req, res) => {
     res.status(500).json({ error: 'Failed to sync players' });
   }
 });
+
+// Fetch player stats from Sleeper for a specific week and calculate scores
+app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
+  const { week_number, nfl_season } = req.body;
+  
+  if (!week_number) {
+    return res.status(400).json({ error: 'week_number required' });
+  }
+  
+  const season = nfl_season || '2024'; // Default to current season
+  
+  try {
+    console.log(`Starting score sync for Week ${week_number}, Season ${season}`);
+    
+    // Step 1: Get all picks for this week
+    const picksResult = await pool.query(`
+      SELECT DISTINCT ON (p.player_id)
+        p.id as pick_id,
+        p.user_id,
+        p.player_id,
+        p.week_number,
+        p.multiplier,
+        p.consecutive_weeks,
+        pl.sleeper_id,
+        pl.full_name,
+        pl.position
+      FROM picks p
+      JOIN players pl ON p.player_id = pl.id::text
+      WHERE p.week_number = $1 AND pl.sleeper_id IS NOT NULL
+    `, [week_number]);
+    
+    const picks = picksResult.rows;
+    console.log(`Found ${picks.length} picks for Week ${week_number}`);
+    
+    if (picks.length === 0) {
+      return res.json({ 
+        success: true, 
+        message: 'No picks found for this week',
+        scores_updated: 0 
+      });
+    }
+    
+    // Step 2: Fetch stats from Sleeper API
+    const sleeperStatsUrl = `https://api.sleeper.app/v1/stats/nfl/${season}/${week_number}`;
+    const sleeperResponse = await fetch(sleeperStatsUrl);
+    
+    if (!sleeperResponse.ok) {
+      throw new Error(`Sleeper API returned ${sleeperResponse.status}`);
+    }
+    
+    const sleeperStats = await sleeperResponse.json();
+    console.log(`Fetched stats for ${Object.keys(sleeperStats).length} players from Sleeper`);
+    
+    // Step 3: Get scoring rules
+    const rulesResult = await pool.query('SELECT * FROM scoring_rules WHERE is_active = true');
+    const scoringRules = rulesResult.rows.reduce((acc, rule) => {
+      acc[rule.stat_name] = rule.points;
+      return acc;
+    }, {});
+    
+    console.log(`Loaded ${Object.keys(scoringRules).length} scoring rules`);
+    
+    // Step 4: Calculate and save scores for each pick
+    let updatedCount = 0;
+    let errors = [];
+    
+    for (const pick of picks) {
+      try {
+        const playerStats = sleeperStats[pick.sleeper_id];
+        
+        if (!playerStats) {
+          console.log(`No stats found for ${pick.full_name} (${pick.sleeper_id})`);
+          continue;
+        }
+        
+        // Calculate base points
+        let basePoints = 0;
+        const statBreakdown = {};
+        
+        // Apply each scoring rule
+        for (const [statName, statPoints] of Object.entries(scoringRules)) {
+          const statValue = playerStats[statName] || 0;
+          if (statValue > 0) {
+            const points = statValue * statPoints;
+            basePoints += points;
+            statBreakdown[statName] = {
+              value: statValue,
+              points: statPoints,
+              total: points
+            };
+          }
+        }
+        
+        // Apply multiplier
+        const multiplier = pick.multiplier || 1.0;
+        const finalPoints = basePoints * multiplier;
+        
+        console.log(`${pick.full_name}: Base=${basePoints.toFixed(2)}, Multiplier=${multiplier}x, Final=${finalPoints.toFixed(2)}`);
+        
+        // Save to database
+        await pool.query(`
+          INSERT INTO scores (
+            user_id, 
+            player_id, 
+            week_number, 
+            base_points, 
+            multiplier, 
+            final_points,
+            stats_json,
+            updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+          ON CONFLICT (user_id, player_id, week_number)
+          DO UPDATE SET 
+            base_points = $4,
+            multiplier = $5,
+            final_points = $6,
+            stats_json = $7,
+            updated_at = NOW()
+        `, [
+          pick.user_id,
+          pick.player_id,
+          week_number,
+          basePoints.toFixed(2),
+          multiplier,
+          finalPoints.toFixed(2),
+          JSON.stringify({ ...playerStats, breakdown: statBreakdown })
+        ]);
+        
+        updatedCount++;
+      } catch (error) {
+        console.error(`Error processing pick ${pick.pick_id}:`, error);
+        errors.push({
+          player: pick.full_name,
+          error: error.message
+        });
+      }
+    }
+    
+    console.log(`Score sync complete: ${updatedCount} scores updated`);
+    
+    res.json({ 
+      success: true,
+      scores_updated: updatedCount,
+      total_picks: picks.length,
+      errors: errors.length > 0 ? errors : undefined,
+      message: `Synced scores for ${updatedCount} out of ${picks.length} picks`
+    });
+    
+  } catch (error) {
+    console.error('Sync scores error:', error);
+    res.status(500).json({ 
+      error: 'Failed to sync scores', 
+      details: error.message 
+    });
+  }
+});
+
+// Get scores for a specific user and week
+app.get('/api/scores/user/:userId/week/:weekNumber', async (req, res) => {
+  const { userId, weekNumber } = req.params;
+  
+  try {
+    const result = await pool.query(`
+      SELECT 
+        s.*,
+        p.full_name,
+        p.position,
+        p.team,
+        pi.consecutive_weeks,
+        pi.multiplier as pick_multiplier
+      FROM scores s
+      JOIN players p ON s.player_id = p.id::text
+      LEFT JOIN picks pi ON s.user_id = pi.user_id 
+        AND s.player_id = pi.player_id::text 
+        AND s.week_number = pi.week_number
+      WHERE s.user_id = $1 AND s.week_number = $2
+      ORDER BY p.position, s.final_points DESC
+    `, [userId, weekNumber]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get scores error:', error);
+    res.status(500).json({ error: 'Failed to fetch scores' });
+  }
+});
+
+// Get all scores for a specific week (for leaderboard)
+app.get('/api/scores/week/:weekNumber', async (req, res) => {
+  const { weekNumber } = req.params;
+  
+  try {
+    const result = await pool.query(`
+      SELECT 
+        u.id,
+        u.username,
+        u.team_name,
+        u.paid,
+        SUM(s.final_points) as week_points
+      FROM users u
+      JOIN scores s ON u.id = s.user_id
+      WHERE s.week_number = $1
+      GROUP BY u.id, u.username, u.team_name, u.paid
+      ORDER BY week_points DESC
+    `, [weekNumber]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get week scores error:', error);
+    res.status(500).json({ error: 'Failed to fetch week scores' });
+  }
+});
+
+// Get player stats breakdown (detailed view)
+app.get('/api/scores/:scoreId/breakdown', async (req, res) => {
+  const { scoreId } = req.params;
+  
+  try {
+    const result = await pool.query(`
+      SELECT 
+        s.id,
+        s.base_points,
+        s.multiplier,
+        s.final_points,
+        s.stats_json,
+        p.full_name,
+        p.position,
+        p.team
+      FROM scores s
+      JOIN players p ON s.player_id = p.id::text
+      WHERE s.id = $1
+    `, [scoreId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Score not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Get score breakdown error:', error);
+    res.status(500).json({ error: 'Failed to fetch score breakdown' });
+  }
+});
+
+// Admin: Manual score override (for corrections)
+app.put('/api/admin/scores/:scoreId', verifyAdmin, async (req, res) => {
+  const { scoreId } = req.params;
+  const { base_points, notes } = req.body;
+  
+  if (base_points === undefined) {
+    return res.status(400).json({ error: 'base_points required' });
+  }
+  
+  try {
+    // Get current score to recalculate final points with multiplier
+    const currentResult = await pool.query('SELECT multiplier FROM scores WHERE id = $1', [scoreId]);
+    
+    if (currentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Score not found' });
+    }
+    
+    const multiplier = currentResult.rows[0].multiplier || 1.0;
+    const finalPoints = base_points * multiplier;
+    
+    const result = await pool.query(`
+      UPDATE scores 
+      SET base_points = $1, final_points = $2, updated_at = NOW()
+      WHERE id = $3
+      RETURNING *
+    `, [base_points, finalPoints, scoreId]);
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Update score error:', error);
+    res.status(500).json({ error: 'Failed to update score' });
+  }
+});
+
+// Get available weeks (weeks that have picks)
+app.get('/api/weeks/available', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT week_number
+      FROM picks
+      ORDER BY week_number
+    `);
+    
+    const weeks = result.rows.map(row => ({
+      week_number: row.week_number,
+      display_name: getWeekDisplayName(row.week_number)
+    }));
+    
+    res.json(weeks);
+  } catch (error) {
+    console.error('Get available weeks error:', error);
+    res.status(500).json({ error: 'Failed to fetch available weeks' });
+  }
+});
+
+// Helper function for week display names
+function getWeekDisplayName(weekNumber) {
+  const weekNames = {
+    1: 'Wild Card',
+    2: 'Divisional',
+    3: 'Conference',
+    4: 'Super Bowl'
+  };
+  return weekNames[weekNumber] || `Week ${weekNumber}`;
+}
 
 // ============================================
 // START SERVER
