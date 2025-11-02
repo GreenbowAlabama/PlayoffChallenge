@@ -140,7 +140,6 @@ app.get('/api/players', async (req, res) => {
 });
 
 // Get user picks
-// Get user picks
 app.get('/api/picks/user/:user_id', async (req, res) => {
   const { user_id } = req.params;
   
@@ -156,9 +155,9 @@ app.get('/api/picks/user/:user_id', async (req, res) => {
         pl.team,
         pl.position as player_position,
         pl.id as sleeper_id,
-        pm.consecutive_weeks,
-        pm.multiplier,
-        pm.is_bye_week
+        COALESCE(pm.consecutive_weeks, 0) as consecutive_weeks,
+        COALESCE(pm.multiplier, 1.0) as multiplier,
+        COALESCE(pm.is_bye_week, false) as is_bye_week
       FROM picks p
       JOIN players pl ON p.player_id = pl.id
       LEFT JOIN pick_multipliers pm ON p.id = pm.pick_id AND pm.week_number = p.week
