@@ -1,14 +1,16 @@
 // ============================================
 // Playoff Challenge Backend API V2
 // Enhanced with Rules, Scoring, Payouts, Multipliers
+// FIXED: All week columns now use week_number
 // ============================================
 
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
+const fetch = require('node-fetch');
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 8080;
 
 // Database connection
 const pool = new Pool({
@@ -122,15 +124,15 @@ app.get('/api/players', async (req, res) => {
     const result = await pool.query(`
       SELECT 
         id,
-        name as full_name,
+        COALESCE(full_name, name) as full_name,
         position,
         team,
-        available as is_active,
-        id as sleeper_id,
-        NULL as game_time
+        COALESCE(is_active, available) as is_active,
+        sleeper_id,
+        game_time
       FROM players 
-      WHERE available = true 
-      ORDER BY position, team, name
+      WHERE COALESCE(is_active, available) = true 
+      ORDER BY position, team, COALESCE(full_name, name)
     `);
     res.json(result.rows);
   } catch (error) {
@@ -139,7 +141,7 @@ app.get('/api/players', async (req, res) => {
   }
 });
 
-// Get user picks
+// Get user picks - FIXED to use week_number consistently
 app.get('/api/picks/user/:user_id', async (req, res) => {
   const { user_id } = req.params;
   
@@ -149,20 +151,19 @@ app.get('/api/picks/user/:user_id', async (req, res) => {
         p.id,
         p.user_id,
         p.player_id,
-        'FLEX' as position,
-        p.week as week_number,
-        pl.name as full_name,
+        COALESCE(p.position, 'FLEX') as position,
+        p.week_number,
+        COALESCE(pl.full_name, pl.name) as full_name,
         pl.team,
         pl.position as player_position,
-        pl.id as sleeper_id,
-        COALESCE(pm.consecutive_weeks, 0) as consecutive_weeks,
-        COALESCE(pm.multiplier, 1.0) as multiplier,
-        COALESCE(pm.is_bye_week, false) as is_bye_week
+        COALESCE(pl.sleeper_id, pl.id) as sleeper_id,
+        COALESCE(p.consecutive_weeks, 0) as consecutive_weeks,
+        COALESCE(p.multiplier, 1.0) as multiplier,
+        COALESCE(p.is_bye_week, false) as is_bye_week
       FROM picks p
       JOIN players pl ON p.player_id = pl.id
-      LEFT JOIN pick_multipliers pm ON p.id = pm.pick_id AND pm.week_number = p.week
       WHERE p.user_id = $1
-      ORDER BY p.week, pl.position
+      ORDER BY p.week_number, pl.position
     `, [user_id]);
     
     res.json(result.rows);
@@ -172,13 +173,12 @@ app.get('/api/picks/user/:user_id', async (req, res) => {
   }
 });
 
-// Submit picks
+// Submit picks - FIXED
 app.post('/api/picks', async (req, res) => {
   const { user_id, picks, week_number } = req.body;
   
   try {
-    // Optional: Validate position limits (not requirements)
-    // Allow partial lineups for saving progress
+    // Optional: Validate position limits
     const settingsResult = await pool.query('SELECT * FROM game_settings LIMIT 1');
     const settings = settingsResult.rows[0];
     
@@ -188,7 +188,7 @@ app.post('/api/picks', async (req, res) => {
         picksCount[pick.position] = (picksCount[pick.position] || 0) + 1;
       });
       
-      // Check limits (not strict requirements)
+      // Check limits
       if (picksCount['QB'] > (settings.qb_limit || 1)) {
         return res.status(400).json({ error: `Max ${settings.qb_limit || 1} QB allowed` });
       }
@@ -210,20 +210,14 @@ app.post('/api/picks', async (req, res) => {
     }
     
     // Delete existing picks for this week
-    await pool.query('DELETE FROM picks WHERE user_id = $1 AND week = $2', [user_id, week_number]);
+    await pool.query('DELETE FROM picks WHERE user_id = $1 AND week_number = $2', [user_id, week_number]);
     
     // Insert new picks
     for (const pick of picks) {
-      const pickResult = await pool.query(
-        'INSERT INTO picks (user_id, player_id, week) VALUES ($1, $2, $3) RETURNING id',
-        [user_id, pick.player_id, week_number]
-      );
-      
-      // Initialize multiplier
-      const pickId = pickResult.rows[0].id;
       await pool.query(
-        'INSERT INTO pick_multipliers (pick_id, week_number, consecutive_weeks, multiplier) VALUES ($1, $2, 1, 1.0)',
-        [pickId, week_number]
+        `INSERT INTO picks (user_id, player_id, position, week_number, consecutive_weeks, multiplier) 
+         VALUES ($1, $2, $3, $4, 0, 1.0)`,
+        [user_id, pick.player_id, pick.position, week_number]
       );
     }
     
@@ -234,7 +228,7 @@ app.post('/api/picks', async (req, res) => {
   }
 });
 
-// Delete a single pick
+// Delete a single pick - FIXED
 app.delete('/api/picks/:pick_id', async (req, res) => {
   const { pick_id } = req.params;
   const { user_id } = req.body;
@@ -256,7 +250,7 @@ app.delete('/api/picks/:pick_id', async (req, res) => {
       return res.status(403).json({ error: 'Not authorized to delete this pick' });
     }
     
-    // Delete pick (cascades to pick_multipliers)
+    // Delete pick
     await pool.query('DELETE FROM picks WHERE id = $1', [pick_id]);
     
     res.json({ success: true, message: 'Pick deleted successfully' });
@@ -387,8 +381,7 @@ app.put('/api/scoring-rules/:id', verifyAdmin, async (req, res) => {
 app.get('/api/payouts', async (req, res) => {
   try {
     const payoutsResult = await pool.query(`
-      SELECT * FROM payout_structure 
-      WHERE is_active = true 
+      SELECT * FROM payouts 
       ORDER BY place
     `);
     
@@ -427,7 +420,7 @@ app.put('/api/payouts/:id', verifyAdmin, async (req, res) => {
   
   try {
     const result = await pool.query(
-      'UPDATE payout_structure SET percentage = $1 WHERE id = $2 RETURNING *',
+      'UPDATE payouts SET percentage = $1 WHERE id = $2 RETURNING *',
       [percentage, id]
     );
     
@@ -484,158 +477,7 @@ app.put('/api/position-requirements/:id', verifyAdmin, async (req, res) => {
 });
 
 // ============================================
-// NEW V2 ENDPOINTS - PLAYER SWAPS
-// ============================================
-
-// Swap a player
-app.post('/api/swaps', async (req, res) => {
-  const { user_id, old_player_id, new_player_id, position, week_number } = req.body;
-  
-  try {
-    // Get player game times to check if locked
-    const oldPlayerGame = await pool.query(
-      'SELECT game_time FROM players WHERE id = $1',
-      [old_player_id]
-    );
-    
-    const newPlayerGame = await pool.query(
-      'SELECT game_time FROM players WHERE id = $1',
-      [new_player_id]
-    );
-    
-    // Check if either game has started (with 1 min buffer)
-    if (oldPlayerGame.rows[0] && hasGameStarted(oldPlayerGame.rows[0].game_time)) {
-      return res.status(400).json({ error: 'Cannot swap - old player game has started' });
-    }
-    
-    if (newPlayerGame.rows[0] && hasGameStarted(newPlayerGame.rows[0].game_time)) {
-      return res.status(400).json({ error: 'Cannot swap - new player game is starting soon' });
-    }
-    
-    // Record the swap
-    await pool.query(
-      'INSERT INTO player_swaps (user_id, old_player_id, new_player_id, position, week_number) VALUES ($1, $2, $3, $4, $5)',
-      [user_id, old_player_id, new_player_id, position, week_number]
-    );
-    
-    // Update the pick
-    const pickResult = await pool.query(
-      'UPDATE picks SET player_id = $1 WHERE user_id = $2 AND player_id = $3 AND week_number = $4 RETURNING id',
-      [new_player_id, user_id, old_player_id, week_number]
-    );
-    
-    if (pickResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Pick not found' });
-    }
-    
-    const pickId = pickResult.rows[0].id;
-    
-    // Reset multiplier for this pick
-    await pool.query(
-      'UPDATE pick_multipliers SET consecutive_weeks = 1, multiplier = 1.0 WHERE pick_id = $1 AND week_number = $2',
-      [pickId, week_number]
-    );
-    
-    res.json({ success: true, message: 'Player swapped successfully - multiplier reset to 1x' });
-  } catch (error) {
-    console.error('Swap player error:', error);
-    res.status(500).json({ error: 'Failed to swap player' });
-  }
-});
-
-// Get swap history for user
-app.get('/api/swaps/:user_id', async (req, res) => {
-  const { user_id } = req.params;
-  
-  try {
-    const result = await pool.query(`
-      SELECT 
-        ps.*,
-        op.full_name as old_player_name,
-        np.full_name as new_player_name
-      FROM player_swaps ps
-      JOIN players op ON ps.old_player_id = op.id
-      JOIN players np ON ps.new_player_id = np.id
-      WHERE ps.user_id = $1
-      ORDER BY ps.swapped_at DESC
-    `, [user_id]);
-    
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get swaps error:', error);
-    res.status(500).json({ error: 'Failed to fetch swap history' });
-  }
-});
-
-// ============================================
-// NEW V2 ENDPOINTS - MULTIPLIER MANAGEMENT
-// ============================================
-
-// Calculate and update multipliers for next week (admin only)
-app.post('/api/multipliers/calculate', verifyAdmin, async (req, res) => {
-  const { current_week } = req.body;
-  const next_week = current_week + 1;
-  
-  try {
-    // Get all picks from current week
-    const picksResult = await pool.query(`
-      SELECT 
-        p.id as pick_id,
-        p.user_id,
-        p.player_id,
-        p.position,
-        pm.consecutive_weeks,
-        pm.is_bye_week
-      FROM picks p
-      JOIN pick_multipliers pm ON p.id = pm.pick_id
-      WHERE p.week_number = $1
-    `, [current_week]);
-    
-    for (const pick of picksResult.rows) {
-      // Check if same player exists in next week
-      const nextWeekPick = await pool.query(
-        'SELECT id FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
-        [pick.user_id, pick.player_id, next_week]
-      );
-      
-      if (nextWeekPick.rows.length > 0) {
-        // Player kept - increment consecutive weeks
-        const newConsecutiveWeeks = pick.consecutive_weeks + 1;
-        const newMultiplier = pick.is_bye_week ? 2.0 : newConsecutiveWeeks;
-        
-        await pool.query(
-          'INSERT INTO pick_multipliers (pick_id, week_number, consecutive_weeks, multiplier) VALUES ($1, $2, $3, $4)',
-          [nextWeekPick.rows[0].id, next_week, newConsecutiveWeeks, newMultiplier]
-        );
-      }
-    }
-    
-    res.json({ success: true, message: 'Multipliers calculated for next week' });
-  } catch (error) {
-    console.error('Calculate multipliers error:', error);
-    res.status(500).json({ error: 'Failed to calculate multipliers' });
-  }
-});
-
-// Mark player as on bye (admin only)
-app.post('/api/multipliers/bye', verifyAdmin, async (req, res) => {
-  const { pick_id, week_number } = req.body;
-  
-  try {
-    await pool.query(
-      'UPDATE pick_multipliers SET is_bye_week = true WHERE pick_id = $1 AND week_number = $2',
-      [pick_id, week_number]
-    );
-    
-    res.json({ success: true, message: 'Player marked as on bye' });
-  } catch (error) {
-    console.error('Mark bye error:', error);
-    res.status(500).json({ error: 'Failed to mark bye week' });
-  }
-});
-
-// ============================================
-// ADMIN ENDPOINTS (existing + enhancements)
+// ADMIN ENDPOINTS
 // ============================================
 
 // Get all users (admin only)
@@ -686,6 +528,29 @@ app.get('/api/settings', async (req, res) => {
   } catch (error) {
     console.error('Get settings error:', error);
     res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+// Get position limits for settings endpoint
+app.get('/api/settings/position-limits', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1');
+    if (result.rows.length === 0) {
+      return res.json({ QB: 1, RB: 2, WR: 3, TE: 1, K: 1, DEF: 1 });
+    }
+    
+    const settings = result.rows[0];
+    res.json({
+      QB: settings.qb_limit || 1,
+      RB: settings.rb_limit || 2,
+      WR: settings.wr_limit || 3,
+      TE: settings.te_limit || 1,
+      K: settings.k_limit || 1,
+      DEF: settings.def_limit || 1
+    });
+  } catch (error) {
+    console.error('Get position limits error:', error);
+    res.status(500).json({ error: 'Failed to fetch position limits' });
   }
 });
 
@@ -804,12 +669,21 @@ app.post('/api/admin/sync-players', verifyAdmin, async (req, res) => {
       
       if (teamCounts[teamKey] > positionLimits[position]) continue;
       
+      const fullName = player.full_name || `${player.first_name} ${player.last_name}`;
+      
       await pool.query(`
-        INSERT INTO players (id, name, position, team, available)
-        VALUES ($1, $2, $3, $4, true)
+        INSERT INTO players (id, sleeper_id, full_name, name, position, team, is_active, available)
+        VALUES ($1, $2, $3, $3, $4, $5, true, true)
         ON CONFLICT (id) 
-        DO UPDATE SET name = $2, position = $3, team = $4, available = true
-      `, [playerId, player.full_name || player.first_name + ' ' + player.last_name, position, team]);
+        DO UPDATE SET 
+          sleeper_id = $2,
+          full_name = $3, 
+          name = $3,
+          position = $4, 
+          team = $5, 
+          is_active = true,
+          available = true
+      `, [playerId, playerId, fullName, position, team]);
       
       syncedCount++;
     }
@@ -821,6 +695,10 @@ app.post('/api/admin/sync-players', verifyAdmin, async (req, res) => {
   }
 });
 
+// ============================================
+// SCORE SYNC ENDPOINTS
+// ============================================
+
 // Fetch player stats from Sleeper for a specific week and calculate scores
 app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
   const { week_number, nfl_season } = req.body;
@@ -829,7 +707,7 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
     return res.status(400).json({ error: 'week_number required' });
   }
   
-  const season = nfl_season || '2024'; // Default to current season
+  const season = nfl_season || '2024';
   
   try {
     console.log(`Starting score sync for Week ${week_number}, Season ${season}`);
@@ -841,14 +719,14 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
         p.user_id,
         p.player_id,
         p.week_number,
-        p.multiplier,
-        p.consecutive_weeks,
-        pl.sleeper_id,
-        pl.full_name,
+        COALESCE(p.multiplier, 1.0) as multiplier,
+        COALESCE(p.consecutive_weeks, 0) as consecutive_weeks,
+        COALESCE(pl.sleeper_id, pl.id) as sleeper_id,
+        COALESCE(pl.full_name, pl.name) as full_name,
         pl.position
       FROM picks p
-      JOIN players pl ON p.player_id = pl.id::text
-      WHERE p.week_number = $1 AND pl.sleeper_id IS NOT NULL
+      JOIN players pl ON p.player_id = pl.id
+      WHERE p.week_number = $1 AND COALESCE(pl.sleeper_id, pl.id) IS NOT NULL
     `, [week_number]);
     
     const picks = picksResult.rows;
@@ -876,7 +754,7 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
     // Step 3: Get scoring rules
     const rulesResult = await pool.query('SELECT * FROM scoring_rules WHERE is_active = true');
     const scoringRules = rulesResult.rows.reduce((acc, rule) => {
-      acc[rule.stat_name] = rule.points;
+      acc[rule.stat_name] = parseFloat(rule.points);
       return acc;
     }, {});
     
@@ -901,7 +779,7 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
         
         // Apply each scoring rule
         for (const [statName, statPoints] of Object.entries(scoringRules)) {
-          const statValue = playerStats[statName] || 0;
+          const statValue = parseFloat(playerStats[statName] || 0);
           if (statValue > 0) {
             const points = statValue * statPoints;
             basePoints += points;
@@ -914,7 +792,7 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
         }
         
         // Apply multiplier
-        const multiplier = pick.multiplier || 1.0;
+        const multiplier = parseFloat(pick.multiplier) || 1.0;
         const finalPoints = basePoints * multiplier;
         
         console.log(`${pick.full_name}: Base=${basePoints.toFixed(2)}, Multiplier=${multiplier}x, Final=${finalPoints.toFixed(2)}`);
@@ -985,15 +863,15 @@ app.get('/api/scores/user/:userId/week/:weekNumber', async (req, res) => {
     const result = await pool.query(`
       SELECT 
         s.*,
-        p.full_name,
+        COALESCE(p.full_name, p.name) as full_name,
         p.position,
         p.team,
         pi.consecutive_weeks,
         pi.multiplier as pick_multiplier
       FROM scores s
-      JOIN players p ON s.player_id = p.id::text
+      JOIN players p ON s.player_id = p.id
       LEFT JOIN picks pi ON s.user_id = pi.user_id 
-        AND s.player_id = pi.player_id::text 
+        AND s.player_id = pi.player_id 
         AND s.week_number = pi.week_number
       WHERE s.user_id = $1 AND s.week_number = $2
       ORDER BY p.position, s.final_points DESC
@@ -1044,11 +922,11 @@ app.get('/api/scores/:scoreId/breakdown', async (req, res) => {
         s.multiplier,
         s.final_points,
         s.stats_json,
-        p.full_name,
+        COALESCE(p.full_name, p.name) as full_name,
         p.position,
         p.team
       FROM scores s
-      JOIN players p ON s.player_id = p.id::text
+      JOIN players p ON s.player_id = p.id
       WHERE s.id = $1
     `, [scoreId]);
     
