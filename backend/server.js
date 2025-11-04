@@ -363,7 +363,7 @@ app.put('/api/scoring-rules/:id', verifyAdmin, async (req, res) => {
     );
     
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Scoring rule not found' });
+      return res.status(404).json({ error: 'Scoring rule not found yes' });
     }
     
     res.json(result.rows[0]);
