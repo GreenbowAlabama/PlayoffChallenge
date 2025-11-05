@@ -695,30 +695,170 @@ app.post('/api/admin/sync-players', verifyAdmin, async (req, res) => {
   }
 });
 
+// Get game status and week configuration
+app.get('/api/game/status', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        playoff_start_week,
+        current_playoff_week,
+        season_year,
+        CASE 
+          WHEN current_playoff_week = 0 THEN 'Not Started'
+          WHEN current_playoff_week = 1 THEN 'Wild Card Round'
+          WHEN current_playoff_week = 2 THEN 'Divisional Round'
+          WHEN current_playoff_week = 3 THEN 'Conference Championships'
+          WHEN current_playoff_week = 4 THEN 'Super Bowl'
+          ELSE 'Season Complete'
+        END as current_round,
+        (playoff_start_week + current_playoff_week - 1) as current_nfl_week
+      FROM game_settings 
+      LIMIT 1
+    `);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Game settings not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Get game status error:', error);
+    res.status(500).json({ error: 'Failed to get game status' });
+  }
+});
+
+// Admin: Configure playoff start week
+app.post('/api/admin/game/configure', verifyAdmin, async (req, res) => {
+  const { playoff_start_week, season_year } = req.body;
+  
+  if (!playoff_start_week) {
+    return res.status(400).json({ error: 'playoff_start_week required' });
+  }
+  
+  try {
+    const result = await pool.query(`
+      UPDATE game_settings 
+      SET 
+        playoff_start_week = $1,
+        season_year = $2,
+        updated_at = NOW()
+      RETURNING *
+    `, [playoff_start_week, season_year || '2024']);
+    
+    console.log(`Game configured: Start Week ${playoff_start_week}, Season ${season_year || '2024'}`);
+    
+    res.json({
+      success: true,
+      message: `Playoff start week set to ${playoff_start_week}`,
+      settings: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Configure game error:', error);
+    res.status(500).json({ error: 'Failed to configure game' });
+  }
+});
+
+// Admin: Activate playoff week
+app.post('/api/admin/game/activate-week', verifyAdmin, async (req, res) => {
+  const { playoff_week } = req.body;
+  
+  if (!playoff_week || playoff_week < 1 || playoff_week > 4) {
+    return res.status(400).json({ error: 'playoff_week must be 1-4' });
+  }
+  
+  try {
+    const result = await pool.query(`
+      UPDATE game_settings 
+      SET 
+        current_playoff_week = $1,
+        updated_at = NOW()
+      RETURNING 
+        playoff_start_week,
+        current_playoff_week,
+        (playoff_start_week + $1 - 1) as nfl_week
+    `, [playoff_week]);
+    
+    const settings = result.rows[0];
+    
+    console.log(`Activated Playoff Week ${playoff_week} (NFL Week ${settings.nfl_week})`);
+    
+    res.json({
+      success: true,
+      message: `Activated playoff week ${playoff_week}`,
+      playoff_week: playoff_week,
+      nfl_week: settings.nfl_week
+    });
+  } catch (error) {
+    console.error('Activate week error:', error);
+    res.status(500).json({ error: 'Failed to activate week' });
+  }
+});
+
+// Admin: Get week mapping (for UI display)
+app.get('/api/admin/game/week-mapping', verifyAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT playoff_start_week FROM game_settings LIMIT 1
+    `);
+    
+    const startWeek = result.rows[0]?.playoff_start_week || 19;
+    
+    const mapping = [
+      { playoff_week: 1, display_name: 'Wild Card', nfl_week: startWeek },
+      { playoff_week: 2, display_name: 'Divisional', nfl_week: startWeek + 1 },
+      { playoff_week: 3, display_name: 'Conference', nfl_week: startWeek + 2 },
+      { playoff_week: 4, display_name: 'Super Bowl', nfl_week: startWeek + 3 }
+    ];
+    
+    res.json({
+      playoff_start_week: startWeek,
+      mapping: mapping
+    });
+  } catch (error) {
+    console.error('Get week mapping error:', error);
+    res.status(500).json({ error: 'Failed to get week mapping' });
+  }
+});
+
 // ============================================
 // SCORE SYNC ENDPOINTS
 // ============================================
 
-// Fetch player stats from Sleeper for a specific week and calculate scores
+// UPDATED: Score sync now uses dynamic week calculation
 app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
-  const { week_number, nfl_season } = req.body;
+  const { playoff_week, force_nfl_week } = req.body;
   
-  if (!week_number) {
-    return res.status(400).json({ error: 'week_number required' });
+  if (!playoff_week && !force_nfl_week) {
+    return res.status(400).json({ error: 'playoff_week or force_nfl_week required' });
   }
   
-  const season = nfl_season || '2024';
-  
   try {
-    console.log(`Starting score sync for Week ${week_number}, Season ${season}`);
+    console.log(`Starting score sync for Playoff Week ${playoff_week || 'N/A'}`);
     
-    // Step 1: Get all picks for this week
+    // Get game settings
+    const settingsResult = await pool.query(`
+      SELECT playoff_start_week, season_year FROM game_settings LIMIT 1
+    `);
+    
+    if (settingsResult.rows.length === 0) {
+      return res.status(500).json({ error: 'Game settings not configured' });
+    }
+    
+    const settings = settingsResult.rows[0];
+    const season = settings.season_year || '2024';
+    
+    // Calculate NFL week
+    const nflWeek = force_nfl_week || (settings.playoff_start_week + playoff_week - 1);
+    
+    console.log(`Using NFL Week ${nflWeek} for Season ${season}`);
+    
+    // Get all picks for this playoff week
     const picksResult = await pool.query(`
       SELECT DISTINCT ON (p.player_id)
         p.id as pick_id,
         p.user_id,
         p.player_id,
-        p.week_number,
+        p.week_number as playoff_week,
         COALESCE(p.multiplier, 1.0) as multiplier,
         COALESCE(p.consecutive_weeks, 0) as consecutive_weeks,
         COALESCE(pl.sleeper_id, pl.id) as sleeper_id,
@@ -727,21 +867,24 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
       FROM picks p
       JOIN players pl ON p.player_id = pl.id
       WHERE p.week_number = $1 AND COALESCE(pl.sleeper_id, pl.id) IS NOT NULL
-    `, [week_number]);
+    `, [playoff_week]);
     
     const picks = picksResult.rows;
-    console.log(`Found ${picks.length} picks for Week ${week_number}`);
+    console.log(`Found ${picks.length} picks for Playoff Week ${playoff_week}`);
     
     if (picks.length === 0) {
       return res.json({ 
         success: true, 
         message: 'No picks found for this week',
-        scores_updated: 0 
+        scores_updated: 0,
+        nfl_week: nflWeek
       });
     }
     
-    // Step 2: Fetch stats from Sleeper API
-    const sleeperStatsUrl = `https://api.sleeper.app/v1/stats/nfl/${season}/${week_number}`;
+    // Fetch stats from Sleeper API
+    const sleeperStatsUrl = `https://api.sleeper.app/v1/stats/nfl/${season}/${nflWeek}`;
+    console.log(`Fetching from: ${sleeperStatsUrl}`);
+    
     const sleeperResponse = await fetch(sleeperStatsUrl);
     
     if (!sleeperResponse.ok) {
@@ -751,7 +894,7 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
     const sleeperStats = await sleeperResponse.json();
     console.log(`Fetched stats for ${Object.keys(sleeperStats).length} players from Sleeper`);
     
-    // Step 3: Get scoring rules
+    // Get scoring rules
     const rulesResult = await pool.query('SELECT * FROM scoring_rules WHERE is_active = true');
     const scoringRules = rulesResult.rows.reduce((acc, rule) => {
       acc[rule.stat_name] = parseFloat(rule.points);
@@ -760,7 +903,7 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
     
     console.log(`Loaded ${Object.keys(scoringRules).length} scoring rules`);
     
-    // Step 4: Calculate and save scores for each pick
+    // Calculate and save scores for each pick
     let updatedCount = 0;
     let errors = [];
     
@@ -779,13 +922,73 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
         
         // Apply each scoring rule
         for (const [statName, statPoints] of Object.entries(scoringRules)) {
+          if (statName.includes('bonus')) continue;
+          
           const statValue = parseFloat(playerStats[statName] || 0);
-          if (statValue > 0) {
+          if (statValue !== 0) {
             const points = statValue * statPoints;
             basePoints += points;
             statBreakdown[statName] = {
               value: statValue,
               points: statPoints,
+              total: points
+            };
+          }
+        }
+        
+        // Bonus yards
+        const passYards = parseFloat(playerStats.pass_yd || 0);
+        if (passYards >= 400 && scoringRules.pass_yd_bonus_400) {
+          const bonusPoints = scoringRules.pass_yd_bonus_400;
+          basePoints += bonusPoints;
+          statBreakdown['pass_yd_bonus_400'] = {
+            value: passYards,
+            points: bonusPoints,
+            total: bonusPoints
+          };
+        }
+        
+        const rushYards = parseFloat(playerStats.rush_yd || 0);
+        if (rushYards >= 150 && scoringRules.rush_yd_bonus_150) {
+          const bonusPoints = scoringRules.rush_yd_bonus_150;
+          basePoints += bonusPoints;
+          statBreakdown['rush_yd_bonus_150'] = {
+            value: rushYards,
+            points: bonusPoints,
+            total: bonusPoints
+          };
+        }
+        
+        const recYards = parseFloat(playerStats.rec_yd || 0);
+        if (recYards >= 150 && scoringRules.rec_yd_bonus_150) {
+          const bonusPoints = scoringRules.rec_yd_bonus_150;
+          basePoints += bonusPoints;
+          statBreakdown['rec_yd_bonus_150'] = {
+            value: recYards,
+            points: bonusPoints,
+            total: bonusPoints
+          };
+        }
+        
+        // Defense points allowed
+        if (pick.position === 'DEF') {
+          const ptsAllow = parseFloat(playerStats.pts_allow || 0);
+          let ptsAllowRule = null;
+          
+          if (ptsAllow === 0) ptsAllowRule = 'pts_allow_0';
+          else if (ptsAllow >= 1 && ptsAllow <= 6) ptsAllowRule = 'pts_allow_1_6';
+          else if (ptsAllow >= 7 && ptsAllow <= 13) ptsAllowRule = 'pts_allow_7_13';
+          else if (ptsAllow >= 14 && ptsAllow <= 20) ptsAllowRule = 'pts_allow_14_20';
+          else if (ptsAllow >= 21 && ptsAllow <= 27) ptsAllowRule = 'pts_allow_21_27';
+          else if (ptsAllow >= 28 && ptsAllow <= 34) ptsAllowRule = 'pts_allow_28_34';
+          else if (ptsAllow >= 35) ptsAllowRule = 'pts_allow_35p';
+          
+          if (ptsAllowRule && scoringRules[ptsAllowRule]) {
+            const points = scoringRules[ptsAllowRule];
+            basePoints += points;
+            statBreakdown[ptsAllowRule] = {
+              value: ptsAllow,
+              points: points,
               total: points
             };
           }
@@ -797,7 +1000,7 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
         
         console.log(`${pick.full_name}: Base=${basePoints.toFixed(2)}, Multiplier=${multiplier}x, Final=${finalPoints.toFixed(2)}`);
         
-        // Save to database
+        // Save to database (using playoff_week)
         await pool.query(`
           INSERT INTO scores (
             user_id, 
@@ -819,11 +1022,11 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
         `, [
           pick.user_id,
           pick.player_id,
-          week_number,
+          pick.playoff_week,
           basePoints.toFixed(2),
           multiplier,
           finalPoints.toFixed(2),
-          JSON.stringify({ ...playerStats, breakdown: statBreakdown })
+          JSON.stringify({ ...playerStats, breakdown: statBreakdown, nfl_week: nflWeek })
         ]);
         
         updatedCount++;
@@ -842,8 +1045,11 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
       success: true,
       scores_updated: updatedCount,
       total_picks: picks.length,
+      playoff_week: playoff_week,
+      nfl_week: nflWeek,
+      season: season,
       errors: errors.length > 0 ? errors : undefined,
-      message: `Synced scores for ${updatedCount} out of ${picks.length} picks`
+      message: `Synced scores for ${updatedCount} out of ${picks.length} picks (NFL Week ${nflWeek})`
     });
     
   } catch (error) {
@@ -852,6 +1058,34 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
       error: 'Failed to sync scores', 
       details: error.message 
     });
+  }
+});
+
+// Helper endpoint to test week calculations
+app.get('/api/admin/game/test-weeks', verifyAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT playoff_start_week FROM game_settings LIMIT 1
+    `);
+    
+    const startWeek = result.rows[0]?.playoff_start_week || 19;
+    
+    const testCases = [];
+    for (let i = 1; i <= 4; i++) {
+      testCases.push({
+        playoff_week: i,
+        nfl_week: startWeek + (i - 1),
+        round_name: ['Wild Card', 'Divisional', 'Conference', 'Super Bowl'][i - 1]
+      });
+    }
+    
+    res.json({
+      playoff_start_week: startWeek,
+      test_cases: testCases
+    });
+  } catch (error) {
+    console.error('Test weeks error:', error);
+    res.status(500).json({ error: 'Failed to test weeks' });
   }
 });
 
@@ -1006,6 +1240,8 @@ function getWeekDisplayName(weekNumber) {
   };
   return weekNames[weekNumber] || `Week ${weekNumber}`;
 }
+
+
 
 // ============================================
 // START SERVER
