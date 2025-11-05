@@ -795,13 +795,23 @@ app.post('/api/admin/game/activate-week', verifyAdmin, async (req, res) => {
 });
 
 // Admin: Get week mapping (for UI display)
-app.get('/api/admin/game/week-mapping', verifyAdmin, async (req, res) => {
+app.get('/api/admin/game/week-mapping', async (req, res) => {
+  const { user_id } = req.query;
+  
+  if (!user_id) {
+    return res.status(401).json({ error: 'User ID required' });
+  }
+  
   try {
-    const result = await pool.query(`
-      SELECT playoff_start_week FROM game_settings LIMIT 1
-    `);
+    // Verify admin
+    const userResult = await pool.query('SELECT is_admin FROM users WHERE id = $1', [user_id]);
+    if (userResult.rows.length === 0 || !userResult.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
     
-    const startWeek = result.rows[0]?.playoff_start_week || 19;
+    // Get playoff_start_week from game_settings
+    const settingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
+    const startWeek = settingsResult.rows[0]?.playoff_start_week || 19;
     
     const mapping = [
       { playoff_week: 1, display_name: 'Wild Card', nfl_week: startWeek },
