@@ -836,14 +836,14 @@ app.get('/api/admin/game/week-mapping', async (req, res) => {
 
 // UPDATED: Score sync now uses dynamic week calculation
 app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
-  const { playoff_week, force_nfl_week } = req.body;
+  const { playoff_week, force_nfl_week, season } = req.body;
   
   if (!playoff_week && !force_nfl_week) {
     return res.status(400).json({ error: 'playoff_week or force_nfl_week required' });
   }
   
   try {
-    console.log(`Starting score sync for Playoff Week ${playoff_week || 'N/A'}`);
+    console.log(`Starting score sync for Playoff Week ${playoff_week || 'N/A'}`);;
     
     // Get game settings
     const settingsResult = await pool.query(`
@@ -855,12 +855,13 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
     }
     
     const settings = settingsResult.rows[0];
-    const season = settings.season_year || '2024';
+    // Use season from request body, fallback to settings, then '2024'
+    const seasonYear = season || settings.season_year || '2024';
     
     // Calculate NFL week
     const nflWeek = force_nfl_week || (settings.playoff_start_week + playoff_week - 1);
     
-    console.log(`Using NFL Week ${nflWeek} for Season ${season}`);
+    console.log(`Using NFL Week ${nflWeek} for Season ${seasonYear}`); 
     
     // Get all picks for this playoff week
     const picksResult = await pool.query(`
@@ -892,7 +893,7 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
     }
     
     // Fetch stats from Sleeper API
-    const sleeperStatsUrl = `https://api.sleeper.app/v1/stats/nfl/${season}/${nflWeek}`;
+    const sleeperStatsUrl = `https://api.sleeper.app/v1/stats/nfl/${seasonYear}/${nflWeek}`;
     console.log(`Fetching from: ${sleeperStatsUrl}`);
     
     const sleeperResponse = await fetch(sleeperStatsUrl);
