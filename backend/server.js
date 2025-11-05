@@ -637,61 +637,137 @@ app.put('/api/settings', verifyAdmin, async (req, res) => {
   }
 });
 
-// Sync players from Sleeper API (admin only)
+// ============================================
+// PROPER SLEEPER PLAYER SYNC
+// Replace the existing /api/admin/sync-players endpoint
+// ============================================
+
 app.post('/api/admin/sync-players', verifyAdmin, async (req, res) => {
   try {
+    console.log('Starting player sync from Sleeper...');
+    
+    // Fetch ALL players from Sleeper (5MB file, cache this!)
     const response = await fetch('https://api.sleeper.app/v1/players/nfl');
     
     if (!response.ok) {
-      throw new Error(`Sleeper API error: ${response.status}`);
+      throw new Error(`Sleeper API returned ${response.status}`);
     }
     
-    const players = await response.json();
+    const allPlayers = await response.json();
+    console.log(`Fetched ${Object.keys(allPlayers).length} players from Sleeper`);
     
-    let syncedCount = 0;
+    // Filter to active players only
+    const activePlayers = Object.entries(allPlayers).filter(([playerId, player]) => {
+      return player.active === true && 
+             player.fantasy_positions && 
+             player.fantasy_positions.length > 0;
+    });
     
-    // Only sync top players by position
-    const positionLimits = { QB: 3, RB: 3, WR: 3, TE: 2, K: 1, DEF: 1 };
-    const teamCounts = {};
+    console.log(`Found ${activePlayers.length} active fantasy players`);
     
-    for (const playerId in players) {
-      const player = players[playerId];
-      
-      if (!player.active || player.status === 'Inactive') continue;
-      
-      const position = player.position;
-      const team = player.team;
-      
-      if (!positionLimits[position] || !team) continue;
-      
-      const teamKey = `${team}_${position}`;
-      teamCounts[teamKey] = (teamCounts[teamKey] || 0) + 1;
-      
-      if (teamCounts[teamKey] > positionLimits[position]) continue;
-      
-      const fullName = player.full_name || `${player.first_name} ${player.last_name}`;
-      
-      await pool.query(`
-        INSERT INTO players (id, sleeper_id, full_name, name, position, team, is_active, available)
-        VALUES ($1, $2, $3, $3, $4, $5, true, true)
-        ON CONFLICT (id) 
-        DO UPDATE SET 
-          sleeper_id = $2,
-          full_name = $3, 
-          name = $3,
-          position = $4, 
-          team = $5, 
-          is_active = true,
-          available = true
-      `, [playerId, playerId, fullName, position, team]);
-      
-      syncedCount++;
+    let insertedCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+    
+    // Insert or update each player
+    for (const [sleeperId, player] of activePlayers) {
+      try {
+        // Determine primary position
+        const position = player.position || player.fantasy_positions[0] || 'UNKNOWN';
+        
+        // Check if player exists
+        const existingPlayer = await pool.query(
+          'SELECT id FROM players WHERE sleeper_id = $1',
+          [sleeperId]
+        );
+        
+        if (existingPlayer.rows.length > 0) {
+          // Update existing player
+          await pool.query(`
+            UPDATE players 
+            SET 
+              full_name = $1,
+              first_name = $2,
+              last_name = $3,
+              position = $4,
+              team = $5,
+              number = $6,
+              status = $7,
+              injury_status = $8,
+              years_exp = $9,
+              is_active = $10,
+              updated_at = NOW()
+            WHERE sleeper_id = $11
+          `, [
+            `${player.first_name || ''} ${player.last_name || ''}`.trim(),
+            player.first_name || '',
+            player.last_name || '',
+            position,
+            player.team || null,
+            player.number ? parseInt(player.number) : null,
+            player.status || 'Unknown',
+            player.injury_status || null,
+            player.years_exp || 0,
+            player.active === true,
+            sleeperId
+          ]);
+          updatedCount++;
+        } else {
+          // Insert new player
+          await pool.query(`
+            INSERT INTO players (
+              sleeper_id,
+              full_name,
+              first_name,
+              last_name,
+              position,
+              team,
+              number,
+              status,
+              injury_status,
+              years_exp,
+              is_active,
+              created_at,
+              updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+          `, [
+            sleeperId,
+            `${player.first_name || ''} ${player.last_name || ''}`.trim(),
+            player.first_name || '',
+            player.last_name || '',
+            position,
+            player.team || null,
+            player.number ? parseInt(player.number) : null,
+            player.status || 'Unknown',
+            player.injury_status || null,
+            player.years_exp || 0,
+            player.active === true
+          ]);
+          insertedCount++;
+        }
+      } catch (error) {
+        console.error(`Error syncing player ${sleeperId}:`, error);
+        skippedCount++;
+      }
     }
     
-    res.json({ success: true, synced_count: syncedCount });
+    console.log(`Player sync complete: ${insertedCount} inserted, ${updatedCount} updated, ${skippedCount} skipped`);
+    
+    res.json({
+      success: true,
+      inserted: insertedCount,
+      updated: updatedCount,
+      skipped: skippedCount,
+      total: insertedCount + updatedCount,
+      message: `Synced ${insertedCount + updatedCount} players from Sleeper`
+    });
+    
   } catch (error) {
-    console.error('Sync players error:', error);
-    res.status(500).json({ error: 'Failed to sync players' });
+    console.error('Player sync error:', error);
+    res.status(500).json({ 
+      error: 'Failed to sync players',
+      details: error.message 
+    });
   }
 });
 
@@ -920,12 +996,16 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
     
     for (const pick of picks) {
       try {
+        console.log(`Processing ${pick.full_name} - Sleeper ID: ${pick.sleeper_id}`);
+
         const playerStats = sleeperStats[pick.sleeper_id];
         
         if (!playerStats) {
           console.log(`No stats found for ${pick.full_name} (${pick.sleeper_id})`);
           continue;
         }
+
+        console.log(`Found stats for ${pick.full_name}:`, Object.keys(playerStats).slice(0, 5));
         
         // Calculate base points
         let basePoints = 0;
