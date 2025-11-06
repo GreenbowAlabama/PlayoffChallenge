@@ -124,7 +124,7 @@ app.get('/api/players', async (req, res) => {
     const result = await pool.query(`
       SELECT 
         id,
-        COALESCE(full_name, name) as full_name,
+        full_name as full_name,
         position,
         team,
         COALESCE(is_active, available) as is_active,
@@ -132,7 +132,7 @@ app.get('/api/players', async (req, res) => {
         game_time
       FROM players 
       WHERE COALESCE(is_active, available) = true 
-      ORDER BY position, team, COALESCE(full_name, name)
+      ORDER BY position, team, full_name
     `);
     res.json(result.rows);
   } catch (error) {
@@ -153,7 +153,7 @@ app.get('/api/picks/user/:user_id', async (req, res) => {
         p.player_id,
         COALESCE(p.position, 'FLEX') as position,
         p.week_number,
-        COALESCE(pl.full_name, pl.name) as full_name,
+        pl.full_name as full_name,
         pl.team,
         pl.position as player_position,
         COALESCE(pl.sleeper_id, pl.id) as sleeper_id,
@@ -950,7 +950,7 @@ app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
         COALESCE(p.multiplier, 1.0) as multiplier,
         COALESCE(p.consecutive_weeks, 0) as consecutive_weeks,
         COALESCE(pl.sleeper_id, pl.id) as sleeper_id,
-        COALESCE(pl.full_name, pl.name) as full_name,
+        pl.full_name as full_name,
         pl.position
       FROM picks p
       JOIN players pl ON p.player_id = pl.id
