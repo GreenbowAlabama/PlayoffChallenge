@@ -1189,7 +1189,7 @@ app.get('/api/scores/user/:userId/week/:weekNumber', async (req, res) => {
     const result = await pool.query(`
       SELECT 
         s.*,
-        COALESCE(p.full_name, p.name) as full_name,
+        p.full_name,
         p.position,
         p.team,
         pi.consecutive_weeks,
@@ -1248,7 +1248,7 @@ app.get('/api/scores/:scoreId/breakdown', async (req, res) => {
         s.multiplier,
         s.final_points,
         s.stats_json,
-        COALESCE(p.full_name, p.name) as full_name,
+        p.full_name,
         p.position,
         p.team
       FROM scores s
