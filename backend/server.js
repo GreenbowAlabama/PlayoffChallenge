@@ -716,6 +716,7 @@ app.post('/api/admin/sync-players', verifyAdmin, async (req, res) => {
           // Insert new player
           await pool.query(`
             INSERT INTO players (
+              id,
               sleeper_id,
               full_name,
               first_name,
@@ -729,7 +730,7 @@ app.post('/api/admin/sync-players', verifyAdmin, async (req, res) => {
               is_active,
               created_at,
               updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+            ) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
           `, [
             sleeperId,
             `${player.first_name || ''} ${player.last_name || ''}`.trim(),
