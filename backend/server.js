@@ -562,9 +562,9 @@ app.post('/api/users', async (req, res) => {
 
     // Create new user
     const insert = await pool.query(
-      `INSERT INTO users (id, apple_id, email, name, created_at, updated_at, paid)
-       VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)
-       RETURNING *`,
+      `INSERT INTO users (id, apple_id, email, name, username, created_at, updated_at, paid)
+      VALUES (gen_random_uuid(), $1, $2, $3, COALESCE($3, $2), NOW(), NOW(), false)
+      RETURNING *`,
       [apple_id, email || null, name || null]
     );
 
