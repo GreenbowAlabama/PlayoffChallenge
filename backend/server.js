@@ -539,6 +539,42 @@ app.get('/api/admin/cache-status', (req, res) => {
   });
 });
 
+// ==============================================
+// USER REGISTRATION / LOGIN
+// ==============================================
+app.post('/api/users', async (req, res) => {
+  try {
+    const { apple_id, email, name } = req.body;
+
+    if (!apple_id) {
+      return res.status(400).json({ error: 'apple_id is required' });
+    }
+
+    // Try to find existing user
+    let result = await pool.query(
+      'SELECT * FROM users WHERE apple_id = $1 LIMIT 1',
+      [apple_id]
+    );
+
+    if (result.rows.length > 0) {
+      return res.json(result.rows[0]);
+    }
+
+    // Create new user
+    const insert = await pool.query(
+      `INSERT INTO users (id, apple_id, email, name, created_at, updated_at, paid)
+       VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)
+       RETURNING *`,
+      [apple_id, email || null, name || null]
+    );
+
+    res.json(insert.rows[0]);
+  } catch (err) {
+    console.error('Error in /api/users:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // EXISTING ROUTES (keeping your original endpoints)
 
 // Get all players
