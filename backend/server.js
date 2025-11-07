@@ -626,6 +626,54 @@ async function startLiveStatsPolling() {
   }, 2 * 60 * 1000);
 }
 
+// ==============================================
+// POSITION REQUIREMENTS ROUTES
+// ==============================================
+
+// Get all position requirements
+app.get('/api/admin/position-requirements', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, position, required_count, display_name, display_order, is_active
+      FROM position_requirements
+      ORDER BY display_order ASC, position ASC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching position requirements:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update a specific position requirement
+app.put('/api/admin/position-requirements/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { requiredCount } = req.body;
+
+    if (requiredCount == null) {
+      return res.status(400).json({ error: 'requiredCount is required' });
+    }
+
+    const result = await pool.query(
+      `UPDATE position_requirements
+       SET required_count = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, position, required_count, display_name, display_order, is_active`,
+      [requiredCount, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Position requirement not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating position requirement:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Start server
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
