@@ -1,1344 +1,645 @@
-// ============================================
-// Playoff Challenge Backend API V2
-// Enhanced with Rules, Scoring, Payouts, Multipliers
-// FIXED: All week columns now use week_number
-// ============================================
-
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
-const fetch = require('node-fetch');
+const axios = require('axios');
 
 const app = express();
-const port = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8080;
 
-// Database connection
+app.use(cors());
+app.use(express.json());
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-app.use(cors());
-app.use(express.json());
+// In-memory cache for live stats
+const liveStatsCache = {
+  games: new Map(),
+  playerStats: new Map(),
+  lastScoreboardUpdate: null,
+  lastGameUpdates: new Map(),
+  activeGameIds: new Set()
+};
 
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
+// Cache duration in milliseconds
+const SCOREBOARD_CACHE_MS = 10 * 60 * 1000; // 10 minutes
+const GAME_SUMMARY_CACHE_MS = 90 * 1000; // 90 seconds
 
-// Verify admin middleware
-const verifyAdmin = async (req, res, next) => {
-  const { user_id } = req.body;
-  if (!user_id) {
-    return res.status(401).json({ error: 'User ID required' });
-  }
-  
+// Helper: Map ESPN athlete ID to our player ID
+async function mapESPNAthleteToPlayer(athleteId, athleteName) {
   try {
-    const result = await pool.query('SELECT is_admin FROM users WHERE id = $1', [user_id]);
-    if (result.rows.length === 0 || !result.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    next();
-  } catch (error) {
-    console.error('Admin verification error:', error);
-    res.status(500).json({ error: 'Verification failed' });
-  }
-};
-
-// Check if game has started (with 1 minute buffer)
-const hasGameStarted = (gameTime) => {
-  const now = new Date();
-  const gameStart = new Date(gameTime);
-  const bufferTime = new Date(gameStart.getTime() - 60000); // 1 minute before
-  return now >= bufferTime;
-};
-
-// Calculate points based on scoring rules
-const calculatePlayerPoints = async (playerStats) => {
-  const rulesResult = await pool.query('SELECT * FROM scoring_rules WHERE is_active = true');
-  const rules = rulesResult.rows;
-  
-  let points = 0;
-  
-  // Apply each scoring rule
-  for (const rule of rules) {
-    const statValue = playerStats[rule.stat_name] || 0;
-    points += statValue * rule.points;
-  }
-  
-  // Handle bonus thresholds
-  if (playerStats.passing_yards >= 400) {
-    const bonusRule = rules.find(r => r.stat_name === 'passing_yards_bonus');
-    if (bonusRule) points += bonusRule.points;
-  }
-  
-  if (playerStats.rushing_yards >= 150) {
-    const bonusRule = rules.find(r => r.stat_name === 'rushing_yards_bonus');
-    if (bonusRule) points += bonusRule.points;
-  }
-  
-  if (playerStats.receiving_yards >= 150) {
-    const bonusRule = rules.find(r => r.stat_name === 'receiving_yards_bonus');
-    if (bonusRule) points += bonusRule.points;
-  }
-  
-  return points;
-};
-
-// ============================================
-// EXISTING ENDPOINTS (keeping your current ones)
-// ============================================
-
-// Health check
-app.get('/', (req, res) => {
-  res.json({ status: 'Playoff Challenge API V2 Running', version: '2.0.0' });
-});
-
-// Get or create user
-app.post('/api/users', async (req, res) => {
-  const { apple_id, email, name } = req.body;
-  
-  try {
-    // Check if user exists
-    let result = await pool.query('SELECT * FROM users WHERE apple_user_id = $1', [apple_id]);
-    
-    if (result.rows.length > 0) {
-      return res.json(result.rows[0]);
-    }
-    
-    // Create new user
-    result = await pool.query(
-      'INSERT INTO users (apple_user_id, username) VALUES ($1, $2) RETURNING *',
-      [apple_id, name || email || 'User']
+    // First try exact ESPN ID match
+    let result = await pool.query(
+      'SELECT id FROM players WHERE espn_id = $1 LIMIT 1',
+      [athleteId.toString()]
     );
     
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('User creation error:', error);
-    res.status(500).json({ error: 'Failed to create user', details: error.message });
+    if (result.rows.length > 0) {
+      return result.rows[0].id;
+    }
+    
+    // Fallback: try name matching (fuzzy)
+    if (athleteName) {
+      const nameParts = athleteName.trim().split(' ');
+      if (nameParts.length >= 2) {
+        const firstName = nameParts[0];
+        const lastName = nameParts[nameParts.length - 1];
+        
+        result = await pool.query(
+          `SELECT id FROM players 
+           WHERE LOWER(first_name) = LOWER($1) 
+           AND LOWER(last_name) = LOWER($2) 
+           LIMIT 1`,
+          [firstName, lastName]
+        );
+        
+        if (result.rows.length > 0) {
+          // Store the ESPN ID for future lookups
+          await pool.query(
+            'UPDATE players SET espn_id = $1 WHERE id = $2',
+            [athleteId.toString(), result.rows[0].id]
+          );
+          return result.rows[0].id;
+        }
+      }
+    }
+    
+    return null;
+  } catch (err) {
+    console.error('Error mapping ESPN athlete:', err);
+    return null;
+  }
+}
+
+// Helper: Parse stats from ESPN game summary
+function parsePlayerStatsFromSummary(boxscore) {
+  const playerStats = [];
+  
+  if (!boxscore || !boxscore.players) return playerStats;
+  
+  for (const team of boxscore.players) {
+    if (!team.statistics) continue;
+    
+    for (const statGroup of team.statistics) {
+      if (!statGroup.athletes) continue;
+      
+      for (const athlete of statGroup.athletes) {
+        const athleteId = athlete.athlete?.id;
+        const athleteName = athlete.athlete?.displayName || athlete.athlete?.shortName;
+        
+        if (!athleteId) continue;
+        
+        const stats = {
+          athleteId: athleteId.toString(),
+          athleteName: athleteName || 'Unknown',
+          stats: {}
+        };
+        
+        // Parse stat labels and values
+        if (statGroup.labels && athlete.stats) {
+          for (let i = 0; i < statGroup.labels.length; i++) {
+            const label = statGroup.labels[i];
+            const value = athlete.stats[i];
+            
+            // Map ESPN stat names to our stat names
+            if (label && value) {
+              stats.stats[label] = value;
+            }
+          }
+        }
+        
+        playerStats.push(stats);
+      }
+    }
+  }
+  
+  return playerStats;
+}
+
+// Helper: Convert ESPN stats to our scoring format
+function convertESPNStatsToScoring(espnStats) {
+  const scoring = {
+    pass_yd: 0,
+    pass_td: 0,
+    pass_int: 0,
+    pass_2pt: 0,
+    rush_yd: 0,
+    rush_td: 0,
+    rush_2pt: 0,
+    rec: 0,
+    rec_yd: 0,
+    rec_td: 0,
+    rec_2pt: 0,
+    fum_lost: 0
+  };
+  
+  if (!espnStats) return scoring;
+  
+  // Passing stats
+  if (espnStats['C/ATT']) {
+    // Format: "20/30" (completions/attempts)
+    const parts = espnStats['C/ATT'].split('/');
+    // We don't score completions, but we might need this
+  }
+  if (espnStats['YDS']) scoring.pass_yd = parseFloat(espnStats['YDS']) || 0;
+  if (espnStats['TD']) scoring.pass_td = parseInt(espnStats['TD']) || 0;
+  if (espnStats['INT']) scoring.pass_int = parseInt(espnStats['INT']) || 0;
+  
+  // Rushing stats
+  if (espnStats['CAR']) {
+    // Carries - we don't score this
+  }
+  if (espnStats['YDS']) {
+    // This could be rushing yards if it's a RB
+    const yds = parseFloat(espnStats['YDS']) || 0;
+    // If we already have pass_yd, this might be rush_yd
+    if (scoring.pass_yd === 0) {
+      scoring.rush_yd = yds;
+    }
+  }
+  if (espnStats['TD'] && scoring.pass_td === 0) {
+    scoring.rush_td = parseInt(espnStats['TD']) || 0;
+  }
+  
+  // Receiving stats
+  if (espnStats['REC']) scoring.rec = parseInt(espnStats['REC']) || 0;
+  if (espnStats['YDS'] && scoring.pass_yd === 0 && espnStats['REC']) {
+    scoring.rec_yd = parseFloat(espnStats['YDS']) || 0;
+  }
+  if (espnStats['TD'] && scoring.pass_td === 0 && scoring.rush_td === 0) {
+    scoring.rec_td = parseInt(espnStats['TD']) || 0;
+  }
+  
+  // Fumbles
+  if (espnStats['FUM']) scoring.fum_lost = parseInt(espnStats['FUM']) || 0;
+  
+  return scoring;
+}
+
+// Fetch scoreboard to get active games
+async function fetchScoreboard() {
+  try {
+    const now = Date.now();
+    
+    // Check cache
+    if (liveStatsCache.lastScoreboardUpdate && 
+        (now - liveStatsCache.lastScoreboardUpdate) < SCOREBOARD_CACHE_MS) {
+      return Array.from(liveStatsCache.activeGameIds);
+    }
+    
+    console.log('Fetching ESPN scoreboard...');
+    const response = await axios.get(
+      'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard'
+    );
+    
+    const activeGames = [];
+    
+    if (response.data && response.data.events) {
+      for (const event of response.data.events) {
+        const gameId = event.id;
+        const status = event.status?.type?.state;
+        
+        // Only track in-progress or recently completed games
+        if (status === 'in' || status === 'post') {
+          activeGames.push(gameId);
+          
+          // Store basic game info
+          liveStatsCache.games.set(gameId, {
+            id: gameId,
+            name: event.name,
+            shortName: event.shortName,
+            status: status,
+            homeTeam: event.competitions?.[0]?.competitors?.find(c => c.homeAway === 'home')?.team?.abbreviation,
+            awayTeam: event.competitions?.[0]?.competitors?.find(c => c.homeAway === 'away')?.team?.abbreviation
+          });
+        }
+      }
+    }
+    
+    liveStatsCache.activeGameIds = new Set(activeGames);
+    liveStatsCache.lastScoreboardUpdate = now;
+    
+    console.log(`Found ${activeGames.length} active games`);
+    return activeGames;
+  } catch (err) {
+    console.error('Error fetching scoreboard:', err.message);
+    return [];
+  }
+}
+
+// Fetch game summary for specific game
+async function fetchGameSummary(gameId) {
+  try {
+    const now = Date.now();
+    const lastUpdate = liveStatsCache.lastGameUpdates.get(gameId);
+    
+    // Check cache
+    if (lastUpdate && (now - lastUpdate) < GAME_SUMMARY_CACHE_MS) {
+      return false; // Already up to date
+    }
+    
+    console.log(`Fetching summary for game ${gameId}...`);
+    const response = await axios.get(
+      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`
+    );
+    
+    if (response.data && response.data.boxscore) {
+      const playerStats = parsePlayerStatsFromSummary(response.data.boxscore);
+      
+      // Update cache
+      for (const stat of playerStats) {
+        liveStatsCache.playerStats.set(stat.athleteId, {
+          ...stat,
+          gameId: gameId,
+          updatedAt: now
+        });
+      }
+      
+      liveStatsCache.lastGameUpdates.set(gameId, now);
+      console.log(`Updated ${playerStats.length} player stats from game ${gameId}`);
+      return true;
+    }
+    
+    return false;
+  } catch (err) {
+    console.error(`Error fetching game summary ${gameId}:`, err.message);
+    return false;
+  }
+}
+
+// Get teams that have active picks this week
+async function getActiveTeamsForWeek(weekNumber) {
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT p.team
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id
+      WHERE pk.week_number = $1 AND p.team IS NOT NULL
+    `, [weekNumber]);
+    
+    return result.rows.map(r => r.team);
+  } catch (err) {
+    console.error('Error getting active teams:', err);
+    return [];
+  }
+}
+
+// Main live stats update function
+async function updateLiveStats(weekNumber) {
+  try {
+    console.log(`\n=== Updating live stats for week ${weekNumber} ===`);
+    
+    // Step 1: Get active games
+    const activeGameIds = await fetchScoreboard();
+    if (activeGameIds.length === 0) {
+      console.log('No active games found');
+      return { success: true, message: 'No active games', gamesUpdated: 0 };
+    }
+    
+    // Step 2: Get teams we care about
+    const activeTeams = await getActiveTeamsForWeek(weekNumber);
+    console.log(`Tracking teams: ${activeTeams.join(', ')}`);
+    
+    // Step 3: Filter games to only those with our teams
+    const relevantGames = [];
+    for (const gameId of activeGameIds) {
+      const gameInfo = liveStatsCache.games.get(gameId);
+      if (gameInfo && 
+          (activeTeams.includes(gameInfo.homeTeam) || activeTeams.includes(gameInfo.awayTeam))) {
+        relevantGames.push(gameId);
+      }
+    }
+    
+    console.log(`Found ${relevantGames.length} relevant games out of ${activeGameIds.length} active`);
+    
+    // Step 4: Fetch summaries for relevant games
+    let gamesUpdated = 0;
+    for (const gameId of relevantGames) {
+      const updated = await fetchGameSummary(gameId);
+      if (updated) gamesUpdated++;
+      
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    return {
+      success: true,
+      message: `Updated ${gamesUpdated} games`,
+      gamesUpdated: gamesUpdated,
+      totalActiveGames: activeGameIds.length,
+      relevantGames: relevantGames.length
+    };
+  } catch (err) {
+    console.error('Error in updateLiveStats:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// Calculate fantasy points from stats
+async function calculateFantasyPoints(stats) {
+  try {
+    const rulesResult = await pool.query(
+      'SELECT stat_name, points FROM scoring_rules WHERE is_active = true'
+    );
+    
+    const rules = {};
+    for (const row of rulesResult.rows) {
+      rules[row.stat_name] = parseFloat(row.points);
+    }
+    
+    let points = 0;
+    
+    // Passing
+    points += (stats.pass_yd || 0) * (rules.pass_yd || 0);
+    points += (stats.pass_td || 0) * (rules.pass_td || 0);
+    points += (stats.pass_int || 0) * (rules.pass_int || 0);
+    points += (stats.pass_2pt || 0) * (rules.pass_2pt || 0);
+    
+    // Rushing
+    points += (stats.rush_yd || 0) * (rules.rush_yd || 0);
+    points += (stats.rush_td || 0) * (rules.rush_td || 0);
+    points += (stats.rush_2pt || 0) * (rules.rush_2pt || 0);
+    
+    // Receiving
+    points += (stats.rec || 0) * (rules.rec || 0);
+    points += (stats.rec_yd || 0) * (rules.rec_yd || 0);
+    points += (stats.rec_td || 0) * (rules.rec_td || 0);
+    points += (stats.rec_2pt || 0) * (rules.rec_2pt || 0);
+    
+    // Fumbles
+    points += (stats.fum_lost || 0) * (rules.fum_lost || 0);
+    
+    // Bonuses
+    if (stats.pass_yd >= 400) points += (rules.pass_yd_bonus || 0);
+    if (stats.rush_yd >= 150) points += (rules.rush_yd_bonus || 0);
+    if (stats.rec_yd >= 150) points += (rules.rec_yd_bonus || 0);
+    
+    return parseFloat(points.toFixed(2));
+  } catch (err) {
+    console.error('Error calculating points:', err);
+    return 0;
+  }
+}
+
+// API ROUTES
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Get live stats for a specific player
+app.get('/api/live-stats/player/:playerId', async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    
+    // Get player info including ESPN ID
+    const playerResult = await pool.query(
+      'SELECT id, full_name, espn_id, team, position FROM players WHERE id = $1',
+      [playerId]
+    );
+    
+    if (playerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+    
+    const player = playerResult.rows[0];
+    
+    // Check cache for live stats
+    if (player.espn_id) {
+      const liveStats = liveStatsCache.playerStats.get(player.espn_id);
+      
+      if (liveStats) {
+        const scoringStats = convertESPNStatsToScoring(liveStats.stats);
+        const points = await calculateFantasyPoints(scoringStats);
+        
+        return res.json({
+          playerId: player.id,
+          playerName: player.full_name,
+          team: player.team,
+          position: player.position,
+          stats: scoringStats,
+          points: points,
+          isLive: true,
+          updatedAt: new Date(liveStats.updatedAt).toISOString(),
+          rawStats: liveStats.stats
+        });
+      }
+    }
+    
+    // No live stats available
+    res.json({
+      playerId: player.id,
+      playerName: player.full_name,
+      team: player.team,
+      position: player.position,
+      stats: null,
+      points: 0,
+      isLive: false,
+      message: 'No live stats available'
+    });
+  } catch (err) {
+    console.error('Error getting live player stats:', err);
+    res.status(500).json({ error: err.message });
   }
 });
+
+// Get live stats for all picks in a week
+app.get('/api/live-stats/week/:weekNumber', async (req, res) => {
+  try {
+    const { weekNumber } = req.params;
+    
+    // Get all picks for this week with player info
+    const picksResult = await pool.query(`
+      SELECT 
+        pk.id as pick_id,
+        pk.user_id,
+        pk.player_id,
+        pk.multiplier,
+        p.full_name,
+        p.espn_id,
+        p.team,
+        p.position
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id
+      WHERE pk.week_number = $1
+      ORDER BY pk.user_id, pk.position
+    `, [weekNumber]);
+    
+    const picks = [];
+    
+    for (const pick of picksResult.rows) {
+      let liveStats = null;
+      let points = 0;
+      let isLive = false;
+      
+      if (pick.espn_id) {
+        const cached = liveStatsCache.playerStats.get(pick.espn_id);
+        
+        if (cached) {
+          const scoringStats = convertESPNStatsToScoring(cached.stats);
+          points = await calculateFantasyPoints(scoringStats);
+          liveStats = scoringStats;
+          isLive = true;
+        }
+      }
+      
+      picks.push({
+        pickId: pick.pick_id,
+        userId: pick.user_id,
+        playerId: pick.player_id,
+        playerName: pick.full_name,
+        team: pick.team,
+        position: pick.position,
+        multiplier: pick.multiplier,
+        basePoints: points,
+        finalPoints: points * pick.multiplier,
+        stats: liveStats,
+        isLive: isLive
+      });
+    }
+    
+    res.json({ weekNumber: parseInt(weekNumber), picks: picks });
+  } catch (err) {
+    console.error('Error getting live week stats:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Trigger live stats update
+app.post('/api/admin/update-live-stats', async (req, res) => {
+  try {
+    const { weekNumber } = req.body;
+    
+    if (!weekNumber) {
+      return res.status(400).json({ error: 'weekNumber required' });
+    }
+    
+    const result = await updateLiveStats(weekNumber);
+    res.json(result);
+  } catch (err) {
+    console.error('Error triggering live stats update:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get cache status
+app.get('/api/admin/cache-status', (req, res) => {
+  res.json({
+    activeGames: Array.from(liveStatsCache.games.values()),
+    cachedPlayerCount: liveStatsCache.playerStats.size,
+    lastScoreboardUpdate: liveStatsCache.lastScoreboardUpdate ? 
+      new Date(liveStatsCache.lastScoreboardUpdate).toISOString() : null,
+    gameUpdateTimes: Array.from(liveStatsCache.lastGameUpdates.entries()).map(([gameId, time]) => ({
+      gameId,
+      lastUpdate: new Date(time).toISOString()
+    }))
+  });
+});
+
+// EXISTING ROUTES (keeping your original endpoints)
 
 // Get all players
 app.get('/api/players', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT 
-        id,
-        full_name as full_name,
-        position,
-        team,
-        COALESCE(is_active, available) as is_active,
-        sleeper_id,
-        game_time
+      SELECT id, sleeper_id, full_name, first_name, last_name, position, team, 
+             number, status, injury_status, is_active, available
       FROM players 
-      WHERE COALESCE(is_active, available) = true 
-      ORDER BY position, team, full_name
+      WHERE is_active = true 
+      ORDER BY position, full_name
     `);
     res.json(result.rows);
-  } catch (error) {
-    console.error('Get players error:', error);
-    res.status(500).json({ error: 'Failed to fetch players' });
+  } catch (err) {
+    console.error('Error fetching players:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Get user picks - FIXED to use week_number consistently
-app.get('/api/picks/user/:user_id', async (req, res) => {
-  const { user_id } = req.params;
-  
+// Get user's picks
+app.get('/api/picks/:userId', async (req, res) => {
   try {
+    const { userId } = req.params;
     const result = await pool.query(`
-      SELECT 
-        p.id,
-        p.user_id,
-        p.player_id,
-        COALESCE(p.position, 'FLEX') as position,
-        p.week_number,
-        pl.full_name as full_name,
-        pl.team,
-        pl.position as player_position,
-        COALESCE(pl.sleeper_id, pl.id) as sleeper_id,
-        COALESCE(p.consecutive_weeks, 0) as consecutive_weeks,
-        COALESCE(p.multiplier, 1.0) as multiplier,
-        COALESCE(p.is_bye_week, false) as is_bye_week
-      FROM picks p
-      JOIN players pl ON p.player_id = pl.id
-      WHERE p.user_id = $1
-      ORDER BY p.week_number, pl.position
-    `, [user_id]);
-    
+      SELECT pk.*, p.full_name, p.position, p.team
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id
+      WHERE pk.user_id = $1
+      ORDER BY pk.week_number, pk.position
+    `, [userId]);
     res.json(result.rows);
-  } catch (error) {
-    console.error('Get picks error:', error);
-    res.status(500).json({ error: 'Failed to fetch picks' });
+  } catch (err) {
+    console.error('Error fetching picks:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Submit picks - FIXED
+// Submit picks
 app.post('/api/picks', async (req, res) => {
-  const { user_id, picks, week_number } = req.body;
-  
   try {
-    // Optional: Validate position limits
-    const settingsResult = await pool.query('SELECT * FROM game_settings LIMIT 1');
-    const settings = settingsResult.rows[0];
+    const { userId, playerId, weekNumber, position, multiplier } = req.body;
     
-    if (settings) {
-      const picksCount = {};
-      picks.forEach(pick => {
-        picksCount[pick.position] = (picksCount[pick.position] || 0) + 1;
-      });
-      
-      // Check limits
-      if (picksCount['QB'] > (settings.qb_limit || 1)) {
-        return res.status(400).json({ error: `Max ${settings.qb_limit || 1} QB allowed` });
-      }
-      if (picksCount['RB'] > (settings.rb_limit || 2)) {
-        return res.status(400).json({ error: `Max ${settings.rb_limit || 2} RB allowed` });
-      }
-      if (picksCount['WR'] > (settings.wr_limit || 3)) {
-        return res.status(400).json({ error: `Max ${settings.wr_limit || 3} WR allowed` });
-      }
-      if (picksCount['TE'] > (settings.te_limit || 1)) {
-        return res.status(400).json({ error: `Max ${settings.te_limit || 1} TE allowed` });
-      }
-      if (picksCount['K'] > (settings.k_limit || 1)) {
-        return res.status(400).json({ error: `Max ${settings.k_limit || 1} K allowed` });
-      }
-      if (picksCount['DEF'] > (settings.def_limit || 1)) {
-        return res.status(400).json({ error: `Max ${settings.def_limit || 1} DEF allowed` });
-      }
-    }
-    
-    // Delete existing picks for this week
-    await pool.query('DELETE FROM picks WHERE user_id = $1 AND week_number = $2', [user_id, week_number]);
-    
-    // Insert new picks
-    for (const pick of picks) {
-      await pool.query(
-        `INSERT INTO picks (user_id, player_id, position, week_number, consecutive_weeks, multiplier) 
-         VALUES ($1, $2, $3, $4, 0, 1.0)`,
-        [user_id, pick.player_id, pick.position, week_number]
-      );
-    }
-    
-    res.json({ success: true, message: 'Picks submitted successfully' });
-  } catch (error) {
-    console.error('Submit picks error:', error);
-    res.status(500).json({ error: 'Failed to submit picks' });
-  }
-});
-
-// Delete a single pick - FIXED
-app.delete('/api/picks/:pick_id', async (req, res) => {
-  const { pick_id } = req.params;
-  const { user_id } = req.body;
-  
-  try {
-    // Verify pick belongs to user
-    const pickCheck = await pool.query('SELECT user_id FROM picks WHERE id = $1', [pick_id]);
-    
-    if (pickCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Pick not found' });
-    }
-    
-    // Compare UUIDs as strings (case-insensitive)
-    const pickUserId = pickCheck.rows[0].user_id.toString().toLowerCase();
-    const requestUserId = user_id.toString().toLowerCase();
-    
-    if (pickUserId !== requestUserId) {
-      console.log('User ID mismatch:', { pickUserId, requestUserId });
-      return res.status(403).json({ error: 'Not authorized to delete this pick' });
-    }
-    
-    // Delete pick
-    await pool.query('DELETE FROM picks WHERE id = $1', [pick_id]);
-    
-    res.json({ success: true, message: 'Pick deleted successfully' });
-  } catch (error) {
-    console.error('Delete pick error:', error);
-    res.status(500).json({ error: 'Failed to delete pick' });
-  }
-});
-
-// Get leaderboard
-app.get('/api/leaderboard', async (req, res) => {
-  try {
     const result = await pool.query(`
-      SELECT 
-        u.id,
-        u.username as name,
-        u.email,
-        u.paid as has_paid,
-        COALESCE(SUM(s.final_points), 0) as total_points,
-        COUNT(DISTINCT s.week_number) as weeks_played
-      FROM users u
-      LEFT JOIN scores s ON u.id = s.user_id
-      GROUP BY u.id, u.username, u.email, u.paid
-      ORDER BY total_points DESC, u.username
-    `);
-    
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Leaderboard error:', error);
-    res.status(500).json({ error: 'Failed to fetch leaderboard' });
-  }
-});
-
-// ============================================
-// NEW V2 ENDPOINTS - RULES & CONTENT
-// ============================================
-
-// Get all rules content
-app.get('/api/rules', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT * FROM rules_content 
-      ORDER BY display_order
-    `);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get rules error:', error);
-    res.status(500).json({ error: 'Failed to fetch rules' });
-  }
-});
-
-// Update rules content (admin only)
-app.put('/api/rules/:id', verifyAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { content } = req.body;
-  
-  try {
-    const result = await pool.query(
-      'UPDATE rules_content SET content = $1 WHERE id = $2 RETURNING *',
-      [content, id]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Rule section not found' });
-    }
+      INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
+      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 1, false, NOW())
+      RETURNING *
+    `, [userId, playerId, weekNumber, position, multiplier]);
     
     res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Update rules error:', error);
-    res.status(500).json({ error: 'Failed to update rules' });
+  } catch (err) {
+    console.error('Error creating pick:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// ============================================
-// NEW V2 ENDPOINTS - SCORING RULES
-// ============================================
-
-// Get all scoring rules
-app.get('/api/scoring-rules', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT * FROM scoring_rules 
-      WHERE is_active = true 
-      ORDER BY category, display_order
-    `);
-    
-    // Group by category
-    const grouped = result.rows.reduce((acc, rule) => {
-      if (!acc[rule.category]) acc[rule.category] = [];
-      acc[rule.category].push(rule);
-      return acc;
-    }, {});
-    
-    res.json(grouped);
-  } catch (error) {
-    console.error('Get scoring rules error:', error);
-    res.status(500).json({ error: 'Failed to fetch scoring rules' });
-  }
-});
-
-// Update scoring rule (admin only)
-app.put('/api/scoring-rules/:id', verifyAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { points, description } = req.body;
-  
-  try {
-    const result = await pool.query(
-      'UPDATE scoring_rules SET points = $1, description = $2 WHERE id = $3 RETURNING *',
-      [points, description, id]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Scoring rule not found yes' });
-    }
-    
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Update scoring rule error:', error);
-    res.status(500).json({ error: 'Failed to update scoring rule' });
-  }
-});
-
-// ============================================
-// NEW V2 ENDPOINTS - PAYOUT STRUCTURE
-// ============================================
-
-// Get payout structure
-app.get('/api/payouts', async (req, res) => {
-  try {
-    const payoutsResult = await pool.query(`
-      SELECT * FROM payouts 
-      ORDER BY place
-    `);
-    
-    const settingsResult = await pool.query('SELECT entry_amount FROM game_settings LIMIT 1');
-    const entryAmount = parseFloat(settingsResult.rows[0]?.entry_amount || '50');
-    
-    const usersResult = await pool.query('SELECT COUNT(*) as total FROM users WHERE paid = true');
-    const paidUsers = parseInt(usersResult.rows[0].total);
-    
-    const totalPot = entryAmount * paidUsers;
-    
-    const payouts = payoutsResult.rows.map(payout => ({
-      id: payout.id,
-      place: payout.place,
-      percentage: parseFloat(payout.percentage),
-      description: payout.description,
-      amount: (totalPot * parseFloat(payout.percentage) / 100).toFixed(2)
-    }));
-    
-    res.json({
-      payouts,
-      entry_amount: entryAmount,
-      paid_users: paidUsers,
-      total_pot: totalPot.toFixed(2)
-    });
-  } catch (error) {
-    console.error('Get payouts error:', error);
-    res.status(500).json({ error: 'Failed to fetch payouts' });
-  }
-});
-
-// Update payout structure (admin only)
-app.put('/api/payouts/:id', verifyAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { percentage } = req.body;
-  
-  try {
-    const result = await pool.query(
-      'UPDATE payouts SET percentage = $1 WHERE id = $2 RETURNING *',
-      [percentage, id]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Payout not found' });
-    }
-    
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Update payout error:', error);
-    res.status(500).json({ error: 'Failed to update payout' });
-  }
-});
-
-// ============================================
-// NEW V2 ENDPOINTS - POSITION REQUIREMENTS
-// ============================================
-
-// Get position requirements
-app.get('/api/position-requirements', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT * FROM position_requirements 
-      WHERE is_active = true 
-      ORDER BY display_order
-    `);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get position requirements error:', error);
-    res.status(500).json({ error: 'Failed to fetch position requirements' });
-  }
-});
-
-// Update position requirement (admin only)
-app.put('/api/position-requirements/:id', verifyAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { required_count } = req.body;
-  
-  try {
-    const result = await pool.query(
-      'UPDATE position_requirements SET required_count = $1 WHERE id = $2 RETURNING *',
-      [required_count, id]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Position requirement not found' });
-    }
-    
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Update position requirement error:', error);
-    res.status(500).json({ error: 'Failed to update position requirement' });
-  }
-});
-
-// ============================================
-// ADMIN ENDPOINTS
-// ============================================
-
-// Get all users (admin only)
-app.get('/api/admin/users', async (req, res) => {
-  const { user_id } = req.query;
-  
-  try {
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [user_id]);
-    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    const result = await pool.query('SELECT * FROM users ORDER BY username');
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get users error:', error);
-    res.status(500).json({ error: 'Failed to fetch users' });
-  }
-});
-
-// Update user payment status (admin only)
-app.put('/api/admin/users/:id/payment', verifyAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { has_paid } = req.body;
-  
-  try {
-    const result = await pool.query(
-      'UPDATE users SET paid = $1 WHERE id = $2 RETURNING *',
-      [has_paid, id]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Update payment error:', error);
-    res.status(500).json({ error: 'Failed to update payment status' });
-  }
-});
-
-// Get game settings
-app.get('/api/settings', async (req, res) => {
+// Get game config
+app.get('/api/game-config', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM game_settings LIMIT 1');
     res.json(result.rows[0] || {});
-  } catch (error) {
-    console.error('Get settings error:', error);
-    res.status(500).json({ error: 'Failed to fetch settings' });
+  } catch (err) {
+    console.error('Error fetching game config:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Get position limits for settings endpoint
-app.get('/api/settings/position-limits', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1');
-    if (result.rows.length === 0) {
-      return res.json({ QB: 1, RB: 2, WR: 3, TE: 1, K: 1, DEF: 1 });
-    }
-    
-    const settings = result.rows[0];
-    res.json({
-      QB: settings.qb_limit || 1,
-      RB: settings.rb_limit || 2,
-      WR: settings.wr_limit || 3,
-      TE: settings.te_limit || 1,
-      K: settings.k_limit || 1,
-      DEF: settings.def_limit || 1
-    });
-  } catch (error) {
-    console.error('Get position limits error:', error);
-    res.status(500).json({ error: 'Failed to fetch position limits' });
-  }
-});
+// Start background polling for live stats (every 2 minutes)
+let liveStatsInterval = null;
 
-// Update game settings (admin only)
-app.put('/api/settings', verifyAdmin, async (req, res) => {
-  const { entry_amount, venmo_handle, cashapp_handle, zelle_handle, qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit } = req.body;
+async function startLiveStatsPolling() {
+  // Get current playoff week
+  const configResult = await pool.query('SELECT current_playoff_week FROM game_settings LIMIT 1');
+  const currentWeek = configResult.rows[0]?.current_playoff_week || 1;
   
-  try {
-    // Get the first (and likely only) settings record
-    const existingResult = await pool.query('SELECT id FROM game_settings LIMIT 1');
-    
-    if (existingResult.rows.length === 0) {
-      // Insert if doesn't exist
-      const result = await pool.query(`
-        INSERT INTO game_settings (entry_amount, venmo_handle, cashapp_handle, zelle_handle, qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING *
-      `, [entry_amount, venmo_handle, cashapp_handle, zelle_handle, qb_limit || 1, rb_limit || 2, wr_limit || 3, te_limit || 1, k_limit || 1, def_limit || 1]);
-      return res.json(result.rows[0]);
-    }
-    
-    const settingsId = existingResult.rows[0].id;
-    
-    // Build dynamic update query
-    const updates = [];
-    const values = [];
-    let paramCount = 1;
-    
-    if (entry_amount !== undefined) {
-      updates.push(`entry_amount = $${paramCount++}`);
-      values.push(entry_amount);
-    }
-    if (venmo_handle !== undefined) {
-      updates.push(`venmo_handle = $${paramCount++}`);
-      values.push(venmo_handle);
-    }
-    if (cashapp_handle !== undefined) {
-      updates.push(`cashapp_handle = $${paramCount++}`);
-      values.push(cashapp_handle);
-    }
-    if (zelle_handle !== undefined) {
-      updates.push(`zelle_handle = $${paramCount++}`);
-      values.push(zelle_handle);
-    }
-    if (qb_limit !== undefined) {
-      updates.push(`qb_limit = $${paramCount++}`);
-      values.push(qb_limit);
-    }
-    if (rb_limit !== undefined) {
-      updates.push(`rb_limit = $${paramCount++}`);
-      values.push(rb_limit);
-    }
-    if (wr_limit !== undefined) {
-      updates.push(`wr_limit = $${paramCount++}`);
-      values.push(wr_limit);
-    }
-    if (te_limit !== undefined) {
-      updates.push(`te_limit = $${paramCount++}`);
-      values.push(te_limit);
-    }
-    if (k_limit !== undefined) {
-      updates.push(`k_limit = $${paramCount++}`);
-      values.push(k_limit);
-    }
-    if (def_limit !== undefined) {
-      updates.push(`def_limit = $${paramCount++}`);
-      values.push(def_limit);
-    }
-    
-    updates.push(`updated_at = CURRENT_TIMESTAMP`);
-    values.push(settingsId);
-    
-    const result = await pool.query(`
-      UPDATE game_settings 
-      SET ${updates.join(', ')}
-      WHERE id = $${paramCount}
-      RETURNING *
-    `, values);
-    
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Update settings error:', error);
-    res.status(500).json({ error: 'Failed to update settings' });
-  }
-});
-
-// ============================================
-// PROPER SLEEPER PLAYER SYNC
-// Replace the existing /api/admin/sync-players endpoint
-// ============================================
-
-app.post('/api/admin/sync-players', verifyAdmin, async (req, res) => {
-  try {
-    console.log('Starting player sync from Sleeper...');
-    
-    // Fetch ALL players from Sleeper (5MB file, cache this!)
-    const response = await fetch('https://api.sleeper.app/v1/players/nfl');
-    
-    if (!response.ok) {
-      throw new Error(`Sleeper API returned ${response.status}`);
-    }
-    
-    const allPlayers = await response.json();
-    console.log(`Fetched ${Object.keys(allPlayers).length} players from Sleeper`);
-    
-    // Filter to active players only
-    const activePlayers = Object.entries(allPlayers).filter(([playerId, player]) => {
-      return player.active === true && 
-             player.fantasy_positions && 
-             player.fantasy_positions.length > 0;
-    });
-    
-    console.log(`Found ${activePlayers.length} active fantasy players`);
-    
-    let insertedCount = 0;
-    let updatedCount = 0;
-    let skippedCount = 0;
-    
-    // Insert or update each player
-    for (const [sleeperId, player] of activePlayers) {
-      try {
-        // Determine primary position
-        const position = player.position || player.fantasy_positions[0] || 'UNKNOWN';
-        
-        // Check if player exists
-        const existingPlayer = await pool.query(
-          'SELECT id FROM players WHERE sleeper_id = $1',
-          [sleeperId]
-        );
-        
-        if (existingPlayer.rows.length > 0) {
-          // Update existing player
-          await pool.query(`
-            UPDATE players 
-            SET 
-              full_name = $1,
-              first_name = $2,
-              last_name = $3,
-              position = $4,
-              team = $5,
-              number = $6,
-              status = $7,
-              injury_status = $8,
-              years_exp = $9,
-              is_active = $10,
-              updated_at = NOW()
-            WHERE sleeper_id = $11
-          `, [
-            `${player.first_name || ''} ${player.last_name || ''}`.trim(),
-            player.first_name || '',
-            player.last_name || '',
-            position,
-            player.team || null,
-            player.number ? parseInt(player.number) : null,
-            player.status || 'Unknown',
-            player.injury_status || null,
-            player.years_exp || 0,
-            player.active === true,
-            sleeperId
-          ]);
-          updatedCount++;
-        } else {
-          // Insert new player
-          await pool.query(`
-            INSERT INTO players (
-              id,
-              sleeper_id,
-              full_name,
-              first_name,
-              last_name,
-              position,
-              team,
-              number,
-              status,
-              injury_status,
-              years_exp,
-              is_active,
-              created_at,
-              updated_at
-            ) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
-          `, [
-            sleeperId,
-            `${player.first_name || ''} ${player.last_name || ''}`.trim(),
-            player.first_name || '',
-            player.last_name || '',
-            position,
-            player.team || null,
-            player.number ? parseInt(player.number) : null,
-            player.status || 'Unknown',
-            player.injury_status || null,
-            player.years_exp || 0,
-            player.active === true
-          ]);
-          insertedCount++;
-        }
-      } catch (error) {
-        console.error(`Error syncing player ${sleeperId}:`, error);
-        skippedCount++;
-      }
-    }
-    
-    console.log(`Player sync complete: ${insertedCount} inserted, ${updatedCount} updated, ${skippedCount} skipped`);
-    
-    res.json({
-      success: true,
-      inserted: insertedCount,
-      updated: updatedCount,
-      skipped: skippedCount,
-      total: insertedCount + updatedCount,
-      message: `Synced ${insertedCount + updatedCount} players from Sleeper`
-    });
-    
-  } catch (error) {
-    console.error('Player sync error:', error);
-    res.status(500).json({ 
-      error: 'Failed to sync players',
-      details: error.message 
-    });
-  }
-});
-
-// Get game status and week configuration
-app.get('/api/game/status', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        playoff_start_week,
-        current_playoff_week,
-        season_year,
-        CASE 
-          WHEN current_playoff_week = 0 THEN 'Not Started'
-          WHEN current_playoff_week = 1 THEN 'Wild Card Round'
-          WHEN current_playoff_week = 2 THEN 'Divisional Round'
-          WHEN current_playoff_week = 3 THEN 'Conference Championships'
-          WHEN current_playoff_week = 4 THEN 'Super Bowl'
-          ELSE 'Season Complete'
-        END as current_round,
-        (playoff_start_week + current_playoff_week - 1) as current_nfl_week
-      FROM game_settings 
-      LIMIT 1
-    `);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Game settings not found' });
-    }
-    
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Get game status error:', error);
-    res.status(500).json({ error: 'Failed to get game status' });
-  }
-});
-
-// Admin: Configure playoff start week
-app.post('/api/admin/game/configure', verifyAdmin, async (req, res) => {
-  const { playoff_start_week, season_year } = req.body;
+  console.log(`Starting live stats polling for week ${currentWeek}...`);
   
-  if (!playoff_start_week) {
-    return res.status(400).json({ error: 'playoff_start_week required' });
-  }
+  // Initial update
+  await updateLiveStats(currentWeek);
   
-  try {
-    const result = await pool.query(`
-      UPDATE game_settings 
-      SET 
-        playoff_start_week = $1,
-        season_year = $2,
-        updated_at = NOW()
-      RETURNING *
-    `, [playoff_start_week, season_year || '2024']);
-    
-    console.log(`Game configured: Start Week ${playoff_start_week}, Season ${season_year || '2024'}`);
-    
-    res.json({
-      success: true,
-      message: `Playoff start week set to ${playoff_start_week}`,
-      settings: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Configure game error:', error);
-    res.status(500).json({ error: 'Failed to configure game' });
-  }
-});
-
-// Admin: Activate playoff week
-app.post('/api/admin/game/activate-week', verifyAdmin, async (req, res) => {
-  const { playoff_week } = req.body;
-  
-  if (!playoff_week || playoff_week < 1 || playoff_week > 4) {
-    return res.status(400).json({ error: 'playoff_week must be 1-4' });
-  }
-  
-  try {
-    const result = await pool.query(`
-      UPDATE game_settings 
-      SET 
-        current_playoff_week = $1,
-        updated_at = NOW()
-      RETURNING 
-        playoff_start_week,
-        current_playoff_week,
-        (playoff_start_week + $1 - 1) as nfl_week
-    `, [playoff_week]);
-    
-    const settings = result.rows[0];
-    
-    console.log(`Activated Playoff Week ${playoff_week} (NFL Week ${settings.nfl_week})`);
-    
-    res.json({
-      success: true,
-      message: `Activated playoff week ${playoff_week}`,
-      playoff_week: playoff_week,
-      nfl_week: settings.nfl_week
-    });
-  } catch (error) {
-    console.error('Activate week error:', error);
-    res.status(500).json({ error: 'Failed to activate week' });
-  }
-});
-
-// Admin: Get week mapping (for UI display)
-app.get('/api/admin/game/week-mapping', async (req, res) => {
-  const { user_id } = req.query;
-  
-  if (!user_id) {
-    return res.status(401).json({ error: 'User ID required' });
-  }
-  
-  try {
-    // Verify admin
-    const userResult = await pool.query('SELECT is_admin FROM users WHERE id = $1', [user_id]);
-    if (userResult.rows.length === 0 || !userResult.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Get playoff_start_week from game_settings
-    const settingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
-    const startWeek = settingsResult.rows[0]?.playoff_start_week || 19;
-    
-    const mapping = [
-      { playoff_week: 1, display_name: 'Wild Card', nfl_week: startWeek },
-      { playoff_week: 2, display_name: 'Divisional', nfl_week: startWeek + 1 },
-      { playoff_week: 3, display_name: 'Conference', nfl_week: startWeek + 2 },
-      { playoff_week: 4, display_name: 'Super Bowl', nfl_week: startWeek + 3 }
-    ];
-    
-    res.json({
-      playoff_start_week: startWeek,
-      mapping: mapping
-    });
-  } catch (error) {
-    console.error('Get week mapping error:', error);
-    res.status(500).json({ error: 'Failed to get week mapping' });
-  }
-});
-
-// ============================================
-// SCORE SYNC ENDPOINTS
-// ============================================
-
-// UPDATED: Score sync now uses dynamic week calculation
-app.post('/api/admin/sync-scores', verifyAdmin, async (req, res) => {
-  const { playoff_week, force_nfl_week, season } = req.body;
-  
-  if (!playoff_week && !force_nfl_week) {
-    return res.status(400).json({ error: 'playoff_week or force_nfl_week required' });
-  }
-  
-  try {
-    console.log(`Starting score sync for Playoff Week ${playoff_week || 'N/A'}`);;
-    
-    // Get game settings
-    const settingsResult = await pool.query(`
-      SELECT playoff_start_week, season_year FROM game_settings LIMIT 1
-    `);
-    
-    if (settingsResult.rows.length === 0) {
-      return res.status(500).json({ error: 'Game settings not configured' });
-    }
-    
-    const settings = settingsResult.rows[0];
-    // Use season from request body, fallback to settings, then '2024'
-    const seasonYear = season || settings.season_year || '2024';
-    
-    // Calculate NFL week
-    const nflWeek = force_nfl_week || (settings.playoff_start_week + playoff_week - 1);
-    
-    console.log(`Using NFL Week ${nflWeek} for Season ${seasonYear}`); 
-    
-    // Get all picks for this playoff week
-    const picksResult = await pool.query(`
-      SELECT DISTINCT ON (p.player_id)
-        p.id as pick_id,
-        p.user_id,
-        p.player_id,
-        p.week_number as playoff_week,
-        COALESCE(p.multiplier, 1.0) as multiplier,
-        COALESCE(p.consecutive_weeks, 0) as consecutive_weeks,
-        COALESCE(pl.sleeper_id, pl.id) as sleeper_id,
-        pl.full_name as full_name,
-        pl.position
-      FROM picks p
-      JOIN players pl ON p.player_id = pl.id
-      WHERE p.week_number = $1 AND COALESCE(pl.sleeper_id, pl.id) IS NOT NULL
-    `, [playoff_week]);
-    
-    const picks = picksResult.rows;
-    console.log(`Found ${picks.length} picks for Playoff Week ${playoff_week}`);
-    
-    if (picks.length === 0) {
-      return res.json({ 
-        success: true, 
-        message: 'No picks found for this week',
-        scores_updated: 0,
-        nfl_week: nflWeek
-      });
-    }
-    
-    // Fetch stats from Sleeper API
-    const sleeperStatsUrl = `https://api.sleeper.app/v1/stats/nfl/${seasonYear}/${nflWeek}`;
-    console.log(`Fetching from: ${sleeperStatsUrl}`);
-    
-    const sleeperResponse = await fetch(sleeperStatsUrl);
-    
-    if (!sleeperResponse.ok) {
-      throw new Error(`Sleeper API returned ${sleeperResponse.status}`);
-    }
-    
-    const sleeperStats = await sleeperResponse.json();
-    console.log(`Fetched stats for ${Object.keys(sleeperStats).length} players from Sleeper`);
-    
-    // Get scoring rules
-    const rulesResult = await pool.query('SELECT * FROM scoring_rules WHERE is_active = true');
-    const scoringRules = rulesResult.rows.reduce((acc, rule) => {
-      acc[rule.stat_name] = parseFloat(rule.points);
-      return acc;
-    }, {});
-    
-    console.log(`Loaded ${Object.keys(scoringRules).length} scoring rules`);
-    
-    // Calculate and save scores for each pick
-    let updatedCount = 0;
-    let errors = [];
-    
-    for (const pick of picks) {
-      try {
-        console.log(`Processing ${pick.full_name} - Sleeper ID: ${pick.sleeper_id}`);
-
-        const playerStats = sleeperStats[pick.sleeper_id];
-        
-        if (!playerStats) {
-          console.log(`No stats found for ${pick.full_name} (${pick.sleeper_id})`);
-          continue;
-        }
-
-        console.log(`Found stats for ${pick.full_name}:`, Object.keys(playerStats).slice(0, 5));
-        
-        // Calculate base points
-        let basePoints = 0;
-        const statBreakdown = {};
-        
-        // Apply each scoring rule
-        for (const [statName, statPoints] of Object.entries(scoringRules)) {
-          if (statName.includes('bonus')) continue;
-          
-          const statValue = parseFloat(playerStats[statName] || 0);
-          if (statValue !== 0) {
-            const points = statValue * statPoints;
-            basePoints += points;
-            statBreakdown[statName] = {
-              value: statValue,
-              points: statPoints,
-              total: points
-            };
-          }
-        }
-        
-        // Bonus yards
-        const passYards = parseFloat(playerStats.pass_yd || 0);
-        if (passYards >= 400 && scoringRules.pass_yd_bonus_400) {
-          const bonusPoints = scoringRules.pass_yd_bonus_400;
-          basePoints += bonusPoints;
-          statBreakdown['pass_yd_bonus_400'] = {
-            value: passYards,
-            points: bonusPoints,
-            total: bonusPoints
-          };
-        }
-        
-        const rushYards = parseFloat(playerStats.rush_yd || 0);
-        if (rushYards >= 150 && scoringRules.rush_yd_bonus_150) {
-          const bonusPoints = scoringRules.rush_yd_bonus_150;
-          basePoints += bonusPoints;
-          statBreakdown['rush_yd_bonus_150'] = {
-            value: rushYards,
-            points: bonusPoints,
-            total: bonusPoints
-          };
-        }
-        
-        const recYards = parseFloat(playerStats.rec_yd || 0);
-        if (recYards >= 150 && scoringRules.rec_yd_bonus_150) {
-          const bonusPoints = scoringRules.rec_yd_bonus_150;
-          basePoints += bonusPoints;
-          statBreakdown['rec_yd_bonus_150'] = {
-            value: recYards,
-            points: bonusPoints,
-            total: bonusPoints
-          };
-        }
-        
-        // Defense points allowed
-        if (pick.position === 'DEF') {
-          const ptsAllow = parseFloat(playerStats.pts_allow || 0);
-          let ptsAllowRule = null;
-          
-          if (ptsAllow === 0) ptsAllowRule = 'pts_allow_0';
-          else if (ptsAllow >= 1 && ptsAllow <= 6) ptsAllowRule = 'pts_allow_1_6';
-          else if (ptsAllow >= 7 && ptsAllow <= 13) ptsAllowRule = 'pts_allow_7_13';
-          else if (ptsAllow >= 14 && ptsAllow <= 20) ptsAllowRule = 'pts_allow_14_20';
-          else if (ptsAllow >= 21 && ptsAllow <= 27) ptsAllowRule = 'pts_allow_21_27';
-          else if (ptsAllow >= 28 && ptsAllow <= 34) ptsAllowRule = 'pts_allow_28_34';
-          else if (ptsAllow >= 35) ptsAllowRule = 'pts_allow_35p';
-          
-          if (ptsAllowRule && scoringRules[ptsAllowRule]) {
-            const points = scoringRules[ptsAllowRule];
-            basePoints += points;
-            statBreakdown[ptsAllowRule] = {
-              value: ptsAllow,
-              points: points,
-              total: points
-            };
-          }
-        }
-        
-        // Apply multiplier
-        const multiplier = parseFloat(pick.multiplier) || 1.0;
-        const finalPoints = basePoints * multiplier;
-        
-        console.log(`${pick.full_name}: Base=${basePoints.toFixed(2)}, Multiplier=${multiplier}x, Final=${finalPoints.toFixed(2)}`);
-        
-        // Save to database (using playoff_week)
-        await pool.query(`
-          INSERT INTO scores (
-            user_id, 
-            player_id, 
-            week_number, 
-            base_points, 
-            multiplier, 
-            final_points,
-            stats_json,
-            updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-          ON CONFLICT (user_id, player_id, week_number)
-          DO UPDATE SET 
-            base_points = $4,
-            multiplier = $5,
-            final_points = $6,
-            stats_json = $7,
-            updated_at = NOW()
-        `, [
-          pick.user_id,
-          pick.player_id,
-          pick.playoff_week,
-          basePoints.toFixed(2),
-          multiplier,
-          finalPoints.toFixed(2),
-          JSON.stringify({ ...playerStats, breakdown: statBreakdown, nfl_week: nflWeek })
-        ]);
-        
-        updatedCount++;
-      } catch (error) {
-        console.error(`Error processing pick ${pick.pick_id}:`, error);
-        errors.push({
-          player: pick.full_name,
-          error: error.message
-        });
-      }
-    }
-    
-    console.log(`Score sync complete: ${updatedCount} scores updated`);
-    
-    res.json({ 
-      success: true,
-      scores_updated: updatedCount,
-      total_picks: picks.length,
-      playoff_week: playoff_week,
-      nfl_week: nflWeek,
-      season: season,
-      errors: errors.length > 0 ? errors : undefined,
-      message: `Synced scores for ${updatedCount} out of ${picks.length} picks (NFL Week ${nflWeek})`
-    });
-    
-  } catch (error) {
-    console.error('Sync scores error:', error);
-    res.status(500).json({ 
-      error: 'Failed to sync scores', 
-      details: error.message 
-    });
-  }
-});
-
-// Helper endpoint to test week calculations
-app.get('/api/admin/game/test-weeks', verifyAdmin, async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT playoff_start_week FROM game_settings LIMIT 1
-    `);
-    
-    const startWeek = result.rows[0]?.playoff_start_week || 19;
-    
-    const testCases = [];
-    for (let i = 1; i <= 4; i++) {
-      testCases.push({
-        playoff_week: i,
-        nfl_week: startWeek + (i - 1),
-        round_name: ['Wild Card', 'Divisional', 'Conference', 'Super Bowl'][i - 1]
-      });
-    }
-    
-    res.json({
-      playoff_start_week: startWeek,
-      test_cases: testCases
-    });
-  } catch (error) {
-    console.error('Test weeks error:', error);
-    res.status(500).json({ error: 'Failed to test weeks' });
-  }
-});
-
-// Get scores for a specific user and week
-app.get('/api/scores/user/:userId/week/:weekNumber', async (req, res) => {
-  const { userId, weekNumber } = req.params;
-  
-  try {
-    const result = await pool.query(`
-      SELECT 
-        s.*,
-        p.full_name,
-        p.position,
-        p.team,
-        pi.consecutive_weeks,
-        pi.multiplier as pick_multiplier
-      FROM scores s
-      JOIN players p ON s.player_id = p.id
-      LEFT JOIN picks pi ON s.user_id = pi.user_id 
-        AND s.player_id = pi.player_id 
-        AND s.week_number = pi.week_number
-      WHERE s.user_id = $1 AND s.week_number = $2
-      ORDER BY p.position, s.final_points DESC
-    `, [userId, weekNumber]);
-    
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get scores error:', error);
-    res.status(500).json({ error: 'Failed to fetch scores' });
-  }
-});
-
-// Get all scores for a specific week (for leaderboard)
-app.get('/api/scores/week/:weekNumber', async (req, res) => {
-  const { weekNumber } = req.params;
-  
-  try {
-    const result = await pool.query(`
-      SELECT 
-        u.id,
-        u.username,
-        u.team_name,
-        u.paid,
-        SUM(s.final_points) as week_points
-      FROM users u
-      JOIN scores s ON u.id = s.user_id
-      WHERE s.week_number = $1
-      GROUP BY u.id, u.username, u.team_name, u.paid
-      ORDER BY week_points DESC
-    `, [weekNumber]);
-    
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get week scores error:', error);
-    res.status(500).json({ error: 'Failed to fetch week scores' });
-  }
-});
-
-// Get player stats breakdown (detailed view)
-app.get('/api/scores/:scoreId/breakdown', async (req, res) => {
-  const { scoreId } = req.params;
-  
-  try {
-    const result = await pool.query(`
-      SELECT 
-        s.id,
-        s.base_points,
-        s.multiplier,
-        s.final_points,
-        s.stats_json,
-        p.full_name,
-        p.position,
-        p.team
-      FROM scores s
-      JOIN players p ON s.player_id = p.id
-      WHERE s.id = $1
-    `, [scoreId]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Score not found' });
-    }
-    
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Get score breakdown error:', error);
-    res.status(500).json({ error: 'Failed to fetch score breakdown' });
-  }
-});
-
-// Admin: Manual score override (for corrections)
-app.put('/api/admin/scores/:scoreId', verifyAdmin, async (req, res) => {
-  const { scoreId } = req.params;
-  const { base_points, notes } = req.body;
-  
-  if (base_points === undefined) {
-    return res.status(400).json({ error: 'base_points required' });
-  }
-  
-  try {
-    // Get current score to recalculate final points with multiplier
-    const currentResult = await pool.query('SELECT multiplier FROM scores WHERE id = $1', [scoreId]);
-    
-    if (currentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Score not found' });
-    }
-    
-    const multiplier = currentResult.rows[0].multiplier || 1.0;
-    const finalPoints = base_points * multiplier;
-    
-    const result = await pool.query(`
-      UPDATE scores 
-      SET base_points = $1, final_points = $2, updated_at = NOW()
-      WHERE id = $3
-      RETURNING *
-    `, [base_points, finalPoints, scoreId]);
-    
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Update score error:', error);
-    res.status(500).json({ error: 'Failed to update score' });
-  }
-});
-
-// Get available weeks (weeks that have picks)
-app.get('/api/weeks/available', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT DISTINCT week_number
-      FROM picks
-      ORDER BY week_number
-    `);
-    
-    const weeks = result.rows.map(row => ({
-      week_number: row.week_number,
-      display_name: getWeekDisplayName(row.week_number)
-    }));
-    
-    res.json(weeks);
-  } catch (error) {
-    console.error('Get available weeks error:', error);
-    res.status(500).json({ error: 'Failed to fetch available weeks' });
-  }
-});
-
-// Helper function for week display names
-function getWeekDisplayName(weekNumber) {
-  const weekNames = {
-    1: 'Wild Card',
-    2: 'Divisional',
-    3: 'Conference',
-    4: 'Super Bowl'
-  };
-  return weekNames[weekNumber] || `Week ${weekNumber}`;
+  // Poll every 2 minutes
+  liveStatsInterval = setInterval(async () => {
+    const config = await pool.query('SELECT current_playoff_week FROM game_settings LIMIT 1');
+    const week = config.rows[0]?.current_playoff_week || 1;
+    await updateLiveStats(week);
+  }, 2 * 60 * 1000);
 }
 
+// Start server
+app.listen(PORT, async () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Start live stats polling if in production
+  if (process.env.NODE_ENV === 'production') {
+    setTimeout(startLiveStatsPolling, 5000); // Start after 5 seconds
+  }
+});
 
-
-// ============================================
-// START SERVER
-// ============================================
-
-app.listen(port, () => {
-  console.log(`Playoff Challenge API V2 listening on port ${port}`);
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, closing server...');
+  if (liveStatsInterval) clearInterval(liveStatsInterval);
+  process.exit(0);
 });
