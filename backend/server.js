@@ -793,7 +793,6 @@ app.get('/api/rules', async (req, res) => {
     const result = await pool.query(`
       SELECT id, section, content, display_order
       FROM rules_content
-      WHERE is_active = true
       ORDER BY display_order
     `);
     res.json(result.rows);
@@ -819,7 +818,6 @@ app.get('/api/payouts', async (req, res) => {
     const payoutsResult = await pool.query(`
       SELECT place, percentage
       FROM payouts
-      WHERE is_active = true
       ORDER BY place
     `);
     
