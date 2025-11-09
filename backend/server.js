@@ -1,10 +1,13 @@
 const express = require('express');
 const { Pool } = require('pg');
+const pg = require('pg');
 const cors = require('cors');
 const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+pg.types.setTypeParser(1700, (v) => v === null ? null : parseFloat(v));
 
 app.use(cors());
 app.use(express.json());
@@ -539,6 +542,45 @@ app.get('/api/admin/cache-status', (req, res) => {
   });
 });
 
+// Admin: Set active playoff week
+app.post('/api/admin/set-active-week', async (req, res) => {
+  try {
+    const { userId, weekNumber } = req.body;
+    
+    if (!userId || !weekNumber) {
+      return res.status(400).json({ error: 'userId and weekNumber required' });
+    }
+    
+    // Verify user is admin
+    const userCheck = await pool.query(
+      'SELECT is_admin FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    if (userCheck.rows.length === 0 || !userCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Update the playoff_start_week setting
+    await pool.query(
+      `INSERT INTO game_settings (setting_key, setting_value, updated_by, updated_at)
+       VALUES ('playoff_start_week', $1, $2, NOW())
+       ON CONFLICT (setting_key) 
+       DO UPDATE SET setting_value = $1, updated_by = $2, updated_at = NOW()`,
+      [weekNumber.toString(), userId]
+    );
+    
+    res.json({ 
+      success: true, 
+      message: `Active week set to ${weekNumber}`,
+      weekNumber 
+    });
+  } catch (err) {
+    console.error('Error setting active week:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==============================================
 // USER REGISTRATION / LOGIN
 // ==============================================
@@ -814,44 +856,47 @@ app.get('/api/rules', async (req, res) => {
 // Get payouts structure
 app.get('/api/payouts', async (req, res) => {
   try {
-    // Get game settings for entry amount
-    const settingsResult = await pool.query('SELECT entry_amount FROM game_settings LIMIT 1');
-    const entryAmount = settingsResult.rows[0]?.entry_amount || 50;
-    
-    // Count paid users
-    const paidResult = await pool.query('SELECT COUNT(*) as count FROM users WHERE paid = true');
-    const paidUsers = parseInt(paidResult.rows[0]?.count || 0);
-    
-    // Get payout structure
+    const settingsResult = await pool.query(`
+      SELECT entry_amount::float8 AS entry_amount
+      FROM game_settings
+      LIMIT 1
+    `);
+    const entryAmount = settingsResult.rows[0]?.entry_amount || 50.0;
+
+    const paidResult = await pool.query(`
+      SELECT COUNT(*)::int AS count
+      FROM users
+      WHERE paid = true
+    `);
+    const paidUsers = paidResult.rows[0]?.count || 0;
+
     const payoutsResult = await pool.query(`
-      SELECT place, percentage, description
+      SELECT place, percentage::float8 AS percentage, description
       FROM payouts
       ORDER BY place
     `);
-    
+
     const totalPot = paidUsers * entryAmount;
-    
     const payouts = payoutsResult.rows.map((p, index) => ({
       id: index + 1,
       place: p.place,
-      percentage: parseFloat(p.percentage),
+      percentage: p.percentage,
       description: p.description || null,
-      amount: (totalPot * (parseFloat(p.percentage) / 100)).toFixed(2)
+      amount: parseFloat((totalPot * (p.percentage / 100)).toFixed(2))
     }));
-    
+
     res.json({
       entry_amount: entryAmount,
       paid_users: paidUsers,
-      total_pot: totalPot.toFixed(2),
-      payouts: payouts
+      total_pot: parseFloat(totalPot.toFixed(2)),
+      payouts
     });
   } catch (err) {
     console.error('Error fetching payouts:', err);
-    // Return default structure if tables don't exist
     res.json({
-      entry_amount: 50,
+      entry_amount: 50.0,
       paid_users: 0,
-      total_pot: "0.00",
+      total_pot: 0.0,
       payouts: []
     });
   }
