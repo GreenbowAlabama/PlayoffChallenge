@@ -760,6 +760,95 @@ app.put('/api/admin/position-requirements/:id', async (req, res) => {
   }
 });
 
+// ==============================================
+// PUBLIC ROUTES (Leaderboard, Rules, Payouts)
+// ==============================================
+
+// Get leaderboard
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        u.id,
+        u.username,
+        u.email,
+        u.name,
+        COALESCE(SUM(s.final_points), 0) as total_points
+      FROM users u
+      LEFT JOIN scores s ON u.id = s.user_id
+      WHERE u.paid = true
+      GROUP BY u.id, u.username, u.email, u.name
+      ORDER BY total_points DESC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching leaderboard:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get rules content
+app.get('/api/rules', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, section, content, display_order
+      FROM rules_content
+      WHERE is_active = true
+      ORDER BY display_order
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching rules:', err);
+    // Return empty array if table doesn't exist yet
+    res.json([]);
+  }
+});
+
+// Get payouts structure
+app.get('/api/payouts', async (req, res) => {
+  try {
+    // Get game settings for entry amount
+    const settingsResult = await pool.query('SELECT entry_amount FROM game_settings LIMIT 1');
+    const entryAmount = settingsResult.rows[0]?.entry_amount || 50;
+    
+    // Count paid users
+    const paidResult = await pool.query('SELECT COUNT(*) as count FROM users WHERE paid = true');
+    const paidUsers = parseInt(paidResult.rows[0]?.count || 0);
+    
+    // Get payout structure
+    const payoutsResult = await pool.query(`
+      SELECT place, percentage
+      FROM payouts
+      WHERE is_active = true
+      ORDER BY place
+    `);
+    
+    const totalPot = paidUsers * entryAmount;
+    
+    const payouts = payoutsResult.rows.map(p => ({
+      place: p.place,
+      percentage: parseFloat(p.percentage),
+      amount: totalPot * (parseFloat(p.percentage) / 100)
+    }));
+    
+    res.json({
+      entry_amount: entryAmount,
+      paid_users: paidUsers,
+      total_pot: totalPot,
+      payouts: payouts
+    });
+  } catch (err) {
+    console.error('Error fetching payouts:', err);
+    // Return default structure if tables don't exist
+    res.json({
+      entry_amount: 50,
+      paid_users: 0,
+      total_pot: 0,
+      payouts: []
+    });
+  }
+});
+
 // Start server
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
