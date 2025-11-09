@@ -633,6 +633,24 @@ app.get('/api/picks/:userId', async (req, res) => {
   }
 });
 
+// Alternative route for picks (handles /api/picks/user/:userId)
+app.get('/api/picks/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await pool.query(`
+      SELECT pk.*, p.full_name, p.position, p.team
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id
+      WHERE pk.user_id = $1
+      ORDER BY pk.week_number, pk.position
+    `, [userId]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching picks:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Submit picks
 app.post('/api/picks', async (req, res) => {
   try {
@@ -658,6 +676,17 @@ app.get('/api/game-config', async (req, res) => {
     res.json(result.rows[0] || {});
   } catch (err) {
     console.error('Error fetching game config:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Alternative route for settings (same as game-config)
+app.get('/api/settings', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM game_settings LIMIT 1');
+    res.json(result.rows[0] || {});
+  } catch (err) {
+    console.error('Error fetching settings:', err);
     res.status(500).json({ error: err.message });
   }
 });
