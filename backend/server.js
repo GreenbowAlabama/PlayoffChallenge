@@ -773,11 +773,12 @@ app.get('/api/leaderboard', async (req, res) => {
         u.username,
         u.email,
         u.name,
+        u.paid as has_paid,
         COALESCE(SUM(s.final_points), 0) as total_points
       FROM users u
       LEFT JOIN scores s ON u.id = s.user_id
       WHERE u.paid = true
-      GROUP BY u.id, u.username, u.email, u.name
+      GROUP BY u.id, u.username, u.email, u.name, u.paid
       ORDER BY total_points DESC
     `);
     res.json(result.rows);
@@ -816,23 +817,25 @@ app.get('/api/payouts', async (req, res) => {
     
     // Get payout structure
     const payoutsResult = await pool.query(`
-      SELECT place, percentage
+      SELECT place, percentage, description
       FROM payouts
       ORDER BY place
     `);
     
     const totalPot = paidUsers * entryAmount;
     
-    const payouts = payoutsResult.rows.map(p => ({
+    const payouts = payoutsResult.rows.map((p, index) => ({
+      id: index + 1,
       place: p.place,
       percentage: parseFloat(p.percentage),
-      amount: totalPot * (parseFloat(p.percentage) / 100)
+      description: p.description || null,
+      amount: (totalPot * (parseFloat(p.percentage) / 100)).toFixed(2)
     }));
     
     res.json({
       entry_amount: entryAmount,
       paid_users: paidUsers,
-      total_pot: totalPot,
+      total_pot: totalPot.toFixed(2),
       payouts: payouts
     });
   } catch (err) {
@@ -841,7 +844,7 @@ app.get('/api/payouts', async (req, res) => {
     res.json({
       entry_amount: 50,
       paid_users: 0,
-      total_pot: 0,
+      total_pot: "0.00",
       payouts: []
     });
   }
