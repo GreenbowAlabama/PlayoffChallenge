@@ -561,11 +561,18 @@ app.post('/api/users', async (req, res) => {
     }
 
     // Create new user
+    // Generate a username: use name if available, else email, else random
+    let generatedUsername = name || email;
+    if (!generatedUsername) {
+      // Generate random username like "User_abc123"
+      generatedUsername = 'User_' + Math.random().toString(36).substring(2, 10);
+    }
+    
     const insert = await pool.query(
       `INSERT INTO users (id, apple_id, email, name, username, created_at, updated_at, paid)
-      VALUES (gen_random_uuid(), $1::text, $2::text, $3::text, COALESCE($3::text, $2::text), NOW(), NOW(), false)
+      VALUES (gen_random_uuid(), $1::text, $2::text, $3::text, $4::text, NOW(), NOW(), false)
       RETURNING *`,
-      [apple_id, email || null, name || null]
+      [apple_id, email || null, name || null, generatedUsername]
     );
 
     res.json(insert.rows[0]);
