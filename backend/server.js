@@ -700,6 +700,31 @@ app.get('/api/picks/user/:userId', async (req, res) => {
   }
 });
 
+// Get user picks
+app.get('/api/picks', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'userId required' });
+    }
+    
+    const result = await pool.query(
+      `SELECT p.*, pl.full_name, pl.position as player_position, pl.team 
+       FROM picks p
+       LEFT JOIN players pl ON p.player_id = pl.id
+       WHERE p.user_id = $1
+       ORDER BY p.week_number, p.position`,
+      [userId]
+    );
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error getting picks:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Submit picks
 app.post('/api/picks', async (req, res) => {
   try {
