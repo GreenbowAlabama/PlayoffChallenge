@@ -587,6 +587,8 @@ app.post('/api/admin/set-active-week', async (req, res) => {
 app.post('/api/users', async (req, res) => {
   try {
     const { apple_id, email, name } = req.body;
+    
+    console.log('POST /api/users - Received:', { apple_id, email, name });
 
     if (!apple_id) {
       return res.status(400).json({ error: 'apple_id is required' });
@@ -599,10 +601,29 @@ app.post('/api/users', async (req, res) => {
     );
 
     if (result.rows.length > 0) {
-      return res.json(result.rows[0]);
+      const existingUser = result.rows[0];
+      console.log('Found existing user:', existingUser.id);
+      
+      // Update email/name if provided and currently NULL
+      if ((email && !existingUser.email) || (name && !existingUser.name)) {
+        console.log('Updating user with new email/name');
+        const updateResult = await pool.query(
+          `UPDATE users 
+           SET email = COALESCE($1, email), 
+               name = COALESCE($2, name),
+               updated_at = NOW()
+           WHERE id = $3
+           RETURNING *`,
+          [email || null, name || null, existingUser.id]
+        );
+        return res.json(updateResult.rows[0]);
+      }
+      
+      return res.json(existingUser);
     }
 
     // Create new user
+    console.log('Creating new user...');
     // Generate a username: use name if available, else email, else random
     let generatedUsername = name || email;
     if (!generatedUsername) {
@@ -617,6 +638,7 @@ app.post('/api/users', async (req, res) => {
       [apple_id, email || null, name || null, generatedUsername]
     );
 
+    console.log('Created new user:', insert.rows[0].id);
     res.json(insert.rows[0]);
   } catch (err) {
     console.error('Error in /api/users:', err);
@@ -841,14 +863,15 @@ app.put('/api/admin/position-requirements/:id', async (req, res) => {
 // Get all users (admin only)
 app.get('/api/admin/users', async (req, res) => {
   try {
-    const { user_id } = req.query;
+    const { user_id, adminId } = req.query;
+    const requestingUserId = user_id || adminId; // Accept either parameter name
     
-    if (!user_id) {
-      return res.status(400).json({ error: 'user_id parameter required' });
+    if (!requestingUserId) {
+      return res.status(400).json({ error: 'user_id or adminId parameter required' });
     }
     
     // Verify requesting user is admin
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [user_id]);
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [requestingUserId]);
     if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
