@@ -26,9 +26,16 @@ const liveStatsCache = {
   activeGameIds: new Set()
 };
 
+// Player cache
+let playersCache = {
+  data: [],
+  lastUpdate: null
+};
+
 // Cache duration in milliseconds
 const SCOREBOARD_CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const GAME_SUMMARY_CACHE_MS = 90 * 1000; // 90 seconds
+const PLAYERS_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
 // Helper: Map ESPN athlete ID to our player ID
 async function mapESPNAthleteToPlayer(athleteId, athleteName) {
@@ -272,85 +279,6 @@ async function fetchGameSummary(gameId) {
   }
 }
 
-async function savePlayerScoresToDatabase(weekNumber) {
-  try {
-    console.log(`Saving scores for week ${weekNumber}...`);
-    
-    // Get all user picks for this week
-    const picksResult = await pool.query(`
-      SELECT pk.id as pick_id, pk.user_id, pk.player_id, pk.position, pk.multiplier
-      FROM picks pk
-      WHERE pk.week_number = $1
-    `, [weekNumber]);
-    
-    for (const pick of picksResult.rows) {
-      // Check if player has cached stats
-      const player = await pool.query('SELECT espn_id FROM players WHERE id = $1', [pick.player_id]);
-      if (player.rows.length === 0 || !player.rows[0].espn_id) continue;
-      
-      const cachedStats = liveStatsCache.playerStats.get(player.rows[0].espn_id);
-      if (!cachedStats) continue;
-      
-      // Convert ESPN stats to scoring
-      const scoring = convertESPNStatsToScoring(cachedStats.stats);
-      const basePoints = calculateFantasyPoints(scoring);
-      const finalPoints = basePoints * pick.multiplier;
-      
-      // Upsert to scores table
-      await pool.query(`
-        INSERT INTO scores (id, user_id, player_id, pick_id, week_number, 
-                           pass_yd, pass_td, pass_int, pass_2pt,
-                           rush_yd, rush_td, rush_2pt,
-                           rec, rec_yd, rec_td, rec_2pt,
-                           fum_lost, base_points, final_points, created_at, updated_at)
-        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW())
-        ON CONFLICT (pick_id) DO UPDATE SET
-          pass_yd = $5, pass_td = $6, pass_int = $7, pass_2pt = $8,
-          rush_yd = $9, rush_td = $10, rush_2pt = $11,
-          rec = $12, rec_yd = $13, rec_td = $14, rec_2pt = $15,
-          fum_lost = $16, base_points = $17, final_points = $18, updated_at = NOW()
-      `, [
-        pick.user_id, pick.player_id, pick.pick_id, weekNumber,
-        scoring.pass_yd, scoring.pass_td, scoring.pass_int, scoring.pass_2pt,
-        scoring.rush_yd, scoring.rush_td, scoring.rush_2pt,
-        scoring.rec, scoring.rec_yd, scoring.rec_td, scoring.rec_2pt,
-        scoring.fum_lost, basePoints, finalPoints
-      ]);
-    }
-    
-    console.log(`Saved scores for ${picksResult.rows.length} picks`);
-  } catch (err) {
-    console.error('Error saving scores:', err);
-  }
-}
-
-// Helper to calculate fantasy points
-function calculateFantasyPoints(stats) {
-  let points = 0;
-  
-  // Passing
-  points += (stats.pass_yd / 25) * 1;  // 1 point per 25 yards
-  points += stats.pass_td * 4;          // 4 points per TD
-  points -= stats.pass_int * 2;        // -2 points per INT
-  points += stats.pass_2pt * 2;        // 2 points per 2PT conversion
-  
-  // Rushing
-  points += (stats.rush_yd / 10) * 1;  // 1 point per 10 yards
-  points += stats.rush_td * 6;          // 6 points per TD
-  points += stats.rush_2pt * 2;        // 2 points per 2PT conversion
-  
-  // Receiving
-  points += stats.rec * 0.5;            // 0.5 points per reception (PPR)
-  points += (stats.rec_yd / 10) * 1;   // 1 point per 10 yards
-  points += stats.rec_td * 6;           // 6 points per TD
-  points += stats.rec_2pt * 2;         // 2 points per 2PT conversion
-  
-  // Fumbles
-  points -= stats.fum_lost * 2;        // -2 points per fumble lost
-  
-  return Math.round(points * 100) / 100; // Round to 2 decimals
-}
-
 // Get teams that have active picks this week
 async function getActiveTeamsForWeek(weekNumber) {
   try {
@@ -393,8 +321,6 @@ async function updateLiveStats(weekNumber) {
         relevantGames.push(gameId);
       }
     }
-
-    await savePlayerScoresToDatabase(weekNumber);
     
     console.log(`Found ${relevantGames.length} relevant games out of ${activeGameIds.length} active`);
     
@@ -750,49 +676,35 @@ app.get('/api/users/:userId', async (req, res) => {
 
 // EXISTING ROUTES (keeping your original endpoints)
 
-// Get all players
-// Optimized players endpoint with pagination and filtering
+// Get all players (with caching)
 app.get('/api/players', async (req, res) => {
   try {
-    const { position, limit = 50, offset = 0 } = req.query;
+    const now = Date.now();
     
-    let query = `
-      SELECT id, sleeper_id, espn_id, first_name, last_name, full_name, 
-             position, team, depth_chart_order, is_active
-      FROM players
-      WHERE is_active = true
-    `;
-    
-    const params = [];
-    let paramIndex = 1;
-    
-    // Filter by position if specified
-    if (position) {
-      query += ` AND position = $${paramIndex}`;
-      params.push(position);
-      paramIndex++;
+    // Return cached data if fresh
+    if (playersCache.lastUpdate && 
+        (now - playersCache.lastUpdate) < PLAYERS_CACHE_MS &&
+        playersCache.data.length > 0) {
+      console.log(`✅ Returning ${playersCache.data.length} cached players`);
+      return res.json(playersCache.data);
     }
     
-    // Add ordering and pagination
-    query += ` ORDER BY position, depth_chart_order, full_name
-               LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit), parseInt(offset));
+    // Fetch fresh data
+    console.log('⏳ Fetching players from database...');
+    const result = await pool.query(`
+      SELECT id, sleeper_id, full_name, first_name, last_name, position, team, 
+             number, status, injury_status, is_active, available
+      FROM players 
+      WHERE is_active = true 
+      ORDER BY position, full_name
+    `);
     
-    const result = await pool.query(query, params);
+    // Update cache
+    playersCache.data = result.rows;
+    playersCache.lastUpdate = now;
+    console.log(`✅ Cached ${result.rows.length} players`);
     
-    // Get total count for pagination
-    const countQuery = position 
-      ? 'SELECT COUNT(*) FROM players WHERE is_active = true AND position = $1'
-      : 'SELECT COUNT(*) FROM players WHERE is_active = true';
-    const countParams = position ? [position] : [];
-    const countResult = await pool.query(countQuery, countParams);
-    
-    res.json({
-      players: result.rows,
-      total: parseInt(countResult.rows[0].count),
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
+    res.json(result.rows);
   } catch (err) {
     console.error('Error fetching players:', err);
     res.status(500).json({ error: err.message });
