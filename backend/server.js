@@ -738,6 +738,117 @@ app.get('/api/users/:userId', async (req, res) => {
 
 // EXISTING ROUTES (keeping your original endpoints)
 
+// Sync players from Sleeper API (admin only)
+app.post('/api/admin/sync-players', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'userId required' });
+    }
+    
+    // Verify user is admin
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [userId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    console.log('Fetching players from Sleeper API...');
+    
+    // Fetch all NFL players from Sleeper
+    const response = await axios.get('https://api.sleeper.app/v1/players/nfl');
+    const allPlayers = response.data;
+    
+    // NFL playoff teams (update this list as needed)
+    const playoffTeams = [
+      'KC', 'BUF', 'BAL', 'HOU', 'LAC', 'PIT', 'DEN', // AFC
+      'DET', 'PHI', 'LAR', 'TB', 'MIN', 'GB', 'WSH'  // NFC
+    ];
+    
+    // Filter to active players on playoff teams, top depth chart
+    const playoffPlayers = Object.values(allPlayers).filter(p => {
+      return p.active &&
+             p.team &&
+             playoffTeams.includes(p.team) &&
+             p.position &&
+             ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(p.position) &&
+             (p.depth_chart_order === 1 || p.depth_chart_order === 2 || p.position === 'K' || p.position === 'DEF');
+    });
+    
+    console.log(`Found ${playoffPlayers.length} playoff players to sync`);
+    
+    let inserted = 0;
+    let updated = 0;
+    
+    for (const player of playoffPlayers) {
+      try {
+        const result = await pool.query(`
+          INSERT INTO players (
+            id, sleeper_id, espn_id, first_name, last_name, full_name,
+            position, team, number, status, injury_status, 
+            depth_chart_order, is_active, available, created_at, updated_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, true, NOW(), NOW()
+          )
+          ON CONFLICT (sleeper_id) DO UPDATE SET
+            first_name = $4,
+            last_name = $5,
+            full_name = $6,
+            position = $7,
+            team = $8,
+            number = $9,
+            status = $10,
+            injury_status = $11,
+            depth_chart_order = $12,
+            is_active = true,
+            available = true,
+            updated_at = NOW()
+          RETURNING (xmax = 0) AS inserted
+        `, [
+          player.player_id || player.sleeper_id,
+          player.player_id,
+          player.espn_id || null,
+          player.first_name || '',
+          player.last_name || '',
+          player.full_name || `${player.first_name} ${player.last_name}`,
+          player.position,
+          player.team,
+          player.number ? player.number.toString() : null,
+          player.status || 'Active',
+          player.injury_status || null,
+          player.depth_chart_order || 99
+        ]);
+        
+        if (result.rows[0].inserted) {
+          inserted++;
+        } else {
+          updated++;
+        }
+      } catch (err) {
+        console.error(`Error syncing player ${player.full_name}:`, err.message);
+      }
+    }
+    
+    // Clear player cache so fresh data is fetched
+    playersCache.data = [];
+    playersCache.lastUpdate = null;
+    
+    console.log(`Player sync complete: ${inserted} inserted, ${updated} updated`);
+    
+    res.json({
+      success: true,
+      inserted,
+      updated,
+      total: inserted + updated
+    });
+    
+  } catch (err) {
+    console.error('Error syncing players:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get all players (with caching)
 app.get('/api/players', async (req, res) => {
   try {
