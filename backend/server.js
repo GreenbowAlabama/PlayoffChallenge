@@ -272,6 +272,85 @@ async function fetchGameSummary(gameId) {
   }
 }
 
+async function savePlayerScoresToDatabase(weekNumber) {
+  try {
+    console.log(`Saving scores for week ${weekNumber}...`);
+    
+    // Get all user picks for this week
+    const picksResult = await pool.query(`
+      SELECT pk.id as pick_id, pk.user_id, pk.player_id, pk.position, pk.multiplier
+      FROM picks pk
+      WHERE pk.week_number = $1
+    `, [weekNumber]);
+    
+    for (const pick of picksResult.rows) {
+      // Check if player has cached stats
+      const player = await pool.query('SELECT espn_id FROM players WHERE id = $1', [pick.player_id]);
+      if (player.rows.length === 0 || !player.rows[0].espn_id) continue;
+      
+      const cachedStats = liveStatsCache.playerStats.get(player.rows[0].espn_id);
+      if (!cachedStats) continue;
+      
+      // Convert ESPN stats to scoring
+      const scoring = convertESPNStatsToScoring(cachedStats.stats);
+      const basePoints = calculateFantasyPoints(scoring);
+      const finalPoints = basePoints * pick.multiplier;
+      
+      // Upsert to scores table
+      await pool.query(`
+        INSERT INTO scores (id, user_id, player_id, pick_id, week_number, 
+                           pass_yd, pass_td, pass_int, pass_2pt,
+                           rush_yd, rush_td, rush_2pt,
+                           rec, rec_yd, rec_td, rec_2pt,
+                           fum_lost, base_points, final_points, created_at, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW())
+        ON CONFLICT (pick_id) DO UPDATE SET
+          pass_yd = $5, pass_td = $6, pass_int = $7, pass_2pt = $8,
+          rush_yd = $9, rush_td = $10, rush_2pt = $11,
+          rec = $12, rec_yd = $13, rec_td = $14, rec_2pt = $15,
+          fum_lost = $16, base_points = $17, final_points = $18, updated_at = NOW()
+      `, [
+        pick.user_id, pick.player_id, pick.pick_id, weekNumber,
+        scoring.pass_yd, scoring.pass_td, scoring.pass_int, scoring.pass_2pt,
+        scoring.rush_yd, scoring.rush_td, scoring.rush_2pt,
+        scoring.rec, scoring.rec_yd, scoring.rec_td, scoring.rec_2pt,
+        scoring.fum_lost, basePoints, finalPoints
+      ]);
+    }
+    
+    console.log(`Saved scores for ${picksResult.rows.length} picks`);
+  } catch (err) {
+    console.error('Error saving scores:', err);
+  }
+}
+
+// Helper to calculate fantasy points
+function calculateFantasyPoints(stats) {
+  let points = 0;
+  
+  // Passing
+  points += (stats.pass_yd / 25) * 1;  // 1 point per 25 yards
+  points += stats.pass_td * 4;          // 4 points per TD
+  points -= stats.pass_int * 2;        // -2 points per INT
+  points += stats.pass_2pt * 2;        // 2 points per 2PT conversion
+  
+  // Rushing
+  points += (stats.rush_yd / 10) * 1;  // 1 point per 10 yards
+  points += stats.rush_td * 6;          // 6 points per TD
+  points += stats.rush_2pt * 2;        // 2 points per 2PT conversion
+  
+  // Receiving
+  points += stats.rec * 0.5;            // 0.5 points per reception (PPR)
+  points += (stats.rec_yd / 10) * 1;   // 1 point per 10 yards
+  points += stats.rec_td * 6;           // 6 points per TD
+  points += stats.rec_2pt * 2;         // 2 points per 2PT conversion
+  
+  // Fumbles
+  points -= stats.fum_lost * 2;        // -2 points per fumble lost
+  
+  return Math.round(points * 100) / 100; // Round to 2 decimals
+}
+
 // Get teams that have active picks this week
 async function getActiveTeamsForWeek(weekNumber) {
   try {
@@ -314,6 +393,8 @@ async function updateLiveStats(weekNumber) {
         relevantGames.push(gameId);
       }
     }
+
+    await savePlayerScoresToDatabase(weekNumber);
     
     console.log(`Found ${relevantGames.length} relevant games out of ${activeGameIds.length} active`);
     
@@ -927,6 +1008,43 @@ app.put('/api/admin/users/:id/payment', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error updating user payment:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete user (admin only)
+app.delete('/api/admin/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_id, adminId } = req.query;
+    const requestingUserId = user_id || adminId;
+    
+    if (!requestingUserId) {
+      return res.status(400).json({ error: 'user_id or adminId parameter required' });
+    }
+    
+    // Verify requesting user is admin
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [requestingUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Delete user's picks first (foreign key constraint)
+    await pool.query('DELETE FROM picks WHERE user_id = $1', [id]);
+    
+    // Delete user's scores
+    await pool.query('DELETE FROM scores WHERE user_id = $1', [id]);
+    
+    // Delete the user
+    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({ success: true, deletedUser: result.rows[0] });
+  } catch (err) {
+    console.error('Error deleting user:', err);
     res.status(500).json({ error: err.message });
   }
 });
