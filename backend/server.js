@@ -835,6 +835,80 @@ app.put('/api/admin/position-requirements/:id', async (req, res) => {
 });
 
 // ==============================================
+// ADMIN USER MANAGEMENT ROUTES
+// ==============================================
+
+// Get all users (admin only)
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    const { user_id } = req.query;
+    
+    if (!user_id) {
+      return res.status(400).json({ error: 'user_id parameter required' });
+    }
+    
+    // Verify requesting user is admin
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [user_id]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Get all users
+    const result = await pool.query(`
+      SELECT 
+        id,
+        username,
+        email,
+        name,
+        paid,
+        is_admin,
+        apple_id,
+        created_at
+      FROM users 
+      ORDER BY username
+    `);
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching users:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update user payment status (admin only)
+app.put('/api/admin/users/:id/payment', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { has_paid, user_id } = req.body;
+    
+    if (!user_id) {
+      return res.status(400).json({ error: 'user_id required in request body' });
+    }
+    
+    // Verify requesting user is admin
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [user_id]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Update payment status
+    const result = await pool.query(
+      'UPDATE users SET paid = $1 WHERE id = $2 RETURNING *',
+      [has_paid, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating user payment:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==============================================
 // PUBLIC ROUTES (Leaderboard, Rules, Payouts)
 // ==============================================
 
