@@ -782,46 +782,65 @@ app.post('/api/admin/sync-players', async (req, res) => {
     
     for (const player of playoffPlayers) {
       try {
-        const result = await pool.query(`
-          INSERT INTO players (
-            id, sleeper_id, espn_id, first_name, last_name, full_name,
-            position, team, number, status, injury_status, 
-            is_active, available, created_at, updated_at
-          )
-          VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, true, NOW(), NOW()
-          )
-          ON CONFLICT (sleeper_id) DO UPDATE SET
-            first_name = $4,
-            last_name = $5,
-            full_name = $6,
-            position = $7,
-            team = $8,
-            number = $9,
-            status = $10,
-            injury_status = $11,
-            is_active = true,
-            available = true,
-            updated_at = NOW()
-          RETURNING (xmax = 0) AS inserted
-        `, [
-          player.player_id || player.sleeper_id,
-          player.player_id,
-          player.espn_id || null,
-          player.first_name || '',
-          player.last_name || '',
-          player.full_name || `${player.first_name} ${player.last_name}`,
-          player.position,
-          player.team,
-          player.number ? player.number.toString() : null,
-          player.status || 'Active',
-          player.injury_status || null
-        ]);
+        // Check if player already exists
+        const existing = await pool.query(
+          'SELECT id FROM players WHERE id = $1',
+          [player.player_id || player.sleeper_id]
+        );
         
-        if (result.rows[0].inserted) {
-          inserted++;
-        } else {
+        if (existing.rows.length > 0) {
+          // Update existing player
+          await pool.query(`
+            UPDATE players SET
+              first_name = $1,
+              last_name = $2,
+              full_name = $3,
+              position = $4,
+              team = $5,
+              number = $6,
+              status = $7,
+              injury_status = $8,
+              espn_id = $9,
+              is_active = true,
+              available = true,
+              updated_at = NOW()
+            WHERE id = $10
+          `, [
+            player.first_name || '',
+            player.last_name || '',
+            player.full_name || `${player.first_name} ${player.last_name}`,
+            player.position,
+            player.team,
+            player.number ? player.number.toString() : null,
+            player.status || 'Active',
+            player.injury_status || null,
+            player.espn_id || null,
+            player.player_id || player.sleeper_id
+          ]);
           updated++;
+        } else {
+          // Insert new player
+          await pool.query(`
+            INSERT INTO players (
+              id, sleeper_id, espn_id, first_name, last_name, full_name,
+              position, team, number, status, injury_status, 
+              is_active, available, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, true, NOW(), NOW())
+          `, [
+            player.player_id || player.sleeper_id,
+            player.player_id,
+            player.espn_id || null,
+            player.first_name || '',
+            player.last_name || '',
+            player.full_name || `${player.first_name} ${player.last_name}`,
+            player.position,
+            player.team,
+            player.number ? player.number.toString() : null,
+            player.status || 'Active',
+            player.injury_status || null
+          ]);
+          inserted++;
         }
       } catch (err) {
         console.error(`Error syncing player ${player.full_name}:`, err.message);
