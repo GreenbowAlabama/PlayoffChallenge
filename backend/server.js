@@ -188,6 +188,65 @@ function convertESPNStatsToScoring(espnStats) {
   return scoring;
 }
 
+// Save player scores to database
+async function savePlayerScoresToDatabase(weekNumber) {
+  try {
+    console.log(`Saving scores for week ${weekNumber}...`);
+    
+    // Get all user picks for this week
+    const picksResult = await pool.query(`
+      SELECT pk.id as pick_id, pk.user_id, pk.player_id, pk.position, pk.multiplier
+      FROM picks pk
+      WHERE pk.week_number = $1
+    `, [weekNumber]);
+    
+    let savedCount = 0;
+    
+    for (const pick of picksResult.rows) {
+      // Check if player has cached stats
+      const player = await pool.query('SELECT espn_id FROM players WHERE id = $1', [pick.player_id]);
+      if (player.rows.length === 0 || !player.rows[0].espn_id) continue;
+      
+      const cachedStats = liveStatsCache.playerStats.get(player.rows[0].espn_id);
+      if (!cachedStats) continue;
+      
+      // Convert ESPN stats to scoring
+      const scoring = convertESPNStatsToScoring(cachedStats.stats);
+      const basePoints = await calculateFantasyPoints(scoring);
+      const finalPoints = basePoints * pick.multiplier;
+      
+      // Upsert to scores table
+      await pool.query(`
+        INSERT INTO scores (id, user_id, player_id, pick_id, week_number, 
+                           pass_yd, pass_td, pass_int, pass_2pt,
+                           rush_yd, rush_td, rush_2pt,
+                           rec, rec_yd, rec_td, rec_2pt,
+                           fum_lost, base_points, final_points, created_at, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW())
+        ON CONFLICT (pick_id) DO UPDATE SET
+          pass_yd = $5, pass_td = $6, pass_int = $7, pass_2pt = $8,
+          rush_yd = $9, rush_td = $10, rush_2pt = $11,
+          rec = $12, rec_yd = $13, rec_td = $14, rec_2pt = $15,
+          fum_lost = $16, base_points = $17, final_points = $18, updated_at = NOW()
+      `, [
+        pick.user_id, pick.player_id, pick.pick_id, weekNumber,
+        scoring.pass_yd, scoring.pass_td, scoring.pass_int, scoring.pass_2pt,
+        scoring.rush_yd, scoring.rush_td, scoring.rush_2pt,
+        scoring.rec, scoring.rec_yd, scoring.rec_td, scoring.rec_2pt,
+        scoring.fum_lost, basePoints, finalPoints
+      ]);
+      
+      savedCount++;
+    }
+    
+    console.log(`Saved scores for ${savedCount} picks`);
+    return savedCount;
+  } catch (err) {
+    console.error('Error saving scores:', err);
+    return 0;
+  }
+}
+
 // Fetch scoreboard to get active games
 async function fetchScoreboard() {
   try {
@@ -333,6 +392,9 @@ async function updateLiveStats(weekNumber) {
       // Small delay to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 500));
     }
+    
+    // Step 5: Save scores to database
+    await savePlayerScoresToDatabase(weekNumber);
     
     return {
       success: true,
@@ -685,12 +747,12 @@ app.get('/api/players', async (req, res) => {
     if (playersCache.lastUpdate && 
         (now - playersCache.lastUpdate) < PLAYERS_CACHE_MS &&
         playersCache.data.length > 0) {
-      console.log(`✅ Returning ${playersCache.data.length} cached players`);
+      console.log(`Returning ${playersCache.data.length} cached players`);
       return res.json(playersCache.data);
     }
     
     // Fetch fresh data
-    console.log('⏳ Fetching players from database...');
+    console.log('Fetching players from database...');
     const result = await pool.query(`
       SELECT id, sleeper_id, full_name, first_name, last_name, position, team, 
              number, status, injury_status, is_active, available
@@ -702,7 +764,7 @@ app.get('/api/players', async (req, res) => {
     // Update cache
     playersCache.data = result.rows;
     playersCache.lastUpdate = now;
-    console.log(`✅ Cached ${result.rows.length} players`);
+    console.log(`Cached ${result.rows.length} players`);
     
     res.json(result.rows);
   } catch (err) {
