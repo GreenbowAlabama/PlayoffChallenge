@@ -879,15 +879,26 @@ app.get('/api/players', async (req, res) => {
       return res.json(playersCache.data);
     }
     
-    // Fetch fresh data
+    // Fetch fresh data - only available and active players
     console.log('Fetching players from database...');
+    
+    // Playoff teams only
+    const playoffTeams = [
+      'KC', 'BUF', 'BAL', 'HOU', 'LAC', 'PIT', 'DEN', // AFC
+      'DET', 'PHI', 'LAR', 'TB', 'MIN', 'GB', 'WSH'  // NFC
+    ];
+    
     const result = await pool.query(`
       SELECT id, sleeper_id, full_name, first_name, last_name, position, team, 
              number, status, injury_status, is_active, available
       FROM players 
       WHERE is_active = true 
-      ORDER BY position, full_name
-    `);
+        AND available = true
+        AND team = ANY($1)
+        AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
+      ORDER BY position, team, full_name
+      LIMIT 200
+    `, [playoffTeams]);
     
     // Update cache
     playersCache.data = result.rows;
