@@ -751,16 +751,48 @@ app.get('/api/users/:userId', async (req, res) => {
 // EXISTING ROUTES (keeping your original endpoints)
 
 // Get all players
+// Optimized players endpoint with pagination and filtering
 app.get('/api/players', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT id, sleeper_id, full_name, first_name, last_name, position, team, 
-             number, status, injury_status, is_active, available
-      FROM players 
-      WHERE is_active = true 
-      ORDER BY position, full_name
-    `);
-    res.json(result.rows);
+    const { position, limit = 50, offset = 0 } = req.query;
+    
+    let query = `
+      SELECT id, sleeper_id, espn_id, first_name, last_name, full_name, 
+             position, team, depth_chart_order, is_active
+      FROM players
+      WHERE is_active = true
+    `;
+    
+    const params = [];
+    let paramIndex = 1;
+    
+    // Filter by position if specified
+    if (position) {
+      query += ` AND position = $${paramIndex}`;
+      params.push(position);
+      paramIndex++;
+    }
+    
+    // Add ordering and pagination
+    query += ` ORDER BY position, depth_chart_order, full_name
+               LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit), parseInt(offset));
+    
+    const result = await pool.query(query, params);
+    
+    // Get total count for pagination
+    const countQuery = position 
+      ? 'SELECT COUNT(*) FROM players WHERE is_active = true AND position = $1'
+      : 'SELECT COUNT(*) FROM players WHERE is_active = true';
+    const countParams = position ? [position] : [];
+    const countResult = await pool.query(countQuery, countParams);
+    
+    res.json({
+      players: result.rows,
+      total: parseInt(countResult.rows[0].count),
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
   } catch (err) {
     console.error('Error fetching players:', err);
     res.status(500).json({ error: err.message });
