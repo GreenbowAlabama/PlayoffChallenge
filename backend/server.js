@@ -786,10 +786,10 @@ app.post('/api/admin/sync-players', async (req, res) => {
           INSERT INTO players (
             id, sleeper_id, espn_id, first_name, last_name, full_name,
             position, team, number, status, injury_status, 
-            depth_chart_order, is_active, available, created_at, updated_at
+            is_active, available, created_at, updated_at
           )
           VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, true, NOW(), NOW()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, true, NOW(), NOW()
           )
           ON CONFLICT (sleeper_id) DO UPDATE SET
             first_name = $4,
@@ -800,7 +800,6 @@ app.post('/api/admin/sync-players', async (req, res) => {
             number = $9,
             status = $10,
             injury_status = $11,
-            depth_chart_order = $12,
             is_active = true,
             available = true,
             updated_at = NOW()
@@ -816,8 +815,7 @@ app.post('/api/admin/sync-players', async (req, res) => {
           player.team,
           player.number ? player.number.toString() : null,
           player.status || 'Active',
-          player.injury_status || null,
-          player.depth_chart_order || 99
+          player.injury_status || null
         ]);
         
         if (result.rows[0].inserted) {
