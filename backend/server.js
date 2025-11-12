@@ -248,19 +248,21 @@ async function savePlayerScoresToDatabase(weekNumber) {
 }
 
 // Fetch scoreboard to get active games
-async function fetchScoreboard() {
+async function fetchScoreboard(weekNumber) {
   try {
     const now = Date.now();
     
-    // Check cache
+    // Check cache (include week in cache key)
+    const cacheKey = `week_${weekNumber}`;
     if (liveStatsCache.lastScoreboardUpdate && 
+        liveStatsCache.currentCachedWeek === weekNumber &&
         (now - liveStatsCache.lastScoreboardUpdate) < SCOREBOARD_CACHE_MS) {
       return Array.from(liveStatsCache.activeGameIds);
     }
     
-    console.log('Fetching ESPN scoreboard...');
+    console.log(`Fetching ESPN scoreboard for week ${weekNumber}...`);
     const response = await axios.get(
-      'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard'
+      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=2024&seasontype=2&week=${weekNumber}`
     );
     
     const activeGames = [];
@@ -288,6 +290,7 @@ async function fetchScoreboard() {
     }
     
     liveStatsCache.activeGameIds = new Set(activeGames);
+    liveStatsCache.currentCachedWeek = weekNumber;
     liveStatsCache.lastScoreboardUpdate = now;
     
     console.log(`Found ${activeGames.length} active games`);
@@ -361,8 +364,8 @@ async function updateLiveStats(weekNumber) {
   try {
     console.log(`\n=== Updating live stats for week ${weekNumber} ===`);
     
-    // Step 1: Get active games
-    const activeGameIds = await fetchScoreboard();
+    // Step 1: Get active games for this specific week
+    const activeGameIds = await fetchScoreboard(weekNumber);
     if (activeGameIds.length === 0) {
       console.log('No active games found');
       return { success: true, message: 'No active games', gamesUpdated: 0 };
