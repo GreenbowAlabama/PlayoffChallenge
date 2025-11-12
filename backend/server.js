@@ -188,45 +188,66 @@ function convertESPNStatsToScoring(espnStats) {
   return scoring;
 }
 
-// Fetch individual player stats from ESPN (more reliable than game summaries)
+// Fetch individual player stats from ESPN boxscore (more reliable than summaries)
 async function fetchPlayerStats(espnId, weekNumber) {
   try {
-    const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/athletes/${espnId}/statistics?season=2024&seasontype=2`;
-    const response = await axios.get(url);
-    
-    if (!response.data || !response.data.splits) {
-      return null;
+    // We need to find which game this player played in for this week
+    // This is a fallback, so we'll search through the active games
+    for (const gameId of liveStatsCache.activeGameIds) {
+      try {
+        const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
+        const response = await axios.get(url);
+        
+        if (!response.data || !response.data.boxscore) continue;
+        
+        const boxscore = response.data.boxscore;
+        if (!boxscore.players) continue;
+        
+        // Search through both teams
+        for (const team of boxscore.players) {
+          if (!team.statistics) continue;
+          
+          for (const statCategory of team.statistics) {
+            if (!statCategory.athletes) continue;
+            
+            for (const athlete of statCategory.athletes) {
+              if (athlete.athlete.id === espnId.toString()) {
+                // Found the player! Extract their stats
+                const stats = {};
+                
+                if (statCategory.name === 'passing') {
+                  stats.pass_yd = parseFloat(athlete.stats[0]) || 0; // Completions/attempts/yards format
+                  stats.pass_td = parseFloat(athlete.stats[2]) || 0;
+                  stats.pass_int = parseFloat(athlete.stats[3]) || 0;
+                }
+                
+                if (statCategory.name === 'rushing') {
+                  stats.rush_yd = parseFloat(athlete.stats[1]) || 0; // carries/yards
+                  stats.rush_td = parseFloat(athlete.stats[3]) || 0;
+                }
+                
+                if (statCategory.name === 'receiving') {
+                  stats.rec = parseFloat(athlete.stats[0]) || 0;
+                  stats.rec_yd = parseFloat(athlete.stats[1]) || 0;
+                  stats.rec_td = parseFloat(athlete.stats[3]) || 0;
+                }
+                
+                if (statCategory.name === 'fumbles') {
+                  stats.fum_lost = parseFloat(athlete.stats[1]) || 0;
+                }
+                
+                return stats;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // Continue to next game
+        continue;
+      }
     }
     
-    // Find the specific week's stats
-    const weekStats = response.data.splits.find(split => 
-      split.name === `Week ${weekNumber}` || 
-      split.week === weekNumber
-    );
-    
-    if (!weekStats || !weekStats.stats) {
-      return null;
-    }
-    
-    // Convert ESPN stat format to our format
-    const stats = {};
-    weekStats.stats.forEach(stat => {
-      const name = stat.name;
-      const value = stat.value;
-      
-      // Map ESPN stat names to our format
-      if (name === 'passingYards') stats.pass_yd = value;
-      if (name === 'passingTouchdowns') stats.pass_td = value;
-      if (name === 'interceptions') stats.pass_int = value;
-      if (name === 'rushingYards') stats.rush_yd = value;
-      if (name === 'rushingTouchdowns') stats.rush_td = value;
-      if (name === 'receptions') stats.rec = value;
-      if (name === 'receivingYards') stats.rec_yd = value;
-      if (name === 'receivingTouchdowns') stats.rec_td = value;
-      if (name === 'fumblesLost') stats.fum_lost = value;
-    });
-    
-    return stats;
+    return null;
   } catch (err) {
     console.error(`Error fetching player stats for ESPN ID ${espnId}:`, err.message);
     return null;
