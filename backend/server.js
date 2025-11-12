@@ -773,6 +773,59 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Update week active status (lock/unlock)
+app.post('/api/admin/update-week-status', async (req, res) => {
+  try {
+    const { is_week_active } = req.body;
+    
+    if (typeof is_week_active !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'is_week_active must be a boolean' });
+    }
+    
+    const result = await pool.query(
+      'UPDATE game_settings SET is_week_active = $1 RETURNING *',
+      [is_week_active]
+    );
+    
+    console.log(`Week lock status updated: is_week_active = ${is_week_active}`);
+    
+    res.json({ success: true, message: is_week_active ? 'Week unlocked' : 'Week locked' });
+  } catch (err) {
+    console.error('Error updating week status:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Update current playoff week
+app.post('/api/admin/update-current-week', async (req, res) => {
+  try {
+    const { current_playoff_week, is_week_active } = req.body;
+    
+    if (!current_playoff_week || current_playoff_week < 1 || current_playoff_week > 4) {
+      return res.status(400).json({ success: false, error: 'current_playoff_week must be between 1 and 4' });
+    }
+    
+    let query = 'UPDATE game_settings SET current_playoff_week = $1';
+    const params = [current_playoff_week];
+    
+    if (typeof is_week_active === 'boolean') {
+      query += ', is_week_active = $2';
+      params.push(is_week_active);
+    }
+    
+    query += ' RETURNING *';
+    
+    const result = await pool.query(query, params);
+    
+    console.log(`Current week updated to ${current_playoff_week}, is_week_active = ${is_week_active ?? 'unchanged'}`);
+    
+    res.json({ success: true, message: `Current week set to ${current_playoff_week}` });
+  } catch (err) {
+    console.error('Error updating current week:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Get live stats for a specific player
 app.get('/api/live-stats/player/:playerId', async (req, res) => {
   try {
