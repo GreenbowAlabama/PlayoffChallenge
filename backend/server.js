@@ -285,6 +285,27 @@ async function fetchPlayerStats(espnId, weekNumber) {
                   // Format: [fumbles, lost]
                   stats.fum_lost += parseFloat(athlete.stats[1]) || 0;
                 }
+                
+                if (statCategory.name === 'kicking' && athlete.stats) {
+                  // Format: [FG made/att, FG%, longest, PAT made/att, points]
+                  const fgMadeAtt = athlete.stats[0] ? athlete.stats[0].split('/') : ['0', '0'];
+                  const fgMade = parseInt(fgMadeAtt[0]) || 0;
+                  const fgAtt = parseInt(fgMadeAtt[1]) || 0;
+                  const fgMissed = fgAtt - fgMade;
+                  const longest = parseInt(athlete.stats[2]) || 0;
+                  
+                  const patMadeAtt = athlete.stats[3] ? athlete.stats[3].split('/') : ['0', '0'];
+                  const patMade = parseInt(patMadeAtt[0]) || 0;
+                  const patAtt = parseInt(patMadeAtt[1]) || 0;
+                  const patMissed = patAtt - patMade;
+                  
+                  // Store kicker stats
+                  stats.fg_made = fgMade;
+                  stats.fg_missed = fgMissed;
+                  stats.fg_longest = longest;
+                  stats.pat_made = patMade;
+                  stats.pat_missed = patMissed;
+                }
               }
             }
           }
@@ -306,6 +327,95 @@ async function fetchPlayerStats(espnId, weekNumber) {
   }
 }
 
+// Fetch defense stats from team-level boxscore data
+async function fetchDefenseStats(teamAbbrev, weekNumber, opponentScore) {
+  try {
+    // Search through active games for this week
+    for (const gameId of liveStatsCache.activeGameIds) {
+      try {
+        const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
+        const response = await axios.get(url);
+        
+        if (!response.data || !response.data.boxscore) continue;
+        
+        const boxscore = response.data.boxscore;
+        if (!boxscore.teams) continue;
+        
+        // Find the team's defensive stats
+        for (const team of boxscore.teams) {
+          if (team.team.abbreviation === teamAbbrev) {
+            const stats = {
+              def_sack: 0,
+              def_int: 0,
+              def_fum_rec: 0,
+              def_td: 0,
+              def_safety: 0,
+              def_block: 0,
+              def_ret_td: 0,
+              def_pts_allowed: opponentScore || 0
+            };
+            
+            // Extract defensive stats from team statistics
+            if (team.statistics) {
+              for (const stat of team.statistics) {
+                // Sacks are listed in format "5-21" (sacks-yards)
+                if (stat.name === 'sacksYardsLost' && stat.displayValue) {
+                  const sacks = stat.displayValue.split('-')[0];
+                  stats.def_sack = parseInt(sacks) || 0;
+                }
+                
+                // Note: Interceptions, fumbles, TDs need to be extracted from player stats
+                // as they're not in team-level stats
+              }
+            }
+            
+            // Also check players for defensive TDs, INTs, fumble recoveries
+            if (boxscore.players) {
+              for (const playerTeam of boxscore.players) {
+                if (!playerTeam.team || playerTeam.team.abbreviation !== teamAbbrev) continue;
+                
+                if (playerTeam.statistics) {
+                  for (const statCategory of playerTeam.statistics) {
+                    if (statCategory.name === 'defensive' && statCategory.athletes) {
+                      for (const athlete of statCategory.athletes) {
+                        // Defensive stats format varies, but typically includes INTs
+                        // We'll sum up all defensive players' contributions
+                        if (athlete.stats && athlete.stats.length > 0) {
+                          // This is a simplified extraction - actual format may vary
+                          // Typically: tackles, sacks, INTs
+                          stats.def_int += 1; // Placeholder - need actual stat parsing
+                        }
+                      }
+                    }
+                    
+                    if (statCategory.name === 'interceptions' && statCategory.athletes) {
+                      stats.def_int += statCategory.athletes.length;
+                    }
+                    
+                    if (statCategory.name === 'fumbles' && statCategory.athletes) {
+                      // This could be fumble recoveries
+                      stats.def_fum_rec += statCategory.athletes.length;
+                    }
+                  }
+                }
+              }
+            }
+            
+            return stats;
+          }
+        }
+      } catch (err) {
+        continue;
+      }
+    }
+    
+    return null;
+  } catch (err) {
+    console.error(`Error fetching defense stats for ${teamAbbrev}:`, err.message);
+    return null;
+  }
+}
+
 // Save player scores to database
 async function savePlayerScoresToDatabase(weekNumber) {
   try {
@@ -322,23 +432,45 @@ async function savePlayerScoresToDatabase(weekNumber) {
     
     for (const pick of picksResult.rows) {
       // Check if player has ESPN ID
-      const player = await pool.query('SELECT espn_id, full_name FROM players WHERE id::text = $1', [pick.player_id]);
-      if (player.rows.length === 0 || !player.rows[0].espn_id) continue;
+      const player = await pool.query('SELECT espn_id, full_name, position FROM players WHERE id::text = $1', [pick.player_id]);
+      if (player.rows.length === 0) continue;
       
       const espnId = player.rows[0].espn_id;
       const playerName = player.rows[0].full_name;
+      const position = player.rows[0].position;
       
-      // Always fetch from boxscore for accurate stats
-      // Game summaries have ambiguous 'YDS' fields that mix pass/rush/rec yards
-      console.log(`Fetching stats for ${playerName} from boxscore...`);
-      const playerStats = await fetchPlayerStats(espnId, weekNumber);
+      let scoring;
       
-      if (!playerStats) {
-        console.log(`No stats found for ${playerName} in week ${weekNumber}`);
+      // Handle defense differently (uses team abbrev as ID)
+      if (position === 'DEF') {
+        console.log(`Fetching defense stats for ${playerName}...`);
+        // For defense, the player_id is the team abbreviation (e.g., 'BUF')
+        const teamAbbrev = pick.player_id;
+        
+        // Get opponent's score from the game
+        // TODO: Extract actual opponent score from boxscore
+        const opponentScore = 10; // Placeholder
+        
+        const defStats = await fetchDefenseStats(teamAbbrev, weekNumber, opponentScore);
+        if (!defStats) {
+          console.log(`No defense stats found for ${playerName} in week ${weekNumber}`);
+          continue;
+        }
+        scoring = defStats;
+      } else if (!espnId) {
         continue;
+      } else {
+        // Regular player - fetch from boxscore
+        console.log(`Fetching stats for ${playerName} from boxscore...`);
+        const playerStats = await fetchPlayerStats(espnId, weekNumber);
+        
+        if (!playerStats) {
+          console.log(`No stats found for ${playerName} in week ${weekNumber}`);
+          continue;
+        }
+        
+        scoring = playerStats;
       }
-      
-      scoring = playerStats;
       
       const basePoints = await calculateFantasyPoints(scoring);
       const multiplier = pick.multiplier || 1;
@@ -574,6 +706,49 @@ async function calculateFantasyPoints(stats) {
     
     // Fumbles
     points += (stats.fum_lost || 0) * (rules.fum_lost || 0);
+    
+    // Kicker stats
+    if (stats.fg_made !== undefined) {
+      const fgMade = stats.fg_made || 0;
+      const fgLongest = stats.fg_longest || 0;
+      
+      // Score based on distance (assume even distribution if we don't have individual FG distances)
+      // For now, use longest to estimate: if longest >= 50, award one 50+ FG
+      if (fgLongest >= 50 && fgMade > 0) {
+        points += 5; // One 50+ yarder
+        points += (fgMade - 1) * 3; // Rest are standard
+      } else if (fgLongest >= 40 && fgMade > 0) {
+        points += 4; // One 40-49 yarder
+        points += (fgMade - 1) * 3; // Rest are standard
+      } else {
+        points += fgMade * 3; // All standard 0-39 yards
+      }
+      
+      points += (stats.pat_made || 0) * (rules.pat_made || 1);
+      points += (stats.fg_missed || 0) * (rules.fg_missed || -2);
+      points += (stats.pat_missed || 0) * (rules.pat_missed || -1);
+    }
+    
+    // Defense stats
+    if (stats.def_sack !== undefined) {
+      points += (stats.def_sack || 0) * (rules.def_sack || 1);
+      points += (stats.def_int || 0) * (rules.def_int || 2);
+      points += (stats.def_fum_rec || 0) * (rules.def_fum_rec || 2);
+      points += (stats.def_td || 0) * (rules.def_td || 6);
+      points += (stats.def_safety || 0) * (rules.def_safety || 2);
+      points += (stats.def_block || 0) * (rules.def_block || 4);
+      points += (stats.def_ret_td || 0) * (rules.def_ret_td || 6);
+      
+      // Points allowed scoring
+      const ptsAllowed = stats.def_pts_allowed || 0;
+      if (ptsAllowed === 0) points += 20;
+      else if (ptsAllowed <= 6) points += 15;
+      else if (ptsAllowed <= 13) points += 10;
+      else if (ptsAllowed <= 20) points += 5;
+      else if (ptsAllowed <= 27) points += 0;
+      else if (ptsAllowed <= 34) points += -1;
+      else points += -4;
+    }
     
     // Bonuses
     if (stats.pass_yd >= 400) points += (rules.pass_yd_bonus || 0);
