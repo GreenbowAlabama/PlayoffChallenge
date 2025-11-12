@@ -1248,6 +1248,40 @@ app.delete('/api/admin/users/:id', async (req, res) => {
 // PUBLIC ROUTES (Leaderboard, Rules, Payouts)
 // ==============================================
 
+// Get scores for a user and week
+app.get('/api/scores', async (req, res) => {
+  try {
+    const { userId, weekNumber } = req.query;
+    
+    if (!userId || !weekNumber) {
+      return res.status(400).json({ error: 'userId and weekNumber required' });
+    }
+    
+    const result = await pool.query(`
+      SELECT 
+        s.id,
+        s.player_id,
+        s.week_number,
+        s.base_points,
+        s.multiplier,
+        s.final_points,
+        s.stats_json,
+        p.full_name as player_name,
+        p.position,
+        p.team
+      FROM scores s
+      JOIN players p ON s.player_id = p.id::text
+      WHERE s.user_id = $1 AND s.week_number = $2
+      ORDER BY p.position, p.full_name
+    `, [userId, weekNumber]);
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching scores:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get leaderboard
 app.get('/api/leaderboard', async (req, res) => {
   try {
