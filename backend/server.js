@@ -191,8 +191,7 @@ function convertESPNStatsToScoring(espnStats) {
 // Fetch individual player stats from ESPN boxscore (more reliable than summaries)
 async function fetchPlayerStats(espnId, weekNumber) {
   try {
-    // We need to find which game this player played in for this week
-    // This is a fallback, so we'll search through the active games
+    // Search through the active games for this week
     for (const gameId of liveStatsCache.activeGameIds) {
       try {
         const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
@@ -203,6 +202,21 @@ async function fetchPlayerStats(espnId, weekNumber) {
         const boxscore = response.data.boxscore;
         if (!boxscore.players) continue;
         
+        // Initialize stats object
+        const stats = {
+          pass_yd: 0,
+          pass_td: 0,
+          pass_int: 0,
+          rush_yd: 0,
+          rush_td: 0,
+          rec: 0,
+          rec_yd: 0,
+          rec_td: 0,
+          fum_lost: 0
+        };
+        
+        let foundPlayer = false;
+        
         // Search through both teams
         for (const team of boxscore.players) {
           if (!team.statistics) continue;
@@ -212,34 +226,41 @@ async function fetchPlayerStats(espnId, weekNumber) {
             
             for (const athlete of statCategory.athletes) {
               if (athlete.athlete.id === espnId.toString()) {
-                // Found the player! Extract their stats
-                const stats = {};
+                foundPlayer = true;
                 
-                if (statCategory.name === 'passing') {
-                  stats.pass_yd = parseFloat(athlete.stats[0]) || 0; // Completions/attempts/yards format
+                // Accumulate stats from this category
+                if (statCategory.name === 'passing' && athlete.stats) {
+                  // Format: [comp/att, yards, TD, INT]
+                  const compAtt = athlete.stats[0] ? athlete.stats[0].split('/') : ['0', '0'];
+                  stats.pass_yd = parseFloat(athlete.stats[1]) || 0;
                   stats.pass_td = parseFloat(athlete.stats[2]) || 0;
                   stats.pass_int = parseFloat(athlete.stats[3]) || 0;
                 }
                 
-                if (statCategory.name === 'rushing') {
-                  stats.rush_yd = parseFloat(athlete.stats[1]) || 0; // carries/yards
+                if (statCategory.name === 'rushing' && athlete.stats) {
+                  // Format: [carries, yards, avg, TD]
+                  stats.rush_yd = parseFloat(athlete.stats[1]) || 0;
                   stats.rush_td = parseFloat(athlete.stats[3]) || 0;
                 }
                 
-                if (statCategory.name === 'receiving') {
+                if (statCategory.name === 'receiving' && athlete.stats) {
+                  // Format: [rec, yards, avg, TD, targets, long]
                   stats.rec = parseFloat(athlete.stats[0]) || 0;
                   stats.rec_yd = parseFloat(athlete.stats[1]) || 0;
                   stats.rec_td = parseFloat(athlete.stats[3]) || 0;
                 }
                 
-                if (statCategory.name === 'fumbles') {
+                if (statCategory.name === 'fumbles' && athlete.stats) {
+                  // Format: [fumbles, lost]
                   stats.fum_lost = parseFloat(athlete.stats[1]) || 0;
                 }
-                
-                return stats;
               }
             }
           }
+        }
+        
+        if (foundPlayer) {
+          return stats;
         }
       } catch (err) {
         // Continue to next game
@@ -280,12 +301,20 @@ async function savePlayerScoresToDatabase(weekNumber) {
       let cachedStats = liveStatsCache.playerStats.get(espnId);
       let scoring;
       
-      if (cachedStats) {
+      // Check if cached stats are complete (has actual meaningful stats, not just fumbles)
+      const hasCompleteStats = cachedStats && (
+        cachedStats.stats.YDS || // Has yards
+        cachedStats.stats.TD ||  // Has TDs
+        cachedStats.stats.REC || // Has receptions
+        cachedStats.stats.CAR    // Has carries
+      );
+      
+      if (hasCompleteStats) {
         // Use cached stats from game summary
         scoring = convertESPNStatsToScoring(cachedStats.stats);
       } else {
-        // Fallback: Fetch directly from ESPN player API
-        console.log(`No cached stats for ${playerName}, fetching from player API...`);
+        // Incomplete or missing stats - fetch directly from boxscore
+        console.log(`Incomplete/no cached stats for ${playerName}, fetching from boxscore...`);
         const playerStats = await fetchPlayerStats(espnId, weekNumber);
         
         if (!playerStats) {
