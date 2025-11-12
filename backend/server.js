@@ -188,6 +188,51 @@ function convertESPNStatsToScoring(espnStats) {
   return scoring;
 }
 
+// Fetch individual player stats from ESPN (more reliable than game summaries)
+async function fetchPlayerStats(espnId, weekNumber) {
+  try {
+    const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/athletes/${espnId}/statistics?season=2024&seasontype=2`;
+    const response = await axios.get(url);
+    
+    if (!response.data || !response.data.splits) {
+      return null;
+    }
+    
+    // Find the specific week's stats
+    const weekStats = response.data.splits.find(split => 
+      split.name === `Week ${weekNumber}` || 
+      split.week === weekNumber
+    );
+    
+    if (!weekStats || !weekStats.stats) {
+      return null;
+    }
+    
+    // Convert ESPN stat format to our format
+    const stats = {};
+    weekStats.stats.forEach(stat => {
+      const name = stat.name;
+      const value = stat.value;
+      
+      // Map ESPN stat names to our format
+      if (name === 'passingYards') stats.pass_yd = value;
+      if (name === 'passingTouchdowns') stats.pass_td = value;
+      if (name === 'interceptions') stats.pass_int = value;
+      if (name === 'rushingYards') stats.rush_yd = value;
+      if (name === 'rushingTouchdowns') stats.rush_td = value;
+      if (name === 'receptions') stats.rec = value;
+      if (name === 'receivingYards') stats.rec_yd = value;
+      if (name === 'receivingTouchdowns') stats.rec_td = value;
+      if (name === 'fumblesLost') stats.fum_lost = value;
+    });
+    
+    return stats;
+  } catch (err) {
+    console.error(`Error fetching player stats for ESPN ID ${espnId}:`, err.message);
+    return null;
+  }
+}
+
 // Save player scores to database
 async function savePlayerScoresToDatabase(weekNumber) {
   try {
@@ -203,15 +248,33 @@ async function savePlayerScoresToDatabase(weekNumber) {
     let savedCount = 0;
     
     for (const pick of picksResult.rows) {
-      // Check if player has cached stats
-      const player = await pool.query('SELECT espn_id FROM players WHERE id::text = $1', [pick.player_id]);
+      // Check if player has ESPN ID
+      const player = await pool.query('SELECT espn_id, full_name FROM players WHERE id::text = $1', [pick.player_id]);
       if (player.rows.length === 0 || !player.rows[0].espn_id) continue;
       
-      const cachedStats = liveStatsCache.playerStats.get(player.rows[0].espn_id);
-      if (!cachedStats) continue;
+      const espnId = player.rows[0].espn_id;
+      const playerName = player.rows[0].full_name;
       
-      // Convert ESPN stats to scoring
-      const scoring = convertESPNStatsToScoring(cachedStats.stats);
+      // Try to get stats from game summary cache first
+      let cachedStats = liveStatsCache.playerStats.get(espnId);
+      let scoring;
+      
+      if (cachedStats) {
+        // Use cached stats from game summary
+        scoring = convertESPNStatsToScoring(cachedStats.stats);
+      } else {
+        // Fallback: Fetch directly from ESPN player API
+        console.log(`No cached stats for ${playerName}, fetching from player API...`);
+        const playerStats = await fetchPlayerStats(espnId, weekNumber);
+        
+        if (!playerStats) {
+          console.log(`No stats found for ${playerName} in week ${weekNumber}`);
+          continue;
+        }
+        
+        scoring = playerStats;
+      }
+      
       const basePoints = await calculateFantasyPoints(scoring);
       const multiplier = pick.multiplier || 1;
       const finalPoints = basePoints * multiplier;
