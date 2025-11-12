@@ -344,10 +344,11 @@ async function getActiveTeamsForWeek(weekNumber) {
     const result = await pool.query(`
       SELECT DISTINCT p.team
       FROM picks pk
-      JOIN players p ON pk.player_id = p.id
+      JOIN players p ON pk.player_id = p.id::text
       WHERE pk.week_number = $1 AND p.team IS NOT NULL
     `, [weekNumber]);
     
+    console.log(`Active teams for week ${weekNumber}:`, result.rows.map(r => r.team).join(', '));
     return result.rows.map(r => r.team);
   } catch (err) {
     console.error('Error getting active teams:', err);
