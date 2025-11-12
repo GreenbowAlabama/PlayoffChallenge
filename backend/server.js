@@ -612,6 +612,34 @@ app.get('/api/admin/cache-status', (req, res) => {
   });
 });
 
+// Debug: Check if specific ESPN IDs are in cache
+app.get('/api/admin/check-espn-ids', (req, res) => {
+  const { espnIds } = req.query; // Comma-separated list
+  
+  if (!espnIds) {
+    return res.json({
+      totalCached: liveStatsCache.playerStats.size,
+      message: 'Provide ?espnIds=123,456,789 to check specific players'
+    });
+  }
+  
+  const ids = espnIds.split(',');
+  const results = ids.map(espnId => {
+    const cached = liveStatsCache.playerStats.get(espnId);
+    return {
+      espnId,
+      found: !!cached,
+      stats: cached ? cached.stats : null,
+      gameId: cached ? cached.gameId : null
+    };
+  });
+  
+  res.json({
+    totalCached: liveStatsCache.playerStats.size,
+    results
+  });
+});
+
 // Admin: Set active playoff week
 app.post('/api/admin/set-active-week', async (req, res) => {
   try {
