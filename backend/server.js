@@ -1208,14 +1208,24 @@ app.post('/api/admin/sync-players', async (req, res) => {
 // Get all players (with caching)
 app.get('/api/players', async (req, res) => {
   try {
+    const limit = parseInt(req.query.limit) || 200;
+    const offset = parseInt(req.query.offset) || 0;
+    const position = req.query.position;
+    
     const now = Date.now();
     
-    // Return cached data if fresh
-    if (playersCache.lastUpdate && 
+    // Return cached data if fresh and no specific filters
+    if (!position && offset === 0 && 
+        playersCache.lastUpdate && 
         (now - playersCache.lastUpdate) < PLAYERS_CACHE_MS &&
         playersCache.data.length > 0) {
       console.log(`Returning ${playersCache.data.length} cached players`);
-      return res.json(playersCache.data);
+      return res.json({
+        players: playersCache.data.slice(0, limit),
+        total: playersCache.data.length,
+        limit: limit,
+        offset: 0
+      });
     }
     
     // Fetch fresh data - only available and active players
@@ -1227,24 +1237,54 @@ app.get('/api/players', async (req, res) => {
       'DET', 'PHI', 'LAR', 'TB', 'MIN', 'GB', 'WSH'  // NFC
     ];
     
-    const result = await pool.query(`
+    let query = `
       SELECT id, sleeper_id, full_name, first_name, last_name, position, team, 
              number, status, injury_status, is_active, available
       FROM players 
       WHERE is_active = true 
         AND available = true
         AND team = ANY($1)
+        AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')`;
+    
+    const params = [playoffTeams];
+    
+    if (position) {
+      query += ` AND position = $${params.length + 1}`;
+      params.push(position);
+    }
+    
+    query += ` ORDER BY position, team, full_name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
+    
+    const result = await pool.query(query, params);
+    
+    // Get total count
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM players 
+      WHERE is_active = true 
+        AND available = true
+        AND team = ANY($1)
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
-      ORDER BY position, team, full_name
-      LIMIT 200
-    `, [playoffTeams]);
+      ${position ? 'AND position = $2' : ''}
+    `;
+    const countParams = position ? [playoffTeams, position] : [playoffTeams];
+    const countResult = await pool.query(countQuery, countParams);
+    const total = parseInt(countResult.rows[0].total);
     
-    // Update cache
-    playersCache.data = result.rows;
-    playersCache.lastUpdate = now;
-    console.log(`Cached ${result.rows.length} players`);
+    // Update cache if fetching all
+    if (!position && offset === 0) {
+      playersCache.data = result.rows;
+      playersCache.lastUpdate = now;
+      console.log(`Cached ${result.rows.length} players`);
+    }
     
-    res.json(result.rows);
+    res.json({
+      players: result.rows,
+      total: total,
+      limit: limit,
+      offset: offset
+    });
   } catch (err) {
     console.error('Error fetching players:', err);
     res.status(500).json({ error: err.message });
