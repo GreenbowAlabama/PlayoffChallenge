@@ -235,28 +235,29 @@ async function fetchPlayerStats(espnId, weekNumber) {
                 // Accumulate stats from this category
                 if (statCategory.name === 'passing' && athlete.stats) {
                   // Format: [comp/att, yards, TD, INT]
-                  const compAtt = athlete.stats[0] ? athlete.stats[0].split('/') : ['0', '0'];
-                  stats.pass_yd = parseFloat(athlete.stats[1]) || 0;
-                  stats.pass_td = parseFloat(athlete.stats[2]) || 0;
-                  stats.pass_int = parseFloat(athlete.stats[3]) || 0;
+                  const yards = parseFloat(athlete.stats[1]) || 0;
+                  stats.pass_yd += yards;
+                  stats.pass_td += parseFloat(athlete.stats[2]) || 0;
+                  stats.pass_int += parseFloat(athlete.stats[3]) || 0;
                 }
                 
                 if (statCategory.name === 'rushing' && athlete.stats) {
                   // Format: [carries, yards, avg, TD]
-                  stats.rush_yd = parseFloat(athlete.stats[1]) || 0;
-                  stats.rush_td = parseFloat(athlete.stats[3]) || 0;
+                  const yards = parseFloat(athlete.stats[1]) || 0;
+                  stats.rush_yd += yards;
+                  stats.rush_td += parseFloat(athlete.stats[3]) || 0;
                 }
                 
                 if (statCategory.name === 'receiving' && athlete.stats) {
                   // Format: [rec, yards, avg, TD, targets, long]
-                  stats.rec = parseFloat(athlete.stats[0]) || 0;
-                  stats.rec_yd = parseFloat(athlete.stats[1]) || 0;
-                  stats.rec_td = parseFloat(athlete.stats[3]) || 0;
+                  stats.rec += parseFloat(athlete.stats[0]) || 0;
+                  stats.rec_yd += parseFloat(athlete.stats[1]) || 0;
+                  stats.rec_td += parseFloat(athlete.stats[3]) || 0;
                 }
                 
                 if (statCategory.name === 'fumbles' && athlete.stats) {
                   // Format: [fumbles, lost]
-                  stats.fum_lost = parseFloat(athlete.stats[1]) || 0;
+                  stats.fum_lost += parseFloat(athlete.stats[1]) || 0;
                 }
               }
             }
