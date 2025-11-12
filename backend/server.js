@@ -482,9 +482,10 @@ async function savePlayerScoresToDatabase(weekNumber) {
       
       // Upsert to scores table
       await pool.query(`
-        INSERT INTO scores (id, user_id, player_id, week_number, base_points, multiplier, final_points, stats_json, updated_at)
-        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW())
+        INSERT INTO scores (id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, $4, $4, $5, $6, $7, NOW())
         ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
+          points = $4,
           base_points = $4,
           multiplier = $5,
           final_points = $6,
