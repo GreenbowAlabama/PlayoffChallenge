@@ -328,7 +328,7 @@ async function fetchPlayerStats(espnId, weekNumber) {
 }
 
 // Fetch defense stats from team-level boxscore data
-async function fetchDefenseStats(teamAbbrev, weekNumber, opponentScore) {
+async function fetchDefenseStats(teamAbbrev, weekNumber) {
   try {
     // Search through active games for this week
     for (const gameId of liveStatsCache.activeGameIds) {
@@ -337,6 +337,23 @@ async function fetchDefenseStats(teamAbbrev, weekNumber, opponentScore) {
         const response = await axios.get(url);
         
         if (!response.data || !response.data.boxscore) continue;
+        
+        // Check if this team is in this game
+        const competition = response.data.header?.competitions?.[0];
+        if (!competition) continue;
+        
+        let isInGame = false;
+        let opponentScore = 0;
+        
+        for (const competitor of competition.competitors) {
+          if (competitor.team.abbreviation === teamAbbrev) {
+            isInGame = true;
+          } else {
+            opponentScore = parseInt(competitor.score) || 0;
+          }
+        }
+        
+        if (!isInGame) continue;
         
         const boxscore = response.data.boxscore;
         if (!boxscore.teams) continue;
@@ -376,25 +393,18 @@ async function fetchDefenseStats(teamAbbrev, weekNumber, opponentScore) {
                 
                 if (playerTeam.statistics) {
                   for (const statCategory of playerTeam.statistics) {
-                    if (statCategory.name === 'defensive' && statCategory.athletes) {
+                    if (statCategory.name === 'interceptions' && statCategory.athletes) {
+                      // Count actual interceptions, not just players who had them
                       for (const athlete of statCategory.athletes) {
-                        // Defensive stats format varies, but typically includes INTs
-                        // We'll sum up all defensive players' contributions
                         if (athlete.stats && athlete.stats.length > 0) {
-                          // This is a simplified extraction - actual format may vary
-                          // Typically: tackles, sacks, INTs
-                          stats.def_int += 1; // Placeholder - need actual stat parsing
+                          // Interceptions format: [INT, YDS, TD]
+                          const ints = parseInt(athlete.stats[0]) || 0;
+                          stats.def_int += ints;
+                          // Check for pick-six
+                          const td = parseInt(athlete.stats[2]) || 0;
+                          if (td > 0) stats.def_td += td;
                         }
                       }
-                    }
-                    
-                    if (statCategory.name === 'interceptions' && statCategory.athletes) {
-                      stats.def_int += statCategory.athletes.length;
-                    }
-                    
-                    if (statCategory.name === 'fumbles' && statCategory.athletes) {
-                      // This could be fumble recoveries
-                      stats.def_fum_rec += statCategory.athletes.length;
                     }
                   }
                 }
@@ -444,14 +454,8 @@ async function savePlayerScoresToDatabase(weekNumber) {
       // Handle defense differently (uses team abbrev as ID)
       if (position === 'DEF') {
         console.log(`Fetching defense stats for ${playerName}...`);
-        // For defense, the player_id is the team abbreviation (e.g., 'BUF')
-        const teamAbbrev = pick.player_id;
         
-        // Get opponent's score from the game
-        // TODO: Extract actual opponent score from boxscore
-        const opponentScore = 10; // Placeholder
-        
-        const defStats = await fetchDefenseStats(teamAbbrev, weekNumber, opponentScore);
+        const defStats = await fetchDefenseStats(pick.player_id, weekNumber);
         if (!defStats) {
           console.log(`No defense stats found for ${playerName} in week ${weekNumber}`);
           continue;
