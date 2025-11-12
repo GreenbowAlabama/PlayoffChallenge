@@ -224,12 +224,6 @@ async function fetchPlayerStats(espnId, weekNumber) {
           for (const statCategory of team.statistics) {
             if (!statCategory.athletes) continue;
             
-            // Debug: log first few player IDs in this category
-            if (!foundPlayer && statCategory.athletes.length > 0) {
-              const sampleIds = statCategory.athletes.slice(0, 3).map(a => a.athlete?.id || 'no-id');
-              console.log(`  Game ${gameId} ${statCategory.name}: [${sampleIds.join(', ')}]`);
-            }
-            
             for (const athlete of statCategory.athletes) {
               // ESPN returns IDs as strings, ensure comparison works
               const athleteId = athlete.athlete?.id?.toString();
