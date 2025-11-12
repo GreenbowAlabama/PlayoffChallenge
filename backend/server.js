@@ -379,7 +379,7 @@ async function fetchScoreboard(weekNumber) {
     
     console.log(`Fetching ESPN scoreboard for week ${weekNumber}...`);
     const response = await axios.get(
-      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=2024&seasontype=2&week=${weekNumber}`
+      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`
     );
     
     const activeGames = [];
