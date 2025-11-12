@@ -884,7 +884,7 @@ app.get('/api/live-stats/week/:weekNumber', async (req, res) => {
       });
     }
     
-    res.json({ weekNumber: parseInt(weekNumber), picks: picks });
+    res.json({ week_number: parseInt(weekNumber), picks: picks });
   } catch (err) {
     console.error('Error getting live week stats:', err);
     res.status(500).json({ error: err.message });
