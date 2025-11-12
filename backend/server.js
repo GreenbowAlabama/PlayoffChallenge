@@ -216,6 +216,7 @@ async function fetchPlayerStats(espnId, weekNumber) {
         };
         
         let foundPlayer = false;
+        const categoriesSeen = new Set();
         
         // Search through both teams
         for (const team of boxscore.players) {
@@ -231,6 +232,31 @@ async function fetchPlayerStats(espnId, weekNumber) {
               
               if (athleteId === searchId) {
                 foundPlayer = true;
+                categoriesSeen.add(statCategory.name);
+              }
+            }
+          }
+        }
+        
+        // Second pass: extract stats, prioritizing primary position
+        // If player has receiving stats, skip their passing stats (trick plays)
+        const skipPassing = categoriesSeen.has('receiving');
+        
+        for (const team of boxscore.players) {
+          if (!team.statistics) continue;
+          
+          for (const statCategory of team.statistics) {
+            if (!statCategory.athletes) continue;
+            
+            for (const athlete of statCategory.athletes) {
+              const athleteId = athlete.athlete?.id?.toString();
+              const searchId = espnId.toString();
+              
+              if (athleteId === searchId) {
+                // Skip passing if player is primarily a receiver
+                if (statCategory.name === 'passing' && skipPassing) {
+                  continue;
+                }
                 
                 // Accumulate stats from this category
                 if (statCategory.name === 'passing' && athlete.stats) {
@@ -302,33 +328,17 @@ async function savePlayerScoresToDatabase(weekNumber) {
       const espnId = player.rows[0].espn_id;
       const playerName = player.rows[0].full_name;
       
-      // Try to get stats from game summary cache first
-      let cachedStats = liveStatsCache.playerStats.get(espnId);
-      let scoring;
+      // Always fetch from boxscore for accurate stats
+      // Game summaries have ambiguous 'YDS' fields that mix pass/rush/rec yards
+      console.log(`Fetching stats for ${playerName} from boxscore...`);
+      const playerStats = await fetchPlayerStats(espnId, weekNumber);
       
-      // Check if cached stats are complete (has actual meaningful stats, not just fumbles)
-      const hasCompleteStats = cachedStats && (
-        cachedStats.stats.YDS || // Has yards
-        cachedStats.stats.TD ||  // Has TDs
-        cachedStats.stats.REC || // Has receptions
-        cachedStats.stats.CAR    // Has carries
-      );
-      
-      if (hasCompleteStats) {
-        // Use cached stats from game summary
-        scoring = convertESPNStatsToScoring(cachedStats.stats);
-      } else {
-        // Incomplete or missing stats - fetch directly from boxscore
-        console.log(`Incomplete/no cached stats for ${playerName}, fetching from boxscore...`);
-        const playerStats = await fetchPlayerStats(espnId, weekNumber);
-        
-        if (!playerStats) {
-          console.log(`No stats found for ${playerName} in week ${weekNumber}`);
-          continue;
-        }
-        
-        scoring = playerStats;
+      if (!playerStats) {
+        console.log(`No stats found for ${playerName} in week ${weekNumber}`);
+        continue;
       }
+      
+      scoring = playerStats;
       
       const basePoints = await calculateFantasyPoints(scoring);
       const multiplier = pick.multiplier || 1;
