@@ -796,6 +796,58 @@ app.post('/api/admin/update-week-status', async (req, res) => {
   }
 });
 
+// Sync ESPN IDs from Sleeper API
+app.post('/api/admin/sync-espn-ids', async (req, res) => {
+  try {
+    console.log('Starting ESPN ID sync from Sleeper...');
+    
+    // Fetch all players from Sleeper
+    const response = await axios.get('https://api.sleeper.app/v1/players/nfl');
+    const sleeperPlayers = response.data;
+    
+    // Get all players missing ESPN IDs
+    const playersResult = await pool.query(`
+      SELECT id, sleeper_id, full_name, position
+      FROM players
+      WHERE (espn_id IS NULL OR espn_id = '')
+        AND sleeper_id IS NOT NULL
+    `);
+    
+    console.log(`Found ${playersResult.rows.length} players missing ESPN IDs`);
+    
+    let updated = 0;
+    let notFound = 0;
+    
+    for (const player of playersResult.rows) {
+      const sleeperData = sleeperPlayers[player.sleeper_id];
+      
+      if (sleeperData && sleeperData.espn_id) {
+        await pool.query(
+          'UPDATE players SET espn_id = $1 WHERE id = $2',
+          [sleeperData.espn_id.toString(), player.id]
+        );
+        console.log(`Updated ${player.full_name}: ESPN ID = ${sleeperData.espn_id}`);
+        updated++;
+      } else {
+        console.log(`No ESPN ID found for ${player.full_name} (${player.sleeper_id})`);
+        notFound++;
+      }
+    }
+    
+    console.log(`ESPN ID sync complete: ${updated} updated, ${notFound} not found`);
+    
+    res.json({
+      success: true,
+      message: `Synced ESPN IDs: ${updated} updated, ${notFound} not found`,
+      updated,
+      notFound
+    });
+  } catch (err) {
+    console.error('Error syncing ESPN IDs:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Update current playoff week
 app.post('/api/admin/update-current-week', async (req, res) => {
   try {
