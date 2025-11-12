@@ -1260,6 +1260,7 @@ app.get('/api/scores', async (req, res) => {
     const result = await pool.query(`
       SELECT 
         s.id,
+        s.user_id,
         s.player_id,
         s.week_number,
         s.base_points,
@@ -1275,7 +1276,22 @@ app.get('/api/scores', async (req, res) => {
       ORDER BY p.position, p.full_name
     `, [userId, weekNumber]);
     
-    res.json(result.rows);
+    // Convert to camelCase for iOS
+    const scores = result.rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      playerId: row.player_id,
+      weekNumber: row.week_number,
+      basePoints: parseFloat(row.base_points),
+      multiplier: parseFloat(row.multiplier),
+      finalPoints: parseFloat(row.final_points),
+      statsJson: row.stats_json,
+      playerName: row.player_name,
+      position: row.position,
+      team: row.team
+    }));
+    
+    res.json(scores);
   } catch (err) {
     console.error('Error fetching scores:', err);
     res.status(500).json({ error: err.message });
