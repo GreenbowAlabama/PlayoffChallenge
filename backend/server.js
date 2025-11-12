@@ -973,20 +973,69 @@ app.get('/api/picks', async (req, res) => {
   }
 });
 
-// Submit picks
+// Submit picks (supports single pick or batch)
 app.post('/api/picks', async (req, res) => {
   try {
-    const { userId, playerId, weekNumber, position, multiplier } = req.body;
+    const { userId, playerId, weekNumber, position, multiplier, picks } = req.body;
     
+    // Support batch submission
+    if (picks && Array.isArray(picks)) {
+      const results = [];
+      
+      for (const pick of picks) {
+        const result = await pool.query(`
+          INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
+          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 1, false, NOW())
+          ON CONFLICT (user_id, player_id, week_number) 
+          DO UPDATE SET 
+            position = $4,
+            multiplier = $5,
+            created_at = NOW()
+          RETURNING *
+        `, [userId, pick.playerId, weekNumber, pick.position, pick.multiplier || 1]);
+        
+        results.push(result.rows[0]);
+      }
+      
+      return res.json({ success: true, picks: results });
+    }
+    
+    // Single pick submission with UPSERT
     const result = await pool.query(`
       INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 1, false, NOW())
+      ON CONFLICT (user_id, player_id, week_number) 
+      DO UPDATE SET 
+        position = $4,
+        multiplier = $5,
+        created_at = NOW()
       RETURNING *
-    `, [userId, playerId, weekNumber, position, multiplier]);
+    `, [userId, playerId, weekNumber, position, multiplier || 1]);
     
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error creating pick:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a pick
+app.delete('/api/picks/:pickId', async (req, res) => {
+  try {
+    const { pickId } = req.params;
+    
+    const result = await pool.query(
+      'DELETE FROM picks WHERE id = $1 RETURNING *',
+      [pickId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Pick not found' });
+    }
+    
+    res.json({ success: true, deletedPick: result.rows[0] });
+  } catch (err) {
+    console.error('Error deleting pick:', err);
     res.status(500).json({ error: err.message });
   }
 });
