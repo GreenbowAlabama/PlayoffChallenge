@@ -204,7 +204,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
     
     for (const pick of picksResult.rows) {
       // Check if player has cached stats
-      const player = await pool.query('SELECT espn_id FROM players WHERE id = $1', [pick.player_id]);
+      const player = await pool.query('SELECT espn_id FROM players WHERE id::text = $1', [pick.player_id]);
       if (player.rows.length === 0 || !player.rows[0].espn_id) continue;
       
       const cachedStats = liveStatsCache.playerStats.get(player.rows[0].espn_id);
@@ -213,23 +213,23 @@ async function savePlayerScoresToDatabase(weekNumber) {
       // Convert ESPN stats to scoring
       const scoring = convertESPNStatsToScoring(cachedStats.stats);
       const basePoints = await calculateFantasyPoints(scoring);
-      const finalPoints = basePoints * pick.multiplier;
+      const finalPoints = basePoints * (pick.multiplier || 1);
       
-      // Upsert to scores table
+      // Upsert to scores table (without pick_id if it doesn't exist)
       await pool.query(`
-        INSERT INTO scores (id, user_id, player_id, pick_id, week_number, 
+        INSERT INTO scores (id, user_id, player_id, week_number, 
                            pass_yd, pass_td, pass_int, pass_2pt,
                            rush_yd, rush_td, rush_2pt,
                            rec, rec_yd, rec_td, rec_2pt,
                            fum_lost, base_points, final_points, created_at, updated_at)
-        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW())
-        ON CONFLICT (pick_id) DO UPDATE SET
-          pass_yd = $5, pass_td = $6, pass_int = $7, pass_2pt = $8,
-          rush_yd = $9, rush_td = $10, rush_2pt = $11,
-          rec = $12, rec_yd = $13, rec_td = $14, rec_2pt = $15,
-          fum_lost = $16, base_points = $17, final_points = $18, updated_at = NOW()
+        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW())
+        ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
+          pass_yd = $4, pass_td = $5, pass_int = $6, pass_2pt = $7,
+          rush_yd = $8, rush_td = $9, rush_2pt = $10,
+          rec = $11, rec_yd = $12, rec_td = $13, rec_2pt = $14,
+          fum_lost = $15, base_points = $16, final_points = $17, updated_at = NOW()
       `, [
-        pick.user_id, pick.player_id, pick.pick_id, weekNumber,
+        pick.user_id, pick.player_id, weekNumber,
         scoring.pass_yd, scoring.pass_td, scoring.pass_int, scoring.pass_2pt,
         scoring.rush_yd, scoring.rush_td, scoring.rush_2pt,
         scoring.rec, scoring.rec_yd, scoring.rec_td, scoring.rec_2pt,
