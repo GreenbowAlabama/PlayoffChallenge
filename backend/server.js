@@ -854,9 +854,8 @@ app.post('/api/admin/update-current-week', async (req, res) => {
   try {
     const { current_playoff_week, is_week_active } = req.body;
     
-    // Allow any valid NFL week number (1-18 for regular season, 19-22 for playoffs)
-    if (!current_playoff_week || current_playoff_week < 1 || current_playoff_week > 22) {
-      return res.status(400).json({ success: false, error: 'current_playoff_week must be between 1 and 22' });
+    if (!current_playoff_week || current_playoff_week < 1 || current_playoff_week > 4) {
+      return res.status(400).json({ success: false, error: 'current_playoff_week must be between 1 and 4' });
     }
     
     let query = 'UPDATE game_settings SET current_playoff_week = $1';
@@ -1205,12 +1204,21 @@ app.post('/api/admin/sync-players', async (req, res) => {
     const response = await axios.get('https://api.sleeper.app/v1/players/nfl');
     const allPlayers = response.data;
     
-    console.log(`Found ${playoffPlayers.length} playoff players to sync`);
+    // Filter to active players on ALL teams, top depth chart only
+    const activePlayers = Object.values(allPlayers).filter(p => {
+      return p.active &&
+             p.team &&
+             p.position &&
+             ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(p.position) &&
+             (p.depth_chart_order === 1 || p.depth_chart_order === 2 || p.position === 'K' || p.position === 'DEF');
+    });
+    
+    console.log(`Found ${activePlayers.length} active players to sync`);
     
     let inserted = 0;
     let updated = 0;
     
-    for (const player of playoffPlayers) {
+    for (const player of activePlayers) {
       try {
         // Check if player already exists
         const existing = await pool.query(
@@ -1322,16 +1330,17 @@ app.get('/api/players', async (req, res) => {
     // Fetch fresh data - only available and active players
     console.log('Fetching players from database...');
     
+    // Show all active players regardless of team
     let query = `
       SELECT id, sleeper_id, full_name, first_name, last_name, position, team, 
              number, status, injury_status, is_active, available
       FROM players 
       WHERE is_active = true 
         AND available = true
-        AND team = ANY($1)
+        AND team IS NOT NULL
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')`;
     
-    const params = [playoffTeams];
+    const params = [];
     
     if (position) {
       query += ` AND position = $${params.length + 1}`;
@@ -1349,11 +1358,11 @@ app.get('/api/players', async (req, res) => {
       FROM players 
       WHERE is_active = true 
         AND available = true
-        AND team = ANY($1)
+        AND team IS NOT NULL
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
-      ${position ? 'AND position = $2' : ''}
+      ${position ? 'AND position = $1' : ''}
     `;
-    const countParams = position ? [playoffTeams, position] : [playoffTeams];
+    const countParams = position ? [position] : [];
     const countResult = await pool.query(countQuery, countParams);
     const total = parseInt(countResult.rows[0].total);
     
