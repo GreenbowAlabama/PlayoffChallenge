@@ -854,8 +854,9 @@ app.post('/api/admin/update-current-week', async (req, res) => {
   try {
     const { current_playoff_week, is_week_active } = req.body;
     
-    if (!current_playoff_week || current_playoff_week < 1 || current_playoff_week > 4) {
-      return res.status(400).json({ success: false, error: 'current_playoff_week must be between 1 and 4' });
+    // Allow any valid NFL week number (1-18 for regular season, 19-22 for playoffs)
+    if (!current_playoff_week || current_playoff_week < 1 || current_playoff_week > 22) {
+      return res.status(400).json({ success: false, error: 'current_playoff_week must be between 1 and 22' });
     }
     
     let query = 'UPDATE game_settings SET current_playoff_week = $1';
