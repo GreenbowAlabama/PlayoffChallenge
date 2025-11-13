@@ -1205,22 +1205,6 @@ app.post('/api/admin/sync-players', async (req, res) => {
     const response = await axios.get('https://api.sleeper.app/v1/players/nfl');
     const allPlayers = response.data;
     
-    // NFL playoff teams (update this list as needed)
-    const playoffTeams = [
-      'KC', 'BUF', 'BAL', 'HOU', 'LAC', 'PIT', 'DEN', // AFC
-      'DET', 'PHI', 'LAR', 'TB', 'MIN', 'GB', 'WSH'  // NFC
-    ];
-    
-    // Filter to active players on playoff teams, top depth chart
-    const playoffPlayers = Object.values(allPlayers).filter(p => {
-      return p.active &&
-             p.team &&
-             playoffTeams.includes(p.team) &&
-             p.position &&
-             ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(p.position) &&
-             (p.depth_chart_order === 1 || p.depth_chart_order === 2 || p.position === 'K' || p.position === 'DEF');
-    });
-    
     console.log(`Found ${playoffPlayers.length} playoff players to sync`);
     
     let inserted = 0;
@@ -1337,12 +1321,6 @@ app.get('/api/players', async (req, res) => {
     
     // Fetch fresh data - only available and active players
     console.log('Fetching players from database...');
-    
-    // Playoff teams only
-    const playoffTeams = [
-      'KC', 'BUF', 'BAL', 'HOU', 'LAC', 'PIT', 'DEN', // AFC
-      'DET', 'PHI', 'LAR', 'TB', 'MIN', 'GB', 'WSH'  // NFC
-    ];
     
     let query = `
       SELECT id, sleeper_id, full_name, first_name, last_name, position, team, 
