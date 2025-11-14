@@ -1650,14 +1650,18 @@ app.get('/api/admin/users', async (req, res) => {
 app.put('/api/admin/users/:id/payment', async (req, res) => {
   try {
     const { id } = req.params;
-    const { has_paid, user_id } = req.body;
+    const { has_paid, user_id, adminUserId, hasPaid } = req.body;
     
-    if (!user_id) {
-      return res.status(400).json({ error: 'user_id required in request body' });
+    // Support both naming conventions
+    const actualUserId = user_id || adminUserId;
+    const actualHasPaid = has_paid !== undefined ? has_paid : hasPaid;
+    
+    if (!actualUserId) {
+      return res.status(400).json({ error: 'user_id or adminUserId required in request body' });
     }
     
     // Verify requesting user is admin
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [user_id]);
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [actualUserId]);
     if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
@@ -1665,7 +1669,7 @@ app.put('/api/admin/users/:id/payment', async (req, res) => {
     // Update payment status
     const result = await pool.query(
       'UPDATE users SET paid = $1 WHERE id = $2 RETURNING *',
-      [has_paid, id]
+      [actualHasPaid, id]
     );
     
     if (result.rows.length === 0) {
