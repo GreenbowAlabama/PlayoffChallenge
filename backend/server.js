@@ -1880,3 +1880,260 @@ process.on('SIGTERM', () => {
   if (liveStatsInterval) clearInterval(liveStatsInterval);
   process.exit(0);
 });
+
+// ============================================
+// ADD THIS TO YOUR server.js
+// ============================================
+
+// Simple leaderboard view for testers
+app.get('/leaderboard-test', async (req, res) => {
+  try {
+    const weekResult = await pool.query('SELECT current_playoff_week FROM game_settings LIMIT 1');
+    const currentWeek = weekResult.rows[0]?.current_playoff_week || 11;
+    
+    const query = `
+      SELECT 
+        u.name as user_name,
+        u.username,
+        u.email,
+        u.paid,
+        p.full_name as player_name,
+        p.position,
+        p.team,
+        pk.week_number,
+        pk.locked,
+        pk.multiplier,
+        COALESCE(s.base_points, 0) as base_points,
+        COALESCE(s.final_points, 0) as final_points
+      FROM users u
+      LEFT JOIN picks pk ON pk.user_id = u.id
+      LEFT JOIN players p ON pk.player_id = p.id
+      LEFT JOIN scores s ON s.user_id = u.id 
+        AND s.player_id = pk.player_id 
+        AND s.week_number = pk.week_number
+      WHERE pk.week_number = $1
+      ORDER BY u.name, u.username,
+        CASE p.position
+          WHEN 'QB' THEN 1
+          WHEN 'RB' THEN 2
+          WHEN 'WR' THEN 3
+          WHEN 'TE' THEN 4
+          WHEN 'K' THEN 5
+          WHEN 'DEF' THEN 6
+        END,
+        p.full_name
+    `;
+    
+    const result = await pool.query(query, [currentWeek]);
+    
+    // Group by user
+    const userStats = new Map();
+    
+    result.rows.forEach(row => {
+      const userName = row.user_name || row.username || row.email || 'Unknown';
+      
+      if (!userStats.has(userName)) {
+        userStats.set(userName, {
+          paid: row.paid,
+          picks: [],
+          totalPoints: 0
+        });
+      }
+      
+      const userData = userStats.get(userName);
+      userData.picks.push(row);
+      userData.totalPoints += parseFloat(row.final_points) || 0;
+    });
+    
+    // Sort by points
+    const sortedUsers = Array.from(userStats.entries()).sort((a, b) => {
+      return b[1].totalPoints - a[1].totalPoints;
+    });
+    
+    // Generate HTML
+    let html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="60">
+  <title>Week ${currentWeek} Leaderboard</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #fff;
+    }
+    h1 {
+      text-align: center;
+      color: #4a9eff;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #888;
+      margin-bottom: 30px;
+    }
+    .leaderboard {
+      background: #2a2a2a;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .user-row {
+      border-bottom: 1px solid #3a3a3a;
+      padding: 15px 20px;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .user-row:hover {
+      background: #333;
+    }
+    .rank {
+      font-size: 24px;
+      font-weight: bold;
+      width: 50px;
+      flex-shrink: 0;
+    }
+    .rank.gold { color: #ffd700; }
+    .rank.silver { color: #c0c0c0; }
+    .rank.bronze { color: #cd7f32; }
+    .name {
+      flex: 1;
+      font-size: 18px;
+    }
+    .points {
+      font-size: 24px;
+      font-weight: bold;
+      color: #4a9eff;
+      margin-right: 10px;
+    }
+    .paid {
+      color: #4ade80;
+      margin-left: 10px;
+    }
+    .details {
+      display: none;
+      padding: 15px 20px;
+      background: #222;
+      border-top: 1px solid #444;
+    }
+    .details.show {
+      display: block;
+    }
+    .pick-row {
+      display: flex;
+      padding: 8px 0;
+      border-bottom: 1px solid #333;
+    }
+    .pick-row:last-child {
+      border-bottom: none;
+    }
+    .position {
+      width: 50px;
+      font-weight: bold;
+      color: #888;
+    }
+    .player {
+      flex: 1;
+    }
+    .player-points {
+      color: #4ade80;
+      font-weight: bold;
+      min-width: 80px;
+      text-align: right;
+    }
+    .locked {
+      color: #fbbf24;
+      margin-left: 10px;
+    }
+    .stats {
+      text-align: center;
+      margin-top: 30px;
+      padding: 20px;
+      background: #2a2a2a;
+      border-radius: 12px;
+      color: #888;
+    }
+    @media (max-width: 768px) {
+      .rank { width: 40px; font-size: 18px; }
+      .name { font-size: 16px; }
+      .points { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>🏈 Week ${currentWeek} Leaderboard</h1>
+  <p class="subtitle">Auto-refreshes every 60 seconds • Last updated: ${new Date().toLocaleTimeString()}</p>
+  
+  <div class="leaderboard">
+`;
+    
+    sortedUsers.forEach(([userName, userData], index) => {
+      const rank = index + 1;
+      let rankClass = '';
+      if (rank === 1) rankClass = 'gold';
+      else if (rank === 2) rankClass = 'silver';
+      else if (rank === 3) rankClass = 'bronze';
+      
+      const paidBadge = userData.paid ? '<span class="paid">✓</span>' : '';
+      
+      html += `
+    <div class="user-row" onclick="toggleDetails('user-${index}')">
+      <div class="rank ${rankClass}">#${rank}</div>
+      <div class="name">${userName}${paidBadge}</div>
+      <div class="points">${userData.totalPoints.toFixed(1)}</div>
+    </div>
+    <div class="details" id="user-${index}">
+`;
+      
+      userData.picks.forEach(pick => {
+        const points = parseFloat(pick.final_points) || 0;
+        const locked = pick.locked ? '<span class="locked">🔒</span>' : '';
+        html += `
+      <div class="pick-row">
+        <div class="position">${pick.position}</div>
+        <div class="player">${pick.player_name || 'Unknown'} (${pick.team || ''})</div>
+        <div class="player-points">${points.toFixed(1)} pts${locked}</div>
+      </div>
+`;
+      });
+      
+      html += `
+    </div>
+`;
+    });
+    
+    const totalPicks = result.rows.length;
+    const scoredPicks = result.rows.filter(r => parseFloat(r.final_points) > 0).length;
+    
+    html += `
+  </div>
+  
+  <div class="stats">
+    <strong>${sortedUsers.length}</strong> players • 
+    <strong>${scoredPicks}/${totalPicks}</strong> picks scored
+  </div>
+  
+  <script>
+    function toggleDetails(id) {
+      const element = document.getElementById(id);
+      element.classList.toggle('show');
+    }
+  </script>
+</body>
+</html>
+`;
+    
+    res.send(html);
+    
+  } catch (error) {
+    console.error('Error generating leaderboard:', error);
+    res.status(500).send('<h1>Error loading leaderboard</h1>');
+  }
+});
