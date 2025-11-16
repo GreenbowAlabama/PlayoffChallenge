@@ -2069,7 +2069,7 @@ app.get('/leaderboard-test', async (req, res) => {
 </head>
 <body>
   <h1>🏈 Week ${currentWeek} Leaderboard</h1>
-  <p class="subtitle">Auto-refreshes every 60 seconds • Last updated: ${new Date().toLocaleTimeString()}</p>
+  <p class="subtitle">Auto-refreshes every 60 seconds • Last updated: ${new Date().toLocaleTimeString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })} CT</p>
   
   <div class="leaderboard">
 `;
