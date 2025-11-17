@@ -260,34 +260,40 @@ async function fetchPlayerStats(espnId, weekNumber) {
                 
                 // Accumulate stats from this category
                 if (statCategory.name === 'passing' && athlete.stats) {
-                  // Format: [comp/att, yards, TD, INT]
+                  // ESPN Format: ["C/ATT", "YDS", "AVG", "TD", "INT", "SACKS", "QBR", "RTG"]
+                  // Indices:        0       1      2      3     4       5       6      7
                   const yards = parseFloat(athlete.stats[1]) || 0;
                   stats.pass_yd += yards;
-                  stats.pass_td += parseFloat(athlete.stats[2]) || 0;
-                  stats.pass_int += parseFloat(athlete.stats[3]) || 0;
+                  stats.pass_td += parseFloat(athlete.stats[3]) || 0;  // Fixed: was [2], now [3]
+                  stats.pass_int += parseFloat(athlete.stats[4]) || 0; // Fixed: was [3], now [4]
                 }
                 
                 if (statCategory.name === 'rushing' && athlete.stats) {
-                  // Format: [carries, yards, avg, TD]
+                  // ESPN Format: ["CAR", "YDS", "AVG", "TD", "LONG"]
+                  // Indices:        0      1      2      3     4
                   const yards = parseFloat(athlete.stats[1]) || 0;
                   stats.rush_yd += yards;
                   stats.rush_td += parseFloat(athlete.stats[3]) || 0;
                 }
                 
                 if (statCategory.name === 'receiving' && athlete.stats) {
-                  // Format: [rec, yards, avg, TD, targets, long]
+                  // ESPN Format: ["REC", "YDS", "AVG", "TD", "LONG", "TGTS"]
+                  // Indices:        0      1      2      3     4       5
                   stats.rec += parseFloat(athlete.stats[0]) || 0;
                   stats.rec_yd += parseFloat(athlete.stats[1]) || 0;
                   stats.rec_td += parseFloat(athlete.stats[3]) || 0;
                 }
                 
                 if (statCategory.name === 'fumbles' && athlete.stats) {
-                  // Format: [fumbles, lost]
+                  // ESPN Format: ["FUM", "LOST", "REC"]
+                  // Indices:        0      1      2
                   stats.fum_lost += parseFloat(athlete.stats[1]) || 0;
                 }
                 
                 if (statCategory.name === 'kicking' && athlete.stats) {
-                  // Format: [FG made/att, FG%, longest, PAT made/att, points]
+                  // ESPN Format: ["FG", "PCT", "LONG", "XP", "PTS"]
+                  // Indices:        0     1      2       3     4
+                  // FG and XP are in "made/att" format
                   const fgMadeAtt = athlete.stats[0] ? athlete.stats[0].split('/') : ['0', '0'];
                   const fgMade = parseInt(fgMadeAtt[0]) || 0;
                   const fgAtt = parseInt(fgMadeAtt[1]) || 0;
