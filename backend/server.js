@@ -333,101 +333,151 @@ async function fetchPlayerStats(espnId, weekNumber) {
   }
 }
 
-// Fetch defense stats from team-level boxscore data
+// Fetch defense stats from ESPN
 async function fetchDefenseStats(teamAbbrev, weekNumber) {
   try {
-    // Search through active games for this week
     for (const gameId of liveStatsCache.activeGameIds) {
       try {
-        const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
-        const response = await axios.get(url);
-        
-        if (!response.data || !response.data.boxscore) continue;
-        
-        // Check if this team is in this game
-        const competition = response.data.header?.competitions?.[0];
+        // Load the normal summary first
+        const summaryUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
+        const summaryRes = await axios.get(summaryUrl);
+
+        if (!summaryRes.data || !summaryRes.data.boxscore) continue;
+
+        const competition = summaryRes.data.header?.competitions?.[0];
         if (!competition) continue;
-        
+
         let isInGame = false;
         let opponentScore = 0;
-        
+        let teamId = null;
+
+        // Determine if the given team is in this game
         for (const competitor of competition.competitors) {
-          if (competitor.team.abbreviation === teamAbbrev) {
+          const abbrev = competitor.team.abbreviation;
+          if (abbrev === teamAbbrev) {
             isInGame = true;
+            teamId = competitor.id;   // ESPN internal competitor ID
           } else {
             opponentScore = parseInt(competitor.score) || 0;
           }
         }
-        
-        if (!isInGame) continue;
-        
-        const boxscore = response.data.boxscore;
-        if (!boxscore.teams) continue;
-        
-        // Find the team's defensive stats
-        for (const team of boxscore.teams) {
-          if (team.team.abbreviation === teamAbbrev) {
-            const stats = {
-              def_sack: 0,
-              def_int: 0,
-              def_fum_rec: 0,
-              def_td: 0,
-              def_safety: 0,
-              def_block: 0,
-              def_ret_td: 0,
-              def_pts_allowed: opponentScore || 0
-            };
-            
-            // Extract defensive stats from team statistics
-            if (team.statistics) {
-              for (const stat of team.statistics) {
-                // Sacks are listed in format "5-21" (sacks-yards)
-                if (stat.name === 'sacksYardsLost' && stat.displayValue) {
-                  const sacks = stat.displayValue.split('-')[0];
-                  stats.def_sack = parseInt(sacks) || 0;
-                }
-                
-                // Note: Interceptions, fumbles, TDs need to be extracted from player stats
-                // as they're not in team-level stats
+
+        if (!isInGame || !teamId) continue;
+
+        // Initialize our stat bucket
+        const stats = {
+          def_sack: 0,
+          def_int: 0,
+          def_fum_rec: 0,
+          def_td: 0,
+          def_safety: 0,
+          def_block: 0,
+          def_ret_td: 0,
+          def_pts_allowed: opponentScore
+        };
+
+        // ============================================================
+        // 1. Pull COMPETITOR statistics (the important endpoint)
+        // ============================================================
+        const compStatsUrl =
+          `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/${gameId}` +
+          `/competitions/${gameId}/competitors/${teamId}/statistics`;
+
+        let compStats = null;
+        try {
+          const compRes = await axios.get(compStatsUrl);
+          compStats = compRes.data;
+        } catch (_) {
+          // competitor stats may fail on early games — continue gracefully
+        }
+
+        if (compStats && compStats.splits) {
+          for (const split of compStats.splits) {
+            if (!split.stats) continue;
+
+            for (const stat of split.stats) {
+              switch (stat.name) {
+                case "defensiveSacks":
+                  stats.def_sack += Number(stat.value) || 0;
+                  break;
+
+                case "defensiveInterceptions":
+                  stats.def_int += Number(stat.value) || 0;
+                  break;
+
+                case "defensiveFumbleRecoveries":
+                  stats.def_fum_rec += Number(stat.value) || 0;
+                  break;
+
+                case "defensiveTDs":
+                  stats.def_td += Number(stat.value) || 0;
+                  break;
+
+                case "specialTeamTDs":
+                  stats.def_ret_td += Number(stat.value) || 0;
+                  break;
+
+                case "pointsAgainst":
+                  stats.def_pts_allowed = Number(stat.value) || opponentScore;
+                  break;
               }
             }
-            
-            // Also check players for defensive TDs, INTs, fumble recoveries
-            if (boxscore.players) {
-              for (const playerTeam of boxscore.players) {
-                if (!playerTeam.team || playerTeam.team.abbreviation !== teamAbbrev) continue;
-                
-                if (playerTeam.statistics) {
-                  for (const statCategory of playerTeam.statistics) {
-                    if (statCategory.name === 'interceptions' && statCategory.athletes) {
-                      // Count actual interceptions, not just players who had them
-                      for (const athlete of statCategory.athletes) {
-                        if (athlete.stats && athlete.stats.length > 0) {
-                          // Interceptions format: [INT, YDS, TD]
-                          const ints = parseInt(athlete.stats[0]) || 0;
-                          stats.def_int += ints;
-                          // Check for pick-six
-                          const td = parseInt(athlete.stats[2]) || 0;
-                          if (td > 0) stats.def_td += td;
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            
-            return stats;
           }
         }
-      } catch (err) {
+
+        // ============================================================
+        // 2. Supplement sacks with team-level boxscore if needed
+        // ============================================================
+        const teamBox = summaryRes.data.boxscore.teams.find(
+          t => t.team.abbreviation === teamAbbrev
+        );
+
+        if (teamBox?.statistics) {
+          for (const stat of teamBox.statistics) {
+            if (stat.name === "sacksYardsLost" && stat.displayValue) {
+              const sacks = parseInt(stat.displayValue.split("-")[0]);
+              if (!isNaN(sacks) && sacks > stats.def_sack) {
+                stats.def_sack = sacks; // Only override if boxscore is more accurate
+              }
+            }
+          }
+        }
+
+        // ============================================================
+        // 3. Supplement defensive TD + INT info from player stats
+        // ============================================================
+        const playerBox = summaryRes.data.boxscore.players;
+        if (playerBox) {
+          for (const group of playerBox) {
+            if (!group.team || group.team.abbreviation !== teamAbbrev) continue;
+            if (!group.statistics) continue;
+
+            for (const cat of group.statistics) {
+              if (cat.name === "interceptions" && cat.athletes) {
+                for (const a of cat.athletes) {
+                  const ints = parseInt(a.stats?.[0] || "0");
+                  const td = parseInt(a.stats?.[2] || "0");
+
+                  if (!isNaN(ints)) stats.def_int += ints;
+                  if (!isNaN(td)) stats.def_td += td;
+                }
+              }
+            }
+          }
+        }
+
+        // Done — return merged defensive stats
+        return stats;
+
+      } catch (_) {
         continue;
       }
     }
-    
+
     return null;
+
   } catch (err) {
-    console.error(`Error fetching defense stats for ${teamAbbrev}:`, err.message);
+    console.error(`Defense fetch failed for ${teamAbbrev}:`, err.message);
     return null;
   }
 }
