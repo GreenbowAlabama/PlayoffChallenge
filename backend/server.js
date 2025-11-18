@@ -333,6 +333,16 @@ async function fetchPlayerStats(espnId, weekNumber) {
   }
 }
 
+// Simple wrapper to rescore an entire week using live stats pipeline
+async function processWeekScoring(weekNumber) {
+  console.log(`[admin] processWeekScoring called for week ${weekNumber}`);
+  // This reuses the same logic as the live stats loop:
+  // - fetch scoreboard for that week
+  // - fetch player/DEF stats
+  // - save into scores via savePlayerScoresToDatabase
+  return updateLiveStats(weekNumber);
+}
+
 // ============================================
 // TEMP ENDPOINT: Force refresh of scoring
 // ============================================
