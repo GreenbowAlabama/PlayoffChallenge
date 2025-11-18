@@ -333,6 +333,31 @@ async function fetchPlayerStats(espnId, weekNumber) {
   }
 }
 
+// ============================================
+// TEMP ENDPOINT: Force refresh of scoring
+// ============================================
+app.post('/admin/refresh-week', async (req, res) => {
+  const { week } = req.body;
+
+  if (!week) {
+    return res.status(400).json({ error: "Missing week" });
+  }
+
+  try {
+    console.log(`[admin] Refreshing scoring for week ${week}...`);
+    const result = await processWeekScoring(week);
+
+    return res.json({
+      message: `Week ${week} scoring refreshed`,
+      ...result
+    });
+
+  } catch (err) {
+    console.error("[admin refresh error]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Fetch defense stats from ESPN
 async function fetchDefenseStats(teamAbbrev, weekNumber) {
   try {
