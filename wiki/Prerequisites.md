@@ -123,7 +123,7 @@ v18.x.x or higher
 
 **Install:**
 ```bash
-brew install postgresql@16
+brew install postgresql@17
 ```
 
 **Verify installation:**
@@ -133,7 +133,7 @@ psql --version
 
 **Expected output:**
 ```
-psql (PostgreSQL) 15.x or higher
+psql (PostgreSQL) 17.x or higher
 ```
 
 **Note:** You don't need to run a local PostgreSQL server - we'll connect to Railway's hosted database.
@@ -177,7 +177,7 @@ Create a workspace directory and clone the repository:
 mkdir -p ~/Documents/workspace
 cd ~/Documents/workspace
 git clone https://github.com/GreenbowAlabama/PlayoffChallenge.git
-cd playoff-challenge
+cd PlayoffChallenge
 ```
 
 You should be able to clone the repository without errors.

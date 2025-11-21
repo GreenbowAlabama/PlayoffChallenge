@@ -27,12 +27,12 @@ cd ~/Documents/workspace
 git clone https://github.com/GreenbowAlabama/PlayoffChallenge.git
 
 # Navigate into the project
-cd playoff-challenge
+cd PlayoffChallenge
 ```
 
 **Expected output:**
 ```
-Cloning into 'playoff-challenge'...
+Cloning into 'PlayoffChallenge'...
 remote: Enumerating objects: ...
 ```
 
