@@ -68,8 +68,7 @@ git push origin backend
 playoff-challenge/
 ├── backend/              # Node.js/Express API
 │   ├── server.js         # Main API server (2,246 lines, 40+ endpoints)
-│   ├── schema.sql        # PostgreSQL schema
-│   └── [utility scripts] # 50+ data sync/audit/fix scripts
+│   └── schema.sql        # PostgreSQL schema
 ├── ios-app/PlayoffChallenge/
 │   ├── Services/         # APIService, AuthService
 │   ├── Models/           # Data models, ViewModels (includes PlayerViewModel.swift)
@@ -240,20 +239,26 @@ The backend continuously polls ESPN API for live game stats during active games:
 ### Player Data Sync
 
 Players are imported from Sleeper API:
-- Triggered via admin panel: Settings → "Sync Players from Sleeper API"
-- Endpoint: `POST /api/admin/sync-players`
-- Imports top 2-3 players per position per playoff team
-- ESPN IDs are mapped automatically or via fuzzy name matching
+- **Not currently accessible via UI** (feature removed from admin panel)
+- Endpoint still exists: `POST /api/admin/sync-players`
+- Can be triggered manually via API call or database script
+- Imports **all active NFL players** from Sleeper API
+- Filters to: depth chart positions 1-2 (or all K/DEF players) for positions: QB, RB, WR, TE, K, DEF
+- **Not limited to playoff teams** - syncs players from all NFL teams
+- ESPN IDs come from Sleeper API data (not fuzzy matched during sync)
+- Upserts players: updates existing, inserts new based on `player_id`/`sleeper_id`
+- Clears player cache after sync completes
+
+### ESPN ID Sync
+
+- Available in admin panel: Settings → "Sync ESPN IDs" button
+- Endpoint: `POST /api/admin/sync-espn-ids`
+- Maps ESPN athlete IDs to existing players in database
+- Uses Sleeper API to get ESPN ID mappings
 
 ### Utility Scripts
 
-The `backend/` directory contains 50+ standalone Node.js scripts for data maintenance:
-- `audit*.js` - Validate ESPN IDs, player mappings, score integrity
-- `fix*.js` - Correct ESPN ID mappings, remove duplicates, repair orphaned scores
-- `check*.js` - Diagnostic scripts for debugging (Josh Allen stats, live games, player data, etc.)
-- `generate*.js` - Create test teams and test data
-- **Usage**: `node backend/scriptName.js` (connects to DB via DATABASE_URL env var)
-- **Note**: These are NOT imported by server.js - run independently for maintenance tasks
+**Note**: Utility scripts have been removed from the repository. Previously there were 50+ troubleshooting scripts (`audit*.js`, `fix*.js`, `check*.js`, `generate*.js`) used for data maintenance and debugging during development. These can be recreated as needed for specific troubleshooting tasks.
 
 ## Key Considerations
 
@@ -436,12 +441,7 @@ All API errors return JSON with an `error` field:
    ```bash
    curl -X POST "https://playoffchallenge-production.up.railway.app/api/admin/sync-espn-ids"
    ```
-2. Check utility scripts for manual fixes:
-   ```bash
-   node backend/findMissingESPNIds.js
-   node backend/fixESPNIdsFromSleeper.js
-   ```
-3. Manually update ESPN ID in database:
+2. Manually update ESPN ID in database:
    ```sql
    UPDATE players SET espn_id = '12345' WHERE id = 'player-uuid-here';
    ```
