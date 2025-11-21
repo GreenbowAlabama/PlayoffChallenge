@@ -107,6 +107,14 @@ Add the following configuration:
 # Database connection (get this from Railway dashboard or team lead)
 DATABASE_URL=postgresql://username:password@host:port/database
 
+# PostgreSQL connection variables (Railway provides these automatically via DATABASE_URL)
+# Only set these if you need to override individual values
+PGHOST=host
+PGPORT=5432
+PGUSER=username
+PGPASSWORD=password
+PGDATABASE=database
+
 # Server port (optional, defaults to 8080)
 PORT=8080
 
@@ -120,6 +128,12 @@ NODE_ENV=development
 3. Click on the PostgreSQL service
 4. Go to "Connect" tab
 5. Copy the "Postgres Connection URL"
+
+**About PostgreSQL variables:**
+- `DATABASE_URL` is the primary connection string - the app uses this
+- `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` are individual components
+- Railway automatically provides all of these in production
+- For local development, `DATABASE_URL` alone is sufficient (the app parses it)
 
 **Security reminder:**
 - The `.env` file is in `.gitignore` - it will never be committed

@@ -93,12 +93,13 @@ xcode-select --install
 
 **Why:** Required for running the backend API server.
 
-**Install via Homebrew (recommended):**
+**Install Homebrew (if you don't have it):**
 ```bash
-# Install Homebrew if you don't have it
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
 
-# Install Node.js
+**Install Node.js:**
+```bash
 brew install node
 ```
 
@@ -120,9 +121,9 @@ v18.x.x or higher
 
 **Why:** Used to connect to the production database and run SQL commands.
 
-**Install via Homebrew:**
+**Install:**
 ```bash
-brew install postgresql
+brew install postgresql@16
 ```
 
 **Verify installation:**
@@ -169,7 +170,12 @@ git config --global user.email "your.email@example.com"
 - Accept the invitation email from GitHub
 
 **Verify access:**
+
+Create a workspace directory and clone the repository:
+
 ```bash
+mkdir -p ~/Documents/workspace
+cd ~/Documents/workspace
 git clone https://github.com/GreenbowAlabama/PlayoffChallenge.git
 cd playoff-challenge
 ```
