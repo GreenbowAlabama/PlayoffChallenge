@@ -34,7 +34,30 @@ remote: Enumerating objects: ...
 
 ---
 
-## Step 2: Navigate to Backend Directory
+## Step 2: Switch to Backend Branch
+
+**Important:** The repository has separate branches for different parts of the project. The backend code is on the `backend` branch.
+
+```bash
+git checkout backend
+```
+
+**Expected output:**
+```
+Switched to branch 'backend'
+Your branch is up to date with 'origin/backend'.
+```
+
+**Verify you're on the right branch:**
+```bash
+git branch
+```
+
+You should see `* backend` (the asterisk indicates your current branch).
+
+---
+
+## Step 3: Navigate to Backend Directory
 
 ```bash
 cd backend
@@ -53,7 +76,7 @@ You should see files including:
 
 ---
 
-## Step 3: Install Dependencies
+## Step 4: Install Dependencies
 
 ```bash
 npm install
@@ -75,7 +98,7 @@ You should see many folders including: `express`, `pg`, `cors`, `dotenv`, etc.
 
 ---
 
-## Step 4: Configure Environment Variables
+## Step 5: Configure Environment Variables
 
 The backend needs to connect to the PostgreSQL database. We'll use a `.env` file for local development.
 
@@ -138,7 +161,7 @@ NODE_ENV=development
 
 ---
 
-## Step 5: Verify Database Connection
+## Step 6: Verify Database Connection
 
 Test that you can connect to the database:
 
@@ -161,7 +184,7 @@ psql "$DATABASE_URL" -c "SELECT COUNT(*) FROM users;"
 
 ---
 
-## Step 6: Start the Development Server
+## Step 7: Start the Development Server
 
 ```bash
 npm run dev
@@ -185,7 +208,7 @@ Background stats update is disabled in non-production environment
 
 ---
 
-## Step 7: Verify the Server is Running
+## Step 8: Verify the Server is Running
 
 ### Test 1: Health Check Endpoint
 
