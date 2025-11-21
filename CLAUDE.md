@@ -475,6 +475,37 @@ All API errors return JSON with an `error` field:
 **Refresh Frequency:** Manual only (not automated)
 **Data Quality:** Generally reliable, but ESPN IDs may be missing or incorrect
 
+## Repository Security
+
+### Branch Protection
+- **Backend Branch**: Protected with branch policy
+- **Access Control**: Read, write, and deploy key roles can push to backend
+- **Public Repository**: This is a public GitHub repository - never commit secrets
+
+### Secret Management
+- **Environment Variables**: All secrets stored in Railway environment variables only
+- **Never Commit**:
+  - `.env` files (properly in `.gitignore`)
+  - Database connection strings
+  - API keys or tokens
+  - Private keys or certificates
+- **Local Development**: Use `.env` file for local development (not tracked by git)
+- **Production**: All secrets configured in Railway dashboard
+
+### Environment Variable Configuration
+**Required in Railway:**
+- `DATABASE_URL` - PostgreSQL connection string (contains credentials)
+- `NODE_ENV` - Set to 'production'
+- `PORT` - Assigned automatically by Railway
+
+**Not Required (optional):**
+- Apple Sign In credentials (if backend needs to verify tokens in future)
+
+### Code Review
+- Since this is a public repository, assume all code is visible
+- No security through obscurity - use proper authentication/authorization
+- Admin endpoints rely on database `is_admin` flag, not secret keys
+
 ## Production Environment
 
 - **Hosting:** Railway
@@ -483,7 +514,7 @@ All API errors return JSON with an `error` field:
   - `DATABASE_URL` - PostgreSQL connection string (required)
   - `PORT` - Server port (default 8080)
   - `NODE_ENV` - Set to 'production' for SSL and background polling
-- **Deployment:** Automatic on push to `backend` branch
+- **Deployment:** Automatic on push to `backend` branch (protected)
 - **Logs:** Available in Railway dashboard
 - **Health Check:** `GET /health` returns `{ status: 'ok', timestamp }`
 - **Database Migrations:** Manual only - no automated migration system
