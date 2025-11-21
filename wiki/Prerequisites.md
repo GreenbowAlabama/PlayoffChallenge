@@ -6,25 +6,12 @@ Before you begin development, you'll need to set up some tools and accounts. Thi
 
 ## Opening Terminal on Mac
 
-All commands in this guide are run in Terminal. Here's how to open it:
+All commands in this guide are run in Terminal.
 
-**Method 1: Spotlight Search (Easiest)**
+**To open Terminal:**
 1. Press `Cmd + Space` to open Spotlight
 2. Type "Terminal"
 3. Press `Enter`
-
-**Method 2: Finder**
-1. Open Finder
-2. Go to Applications → Utilities → Terminal
-3. Double-click Terminal
-
-**Method 3: Launchpad**
-1. Open Launchpad (rocket icon in Dock)
-2. Type "Terminal" in search
-3. Click Terminal
-
-**Tip:** Keep Terminal in your Dock for easy access:
-- Right-click Terminal icon in Dock → Options → Keep in Dock
 
 ---
 
