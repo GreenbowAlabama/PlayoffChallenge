@@ -4,6 +4,30 @@ Before you begin development, you'll need to set up some tools and accounts. Thi
 
 ⏱️ **Estimated time:** 15 minutes
 
+## Opening Terminal on Mac
+
+All commands in this guide are run in Terminal. Here's how to open it:
+
+**Method 1: Spotlight Search (Easiest)**
+1. Press `Cmd + Space` to open Spotlight
+2. Type "Terminal"
+3. Press `Enter`
+
+**Method 2: Finder**
+1. Open Finder
+2. Go to Applications → Utilities → Terminal
+3. Double-click Terminal
+
+**Method 3: Launchpad**
+1. Open Launchpad (rocket icon in Dock)
+2. Type "Terminal" in search
+3. Click Terminal
+
+**Tip:** Keep Terminal in your Dock for easy access:
+- Right-click Terminal icon in Dock → Options → Keep in Dock
+
+---
+
 ## Required Tools
 
 ### 1. macOS Development Machine
@@ -11,11 +35,20 @@ Before you begin development, you'll need to set up some tools and accounts. Thi
 **Why:** iOS development requires Xcode, which only runs on macOS.
 
 **Verify you have macOS:**
+
+Open Terminal and run:
 ```bash
 sw_vers
 ```
 
-You should see macOS version 13.0 or later for best compatibility.
+**Expected output:**
+```
+ProductName:        macOS
+ProductVersion:     13.0 or later
+BuildVersion:       ...
+```
+
+You should see macOS version 13.0 or later for best compatibility. macOS 15.0+ works great.
 
 ---
 
@@ -27,6 +60,17 @@ You should see macOS version 13.0 or later for best compatibility.
 1. Open the Mac App Store
 2. Search for "Xcode"
 3. Click "Get" or "Update"
+4. Wait for installation to complete (may take 30+ minutes, it's a large download)
+
+**After installation, set the developer directory:**
+
+This is a critical step that's often missed!
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
+You'll be prompted for your Mac password. Type it and press Enter.
 
 **Verify installation:**
 ```bash
@@ -35,14 +79,26 @@ xcodebuild -version
 
 **Expected output:**
 ```
-Xcode 15.0
-Build version 15A240d
+Xcode 15.0 or later (Xcode 26.1.1 works great!)
+Build version ...
+```
+
+**If you see an error like:**
+```
+xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory '/Library/Developer/CommandLineTools' is a command line tools instance
+```
+
+**Fix it by running:**
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ```
 
 **Install Command Line Tools:**
 ```bash
 xcode-select --install
 ```
+
+**Note:** If you see "Command line tools are already installed", that's fine! The tools are installed, you just needed to set the developer directory above.
 
 ---
 
