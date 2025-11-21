@@ -170,17 +170,8 @@ git config --global user.email "your.email@example.com"
 - Accept the invitation email from GitHub
 
 **Verify access:**
-
-Create a workspace directory and clone the repository:
-
-```bash
-mkdir -p ~/Documents/workspace
-cd ~/Documents/workspace
-git clone https://github.com/GreenbowAlabama/PlayoffChallenge.git
-cd PlayoffChallenge
-```
-
-You should be able to clone the repository without errors.
+- Ask your team lead to verify you have access to the repository
+- You'll clone the repository in the next step (Backend Setup)
 
 ---
 

@@ -17,16 +17,12 @@ By the end of this guide, you will:
 
 ## Step 1: Clone the Repository
 
-If you haven't already cloned the repository during prerequisites:
+Create a workspace directory and clone the repository:
 
 ```bash
-# Navigate to where you want to store the project
+mkdir -p ~/Documents/workspace
 cd ~/Documents/workspace
-
-# Clone the repository
 git clone https://github.com/GreenbowAlabama/PlayoffChallenge.git
-
-# Navigate into the project
 cd PlayoffChallenge
 ```
 
