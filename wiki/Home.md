@@ -55,6 +55,11 @@ Follow these pages in order to get started:
 **[Architecture Deep Dive](Architecture-Deep-Dive.md)** - How everything works together
 - Estimated time: 30 minutes reading
 
+### 4. Making Changes
+**[Making Changes](Making-Changes.md)** - Branching, commits, and pull requests
+- Estimated time: 10 minutes first time, 2 minutes after
+- **Important:** Learn the proper workflow before making changes!
+
 ## Quick Links
 
 - **Main Documentation**: [CLAUDE.md](../CLAUDE.md) - Comprehensive technical reference
