@@ -174,12 +174,18 @@ async function loadTestPicks() {
           const player = getRandomElement(availablePlayers.filter(p => !usedPlayerIds.has(p.id)));
           usedPlayerIds.add(player.id);
 
-          // Insert pick
+          // Delete existing pick for this position if it exists
+          // (since the unique constraint is on user_id, player_id, week_number, not position)
+          await client.query(
+            `DELETE FROM picks
+             WHERE user_id = $1 AND week_number = $2 AND position = $3`,
+            [user.id, weekNumber, position]
+          );
+
+          // Insert new pick
           await client.query(
             `INSERT INTO picks (user_id, player_id, week_number, position, locked)
-             VALUES ($1, $2, $3, $4, false)
-             ON CONFLICT (user_id, week_number, position)
-             DO UPDATE SET player_id = EXCLUDED.player_id`,
+             VALUES ($1, $2, $3, $4, false)`,
             [user.id, player.id, weekNumber, position]
           );
 
