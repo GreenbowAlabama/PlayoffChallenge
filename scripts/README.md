@@ -4,6 +4,47 @@ Utility scripts for managing the Playoff Challenge application.
 
 ## Available Scripts
 
+### load-test-picks.js
+
+Automatically creates picks for test bot accounts (users with @test.com email addresses). Randomly selects players for each position to create complete rosters.
+
+**Usage:**
+```bash
+node scripts/load-test-picks.js <week_number> [--delete-existing]
+```
+
+**Examples:**
+
+Load picks for week 12 for all test accounts:
+```bash
+export DATABASE_URL="your-postgresql-connection-string"
+node scripts/load-test-picks.js 12
+```
+
+Delete existing picks and create new ones:
+```bash
+node scripts/load-test-picks.js 12 --delete-existing
+```
+
+**Options:**
+- `--delete-existing` - Delete existing picks for test accounts before creating new ones
+- `--help` - Show help message
+
+**What it does:**
+1. Finds all users with email addresses ending in `@test.com`
+2. Fetches available players for each position (QB, RB, WR, TE, FLEX, K, DEF)
+3. Optionally deletes existing picks for test accounts for the specified week
+4. Randomly assigns players to each position for each test account
+5. Creates complete rosters with proper position counts (1 QB, 2 RB, 2 WR, 1 TE, 1 FLEX, 1 K, 1 DEF)
+6. Shows summary of picks created per account
+
+**Safety:**
+- Only affects users with `@test.com` email addresses
+- Uses UPSERT logic to avoid duplicate picks
+- Shows before/after summary
+
+---
+
 ### reset-week.js
 
 Resets the current playoff week and optionally clears picks/scores for future weeks.
@@ -111,7 +152,11 @@ DATABASE_URL=postgresql://...
 When advancing to a new week and allowing users to make picks:
 
 ```bash
+# Reset to new week and activate picking
 node scripts/reset-week.js <week_number> --activate --delete-future
+
+# Load test data for bot accounts
+node scripts/load-test-picks.js <week_number> --delete-existing
 ```
 
 ### Reset After Testing
@@ -119,7 +164,23 @@ node scripts/reset-week.js <week_number> --activate --delete-future
 If you need to go back to a previous week and clear test data:
 
 ```bash
+# Reset to week 1 and clear all future data
 node scripts/reset-week.js 1 --activate --delete-future
+
+# Reload test picks
+node scripts/load-test-picks.js 1 --delete-existing
+```
+
+### Populate Test Data Only
+
+To add or refresh test bot picks without affecting real users:
+
+```bash
+# Add picks for test accounts for current week
+node scripts/load-test-picks.js 12
+
+# Replace existing test picks
+node scripts/load-test-picks.js 12 --delete-existing
 ```
 
 ### Lock a Week
