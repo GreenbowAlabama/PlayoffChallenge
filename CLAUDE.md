@@ -12,6 +12,28 @@ This is a fantasy football playoff challenge application where users pick NFL pl
 
 Production API: https://playoffchallenge-production.up.railway.app
 
+## Custom Claude Agents
+
+This repository includes custom Claude Code agents located in `.claude/agents/`:
+
+- **git-workflow-helper** - Guides users through proper git operations, branching strategies, and version control workflows specific to this project
+  - Helps create feature branches
+  - Provides safe commit and push guidance
+  - Assists with merge conflict resolution
+  - Enforces best practices for the protected backend branch
+
+- **onboarding-wiki-author** - Creates and maintains onboarding documentation for new developers
+  - Generates setup guides
+  - Documents development workflows
+  - Creates getting-started materials
+
+- **ops-doc-writer** - Creates operational and user-facing documentation
+  - Writes user guides
+  - Creates admin documentation
+  - Documents feature workflows
+
+These agents are automatically available to Claude Code and can be invoked when needed for their specialized tasks.
+
 ## Common Commands
 
 ### Backend Development
