@@ -73,12 +73,12 @@ const pool = new Pool({
 });
 
 // Position requirements (matches the position_requirements table)
+// NOTE: FLEX is excluded because the iOS app doesn't support it yet
 const POSITION_REQUIREMENTS = {
   'QB': 1,
   'RB': 2,
   'WR': 2,
   'TE': 1,
-  'FLEX': 1,  // Can be RB, WR, or TE
   'K': 1,
   'DEF': 1
 };
@@ -114,8 +114,6 @@ async function loadTestPicks() {
     const playersByPosition = {};
 
     for (const position of Object.keys(POSITION_REQUIREMENTS)) {
-      if (position === 'FLEX') continue; // FLEX is handled separately
-
       const positionFilter = position === 'DEF' ? 'DEF' : position;
       const players = await client.query(
         `SELECT id, full_name, position, team
@@ -128,16 +126,6 @@ async function loadTestPicks() {
       playersByPosition[position] = players.rows;
       console.log(`   ✓ ${position}: ${players.rows.length} players available`);
     }
-
-    // FLEX can be RB, WR, or TE
-    const flexPlayers = await client.query(
-      `SELECT id, full_name, position, team
-       FROM players
-       WHERE position IN ('RB', 'WR', 'TE') AND is_active = true
-       ORDER BY full_name`
-    );
-    playersByPosition['FLEX'] = flexPlayers.rows;
-    console.log(`   ✓ FLEX: ${flexPlayers.rows.length} players available`);
 
     // 3. Delete existing picks if requested
     if (shouldDeleteExisting) {
