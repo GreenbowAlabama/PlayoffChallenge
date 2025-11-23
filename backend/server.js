@@ -1650,19 +1650,60 @@ app.post('/api/picks', async (req, res) => {
 app.delete('/api/picks/:pickId', async (req, res) => {
   try {
     const { pickId } = req.params;
-    
+
     const result = await pool.query(
       'DELETE FROM picks WHERE id = $1 RETURNING *',
       [pickId]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Pick not found' });
     }
-    
+
     res.json({ success: true, deletedPick: result.rows[0] });
   } catch (err) {
     console.error('Error deleting pick:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get user's picks with scores for a specific week (for leaderboard quick view)
+app.get('/api/users/:userId/picks/:weekNumber', async (req, res) => {
+  try {
+    const { userId, weekNumber } = req.params;
+
+    const result = await pool.query(`
+      SELECT
+        pk.id as pick_id,
+        pk.locked,
+        pk.position,
+        p.full_name,
+        p.team,
+        p.position as player_position,
+        COALESCE(s.base_points, 0) as base_points,
+        COALESCE(s.multiplier, 1) as multiplier,
+        COALESCE(s.final_points, 0) as points
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id
+      LEFT JOIN scores s ON s.user_id = pk.user_id
+        AND s.player_id = pk.player_id
+        AND s.week_number = pk.week_number
+      WHERE pk.user_id = $1 AND pk.week_number = $2
+      ORDER BY
+        CASE pk.position
+          WHEN 'QB' THEN 1
+          WHEN 'RB' THEN 2
+          WHEN 'WR' THEN 3
+          WHEN 'TE' THEN 4
+          WHEN 'K' THEN 5
+          WHEN 'DEF' THEN 6
+          ELSE 7
+        END
+    `, [userId, weekNumber]);
+
+    res.json({ picks: result.rows });
+  } catch (err) {
+    console.error('Error fetching user picks with scores:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1931,7 +1972,7 @@ app.get('/api/scores', async (req, res) => {
 // Get leaderboard
 app.get('/api/leaderboard', async (req, res) => {
   try {
-    const { weekNumber } = req.query;
+    const { weekNumber, includePicks } = req.query;
 
     let query;
     let params = [];
@@ -1944,12 +1985,13 @@ app.get('/api/leaderboard', async (req, res) => {
           u.username,
           u.email,
           u.name,
+          u.team_name,
           u.paid as has_paid,
           COALESCE(SUM(s.final_points), 0) as total_points
         FROM users u
         LEFT JOIN scores s ON u.id = s.user_id AND s.week_number = $1
         WHERE u.paid = true
-        GROUP BY u.id, u.username, u.email, u.name, u.paid
+        GROUP BY u.id, u.username, u.email, u.name, u.team_name, u.paid
         ORDER BY total_points DESC
       `;
       params = [weekNumber];
@@ -1961,18 +2003,67 @@ app.get('/api/leaderboard', async (req, res) => {
           u.username,
           u.email,
           u.name,
+          u.team_name,
           u.paid as has_paid,
           COALESCE(SUM(s.final_points), 0) as total_points
         FROM users u
         LEFT JOIN scores s ON u.id = s.user_id
         WHERE u.paid = true
-        GROUP BY u.id, u.username, u.email, u.name, u.paid
+        GROUP BY u.id, u.username, u.email, u.name, u.team_name, u.paid
         ORDER BY total_points DESC
       `;
     }
 
     const result = await pool.query(query, params);
-    res.json(result.rows);
+
+    // If includePicks is requested, fetch picks for each user
+    if (includePicks === 'true' && weekNumber) {
+      console.log(`DEBUG: Fetching picks for ${result.rows.length} users for week ${weekNumber}`);
+      const leaderboardWithPicks = await Promise.all(
+        result.rows.map(async (user) => {
+          const picksResult = await pool.query(`
+            SELECT
+              pk.id as pick_id,
+              pk.locked,
+              pk.position,
+              p.full_name,
+              p.team,
+              COALESCE(s.base_points, 0) as base_points,
+              COALESCE(s.multiplier, 1) as multiplier,
+              COALESCE(s.final_points, 0) as points
+            FROM picks pk
+            JOIN players p ON pk.player_id = p.id
+            LEFT JOIN scores s ON s.user_id = pk.user_id
+              AND s.player_id = pk.player_id
+              AND s.week_number = pk.week_number
+            WHERE pk.user_id = $1 AND pk.week_number = $2
+            ORDER BY
+              CASE pk.position
+                WHEN 'QB' THEN 1
+                WHEN 'RB' THEN 2
+                WHEN 'WR' THEN 3
+                WHEN 'TE' THEN 4
+                WHEN 'K' THEN 5
+                WHEN 'DEF' THEN 6
+                ELSE 7
+              END
+          `, [user.id, weekNumber]);
+
+          console.log(`  User ${user.name || user.username} has ${picksResult.rows.length} picks`);
+
+          return {
+            ...user,
+            picks: picksResult.rows
+          };
+        })
+      );
+
+      console.log(`DEBUG: Returning leaderboard with picks`);
+      res.json(leaderboardWithPicks);
+    } else {
+      console.log(`DEBUG: Returning leaderboard WITHOUT picks (includePicks=${includePicks}, weekNumber=${weekNumber})`);
+      res.json(result.rows);
+    }
   } catch (err) {
     console.error('Error fetching leaderboard:', err);
     res.status(500).json({ error: err.message });
