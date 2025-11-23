@@ -1931,20 +1931,47 @@ app.get('/api/scores', async (req, res) => {
 // Get leaderboard
 app.get('/api/leaderboard', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT 
-        u.id,
-        u.username,
-        u.email,
-        u.name,
-        u.paid as has_paid,
-        COALESCE(SUM(s.final_points), 0) as total_points
-      FROM users u
-      LEFT JOIN scores s ON u.id = s.user_id
-      WHERE u.paid = true
-      GROUP BY u.id, u.username, u.email, u.name, u.paid
-      ORDER BY total_points DESC
-    `);
+    const { weekNumber } = req.query;
+
+    let query;
+    let params = [];
+
+    if (weekNumber) {
+      // Filter by specific week
+      query = `
+        SELECT
+          u.id,
+          u.username,
+          u.email,
+          u.name,
+          u.paid as has_paid,
+          COALESCE(SUM(s.final_points), 0) as total_points
+        FROM users u
+        LEFT JOIN scores s ON u.id = s.user_id AND s.week_number = $1
+        WHERE u.paid = true
+        GROUP BY u.id, u.username, u.email, u.name, u.paid
+        ORDER BY total_points DESC
+      `;
+      params = [weekNumber];
+    } else {
+      // All weeks (cumulative)
+      query = `
+        SELECT
+          u.id,
+          u.username,
+          u.email,
+          u.name,
+          u.paid as has_paid,
+          COALESCE(SUM(s.final_points), 0) as total_points
+        FROM users u
+        LEFT JOIN scores s ON u.id = s.user_id
+        WHERE u.paid = true
+        GROUP BY u.id, u.username, u.email, u.name, u.paid
+        ORDER BY total_points DESC
+      `;
+    }
+
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
     console.error('Error fetching leaderboard:', err);
