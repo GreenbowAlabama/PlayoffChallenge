@@ -6,7 +6,7 @@ struct LeaderboardView: View {
     @State private var selectedUser: LeaderboardEntry?
     @State private var showingUserPicks = false
     @State private var currentWeek: Int = 12  // Will be updated from settings
-    @State private var filterWeek: Int? = nil  // nil = all weeks, Int = specific week
+    @State private var filterWeek: Int? = 12  // Defaults to current week, nil = all weeks
 
     var body: some View {
         NavigationView {
@@ -79,9 +79,16 @@ struct LeaderboardView: View {
         do {
             let settings = try await APIService.shared.getSettings()
             currentWeek = settings.currentPlayoffWeek
+            // Set filter to current week if not already set by user
+            if filterWeek == 12 {  // Still at initial default
+                filterWeek = currentWeek
+            }
         } catch {
             print("Failed to load current week: \(error)")
             currentWeek = 12  // Default fallback
+            if filterWeek == 12 {
+                filterWeek = 12
+            }
         }
     }
 
