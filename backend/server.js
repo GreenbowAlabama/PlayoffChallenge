@@ -1105,12 +1105,75 @@ app.post('/api/admin/update-live-stats', async (req, res) => {
   }
 });
 
+// Admin: Initialize scores for a week (creates 0.0 scores for all picks)
+app.post('/api/admin/initialize-week-scores', async (req, res) => {
+  try {
+    const { weekNumber } = req.body;
+
+    if (!weekNumber) {
+      return res.status(400).json({ error: 'weekNumber required' });
+    }
+
+    console.log(`Initializing scores for week ${weekNumber}...`);
+
+    // Get all picks for this week
+    const picksResult = await pool.query(`
+      SELECT pk.user_id, pk.player_id, pk.position, pk.multiplier
+      FROM picks pk
+      WHERE pk.week_number = $1
+    `, [weekNumber]);
+
+    let initializedCount = 0;
+
+    for (const pick of picksResult.rows) {
+      // Initialize with 0 points and empty stats
+      const emptyStats = {
+        pass_yd: 0, pass_td: 0, pass_int: 0,
+        rush_yd: 0, rush_td: 0,
+        rec: 0, rec_yd: 0, rec_td: 0,
+        fum_lost: 0,
+        fg_made: 0, fg_att: 0, xp_made: 0,
+        def_sack: 0, def_int: 0, def_fum_rec: 0, def_td: 0, def_safety: 0, def_pa: 0
+      };
+
+      await pool.query(`
+        INSERT INTO scores (id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, 0, 0, $4, 0, $5, NOW())
+        ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
+          points = COALESCE(scores.points, 0),
+          base_points = COALESCE(scores.base_points, 0),
+          multiplier = $4,
+          final_points = COALESCE(scores.final_points, 0),
+          stats_json = COALESCE(scores.stats_json, $5),
+          updated_at = NOW()
+      `, [
+        pick.user_id,
+        pick.player_id,
+        weekNumber,
+        pick.multiplier || 1,
+        JSON.stringify(emptyStats)
+      ]);
+
+      initializedCount++;
+    }
+
+    res.json({
+      success: true,
+      message: `Initialized ${initializedCount} scores for week ${weekNumber}`,
+      scoresInitialized: initializedCount
+    });
+  } catch (err) {
+    console.error('Error initializing week scores:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get cache status
 app.get('/api/admin/cache-status', (req, res) => {
   res.json({
     activeGames: Array.from(liveStatsCache.games.values()),
     cachedPlayerCount: liveStatsCache.playerStats.size,
-    lastScoreboardUpdate: liveStatsCache.lastScoreboardUpdate ? 
+    lastScoreboardUpdate: liveStatsCache.lastScoreboardUpdate ?
       new Date(liveStatsCache.lastScoreboardUpdate).toISOString() : null,
     gameUpdateTimes: Array.from(liveStatsCache.lastGameUpdates.entries()).map(([gameId, time]) => ({
       gameId,
