@@ -5,11 +5,27 @@ struct LeaderboardView: View {
     @State private var isLoading = false
     @State private var selectedUser: LeaderboardEntry?
     @State private var showingUserPicks = false
-    @State private var selectedWeek: Int = 12  // Will be updated from settings
-    
+    @State private var currentWeek: Int = 12  // Will be updated from settings
+    @State private var filterWeek: Int? = nil  // nil = all weeks, Int = specific week
+
     var body: some View {
         NavigationView {
-            VStack {
+            VStack(spacing: 0) {
+                // Week filter picker
+                Picker("Week", selection: $filterWeek) {
+                    Text("All Weeks").tag(nil as Int?)
+                    ForEach(11...12, id: \.self) { week in
+                        Text("Week \(week)").tag(week as Int?)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding()
+                .onChange(of: filterWeek) { _ in
+                    Task {
+                        await loadLeaderboard()
+                    }
+                }
+
                 if isLoading {
                     ProgressView("Loading leaderboard...")
                 } else if entries.isEmpty {
@@ -17,7 +33,7 @@ struct LeaderboardView: View {
                         Image(systemName: "chart.bar")
                             .font(.system(size: 60))
                             .foregroundColor(.gray)
-                        
+
                         Text("No scores yet")
                             .font(.title2)
                             .foregroundColor(.secondary)
@@ -48,36 +64,36 @@ struct LeaderboardView: View {
             .sheet(isPresented: $showingUserPicks) {
                 if let user = selectedUser {
                     UserPicksQuickView(
-                        userId: user.userId,
+                        userId: user.id,
                         userName: user.name ?? user.username ?? "User",
                         teamName: user.teamName ?? "Team",
-                        weekNumber: selectedWeek,
+                        weekNumber: filterWeek ?? currentWeek,
                         totalPoints: user.totalPoints
                     )
                 }
             }
         }
     }
-    
+
     func loadCurrentWeek() async {
         do {
             let settings = try await APIService.shared.getSettings()
-            selectedWeek = settings.currentPlayoffWeek
+            currentWeek = settings.currentPlayoffWeek
         } catch {
             print("Failed to load current week: \(error)")
-            selectedWeek = 12  // Default fallback
+            currentWeek = 12  // Default fallback
         }
     }
-    
+
     func loadLeaderboard() async {
         isLoading = true
-        
+
         do {
-            entries = try await APIService.shared.getLeaderboard()
+            entries = try await APIService.shared.getLeaderboard(weekNumber: filterWeek)
         } catch {
             print("Failed to load leaderboard: \(error)")
         }
-        
+
         isLoading = false
     }
 }
