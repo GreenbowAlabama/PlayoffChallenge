@@ -1604,41 +1604,87 @@ app.get('/api/picks', async (req, res) => {
 app.post('/api/picks', async (req, res) => {
   try {
     const { userId, playerId, weekNumber, position, multiplier, picks } = req.body;
-    
+
     // Support batch submission
     if (picks && Array.isArray(picks)) {
       const results = [];
-      
+
       for (const pick of picks) {
+        // Validate position limit before inserting
+        const positionLimit = await pool.query(`
+          SELECT required_count FROM position_requirements WHERE position = $1
+        `, [pick.position]);
+
+        const maxPicks = positionLimit.rows[0]?.required_count || 2;
+
+        // Check current pick count for this position (excluding the current player if updating)
+        const currentCount = await pool.query(`
+          SELECT COUNT(*) as count
+          FROM picks
+          WHERE user_id = $1
+            AND week_number = $2
+            AND position = $3
+            AND player_id != $4
+        `, [userId, weekNumber, pick.position, pick.playerId]);
+
+        if (parseInt(currentCount.rows[0].count) >= maxPicks) {
+          return res.status(400).json({
+            error: `Position limit exceeded for ${pick.position}. Maximum allowed: ${maxPicks}`
+          });
+        }
+
         const result = await pool.query(`
           INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 1, false, NOW())
-          ON CONFLICT (user_id, player_id, week_number) 
-          DO UPDATE SET 
+          ON CONFLICT (user_id, player_id, week_number)
+          DO UPDATE SET
             position = $4,
             multiplier = $5,
             created_at = NOW()
           RETURNING *
         `, [userId, pick.playerId, weekNumber, pick.position, pick.multiplier || 1]);
-        
+
         results.push(result.rows[0]);
       }
-      
+
       return res.json({ success: true, picks: results });
     }
-    
+
     // Single pick submission with UPSERT
+    // Validate position limit before inserting
+    const positionLimit = await pool.query(`
+      SELECT required_count FROM position_requirements WHERE position = $1
+    `, [position]);
+
+    const maxPicks = positionLimit.rows[0]?.required_count || 2;
+
+    // Check current pick count for this position (excluding the current player if updating)
+    const currentCount = await pool.query(`
+      SELECT COUNT(*) as count
+      FROM picks
+      WHERE user_id = $1
+        AND week_number = $2
+        AND position = $3
+        AND player_id != $4
+    `, [userId, weekNumber, position, playerId]);
+
+    if (parseInt(currentCount.rows[0].count) >= maxPicks) {
+      return res.status(400).json({
+        error: `Position limit exceeded for ${position}. Maximum allowed: ${maxPicks}`
+      });
+    }
+
     const result = await pool.query(`
       INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 1, false, NOW())
-      ON CONFLICT (user_id, player_id, week_number) 
-      DO UPDATE SET 
+      ON CONFLICT (user_id, player_id, week_number)
+      DO UPDATE SET
         position = $4,
         multiplier = $5,
         created_at = NOW()
       RETURNING *
     `, [userId, playerId, weekNumber, position, multiplier || 1]);
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error creating pick:', err);

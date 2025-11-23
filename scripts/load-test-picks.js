@@ -170,22 +170,25 @@ async function loadTestPicks() {
           continue;
         }
 
-        for (let i = 0; i < count; i++) {
-          const player = getRandomElement(availablePlayers.filter(p => !usedPlayerIds.has(p.id)));
-          usedPlayerIds.add(player.id);
-
-          // Delete existing pick for this position if it exists
-          // (since the unique constraint is on user_id, player_id, week_number, not position)
+        // Delete all existing picks for this position before creating new ones
+        // This ensures we start fresh when re-running the script
+        if (!shouldDeleteExisting) {
           await client.query(
             `DELETE FROM picks
              WHERE user_id = $1 AND week_number = $2 AND position = $3`,
             [user.id, weekNumber, position]
           );
+        }
+
+        for (let i = 0; i < count; i++) {
+          const player = getRandomElement(availablePlayers.filter(p => !usedPlayerIds.has(p.id)));
+          usedPlayerIds.add(player.id);
 
           // Insert new pick
           await client.query(
             `INSERT INTO picks (user_id, player_id, week_number, position, locked)
-             VALUES ($1, $2, $3, $4, false)`,
+             VALUES ($1, $2, $3, $4, false)
+             ON CONFLICT (user_id, player_id, week_number) DO NOTHING`,
             [user.id, player.id, weekNumber, position]
           );
 
