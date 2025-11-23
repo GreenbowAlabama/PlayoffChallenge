@@ -426,34 +426,44 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
           // competitor stats may fail on early games — continue gracefully
         }
 
-        if (compStats && compStats.splits) {
-          for (const split of compStats.splits) {
-            if (!split.stats) continue;
+        if (compStats && compStats.splits && compStats.splits.categories) {
+          for (const category of compStats.splits.categories) {
+            if (!category.stats) continue;
 
-            for (const stat of split.stats) {
+            for (const stat of category.stats) {
               switch (stat.name) {
-                case "defensiveSacks":
+                case "sacks":
                   stats.def_sack += Number(stat.value) || 0;
                   break;
 
-                case "defensiveInterceptions":
+                case "interceptions":
                   stats.def_int += Number(stat.value) || 0;
                   break;
 
-                case "defensiveFumbleRecoveries":
+                case "fumbleRecoveries":
+                case "fumblesRecovered":
                   stats.def_fum_rec += Number(stat.value) || 0;
                   break;
 
-                case "defensiveTDs":
+                case "defensiveTouchdowns":
                   stats.def_td += Number(stat.value) || 0;
                   break;
 
-                case "specialTeamTDs":
+                case "kickReturnTouchdowns":
+                case "puntReturnTouchdowns":
                   stats.def_ret_td += Number(stat.value) || 0;
                   break;
 
-                case "pointsAgainst":
+                case "pointsAllowed":
                   stats.def_pts_allowed = Number(stat.value) || opponentScore;
+                  break;
+
+                case "safeties":
+                  stats.def_safety += Number(stat.value) || 0;
+                  break;
+
+                case "kicksBlocked":
+                  stats.def_block += Number(stat.value) || 0;
                   break;
               }
             }
