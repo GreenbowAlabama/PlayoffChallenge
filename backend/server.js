@@ -1332,8 +1332,7 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, false, NOW())
           ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
             multiplier = $5,
-            consecutive_weeks = $6,
-            updated_at = NOW()
+            consecutive_weeks = $6
         `, [pick.user_id, pick.player_id, toWeek, pick.position, newMultiplier, newConsecutiveWeeks]);
 
         advancedCount++;
@@ -1530,8 +1529,7 @@ app.post('/api/picks/replace-player', async (req, res) => {
       ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
         position = $4,
         multiplier = 1.0,
-        consecutive_weeks = 1,
-        updated_at = NOW()
+        consecutive_weeks = 1
       RETURNING *
     `, [userId, newPlayerId, weekNumber, position]);
 
