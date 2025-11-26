@@ -1260,6 +1260,311 @@ app.post('/api/admin/set-active-week', async (req, res) => {
 });
 
 // ==============================================
+// MULTIPLIER & PLAYER REPLACEMENT ENDPOINTS
+// ==============================================
+
+// Admin: Process week transition - update multipliers for advancing players
+app.post('/api/admin/process-week-transition', async (req, res) => {
+  try {
+    const { userId, fromWeek, toWeek } = req.body;
+
+    if (!userId || !fromWeek || !toWeek) {
+      return res.status(400).json({ error: 'userId, fromWeek, and toWeek required' });
+    }
+
+    // Verify user is admin
+    const userCheck = await pool.query(
+      'SELECT is_admin FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userCheck.rows.length === 0 || !userCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    console.log(`[admin] Processing week transition: ${fromWeek} -> ${toWeek}`);
+
+    // Fetch scoreboard for the NEW week to see which teams are still playing
+    const scoreboardResponse = await axios.get(
+      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${toWeek}`
+    );
+
+    const activeTeams = new Set();
+
+    if (scoreboardResponse.data && scoreboardResponse.data.events) {
+      for (const event of scoreboardResponse.data.events) {
+        const competitors = event.competitions?.[0]?.competitors || [];
+        for (const competitor of competitors) {
+          const teamAbbr = competitor.team?.abbreviation;
+          if (teamAbbr) {
+            activeTeams.add(teamAbbr);
+          }
+        }
+      }
+    }
+
+    console.log(`[admin] Active teams in week ${toWeek}:`, Array.from(activeTeams));
+
+    // Get all picks from the previous week
+    const picksResult = await pool.query(`
+      SELECT pk.id, pk.user_id, pk.player_id, pk.position, pk.multiplier, pk.consecutive_weeks, p.team, p.full_name
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id
+      WHERE pk.week_number = $1
+    `, [fromWeek]);
+
+    let advancedCount = 0;
+    let eliminatedCount = 0;
+    const eliminated = [];
+
+    for (const pick of picksResult.rows) {
+      const playerTeam = pick.team;
+      const isActive = activeTeams.has(playerTeam);
+
+      if (isActive) {
+        // Player's team is still active - increment multiplier
+        const newMultiplier = (pick.multiplier || 1) + 1;
+        const newConsecutiveWeeks = (pick.consecutive_weeks || 1) + 1;
+
+        // Create new pick for next week with incremented multiplier
+        await pool.query(`
+          INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
+          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, false, NOW())
+          ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
+            multiplier = $5,
+            consecutive_weeks = $6,
+            updated_at = NOW()
+        `, [pick.user_id, pick.player_id, toWeek, pick.position, newMultiplier, newConsecutiveWeeks]);
+
+        advancedCount++;
+      } else {
+        // Player's team is eliminated
+        eliminated.push({
+          userId: pick.user_id,
+          playerId: pick.player_id,
+          playerName: pick.full_name,
+          position: pick.position,
+          team: playerTeam
+        });
+        eliminatedCount++;
+      }
+    }
+
+    console.log(`[admin] Week transition complete: ${advancedCount} advanced, ${eliminatedCount} eliminated`);
+
+    res.json({
+      success: true,
+      fromWeek,
+      toWeek,
+      activeTeams: Array.from(activeTeams),
+      advancedCount,
+      eliminatedCount,
+      eliminated
+    });
+
+  } catch (err) {
+    console.error('Error processing week transition:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get eliminated players for a user in a specific week
+app.get('/api/picks/eliminated/:userId/:weekNumber', async (req, res) => {
+  try {
+    const { userId, weekNumber } = req.params;
+
+    if (!userId || !weekNumber) {
+      return res.status(400).json({ error: 'userId and weekNumber required' });
+    }
+
+    // Fetch scoreboard for this week to see which teams are active
+    const scoreboardResponse = await axios.get(
+      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`
+    );
+
+    const activeTeams = new Set();
+
+    if (scoreboardResponse.data && scoreboardResponse.data.events) {
+      for (const event of scoreboardResponse.data.events) {
+        const competitors = event.competitions?.[0]?.competitors || [];
+        for (const competitor of competitors) {
+          const teamAbbr = competitor.team?.abbreviation;
+          if (teamAbbr) {
+            activeTeams.add(teamAbbr);
+          }
+        }
+      }
+    }
+
+    // Get user's picks from PREVIOUS week
+    const prevWeek = parseInt(weekNumber) - 1;
+    const picksResult = await pool.query(`
+      SELECT pk.id, pk.user_id, pk.player_id, pk.position, pk.multiplier, p.team, p.full_name
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id
+      WHERE pk.user_id = $1 AND pk.week_number = $2
+    `, [userId, prevWeek]);
+
+    const eliminated = [];
+
+    for (const pick of picksResult.rows) {
+      const playerTeam = pick.team;
+      const isActive = activeTeams.has(playerTeam);
+
+      if (!isActive) {
+        eliminated.push({
+          pickId: pick.id,
+          playerId: pick.player_id,
+          playerName: pick.full_name,
+          position: pick.position,
+          team: playerTeam,
+          multiplier: pick.multiplier
+        });
+      }
+    }
+
+    res.json({
+      weekNumber: parseInt(weekNumber),
+      previousWeek: prevWeek,
+      activeTeams: Array.from(activeTeams),
+      eliminated
+    });
+
+  } catch (err) {
+    console.error('Error checking eliminated players:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Replace an eliminated player with a new player
+app.post('/api/picks/replace-player', async (req, res) => {
+  try {
+    const { userId, oldPlayerId, newPlayerId, position, weekNumber } = req.body;
+
+    if (!userId || !oldPlayerId || !newPlayerId || !position || !weekNumber) {
+      return res.status(400).json({
+        error: 'userId, oldPlayerId, newPlayerId, position, and weekNumber required'
+      });
+    }
+
+    // Verify the old player's team is actually eliminated
+    const scoreboardResponse = await axios.get(
+      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`
+    );
+
+    const activeTeams = new Set();
+
+    if (scoreboardResponse.data && scoreboardResponse.data.events) {
+      for (const event of scoreboardResponse.data.events) {
+        const competitors = event.competitions?.[0]?.competitors || [];
+        for (const competitor of competitors) {
+          const teamAbbr = competitor.team?.abbreviation;
+          if (teamAbbr) {
+            activeTeams.add(teamAbbr);
+          }
+        }
+      }
+    }
+
+    // Check old player's team
+    const oldPlayerResult = await pool.query(
+      'SELECT team, full_name FROM players WHERE id = $1',
+      [oldPlayerId]
+    );
+
+    if (oldPlayerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Old player not found' });
+    }
+
+    const oldPlayerTeam = oldPlayerResult.rows[0].team;
+    if (activeTeams.has(oldPlayerTeam)) {
+      return res.status(400).json({
+        error: `Cannot replace ${oldPlayerResult.rows[0].full_name} - their team (${oldPlayerTeam}) is still active`
+      });
+    }
+
+    // Get new player info
+    const newPlayerResult = await pool.query(
+      'SELECT team, full_name, position FROM players WHERE id = $1',
+      [newPlayerId]
+    );
+
+    if (newPlayerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'New player not found' });
+    }
+
+    // Validate position limit
+    const positionLimit = await pool.query(
+      'SELECT required_count FROM position_requirements WHERE position = $1',
+      [position]
+    );
+
+    const maxPicks = positionLimit.rows[0]?.required_count || 2;
+
+    // Check current pick count for this position (excluding the old player)
+    const currentCount = await pool.query(`
+      SELECT COUNT(*) as count
+      FROM picks
+      WHERE user_id = $1
+        AND week_number = $2
+        AND position = $3
+        AND player_id != $4
+    `, [userId, weekNumber, position, oldPlayerId]);
+
+    if (parseInt(currentCount.rows[0].count) >= maxPicks) {
+      return res.status(400).json({
+        error: `Position limit exceeded for ${position}. Maximum allowed: ${maxPicks}`
+      });
+    }
+
+    // Delete old pick if it exists for this week
+    await pool.query(
+      'DELETE FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
+      [userId, oldPlayerId, weekNumber]
+    );
+
+    // Create new pick with multiplier = 1 (fresh start)
+    const newPickResult = await pool.query(`
+      INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
+      VALUES (gen_random_uuid(), $1, $2, $3, $4, 1.0, 1, false, NOW())
+      ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
+        position = $4,
+        multiplier = 1.0,
+        consecutive_weeks = 1,
+        updated_at = NOW()
+      RETURNING *
+    `, [userId, newPlayerId, weekNumber, position]);
+
+    // Log the swap to player_swaps table
+    await pool.query(`
+      INSERT INTO player_swaps (user_id, old_player_id, new_player_id, position, week_number, swapped_at)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+    `, [userId, oldPlayerId, newPlayerId, position, weekNumber]);
+
+    console.log(`[swap] User ${userId} replaced ${oldPlayerResult.rows[0].full_name} with ${newPlayerResult.rows[0].full_name} for week ${weekNumber}`);
+
+    res.json({
+      success: true,
+      oldPlayer: {
+        id: oldPlayerId,
+        name: oldPlayerResult.rows[0].full_name,
+        team: oldPlayerTeam
+      },
+      newPlayer: {
+        id: newPlayerId,
+        name: newPlayerResult.rows[0].full_name,
+        team: newPlayerResult.rows[0].team
+      },
+      pick: newPickResult.rows[0]
+    });
+
+  } catch (err) {
+    console.error('Error replacing player:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==============================================
 // USER REGISTRATION / LOGIN
 // ==============================================
 app.post('/api/users', async (req, res) => {
