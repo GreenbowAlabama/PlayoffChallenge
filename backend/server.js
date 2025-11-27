@@ -2388,7 +2388,7 @@ app.get('/api/leaderboard', async (req, res) => {
               p.full_name,
               p.team,
               COALESCE(s.base_points, 0) as base_points,
-              COALESCE(s.multiplier, 1) as multiplier,
+              COALESCE(s.multiplier, pk.multiplier, 1) as multiplier,
               COALESCE(s.final_points, 0) as points
             FROM picks pk
             JOIN players p ON pk.player_id = p.id
