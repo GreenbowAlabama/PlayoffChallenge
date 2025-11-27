@@ -2355,7 +2355,7 @@ app.get('/api/leaderboard', async (req, res) => {
       `;
       params = [weekNumber];
     } else {
-      // All weeks (cumulative)
+      // All weeks (cumulative) - only include weeks 12 and 13 for testing
       query = `
         SELECT
           u.id,
@@ -2366,7 +2366,7 @@ app.get('/api/leaderboard', async (req, res) => {
           u.paid as has_paid,
           COALESCE(SUM(s.final_points), 0) as total_points
         FROM users u
-        LEFT JOIN scores s ON u.id = s.user_id
+        LEFT JOIN scores s ON u.id = s.user_id AND s.week_number IN (12, 13)
         WHERE u.paid = true
         GROUP BY u.id, u.username, u.email, u.name, u.team_name, u.paid
         ORDER BY total_points DESC
