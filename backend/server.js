@@ -954,9 +954,10 @@ app.post('/api/admin/sync-espn-ids', async (req, res) => {
 app.post('/api/admin/update-current-week', async (req, res) => {
   try {
     const { current_playoff_week, is_week_active } = req.body;
-    
-    if (!current_playoff_week || current_playoff_week < 1 || current_playoff_week > 4) {
-      return res.status(400).json({ success: false, error: 'current_playoff_week must be between 1 and 4' });
+
+    // Accept both playoff weeks (1-4) and NFL weeks (1-22) for testing flexibility
+    if (!current_playoff_week || current_playoff_week < 1 || current_playoff_week > 22) {
+      return res.status(400).json({ success: false, error: 'current_playoff_week must be between 1 and 22' });
     }
     
     let query = 'UPDATE game_settings SET current_playoff_week = $1';
