@@ -2462,6 +2462,8 @@ app.get('/api/leaderboard', async (req, res) => {
               pk.position,
               p.full_name,
               p.team,
+              p.sleeper_id,
+              p.image_url,
               COALESCE(s.base_points, 0) as base_points,
               COALESCE(s.multiplier, pk.multiplier, 1) as multiplier,
               COALESCE(s.final_points, 0) as points
