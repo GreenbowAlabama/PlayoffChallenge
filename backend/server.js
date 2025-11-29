@@ -1937,7 +1937,7 @@ app.get('/api/picks/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const result = await pool.query(`
-      SELECT pk.*, p.full_name, p.position, p.team
+      SELECT pk.*, p.full_name, p.position, p.team, p.sleeper_id, p.image_url
       FROM picks pk
       JOIN players p ON pk.player_id = p.id
       WHERE pk.user_id = $1
@@ -1960,7 +1960,7 @@ app.get('/api/picks', async (req, res) => {
     }
     
     const result = await pool.query(
-      `SELECT p.*, pl.full_name, pl.position as player_position, pl.team 
+      `SELECT p.*, pl.full_name, pl.position as player_position, pl.team, pl.sleeper_id, pl.image_url
        FROM picks p
        LEFT JOIN players pl ON p.player_id = pl.id
        WHERE p.user_id = $1
