@@ -37,6 +37,19 @@ const SCOREBOARD_CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const GAME_SUMMARY_CACHE_MS = 90 * 1000; // 90 seconds
 const PLAYERS_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
+// Helper: Generate image URL based on player position and sleeper_id
+function getPlayerImageUrl(sleeperId, position) {
+  if (!sleeperId) return null;
+
+  // Defense teams use team logo URL format
+  if (position === 'DEF') {
+    return `https://sleepercdn.com/images/team_logos/nfl/${sleeperId.toLowerCase()}.png`;
+  }
+
+  // Regular players use player headshot URL format
+  return `https://sleepercdn.com/content/nfl/players/${sleeperId}.jpg`;
+}
+
 // Helper: Map ESPN athlete ID to our player ID
 async function mapESPNAthleteToPlayer(athleteId, athleteName) {
   try {
@@ -930,7 +943,7 @@ app.post('/api/admin/sync-espn-ids', async (req, res) => {
       const sleeperData = sleeperPlayers[player.sleeper_id];
 
       if (sleeperData && sleeperData.espn_id) {
-        const imageUrl = player.sleeper_id ? `https://sleepercdn.com/content/nfl/players/${player.sleeper_id}.jpg` : null;
+        const imageUrl = getPlayerImageUrl(player.sleeper_id, player.position);
         await pool.query(
           'UPDATE players SET espn_id = $1, image_url = $2 WHERE id = $3',
           [sleeperData.espn_id.toString(), imageUrl, player.id]
@@ -977,14 +990,14 @@ app.post('/api/admin/populate-image-urls', async (req, res) => {
   try {
     console.log('Populating image URLs for all players...');
 
-    const result = await pool.query('SELECT id, sleeper_id FROM players WHERE sleeper_id IS NOT NULL');
+    const result = await pool.query('SELECT id, sleeper_id, position FROM players WHERE sleeper_id IS NOT NULL');
 
     console.log(`Found ${result.rows.length} players with sleeper_id`);
 
     let updated = 0;
 
     for (const player of result.rows) {
-      const imageUrl = `https://sleepercdn.com/content/nfl/players/${player.sleeper_id}.jpg`;
+      const imageUrl = getPlayerImageUrl(player.sleeper_id, player.position);
 
       await pool.query(
         'UPDATE players SET image_url = $1 WHERE id = $2',
@@ -1752,7 +1765,7 @@ app.post('/api/admin/sync-players', async (req, res) => {
         
         if (existing.rows.length > 0) {
           // Update existing player
-          const imageUrl = player.player_id ? `https://sleepercdn.com/content/nfl/players/${player.player_id}.jpg` : null;
+          const imageUrl = getPlayerImageUrl(player.player_id, player.position);
           await pool.query(`
             UPDATE players SET
               first_name = $1,
@@ -1785,7 +1798,7 @@ app.post('/api/admin/sync-players', async (req, res) => {
           updated++;
         } else {
           // Insert new player
-          const imageUrl = player.player_id ? `https://sleepercdn.com/content/nfl/players/${player.player_id}.jpg` : null;
+          const imageUrl = getPlayerImageUrl(player.player_id, player.position);
           await pool.query(`
             INSERT INTO players (
               id, sleeper_id, espn_id, first_name, last_name, full_name,
