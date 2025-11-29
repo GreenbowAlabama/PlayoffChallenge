@@ -957,6 +957,21 @@ app.post('/api/admin/sync-espn-ids', async (req, res) => {
   }
 });
 
+// Run database migration to add image_url column
+app.post('/api/admin/migrate-add-image-url', async (req, res) => {
+  try {
+    console.log('Running migration: add image_url column to players table');
+
+    await pool.query('ALTER TABLE players ADD COLUMN IF NOT EXISTS image_url VARCHAR(255)');
+
+    console.log('Migration complete');
+    res.json({ success: true, message: 'image_url column added successfully' });
+  } catch (err) {
+    console.error('Migration error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Update current playoff week
 app.post('/api/admin/update-current-week', async (req, res) => {
   try {
