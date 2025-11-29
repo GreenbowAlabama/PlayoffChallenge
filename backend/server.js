@@ -972,6 +972,40 @@ app.post('/api/admin/migrate-add-image-url', async (req, res) => {
   }
 });
 
+// Populate image URLs for all existing players
+app.post('/api/admin/populate-image-urls', async (req, res) => {
+  try {
+    console.log('Populating image URLs for all players...');
+
+    const result = await pool.query('SELECT id, sleeper_id FROM players WHERE sleeper_id IS NOT NULL');
+
+    console.log(`Found ${result.rows.length} players with sleeper_id`);
+
+    let updated = 0;
+
+    for (const player of result.rows) {
+      const imageUrl = `https://sleepercdn.com/content/nfl/players/${player.sleeper_id}.jpg`;
+
+      await pool.query(
+        'UPDATE players SET image_url = $1 WHERE id = $2',
+        [imageUrl, player.id]
+      );
+
+      updated++;
+    }
+
+    // Clear player cache
+    playersCache.data = [];
+    playersCache.lastUpdate = null;
+
+    console.log(`Updated ${updated} players with image URLs`);
+    res.json({ success: true, message: `Updated ${updated} players with image URLs`, updated });
+  } catch (err) {
+    console.error('Error populating image URLs:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Update current playoff week
 app.post('/api/admin/update-current-week', async (req, res) => {
   try {
