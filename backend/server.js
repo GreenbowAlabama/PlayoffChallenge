@@ -437,7 +437,10 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
                   break;
 
                 case "interceptions":
-                  stats.def_int += Number(stat.value) || 0;
+                  // Only count interceptions from defensive categories
+                  if (category.name === "defensive" || category.name === "defensiveInterceptions") {
+                    stats.def_int += Number(stat.value) || 0;
+                  }
                   break;
 
                 case "fumbleRecoveries":
