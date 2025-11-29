@@ -445,7 +445,10 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
 
                 case "fumbleRecoveries":
                 case "fumblesRecovered":
-                  stats.def_fum_rec += Number(stat.value) || 0;
+                  // Only count fumble recoveries from defensive categories
+                  if (category.name === "defensive" || category.name === "defensiveInterceptions") {
+                    stats.def_fum_rec += Number(stat.value) || 0;
+                  }
                   break;
 
                 case "defensiveTouchdowns":
