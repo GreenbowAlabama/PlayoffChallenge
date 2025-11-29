@@ -328,7 +328,8 @@ CREATE TABLE public.players (
     years_exp integer DEFAULT 0,
     number character varying(10),
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    espn_id character varying(50)
+    espn_id character varying(50),
+    image_url character varying(255)
 );
 
 

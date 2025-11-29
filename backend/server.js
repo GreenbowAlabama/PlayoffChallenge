@@ -928,11 +928,12 @@ app.post('/api/admin/sync-espn-ids', async (req, res) => {
     
     for (const player of playersResult.rows) {
       const sleeperData = sleeperPlayers[player.sleeper_id];
-      
+
       if (sleeperData && sleeperData.espn_id) {
+        const imageUrl = player.sleeper_id ? `https://sleepercdn.com/content/nfl/players/${player.sleeper_id}.jpg` : null;
         await pool.query(
-          'UPDATE players SET espn_id = $1 WHERE id = $2',
-          [sleeperData.espn_id.toString(), player.id]
+          'UPDATE players SET espn_id = $1, image_url = $2 WHERE id = $3',
+          [sleeperData.espn_id.toString(), imageUrl, player.id]
         );
         console.log(`Updated ${player.full_name}: ESPN ID = ${sleeperData.espn_id}`);
         updated++;
@@ -1702,6 +1703,7 @@ app.post('/api/admin/sync-players', async (req, res) => {
         
         if (existing.rows.length > 0) {
           // Update existing player
+          const imageUrl = player.player_id ? `https://sleepercdn.com/content/nfl/players/${player.player_id}.jpg` : null;
           await pool.query(`
             UPDATE players SET
               first_name = $1,
@@ -1713,10 +1715,11 @@ app.post('/api/admin/sync-players', async (req, res) => {
               status = $7,
               injury_status = $8,
               espn_id = $9,
+              image_url = $10,
               is_active = true,
               available = true,
               updated_at = NOW()
-            WHERE id = $10
+            WHERE id = $11
           `, [
             player.first_name || '',
             player.last_name || '',
@@ -1727,18 +1730,20 @@ app.post('/api/admin/sync-players', async (req, res) => {
             player.status || 'Active',
             player.injury_status || null,
             player.espn_id || null,
+            imageUrl,
             player.player_id || player.sleeper_id
           ]);
           updated++;
         } else {
           // Insert new player
+          const imageUrl = player.player_id ? `https://sleepercdn.com/content/nfl/players/${player.player_id}.jpg` : null;
           await pool.query(`
             INSERT INTO players (
               id, sleeper_id, espn_id, first_name, last_name, full_name,
-              position, team, number, status, injury_status, 
+              position, team, number, status, injury_status, image_url,
               is_active, available, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, true, NOW(), NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, true, NOW(), NOW())
           `, [
             player.player_id || player.sleeper_id,
             player.player_id,
@@ -1750,7 +1755,8 @@ app.post('/api/admin/sync-players', async (req, res) => {
             player.team,
             player.number ? player.number.toString() : null,
             player.status || 'Active',
-            player.injury_status || null
+            player.injury_status || null,
+            imageUrl
           ]);
           inserted++;
         }
@@ -1806,9 +1812,9 @@ app.get('/api/players', async (req, res) => {
     
     // Show all active players regardless of team
     let query = `
-      SELECT id, sleeper_id, full_name, first_name, last_name, position, team, 
-             number, status, injury_status, is_active, available
-      FROM players 
+      SELECT id, sleeper_id, full_name, first_name, last_name, position, team,
+             number, status, injury_status, is_active, available, image_url
+      FROM players
       WHERE is_active = true 
         AND available = true
         AND team IS NOT NULL
