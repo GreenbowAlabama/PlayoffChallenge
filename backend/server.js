@@ -2583,6 +2583,47 @@ app.get('/api/scores', async (req, res) => {
   }
 });
 
+// Helper: Get team's opponent and home/away status for a given week
+async function getTeamMatchup(teamAbbr, weekNumber) {
+  try {
+    // Try to fetch from ESPN scoreboard for this week
+    const response = await axios.get(
+      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`
+    );
+
+    if (!response.data || !response.data.events) {
+      return null;
+    }
+
+    // Find the game with this team
+    for (const event of response.data.events) {
+      const competition = event.competitions?.[0];
+      if (!competition) continue;
+
+      const competitors = competition.competitors || [];
+      const homeTeam = competitors.find(c => c.homeAway === 'home')?.team?.abbreviation;
+      const awayTeam = competitors.find(c => c.homeAway === 'away')?.team?.abbreviation;
+
+      if (homeTeam === teamAbbr) {
+        return {
+          opponent: awayTeam,
+          isHome: true
+        };
+      } else if (awayTeam === teamAbbr) {
+        return {
+          opponent: homeTeam,
+          isHome: false
+        };
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.error(`Error fetching matchup for ${teamAbbr} week ${weekNumber}:`, err.message);
+    return null;
+  }
+}
+
 // Get leaderboard
 app.get('/api/leaderboard', async (req, res) => {
   try {
@@ -2667,9 +2708,21 @@ app.get('/api/leaderboard', async (req, res) => {
 
           console.log(`  User ${user.name || user.username} has ${picksResult.rows.length} picks`);
 
+          // Add opponent matchup data to each pick
+          const picksWithMatchups = await Promise.all(
+            picksResult.rows.map(async (pick) => {
+              const matchup = await getTeamMatchup(pick.team, weekNumber);
+              return {
+                ...pick,
+                opponent: matchup?.opponent || null,
+                is_home: matchup?.isHome || null
+              };
+            })
+          );
+
           return {
             ...user,
-            picks: picksResult.rows
+            picks: picksWithMatchups
           };
         })
       );
