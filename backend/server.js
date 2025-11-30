@@ -1367,6 +1367,47 @@ app.get('/api/admin/cache-status', (req, res) => {
   });
 });
 
+// Admin: Delete scores for specific teams in a week
+app.delete('/api/admin/scores/teams/:weekNumber', async (req, res) => {
+  try {
+    const { weekNumber } = req.params;
+    const { adminUserId, teams } = req.body;
+
+    if (!adminUserId || !teams || !Array.isArray(teams)) {
+      return res.status(400).json({ error: 'adminUserId and teams array required' });
+    }
+
+    // Verify requesting user is admin
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Delete scores for these teams
+    const result = await pool.query(
+      `DELETE FROM scores
+       WHERE week_number = $1
+       AND player_id IN (
+         SELECT id FROM players WHERE team = ANY($2)
+       )
+       RETURNING player_id, base_points, final_points`,
+      [weekNumber, teams]
+    );
+
+    console.log(`Deleted ${result.rows.length} scores for teams ${teams.join(', ')} in week ${weekNumber}`);
+
+    res.json({
+      success: true,
+      scoresDeleted: result.rows.length,
+      teams: teams,
+      deletedScores: result.rows
+    });
+  } catch (err) {
+    console.error('Error deleting team scores:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Admin: Delete scores for a specific user and week
 app.delete('/api/admin/scores/:userId/:weekNumber', async (req, res) => {
   try {
