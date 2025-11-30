@@ -22,22 +22,18 @@ struct MatchupView: View {
 
     var body: some View {
         if let opponent = opponent, let isHome = isHome {
-            HStack(spacing: 4) {
-                if isHome {
-                    // Home game: "SF vs DAL"
-                    TeamLogoView(teamAbbreviation: team, size: logoSize)
-                    Text("vs")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    TeamLogoView(teamAbbreviation: opponent, size: logoSize)
-                } else {
-                    // Away game: "BUF @ PIT"
-                    TeamLogoView(teamAbbreviation: team, size: logoSize)
-                    Text("@")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    TeamLogoView(teamAbbreviation: opponent, size: logoSize)
-                }
+            HStack(spacing: 6) {
+                // Player's team logo
+                TeamLogoView(teamAbbreviation: team, size: logoSize)
+
+                // vs or @ indicator
+                Text(isHome ? "vs" : "@")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+
+                // Opponent team logo
+                TeamLogoView(teamAbbreviation: opponent, size: logoSize)
             }
         } else {
             // Fallback if opponent data not available
