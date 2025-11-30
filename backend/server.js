@@ -1367,6 +1367,43 @@ app.get('/api/admin/cache-status', (req, res) => {
   });
 });
 
+// Admin: Delete scores for a specific user and week
+app.delete('/api/admin/scores/:userId/:weekNumber', async (req, res) => {
+  try {
+    const { userId, weekNumber } = req.params;
+    const { adminUserId } = req.body;
+
+    if (!adminUserId) {
+      return res.status(400).json({ error: 'adminUserId required' });
+    }
+
+    // Verify requesting user is admin
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Delete the scores
+    const result = await pool.query(
+      `DELETE FROM scores
+       WHERE user_id = $1 AND week_number = $2
+       RETURNING player_id, base_points, final_points`,
+      [userId, weekNumber]
+    );
+
+    console.log(`Deleted ${result.rows.length} scores for user ${userId}, week ${weekNumber}`);
+
+    res.json({
+      success: true,
+      scoresDeleted: result.rows.length,
+      deletedScores: result.rows
+    });
+  } catch (err) {
+    console.error('Error deleting scores:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Admin: Manually update a player's ESPN ID
 app.put('/api/admin/players/:playerId/espn-id', async (req, res) => {
   try {
