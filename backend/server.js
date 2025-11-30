@@ -2799,6 +2799,46 @@ app.get('/api/rules', async (req, res) => {
   }
 });
 
+// Update rules content (admin only)
+app.put('/api/admin/rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminUserId, content } = req.body;
+
+    if (!adminUserId) {
+      return res.status(400).json({ error: 'adminUserId is required' });
+    }
+
+    // Check admin status
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!content) {
+      return res.status(400).json({ error: 'content is required' });
+    }
+
+    const result = await pool.query(
+      `UPDATE rules_content
+       SET content = $1
+       WHERE id = $2
+       RETURNING *`,
+      [content, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+
+    console.log(`[admin] Updated rule ${id} (${result.rows[0].section})`);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating rule:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get payouts structure
 app.get('/api/payouts', async (req, res) => {
   try {
