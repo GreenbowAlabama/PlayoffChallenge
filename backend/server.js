@@ -2888,6 +2888,22 @@ app.get('/api/payouts', async (req, res) => {
   }
 });
 
+// Get scoring rules
+app.get('/api/scoring-rules', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, category, stat_name, points::float8 AS points, description, display_order
+      FROM scoring_rules
+      WHERE is_active = true
+      ORDER BY category, display_order, stat_name
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching scoring rules:', err);
+    res.json([]);
+  }
+});
+
 // Start server
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
