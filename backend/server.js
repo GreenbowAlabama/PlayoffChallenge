@@ -1367,6 +1367,44 @@ app.get('/api/admin/cache-status', (req, res) => {
   });
 });
 
+// Admin: Manually update a player's ESPN ID
+app.put('/api/admin/players/:playerId/espn-id', async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    const { adminUserId, espnId } = req.body;
+
+    if (!adminUserId || !espnId) {
+      return res.status(400).json({ error: 'adminUserId and espnId required' });
+    }
+
+    // Verify requesting user is admin
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Update the player's ESPN ID
+    const result = await pool.query(
+      `UPDATE players SET espn_id = $1 WHERE id = $2 RETURNING id, sleeper_id, espn_id, first_name, last_name, team, position`,
+      [espnId, playerId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+
+    console.log(`Updated player ${result.rows[0].first_name} ${result.rows[0].last_name} ESPN ID to ${espnId}`);
+
+    res.json({
+      success: true,
+      player: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error updating player ESPN ID:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Debug: Check if specific ESPN IDs are in cache
 app.get('/api/admin/check-espn-ids', (req, res) => {
   const { espnIds } = req.query; // Comma-separated list
