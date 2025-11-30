@@ -2583,19 +2583,21 @@ app.get('/api/scores', async (req, res) => {
   }
 });
 
-// Helper: Get team's opponent and home/away status for a given week
-async function getTeamMatchup(teamAbbr, weekNumber) {
+// Helper: Build a matchup map for a given week (fetches scoreboard once and caches)
+async function getWeekMatchupMap(weekNumber) {
   try {
-    // Try to fetch from ESPN scoreboard for this week
+    // Fetch ESPN scoreboard for this week
     const response = await axios.get(
       `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`
     );
 
     if (!response.data || !response.data.events) {
-      return null;
+      return new Map();
     }
 
-    // Find the game with this team
+    // Build a map of team -> {opponent, isHome}
+    const matchupMap = new Map();
+
     for (const event of response.data.events) {
       const competition = event.competitions?.[0];
       if (!competition) continue;
@@ -2604,24 +2606,22 @@ async function getTeamMatchup(teamAbbr, weekNumber) {
       const homeTeam = competitors.find(c => c.homeAway === 'home')?.team?.abbreviation;
       const awayTeam = competitors.find(c => c.homeAway === 'away')?.team?.abbreviation;
 
-      if (homeTeam === teamAbbr) {
-        return {
-          opponent: awayTeam,
-          isHome: true
-        };
-      } else if (awayTeam === teamAbbr) {
-        return {
-          opponent: homeTeam,
-          isHome: false
-        };
+      if (homeTeam && awayTeam) {
+        matchupMap.set(homeTeam, { opponent: awayTeam, isHome: true });
+        matchupMap.set(awayTeam, { opponent: homeTeam, isHome: false });
       }
     }
 
-    return null;
+    return matchupMap;
   } catch (err) {
-    console.error(`Error fetching matchup for ${teamAbbr} week ${weekNumber}:`, err.message);
-    return null;
+    console.error(`Error fetching matchup map for week ${weekNumber}:`, err.message);
+    return new Map();
   }
+}
+
+// Helper: Get team's opponent and home/away status from a matchup map
+function getTeamMatchup(teamAbbr, matchupMap) {
+  return matchupMap.get(teamAbbr) || null;
 }
 
 // Get leaderboard
@@ -2674,6 +2674,11 @@ app.get('/api/leaderboard', async (req, res) => {
     // If includePicks is requested, fetch picks for each user
     if (includePicks === 'true' && weekNumber) {
       console.log(`DEBUG: Fetching picks for ${result.rows.length} users for week ${weekNumber}`);
+
+      // Fetch matchup map once for this week
+      const matchupMap = await getWeekMatchupMap(weekNumber);
+      console.log(`DEBUG: Loaded ${matchupMap.size} team matchups for week ${weekNumber}`);
+
       const leaderboardWithPicks = await Promise.all(
         result.rows.map(async (user) => {
           const picksResult = await pool.query(`
@@ -2709,16 +2714,14 @@ app.get('/api/leaderboard', async (req, res) => {
           console.log(`  User ${user.name || user.username} has ${picksResult.rows.length} picks`);
 
           // Add opponent matchup data to each pick
-          const picksWithMatchups = await Promise.all(
-            picksResult.rows.map(async (pick) => {
-              const matchup = await getTeamMatchup(pick.team, weekNumber);
-              return {
-                ...pick,
-                opponent: matchup?.opponent || null,
-                is_home: matchup?.isHome || null
-              };
-            })
-          );
+          const picksWithMatchups = picksResult.rows.map((pick) => {
+            const matchup = getTeamMatchup(pick.team, matchupMap);
+            return {
+              ...pick,
+              opponent: matchup?.opponent || null,
+              is_home: matchup?.isHome ?? null
+            };
+          });
 
           return {
             ...user,
