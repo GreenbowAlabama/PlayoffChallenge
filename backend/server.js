@@ -1248,6 +1248,111 @@ app.post('/api/admin/initialize-week-scores', async (req, res) => {
   }
 });
 
+// Admin: Backfill scores for a user from existing player data
+app.post('/api/admin/backfill-user-scores', async (req, res) => {
+  try {
+    const { adminUserId, targetUserId, weeks } = req.body;
+
+    if (!adminUserId || !targetUserId || !weeks || !Array.isArray(weeks)) {
+      return res.status(400).json({ error: 'adminUserId, targetUserId, and weeks array required' });
+    }
+
+    // Verify requesting user is admin
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    console.log(`Backfilling scores for user ${targetUserId} for weeks ${weeks.join(', ')}...`);
+
+    let totalScoresCreated = 0;
+    const details = [];
+
+    for (const week of weeks) {
+      console.log(`\nProcessing Week ${week}:`);
+
+      // Get target user's picks for this week
+      const picksResult = await pool.query(
+        `SELECT player_id, position, multiplier
+         FROM picks
+         WHERE user_id = $1 AND week_number = $2`,
+        [targetUserId, week]
+      );
+
+      console.log(`  Found ${picksResult.rows.length} picks`);
+
+      for (const pick of picksResult.rows) {
+        // Find an existing score for this player in this week (from any user)
+        const existingScore = await pool.query(
+          `SELECT base_points, stats_json, player_id
+           FROM scores
+           WHERE player_id = $1 AND week_number = $2
+           LIMIT 1`,
+          [pick.player_id, week]
+        );
+
+        if (existingScore.rows.length > 0) {
+          const scoreData = existingScore.rows[0];
+          const basePoints = scoreData.base_points || 0;
+          const finalPoints = basePoints * (pick.multiplier || 1);
+
+          // Insert or update score for target user
+          await pool.query(
+            `INSERT INTO scores (id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, NOW())
+             ON CONFLICT (user_id, player_id, week_number)
+             DO UPDATE SET
+               base_points = $5,
+               final_points = $7,
+               stats_json = $8,
+               updated_at = NOW()`,
+            [
+              targetUserId,
+              pick.player_id,
+              week,
+              basePoints, // points (legacy field)
+              basePoints,
+              pick.multiplier || 1,
+              finalPoints,
+              scoreData.stats_json
+            ]
+          );
+
+          totalScoresCreated++;
+          details.push({
+            week,
+            position: pick.position,
+            playerId: pick.player_id,
+            basePoints,
+            multiplier: pick.multiplier,
+            finalPoints
+          });
+          console.log(`  ✓ ${pick.position}: ${pick.player_id} - ${basePoints} base points (${finalPoints} with multiplier)`);
+        } else {
+          console.log(`  ⚠ ${pick.position}: ${pick.player_id} - NO SCORE DATA FOUND`);
+          details.push({
+            week,
+            position: pick.position,
+            playerId: pick.player_id,
+            error: 'No score data found'
+          });
+        }
+      }
+    }
+
+    console.log(`\n✅ Backfill complete! Created/updated ${totalScoresCreated} scores.`);
+
+    res.json({
+      success: true,
+      scoresCreated: totalScoresCreated,
+      details
+    });
+  } catch (err) {
+    console.error('Error backfilling user scores:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get cache status
 app.get('/api/admin/cache-status', (req, res) => {
   res.json({
