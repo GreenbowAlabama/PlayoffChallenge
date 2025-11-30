@@ -252,11 +252,11 @@ struct PickRowCard: View {
 
             // Points
             VStack(alignment: .trailing, spacing: 2) {
-                if pick.points > 0 {
+                if pick.points != 0 {
                     Text(String(format: "%.1f", pick.points))
                         .font(.title3)
                         .fontWeight(.bold)
-                        .foregroundColor(.green)
+                        .foregroundColor(pick.points > 0 ? .green : .red)
 
                     if pick.multiplier > 1.0 {
                         HStack(spacing: 2) {
