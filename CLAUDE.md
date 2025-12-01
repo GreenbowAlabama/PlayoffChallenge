@@ -2,6 +2,50 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Current State (Last Updated: 2025-11-30)
+
+### Testing Status
+- **Current Week:** Week 13 (Divisional Round simulation using NFL regular season)
+- **Next Transition:** Week 14 (Conference Round) - see `/wiki/WEEK14_TRANSITION_CHECKLIST.md`
+- **Active Testers:** 26 users (2 real users, 24 bot accounts for testing)
+- **Known Issues:** None blocking testing
+- **Last Deploy:** Nov 30, 2025 - Added week transition documentation and operational scripts
+
+### Recent Major Changes (Last 7 Days)
+1. **Nov 28:** Fixed Week 13 null position picks causing iOS decoding errors
+2. **Nov 28:** Added replacement pick scripts for incomplete rosters after eliminations
+3. **Nov 30:** Created week transition automation scripts (clear scores, validate readiness)
+4. **Nov 30:** Created Week 14 Conference Round transition checklist for Chad
+5. **Nov 30:** Added comprehensive launch roadmap with P0/P1/P2/P3 prioritized features
+
+### Active Priorities (See `/wiki/LAUNCH_ROADMAP.md`)
+**Launch Target:** Jan 8-13, 2026 (NFL Wild Card weekend)
+
+- **P0 Critical:** Monitoring & alerting system (Complexity: 8)
+- **P0 Critical:** Refactor server.js - remove unused code (Complexity: 3)
+- **P0 Critical:** Refactor database - remove unused tables/columns (Complexity: 5)
+- **P1 High:** Check Railway API & DB usage/costs (Complexity: 1)
+- **P1 High:** Enhance Admin section for launch day operations (Complexity: 3)
+- **P1 High:** Enhance Profile tab UX (Complexity: 5)
+
+### Testing Setup Context
+- **Week Mapping:** NFL regular season weeks 12-15 simulate playoff rounds
+  - Week 12 = Wild Card (bye teams: DEN, LAC, MIA, WAS)
+  - Week 13 = Divisional Round (no bye teams)
+  - Week 14 = Conference Championships (no bye teams)
+  - Week 15 = Super Bowl
+- **Multiplier System:** Picks carry forward with increased multipliers (1x→2x→3x)
+- **No Eliminations Week 14:** All players advance since there are no Week 13 bye teams
+- **Bot Testing Strategy:** Week 12 bye teams treated as "advancing teams" for multiplier testing
+
+### Quick Context for New Sessions
+- Monorepo: backend (Node.js) + ios-app (Swift) + wiki (docs)
+- Backend branch is protected and auto-deploys to Railway
+- All operational scripts in `/scripts/` directory
+- Week transition process documented in `/wiki/` for repeatability
+
+---
+
 ## Project Overview
 
 This is a fantasy football playoff challenge application where users pick NFL players and compete for prizes based on real-time player performance during the NFL playoffs. The app consists of:
