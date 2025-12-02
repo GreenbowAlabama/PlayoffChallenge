@@ -2385,6 +2385,124 @@ app.get('/api/settings', async (req, res) => {
   }
 });
 
+// Update game settings (admin only)
+app.put('/api/admin/settings', async (req, res) => {
+  try {
+    const {
+      adminUserId,
+      entry_amount,
+      venmo_handle,
+      cashapp_handle,
+      zelle_handle,
+      qb_limit,
+      rb_limit,
+      wr_limit,
+      te_limit,
+      k_limit,
+      def_limit
+    } = req.body;
+
+    if (!adminUserId) {
+      return res.status(400).json({ error: 'adminUserId is required' });
+    }
+
+    // Check admin status
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Build dynamic update query based on provided fields
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (entry_amount !== undefined) {
+      updates.push(`entry_amount = $${paramCount}`);
+      values.push(entry_amount);
+      paramCount++;
+    }
+
+    if (venmo_handle !== undefined) {
+      updates.push(`venmo_handle = $${paramCount}`);
+      values.push(venmo_handle);
+      paramCount++;
+    }
+
+    if (cashapp_handle !== undefined) {
+      updates.push(`cashapp_handle = $${paramCount}`);
+      values.push(cashapp_handle);
+      paramCount++;
+    }
+
+    if (zelle_handle !== undefined) {
+      updates.push(`zelle_handle = $${paramCount}`);
+      values.push(zelle_handle);
+      paramCount++;
+    }
+
+    if (qb_limit !== undefined) {
+      updates.push(`qb_limit = $${paramCount}`);
+      values.push(qb_limit);
+      paramCount++;
+    }
+
+    if (rb_limit !== undefined) {
+      updates.push(`rb_limit = $${paramCount}`);
+      values.push(rb_limit);
+      paramCount++;
+    }
+
+    if (wr_limit !== undefined) {
+      updates.push(`wr_limit = $${paramCount}`);
+      values.push(wr_limit);
+      paramCount++;
+    }
+
+    if (te_limit !== undefined) {
+      updates.push(`te_limit = $${paramCount}`);
+      values.push(te_limit);
+      paramCount++;
+    }
+
+    if (k_limit !== undefined) {
+      updates.push(`k_limit = $${paramCount}`);
+      values.push(k_limit);
+      paramCount++;
+    }
+
+    if (def_limit !== undefined) {
+      updates.push(`def_limit = $${paramCount}`);
+      values.push(def_limit);
+      paramCount++;
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'At least one setting field is required' });
+    }
+
+    updates.push('updated_at = NOW()');
+
+    const result = await pool.query(
+      `UPDATE game_settings
+       SET ${updates.join(', ')}
+       WHERE id = (SELECT id FROM game_settings LIMIT 1)
+       RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Settings not found' });
+    }
+
+    console.log(`[admin] Updated game settings`);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating settings:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Start background polling for live stats (every 2 minutes)
 let liveStatsInterval = null;
 
