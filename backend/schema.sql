@@ -490,6 +490,7 @@ CREATE TABLE public.users (
     email character varying(255),
     apple_id character varying(255),
     name character varying(255),
+    phone character varying(50),
     updated_at timestamp without time zone DEFAULT now()
 );
 

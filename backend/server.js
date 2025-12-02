@@ -1939,6 +1939,95 @@ app.get('/api/users/:userId', async (req, res) => {
   }
 });
 
+// Update user profile (username, email, phone)
+app.put('/api/users/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { username, email, phone } = req.body;
+
+    console.log('PUT /api/users/:userId - Updating user:', { userId, username, email, phone });
+
+    // Verify user exists
+    const userCheck = await pool.query(
+      'SELECT id FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check username uniqueness if username is being updated
+    if (username) {
+      const usernameCheck = await pool.query(
+        'SELECT id FROM users WHERE username = $1 AND id != $2',
+        [username, userId]
+      );
+
+      if (usernameCheck.rows.length > 0) {
+        return res.status(400).json({ error: 'Username already taken' });
+      }
+
+      // Validate username format (alphanumeric, underscore, dash, 3-30 chars)
+      const usernameRegex = /^[a-zA-Z0-9_-]{3,30}$/;
+      if (!usernameRegex.test(username)) {
+        return res.status(400).json({
+          error: 'Username must be 3-30 characters and contain only letters, numbers, underscores, and dashes'
+        });
+      }
+    }
+
+    // Build dynamic update query based on provided fields
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (username !== undefined) {
+      updates.push(`username = $${paramCount}`);
+      values.push(username);
+      paramCount++;
+    }
+
+    if (email !== undefined) {
+      updates.push(`email = $${paramCount}`);
+      values.push(email);
+      paramCount++;
+    }
+
+    if (phone !== undefined) {
+      updates.push(`phone = $${paramCount}`);
+      values.push(phone);
+      paramCount++;
+    }
+
+    // Always update the updated_at timestamp
+    updates.push(`updated_at = NOW()`);
+
+    if (updates.length === 1) {
+      // Only updated_at would be updated, nothing else provided
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    // Add userId as the last parameter for WHERE clause
+    values.push(userId);
+
+    const query = `
+      UPDATE users
+      SET ${updates.join(', ')}
+      WHERE id = $${paramCount}
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
+
+    console.log('User updated successfully:', result.rows[0].id);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating user:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // EXISTING ROUTES (keeping your original endpoints)
 
 // Sync players from Sleeper API (admin only)
