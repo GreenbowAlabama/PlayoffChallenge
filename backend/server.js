@@ -2429,18 +2429,41 @@ app.get('/api/admin/position-requirements', async (req, res) => {
 app.put('/api/admin/position-requirements/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { requiredCount } = req.body;
+    const { requiredCount, isActive } = req.body;
 
-    if (requiredCount == null) {
-      return res.status(400).json({ error: 'requiredCount is required' });
+    // Build dynamic SQL based on what fields are provided
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (requiredCount != null) {
+      updates.push(`required_count = $${paramCount}`);
+      values.push(requiredCount);
+      paramCount++;
     }
+
+    if (isActive != null) {
+      updates.push(`is_active = $${paramCount}`);
+      values.push(isActive);
+      paramCount++;
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'At least one of requiredCount or isActive is required' });
+    }
+
+    // Always update updated_at
+    updates.push('updated_at = NOW()');
+
+    // Add id as the last parameter
+    values.push(id);
 
     const result = await pool.query(
       `UPDATE position_requirements
-       SET required_count = $1, updated_at = NOW()
-       WHERE id = $2
+       SET ${updates.join(', ')}
+       WHERE id = $${paramCount}
        RETURNING id, position, required_count, display_name, display_order, is_active`,
-      [requiredCount, id]
+      values
     );
 
     if (result.rows.length === 0) {
