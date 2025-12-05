@@ -2333,7 +2333,7 @@ app.post('/api/picks', async (req, res) => {
 
         const result = await pool.query(`
           INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 1, false, NOW())
+          VALUES (gen_random_uuid(), $1, $2, $3, $4, COALESCE($5, 1.0), 1, false, NOW())
           ON CONFLICT (user_id, player_id, week_number)
           DO UPDATE SET
             position = $4,
@@ -2374,7 +2374,7 @@ app.post('/api/picks', async (req, res) => {
 
     const result = await pool.query(`
       INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 1, false, NOW())
+      VALUES (gen_random_uuid(), $1, $2, $3, $4, COALESCE($5, 1.0), 1, false, NOW())
       ON CONFLICT (user_id, player_id, week_number)
       DO UPDATE SET
         position = $4,
