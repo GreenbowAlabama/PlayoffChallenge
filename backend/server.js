@@ -2337,10 +2337,10 @@ app.post('/api/picks', async (req, res) => {
           ON CONFLICT (user_id, player_id, week_number)
           DO UPDATE SET
             position = $4,
-            multiplier = $5,
+            multiplier = COALESCE($5, picks.multiplier),
             created_at = NOW()
           RETURNING *
-        `, [userId, pick.playerId, weekNumber, pick.position, pick.multiplier || 1]);
+        `, [userId, pick.playerId, weekNumber, pick.position, pick.multiplier || null]);
 
         results.push(result.rows[0]);
       }
@@ -2378,10 +2378,10 @@ app.post('/api/picks', async (req, res) => {
       ON CONFLICT (user_id, player_id, week_number)
       DO UPDATE SET
         position = $4,
-        multiplier = $5,
+        multiplier = COALESCE($5, picks.multiplier),
         created_at = NOW()
       RETURNING *
-    `, [userId, playerId, weekNumber, position, multiplier || 1]);
+    `, [userId, playerId, weekNumber, position, multiplier || null]);
 
     res.json(result.rows[0]);
   } catch (err) {

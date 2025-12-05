@@ -2,21 +2,29 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Current State (Last Updated: 2025-11-30)
+## Current State (Last Updated: 2025-12-04)
 
 ### Testing Status
-- **Current Week:** Week 13 (Divisional Round simulation using NFL regular season)
-- **Next Transition:** Week 14 (Conference Round) - see `/wiki/WEEK14_TRANSITION_CHECKLIST.md`
+- **Current Week:** Week 14 (Conference Round simulation using NFL regular season)
+- **Next Transition:** Week 15 (Super Bowl) - TBD
 - **Active Testers:** 26 users (2 real users, 24 bot accounts for testing)
+- **Week 14 Transition:** ✅ Completed successfully on Dec 4, 2025
+  - 201 picks in Week 14 (7 eliminations from Week 13's 208 picks)
+  - Bye teams: SF, NE, CAR, NYG (4 teams)
+  - 7 eliminated players available for real users to test replacement UI
+  - Bot users verified to have no bye team players
 - **Known Issues:** None blocking testing
-- **Last Deploy:** Nov 30, 2025 - Added week transition documentation and operational scripts
+- **Last Deploy:** Dec 4, 2025 - Week 14 transition executed, player elimination/replacement tested
 
 ### Recent Major Changes (Last 7 Days)
-1. **Nov 28:** Fixed Week 13 null position picks causing iOS decoding errors
-2. **Nov 28:** Added replacement pick scripts for incomplete rosters after eliminations
-3. **Nov 30:** Created week transition automation scripts (clear scores, validate readiness)
-4. **Nov 30:** Created Week 14 Conference Round transition checklist for Chad
-5. **Nov 30:** Added comprehensive launch roadmap with P0/P1/P2/P3 prioritized features
+1. **Dec 4:** Executed Week 14 transition - advanced 201 picks from Week 13 with multiplier increases
+2. **Dec 4:** Verified player elimination flow - 7 players eliminated from bye teams (SF, NE, CAR, NYG)
+3. **Dec 4:** Verified bot users have no bye team players (transition correctly excluded eliminated players)
+4. **Dec 4:** Added Code Quality Guidelines to CLAUDE.md (DRY, Clean, Leverage, Readable)
+5. **Dec 1:** Added user profile update functionality (username, email, phone editing)
+6. **Dec 1:** Enhanced Admin Users tab with copy/paste contact info and proper column headers
+7. **Dec 1:** Added PUT /api/admin/settings endpoint for saving payment handles
+8. **Dec 1:** Enhanced scoring display to show 2 decimal places (e.g., +0.04 for passing yards)
 
 ### Active Priorities (See `/wiki/LAUNCH_ROADMAP.md`)
 **Launch Target:** Jan 8-13, 2026 (NFL Wild Card weekend)
@@ -25,18 +33,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **P0 Critical:** Refactor server.js - remove unused code (Complexity: 3)
 - **P0 Critical:** Refactor database - remove unused tables/columns (Complexity: 5)
 - **P1 High:** Check Railway API & DB usage/costs (Complexity: 1)
-- **P1 High:** Enhance Admin section for launch day operations (Complexity: 3)
-- **P1 High:** Enhance Profile tab UX (Complexity: 5)
+- ✅ **P1 High:** Enhance Admin section for launch day operations (Complexity: 3) - COMPLETED
+- ✅ **P1 High:** Enhance Profile tab UX (Complexity: 5) - COMPLETED
 
 ### Testing Setup Context
 - **Week Mapping:** NFL regular season weeks 12-15 simulate playoff rounds
   - Week 12 = Wild Card (bye teams: DEN, LAC, MIA, WAS)
   - Week 13 = Divisional Round (no bye teams)
-  - Week 14 = Conference Championships (no bye teams)
+  - **Week 14 = Conference Championships (CURRENT WEEK)**
+    - Bye teams for elimination testing: SF, NE, CAR, NYG (4 teams)
+    - 7 players eliminated during Week 13→14 transition (from SF, NE, CAR only)
   - Week 15 = Super Bowl
 - **Multiplier System:** Picks carry forward with increased multipliers (1x→2x→3x)
-- **No Eliminations Week 14:** All players advance since there are no Week 13 bye teams
-- **Bot Testing Strategy:** Week 12 bye teams treated as "advancing teams" for multiplier testing
+  - Week 14: 201 total picks (7 fewer due to eliminations)
+  - Week 13 had 208 picks
+- **Player Replacement Testing:**
+  - 7 players available for real users to test replacement UI
+  - Bot users have correct rosters (no bye team players auto-advanced)
 
 ### Quick Context for New Sessions
 - Monorepo: backend (Node.js) + ios-app (Swift) + wiki (docs)
@@ -55,6 +68,17 @@ This is a fantasy football playoff challenge application where users pick NFL pl
 - **PostgreSQL database** - hosted on Railway
 
 Production API: https://playoffchallenge-production.up.railway.app
+
+## Code Quality Guidelines
+
+Every session should improve the codebase, not just add to it. Actively refactor code you encounter, even outside your immediate task scope.
+
+- **DRY**: Consolidate duplicate patterns into reusable functions after the 2nd occurrence
+- **Clean**: Delete dead code immediately (unused imports, functions, variables, commented code)
+- **Leverage**: Use battle-tested packages over custom implementations
+- **Readable**: Maintain comments and clear naming—don't sacrifice clarity for LoC
+
+Leave the code cleaner than you found it: fewer LoC through better abstractions.
 
 ## Custom Claude Agents
 
@@ -168,6 +192,7 @@ playoff-challenge/
 Authentication & Users:
 - `POST /api/users` - Create/get user with Apple ID
 - `GET /api/users/:userId` - Get user details
+- `PUT /api/users/:userId` - Update user profile (username, email, phone)
 - `GET /api/admin/users` - List all users (admin)
 - `PUT /api/admin/users/:id/payment` - Mark user as paid
 - `DELETE /api/admin/users/:id` - Delete user
@@ -197,13 +222,16 @@ Admin Functions:
 - `GET /api/admin/cache-status` - View cache statistics and active games
 - `GET /api/admin/check-espn-ids` - Debug ESPN ID mappings with query params
 - `GET /api/admin/position-requirements` - Get position requirements
-- `PUT /api/admin/position-requirements/:id` - Update position requirement
+- `PUT /api/admin/position-requirements/:id` - Update position requirement (supports requiredCount and isActive)
 
 Configuration:
 - `GET /api/game-config` - Game settings, position limits, payouts
 - `GET /api/settings` - Alias for /api/game-config
+- `PUT /api/admin/settings` - Update game settings (entry_amount, payment handles, position limits)
 - `GET /api/rules` - Game rules content
+- `PUT /api/admin/rules/:id` - Update specific rule content
 - `GET /api/payouts` - Payout structure
+- `GET /api/scoring-rules` - Get all scoring rules
 
 Debugging & Testing:
 - `GET /health` - Health check endpoint (returns `{ status: 'ok', timestamp }`)
