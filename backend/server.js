@@ -98,47 +98,56 @@ async function mapESPNAthleteToPlayer(athleteId, athleteName) {
 
 // Helper: Parse stats from ESPN game summary
 function parsePlayerStatsFromSummary(boxscore) {
-  const playerStats = [];
-  
-  if (!boxscore || !boxscore.players) return playerStats;
-  
+  if (!boxscore || !boxscore.players) return [];
+
+  // Use a Map to accumulate stats per player across all categories
+  const playerStatsMap = new Map();
+
   for (const team of boxscore.players) {
     if (!team.statistics) continue;
-    
+
     for (const statGroup of team.statistics) {
       if (!statGroup.athletes) continue;
-      
+      const categoryName = statGroup.name; // 'passing', 'rushing', 'receiving', etc.
+
       for (const athlete of statGroup.athletes) {
         const athleteId = athlete.athlete?.id;
         const athleteName = athlete.athlete?.displayName || athlete.athlete?.shortName;
-        
+
         if (!athleteId) continue;
-        
-        const stats = {
-          athleteId: athleteId.toString(),
-          athleteName: athleteName || 'Unknown',
-          stats: {}
-        };
-        
-        // Parse stat labels and values
+
+        const athleteIdStr = athleteId.toString();
+
+        // Get or create player entry
+        if (!playerStatsMap.has(athleteIdStr)) {
+          playerStatsMap.set(athleteIdStr, {
+            athleteId: athleteIdStr,
+            athleteName: athleteName || 'Unknown',
+            stats: {}
+          });
+        }
+
+        const playerEntry = playerStatsMap.get(athleteIdStr);
+
+        // Parse stat labels and values with category prefix to avoid collisions
         if (statGroup.labels && athlete.stats) {
           for (let i = 0; i < statGroup.labels.length; i++) {
             const label = statGroup.labels[i];
             const value = athlete.stats[i];
-            
-            // Map ESPN stat names to our stat names
+
             if (label && value) {
-              stats.stats[label] = value;
+              // Prefix stats with category to avoid collisions (e.g., passing_YDS, rushing_YDS)
+              const prefixedLabel = `${categoryName}_${label}`;
+              playerEntry.stats[prefixedLabel] = value;
             }
           }
         }
-        
-        playerStats.push(stats);
       }
     }
   }
-  
-  return playerStats;
+
+  // Convert Map to array
+  return Array.from(playerStatsMap.values());
 }
 
 // Helper: Convert ESPN stats to our scoring format
@@ -157,47 +166,53 @@ function convertESPNStatsToScoring(espnStats) {
     rec_2pt: 0,
     fum_lost: 0
   };
-  
+
   if (!espnStats) return scoring;
-  
-  // Passing stats
-  if (espnStats['C/ATT']) {
-    // Format: "20/30" (completions/attempts)
-    const parts = espnStats['C/ATT'].split('/');
-    // We don't score completions, but we might need this
+
+  // Passing stats (now prefixed with 'passing_')
+  if (espnStats['passing_YDS']) {
+    scoring.pass_yd = parseFloat(espnStats['passing_YDS']) || 0;
   }
-  if (espnStats['YDS']) scoring.pass_yd = parseFloat(espnStats['YDS']) || 0;
-  if (espnStats['TD']) scoring.pass_td = parseInt(espnStats['TD']) || 0;
-  if (espnStats['INT']) scoring.pass_int = parseInt(espnStats['INT']) || 0;
-  
-  // Rushing stats
-  if (espnStats['CAR']) {
-    // Carries - we don't score this
+  if (espnStats['passing_TD']) {
+    scoring.pass_td = parseInt(espnStats['passing_TD']) || 0;
   }
-  if (espnStats['YDS']) {
-    // This could be rushing yards if it's a RB
-    const yds = parseFloat(espnStats['YDS']) || 0;
-    // If we already have pass_yd, this might be rush_yd
-    if (scoring.pass_yd === 0) {
-      scoring.rush_yd = yds;
-    }
+  if (espnStats['passing_INT']) {
+    scoring.pass_int = parseInt(espnStats['passing_INT']) || 0;
   }
-  if (espnStats['TD'] && scoring.pass_td === 0) {
-    scoring.rush_td = parseInt(espnStats['TD']) || 0;
+  if (espnStats['passing_2PT']) {
+    scoring.pass_2pt = parseInt(espnStats['passing_2PT']) || 0;
   }
-  
-  // Receiving stats
-  if (espnStats['REC']) scoring.rec = parseInt(espnStats['REC']) || 0;
-  if (espnStats['YDS'] && scoring.pass_yd === 0 && espnStats['REC']) {
-    scoring.rec_yd = parseFloat(espnStats['YDS']) || 0;
+
+  // Rushing stats (now prefixed with 'rushing_')
+  if (espnStats['rushing_YDS']) {
+    scoring.rush_yd = parseFloat(espnStats['rushing_YDS']) || 0;
   }
-  if (espnStats['TD'] && scoring.pass_td === 0 && scoring.rush_td === 0) {
-    scoring.rec_td = parseInt(espnStats['TD']) || 0;
+  if (espnStats['rushing_TD']) {
+    scoring.rush_td = parseInt(espnStats['rushing_TD']) || 0;
   }
-  
-  // Fumbles
-  if (espnStats['FUM']) scoring.fum_lost = parseInt(espnStats['FUM']) || 0;
-  
+  if (espnStats['rushing_2PT']) {
+    scoring.rush_2pt = parseInt(espnStats['rushing_2PT']) || 0;
+  }
+
+  // Receiving stats (now prefixed with 'receiving_')
+  if (espnStats['receiving_REC']) {
+    scoring.rec = parseInt(espnStats['receiving_REC']) || 0;
+  }
+  if (espnStats['receiving_YDS']) {
+    scoring.rec_yd = parseFloat(espnStats['receiving_YDS']) || 0;
+  }
+  if (espnStats['receiving_TD']) {
+    scoring.rec_td = parseInt(espnStats['receiving_TD']) || 0;
+  }
+  if (espnStats['receiving_2PT']) {
+    scoring.rec_2pt = parseInt(espnStats['receiving_2PT']) || 0;
+  }
+
+  // Fumbles (now prefixed with 'fumbles_')
+  if (espnStats['fumbles_LOST']) {
+    scoring.fum_lost = parseInt(espnStats['fumbles_LOST']) || 0;
+  }
+
   return scoring;
 }
 
