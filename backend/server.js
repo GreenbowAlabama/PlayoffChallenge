@@ -701,27 +701,118 @@ async function fetchScoreboard(weekNumber) {
   }
 }
 
+// Helper: Parse 2-pt conversions from drives data
+function parse2PtConversions(drivesData) {
+  const conversions = {}; // Map of player name -> { pass_2pt, rush_2pt, rec_2pt }
+
+  if (!drivesData || !drivesData.previous) return conversions;
+
+  for (const drive of drivesData.previous) {
+    if (!drive.plays) continue;
+
+    for (const play of drive.plays) {
+      // Check for 2-pt conversion attempt
+      if (!play.pointAfterAttempt || play.pointAfterAttempt.value !== 2) continue;
+
+      const text = play.text || '';
+      const succeeded = text.includes('ATTEMPT SUCCEEDS');
+
+      if (!succeeded) continue; // Only count successful conversions
+
+      // Parse the play text to determine passer/rusher/receiver
+      // Format examples:
+      // "TWO-POINT CONVERSION ATTEMPT. J.Allen pass to D.Knox is complete. ATTEMPT SUCCEEDS."
+      // "TWO-POINT CONVERSION ATTEMPT. J.Allen rush up the middle. ATTEMPT SUCCEEDS."
+
+      const conversionMatch = text.match(/TWO-POINT CONVERSION ATTEMPT\.\s+([A-Z]\.[A-Za-z]+)\s+(pass|rush)/i);
+
+      if (conversionMatch) {
+        const playerAbbrev = conversionMatch[1]; // e.g., "J.Allen"
+        const actionType = conversionMatch[2].toLowerCase(); // "pass" or "rush"
+
+        // Initialize player entry
+        if (!conversions[playerAbbrev]) {
+          conversions[playerAbbrev] = { pass_2pt: 0, rush_2pt: 0, rec_2pt: 0 };
+        }
+
+        if (actionType === 'pass') {
+          conversions[playerAbbrev].pass_2pt += 1;
+
+          // Also credit the receiver
+          const receiverMatch = text.match(/pass (?:to|short|left|right|middle)?\s*(?:to)?\s*([A-Z]\.[A-Za-z]+)/i);
+          if (receiverMatch) {
+            const receiverAbbrev = receiverMatch[1];
+            if (receiverAbbrev !== playerAbbrev) {
+              if (!conversions[receiverAbbrev]) {
+                conversions[receiverAbbrev] = { pass_2pt: 0, rush_2pt: 0, rec_2pt: 0 };
+              }
+              conversions[receiverAbbrev].rec_2pt += 1;
+            }
+          }
+        } else if (actionType === 'rush') {
+          conversions[playerAbbrev].rush_2pt += 1;
+        }
+      }
+    }
+  }
+
+  return conversions;
+}
+
 // Fetch game summary for specific game
 async function fetchGameSummary(gameId) {
   try {
     const now = Date.now();
     const lastUpdate = liveStatsCache.lastGameUpdates.get(gameId);
-    
+
     // Check cache
     if (lastUpdate && (now - lastUpdate) < GAME_SUMMARY_CACHE_MS) {
       return false; // Already up to date
     }
-    
+
     console.log(`Fetching summary for game ${gameId}...`);
     const response = await axios.get(
       `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`
     );
-    
+
     if (response.data && response.data.boxscore) {
       const playerStats = parsePlayerStatsFromSummary(response.data.boxscore);
-      
+
+      // Parse 2-pt conversions from drives data
+      const twoPointConversions = parse2PtConversions(response.data.drives);
+
       // Update cache
       for (const stat of playerStats) {
+        // Check if this player has 2-pt conversions
+        const playerName = stat.athleteName;
+        const playerAbbrev = playerName.split(' ').map((n, i) => i === 0 ? n[0] : n).join('.');
+
+        // Try multiple abbreviation formats
+        const possibleAbbrevs = [
+          playerAbbrev, // "J.Allen"
+          playerName.split(' ').map(n => n[0]).join('.'), // "J.A." for "Josh Allen"
+          playerName.split(' ')[0][0] + '.' + playerName.split(' ').slice(-1)[0] // "J.Allen"
+        ];
+
+        // Add 2-pt conversion stats if found
+        for (const abbrev of possibleAbbrevs) {
+          if (twoPointConversions[abbrev]) {
+            if (!stat.stats) stat.stats = {};
+
+            // Add prefixed 2-pt conversion stats
+            if (twoPointConversions[abbrev].pass_2pt > 0) {
+              stat.stats['passing_2PT'] = twoPointConversions[abbrev].pass_2pt.toString();
+            }
+            if (twoPointConversions[abbrev].rush_2pt > 0) {
+              stat.stats['rushing_2PT'] = twoPointConversions[abbrev].rush_2pt.toString();
+            }
+            if (twoPointConversions[abbrev].rec_2pt > 0) {
+              stat.stats['receiving_2PT'] = twoPointConversions[abbrev].rec_2pt.toString();
+            }
+            break;
+          }
+        }
+
         liveStatsCache.playerStats.set(stat.athleteId, {
           ...stat,
           gameId: gameId,
