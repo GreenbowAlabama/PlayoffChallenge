@@ -235,11 +235,14 @@ async function fetchPlayerStats(espnId, weekNumber) {
           pass_yd: 0,
           pass_td: 0,
           pass_int: 0,
+          pass_2pt: 0,
           rush_yd: 0,
           rush_td: 0,
+          rush_2pt: 0,
           rec: 0,
           rec_yd: 0,
           rec_td: 0,
+          rec_2pt: 0,
           fum_lost: 0
         };
         
@@ -346,6 +349,48 @@ async function fetchPlayerStats(espnId, weekNumber) {
         }
         
         if (foundPlayer) {
+          // Also check for 2-pt conversions in drives data
+          if (response.data.drives) {
+            const twoPointConversions = parse2PtConversions(response.data.drives);
+
+            // Try to match this player using ESPN ID
+            // We need to get the player name from the boxscore
+            let playerName = null;
+            for (const team of boxscore.players) {
+              if (!team.statistics) continue;
+              for (const statCategory of team.statistics) {
+                if (!statCategory.athletes) continue;
+                for (const athlete of statCategory.athletes) {
+                  if (athlete.athlete?.id?.toString() === espnId.toString()) {
+                    playerName = athlete.athlete.displayName;
+                    break;
+                  }
+                }
+                if (playerName) break;
+              }
+              if (playerName) break;
+            }
+
+            // Try to match 2-pt conversions
+            if (playerName) {
+              const playerAbbrev = playerName.split(' ').map((n, i) => i === 0 ? n[0] : n).join('.');
+              const possibleAbbrevs = [
+                playerAbbrev,
+                playerName.split(' ').map(n => n[0]).join('.'),
+                playerName.split(' ')[0][0] + '.' + playerName.split(' ').slice(-1)[0]
+              ];
+
+              for (const abbrev of possibleAbbrevs) {
+                if (twoPointConversions[abbrev]) {
+                  stats.pass_2pt = twoPointConversions[abbrev].pass_2pt || 0;
+                  stats.rush_2pt = twoPointConversions[abbrev].rush_2pt || 0;
+                  stats.rec_2pt = twoPointConversions[abbrev].rec_2pt || 0;
+                  break;
+                }
+              }
+            }
+          }
+
           return stats;
         }
       } catch (err) {
@@ -353,7 +398,7 @@ async function fetchPlayerStats(espnId, weekNumber) {
         continue;
       }
     }
-    
+
     return null;
   } catch (err) {
     console.error(`Error fetching player stats for ESPN ID ${espnId}:`, err.message);
