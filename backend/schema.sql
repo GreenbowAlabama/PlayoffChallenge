@@ -491,11 +491,59 @@ CREATE TABLE public.users (
     apple_id character varying(255),
     name character varying(255),
     phone character varying(50),
-    updated_at timestamp without time zone DEFAULT now()
+    updated_at timestamp without time zone DEFAULT now(),
+    state character varying(2),
+    ip_state_verified character varying(2),
+    state_certification_date timestamp without time zone,
+    eligibility_confirmed_at timestamp without time zone,
+    tos_version character varying(20),
+    tos_accepted_at timestamp without time zone,
+    age_verified boolean DEFAULT false
 );
 
 
 ALTER TABLE public.users OWNER TO postgres;
+
+--
+-- Name: signup_attempts; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.signup_attempts (
+    id integer NOT NULL,
+    apple_id character varying(255) NOT NULL,
+    email character varying(255),
+    name character varying(255),
+    attempted_state character varying(2),
+    ip_state_verified character varying(2),
+    blocked boolean DEFAULT false,
+    blocked_reason character varying(100),
+    attempted_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE public.signup_attempts OWNER TO postgres;
+
+--
+-- Name: signup_attempts_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.signup_attempts_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.signup_attempts_id_seq OWNER TO postgres;
+
+--
+-- Name: signup_attempts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.signup_attempts_id_seq OWNED BY public.signup_attempts.id;
+
 
 --
 -- Name: v_game_status; Type: VIEW; Schema: public; Owner: postgres
@@ -580,6 +628,13 @@ ALTER TABLE ONLY public.rules_content ALTER COLUMN id SET DEFAULT nextval('publi
 --
 
 ALTER TABLE ONLY public.scoring_rules ALTER COLUMN id SET DEFAULT nextval('public.scoring_rules_id_seq'::regclass);
+
+
+--
+-- Name: signup_attempts id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.signup_attempts ALTER COLUMN id SET DEFAULT nextval('public.signup_attempts_id_seq'::regclass);
 
 
 --
@@ -716,6 +771,14 @@ ALTER TABLE ONLY public.scores
 
 ALTER TABLE ONLY public.scoring_rules
     ADD CONSTRAINT scoring_rules_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: signup_attempts signup_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.signup_attempts
+    ADD CONSTRAINT signup_attempts_pkey PRIMARY KEY (id);
 
 
 --
@@ -887,6 +950,48 @@ CREATE INDEX idx_scoring_rules_stat_name ON public.scoring_rules USING btree (st
 --
 
 CREATE UNIQUE INDEX unique_espn_id ON public.players USING btree (espn_id);
+
+
+--
+-- Name: idx_users_state; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_users_state ON public.users USING btree (state);
+
+
+--
+-- Name: idx_users_eligibility; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_users_eligibility ON public.users USING btree (eligibility_confirmed_at);
+
+
+--
+-- Name: idx_signup_attempts_state; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_signup_attempts_state ON public.signup_attempts USING btree (attempted_state);
+
+
+--
+-- Name: idx_signup_attempts_blocked; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_signup_attempts_blocked ON public.signup_attempts USING btree (blocked);
+
+
+--
+-- Name: idx_signup_attempts_apple_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_signup_attempts_apple_id ON public.signup_attempts USING btree (apple_id);
+
+
+--
+-- Name: idx_signup_attempts_attempted_at; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_signup_attempts_attempted_at ON public.signup_attempts USING btree (attempted_at DESC);
 
 
 --

@@ -3,6 +3,7 @@ const { Pool } = require('pg');
 const pg = require('pg');
 const cors = require('cors');
 const axios = require('axios');
+const geoip = require('geoip-lite');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -2007,17 +2008,64 @@ app.post('/api/picks/replace-player', async (req, res) => {
 // ==============================================
 // USER REGISTRATION / LOGIN
 // ==============================================
+
+// Restricted states (fantasy sports prohibited or heavily restricted)
+const RESTRICTED_STATES = ['NV', 'HI', 'ID', 'MT', 'WA'];
+
+// Helper: Log signup attempt for compliance auditing
+async function logSignupAttempt(appleId, email, name, attemptedState, ipState, blocked, blockedReason = null) {
+  try {
+    await pool.query(
+      `INSERT INTO signup_attempts
+       (apple_id, email, name, attempted_state, ip_state_verified, blocked, blocked_reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [appleId, email, name, attemptedState, ipState, blocked, blockedReason]
+    );
+  } catch (err) {
+    console.error('[COMPLIANCE] Error logging signup attempt:', err);
+    // Don't fail signup if logging fails
+  }
+}
+
+// Helper: Get IP state from request
+function getIPState(req) {
+  try {
+    const forwarded = req.headers['x-forwarded-for'];
+    const ip = forwarded ? forwarded.split(',')[0].trim() : req.connection.remoteAddress;
+
+    // Handle localhost/private IPs
+    if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
+      console.log('[COMPLIANCE] Local/private IP detected, skipping geolocation');
+      return null;
+    }
+
+    const geo = geoip.lookup(ip);
+    const state = geo?.region || null;
+
+    if (state) {
+      console.log(`[COMPLIANCE] IP ${ip} → State: ${state}`);
+    } else {
+      console.log(`[COMPLIANCE] IP ${ip} → State: unknown`);
+    }
+
+    return state;
+  } catch (err) {
+    console.error('[COMPLIANCE] Error in IP geolocation:', err);
+    return null;
+  }
+}
+
 app.post('/api/users', async (req, res) => {
   try {
-    const { apple_id, email, name } = req.body;
-    
-    console.log('POST /api/users - Received:', { apple_id, email, name });
+    const { apple_id, email, name, state, eligibility_certified, tos_version } = req.body;
+
+    console.log('POST /api/users - Received:', { apple_id, email, name, state, eligibility_certified });
 
     if (!apple_id) {
       return res.status(400).json({ error: 'apple_id is required' });
     }
 
-    // Try to find existing user
+    // Try to find existing user first (allow returning users)
     let result = await pool.query(
       'SELECT * FROM users WHERE apple_id = $1 LIMIT 1',
       [apple_id]
@@ -2026,13 +2074,13 @@ app.post('/api/users', async (req, res) => {
     if (result.rows.length > 0) {
       const existingUser = result.rows[0];
       console.log('Found existing user:', existingUser.id);
-      
+
       // Update email/name if provided and currently NULL
       if ((email && !existingUser.email) || (name && !existingUser.name)) {
         console.log('Updating user with new email/name');
         const updateResult = await pool.query(
-          `UPDATE users 
-           SET email = COALESCE($1, email), 
+          `UPDATE users
+           SET email = COALESCE($1, email),
                name = COALESCE($2, name),
                updated_at = NOW()
            WHERE id = $3
@@ -2041,27 +2089,73 @@ app.post('/api/users', async (req, res) => {
         );
         return res.json(updateResult.rows[0]);
       }
-      
+
       return res.json(existingUser);
     }
 
-    // Create new user
-    console.log('Creating new user...');
-    // Generate a username: use name if available, else email, else random
+    // NEW USER SIGNUP - Compliance checks required
+    if (!state || !eligibility_certified) {
+      return res.status(400).json({
+        error: 'State and eligibility certification are required for new users'
+      });
+    }
+
+    // Get IP-based state for audit trail
+    const ipState = getIPState(req);
+
+    // Check if state is restricted
+    if (RESTRICTED_STATES.includes(state.toUpperCase())) {
+      console.log(`[COMPLIANCE] Blocking signup from restricted state: ${state}`);
+
+      // Log blocked attempt
+      await logSignupAttempt(apple_id, email, name, state.toUpperCase(), ipState, true, 'Restricted state');
+
+      return res.status(403).json({
+        error: 'Fantasy contests are not available in your state'
+      });
+    }
+
+    // Log mismatch if IP state differs from claimed state (don't block, just audit)
+    if (ipState && state.toUpperCase() !== ipState) {
+      console.warn(`[COMPLIANCE] State mismatch - User claimed: ${state}, IP shows: ${ipState}`);
+    }
+
+    // Create new user with compliance fields
+    console.log('Creating new user with compliance data...');
     let generatedUsername = name || email;
     if (!generatedUsername) {
-      // Generate random username like "User_abc123"
       generatedUsername = 'User_' + Math.random().toString(36).substring(2, 10);
     }
-    
+
     const insert = await pool.query(
-      `INSERT INTO users (id, apple_id, email, name, username, created_at, updated_at, paid)
-      VALUES (gen_random_uuid(), $1::text, $2::text, $3::text, $4::text, NOW(), NOW(), false)
+      `INSERT INTO users (
+        id, apple_id, email, name, username,
+        state, ip_state_verified, state_certification_date,
+        eligibility_confirmed_at, age_verified, tos_version,
+        created_at, updated_at, paid
+      )
+      VALUES (
+        gen_random_uuid(), $1, $2, $3, $4,
+        $5, $6, NOW(),
+        NOW(), true, $7,
+        NOW(), NOW(), false
+      )
       RETURNING *`,
-      [apple_id, email || null, name || null, generatedUsername]
+      [
+        apple_id,
+        email || null,
+        name || null,
+        generatedUsername,
+        state.toUpperCase(),
+        ipState,
+        tos_version || '2025-12-12'
+      ]
     );
 
-    console.log('Created new user:', insert.rows[0].id);
+    // Log successful signup attempt
+    await logSignupAttempt(apple_id, email, name, state.toUpperCase(), ipState, false, null);
+
+    console.log(`[COMPLIANCE] Created new user: ${insert.rows[0].id} (State: ${state})`);
     res.json(insert.rows[0]);
   } catch (err) {
     console.error('Error in /api/users:', err);
@@ -2175,6 +2269,173 @@ app.put('/api/users/:userId', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error updating user:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Accept Terms of Service
+app.put('/api/users/:userId/accept-tos', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { tos_version } = req.body;
+
+    const result = await pool.query(
+      `UPDATE users
+       SET tos_accepted_at = NOW(),
+           tos_version = $1,
+           updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [tos_version || '2025-12-12', userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log(`[COMPLIANCE] User ${userId} accepted TOS version ${tos_version}`);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error accepting TOS:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==============================================
+// ADMIN COMPLIANCE ENDPOINTS
+// ==============================================
+
+// Get state distribution for compliance reporting
+app.get('/api/admin/compliance/state-distribution', async (req, res) => {
+  try {
+    const { adminUserId } = req.query;
+
+    if (!adminUserId) {
+      return res.status(400).json({ error: 'adminUserId is required' });
+    }
+
+    // Check admin status
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Get user distribution by state
+    const usersByState = await pool.query(`
+      SELECT
+        state,
+        COUNT(*) as user_count,
+        COUNT(*) FILTER (WHERE ip_state_verified IS NOT NULL AND ip_state_verified != state) as ip_mismatches
+      FROM users
+      WHERE state IS NOT NULL
+      GROUP BY state
+      ORDER BY user_count DESC
+    `);
+
+    // Get blocked signup attempts by state
+    const blockedAttempts = await pool.query(`
+      SELECT
+        attempted_state,
+        COUNT(*) as blocked_count
+      FROM signup_attempts
+      WHERE blocked = true
+      GROUP BY attempted_state
+      ORDER BY blocked_count DESC
+    `);
+
+    res.json({
+      total_users: usersByState.rows.reduce((sum, row) => sum + parseInt(row.user_count), 0),
+      by_state: usersByState.rows,
+      blocked_attempts: blockedAttempts.rows
+    });
+  } catch (err) {
+    console.error('Error fetching state distribution:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get users with IP/state mismatches
+app.get('/api/admin/compliance/ip-mismatches', async (req, res) => {
+  try {
+    const { adminUserId } = req.query;
+
+    if (!adminUserId) {
+      return res.status(400).json({ error: 'adminUserId is required' });
+    }
+
+    // Check admin status
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const result = await pool.query(`
+      SELECT
+        id,
+        username,
+        email,
+        state as claimed_state,
+        ip_state_verified as ip_state,
+        created_at
+      FROM users
+      WHERE state IS NOT NULL
+        AND ip_state_verified IS NOT NULL
+        AND state != ip_state_verified
+      ORDER BY created_at DESC
+    `);
+
+    res.json({ mismatches: result.rows });
+  } catch (err) {
+    console.error('Error fetching IP mismatches:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all signup attempts (including blocked)
+app.get('/api/admin/compliance/signup-attempts', async (req, res) => {
+  try {
+    const { adminUserId } = req.query;
+
+    if (!adminUserId) {
+      return res.status(400).json({ error: 'adminUserId is required' });
+    }
+
+    // Check admin status
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const result = await pool.query(`
+      SELECT
+        id,
+        apple_id,
+        email,
+        name,
+        attempted_state,
+        ip_state_verified,
+        blocked,
+        blocked_reason,
+        attempted_at
+      FROM signup_attempts
+      ORDER BY attempted_at DESC
+      LIMIT 100
+    `);
+
+    const summary = await pool.query(`
+      SELECT
+        COUNT(*) as total_attempts,
+        COUNT(*) FILTER (WHERE blocked = true) as blocked_count,
+        COUNT(*) FILTER (WHERE blocked = false) as successful_count
+      FROM signup_attempts
+    `);
+
+    res.json({
+      summary: summary.rows[0],
+      attempts: result.rows
+    });
+  } catch (err) {
+    console.error('Error fetching signup attempts:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -3216,6 +3477,70 @@ app.put('/api/admin/rules/:id', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error updating rule:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get Terms of Service
+app.get('/api/terms', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT content, updated_at
+      FROM rules_content
+      WHERE section = 'terms_of_service'
+    `);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Terms of service not found' });
+    }
+
+    res.json({
+      content: result.rows[0].content,
+      version: result.rows[0].updated_at.toISOString().split('T')[0], // e.g., "2025-12-12"
+      lastUpdated: result.rows[0].updated_at
+    });
+  } catch (err) {
+    console.error('Error fetching terms:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update Terms of Service (admin only)
+app.put('/api/admin/terms', async (req, res) => {
+  try {
+    const { adminUserId, content } = req.body;
+
+    if (!adminUserId) {
+      return res.status(400).json({ error: 'adminUserId is required' });
+    }
+
+    // Check admin status
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
+    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!content) {
+      return res.status(400).json({ error: 'content is required' });
+    }
+
+    // Update or insert TOS
+    const result = await pool.query(`
+      INSERT INTO rules_content (section, content, display_order, created_at, updated_at)
+      VALUES ('terms_of_service', $1, 100, NOW(), NOW())
+      ON CONFLICT (section)
+      DO UPDATE SET content = $1, updated_at = NOW()
+      RETURNING *
+    `, [content]);
+
+    console.log(`[admin] Updated Terms of Service (${result.rows[0].content.length} characters)`);
+    res.json({
+      message: 'Terms of service updated successfully',
+      version: result.rows[0].updated_at.toISOString().split('T')[0],
+      lastUpdated: result.rows[0].updated_at
+    });
+  } catch (err) {
+    console.error('Error updating terms:', err);
     res.status(500).json({ error: err.message });
   }
 });
