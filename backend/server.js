@@ -4,6 +4,8 @@ const pg = require('pg');
 const cors = require('cors');
 const axios = require('axios');
 const geoip = require('geoip-lite');
+const bcrypt = require('bcrypt');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -12,6 +14,26 @@ pg.types.setTypeParser(1700, (v) => v === null ? null : parseFloat(v));
 
 app.use(cors());
 app.use(express.json());
+
+// Rate limiting configuration
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per IP per window
+  message: { error: 'Too many requests, please try again later' },
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 auth attempts per IP per window
+  message: { error: 'Too many authentication attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply general rate limit to all API routes
+app.use('/api/', apiLimiter);
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -2055,7 +2077,7 @@ function getIPState(req) {
   }
 }
 
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', authLimiter, async (req, res) => {
   try {
     const { apple_id, email, name, state, eligibility_certified, tos_version } = req.body;
 
@@ -2159,6 +2181,154 @@ app.post('/api/users', async (req, res) => {
     res.json(insert.rows[0]);
   } catch (err) {
     console.error('Error in /api/users:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================
+// Email/Password Authentication Endpoints
+// (For TestFlight testing only - remove before App Store launch)
+// =============================================
+
+// Register with email/password
+app.post('/api/auth/register', authLimiter, async (req, res) => {
+  try {
+    const { email, password, name, state, eligibility_certified, tos_version } = req.body;
+
+    console.log('POST /api/auth/register - Received:', { email, name, state, eligibility_certified });
+
+    // Validation
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    if (!state || !eligibility_certified) {
+      return res.status(400).json({ error: 'State and eligibility certification are required for new users' });
+    }
+
+    // Check if email already exists
+    const existingUser = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    // Get IP-based state for audit trail
+    const ipState = getIPState(req);
+
+    // Check if state is restricted
+    if (RESTRICTED_STATES.includes(state.toUpperCase())) {
+      console.log(`[COMPLIANCE] Blocking signup from restricted state: ${state}`);
+
+      // Log blocked attempt
+      await logSignupAttempt(null, email, name, state.toUpperCase(), ipState, true, 'Restricted state');
+
+      return res.status(403).json({
+        error: 'Fantasy contests are not available in your state'
+      });
+    }
+
+    // Log mismatch if IP state differs from claimed state
+    if (ipState && state.toUpperCase() !== ipState) {
+      console.warn(`[COMPLIANCE] State mismatch - User claimed: ${state}, IP shows: ${ipState}`);
+    }
+
+    // Hash password
+    const saltRounds = 10;
+    const password_hash = await bcrypt.hash(password, saltRounds);
+
+    // Generate username
+    let generatedUsername = name || email.split('@')[0];
+    if (!generatedUsername) {
+      generatedUsername = 'User_' + Math.random().toString(36).substring(2, 10);
+    }
+
+    // Create new user
+    const insert = await pool.query(
+      `INSERT INTO users (
+        id, email, password_hash, name, username, auth_method,
+        state, ip_state_verified, state_certification_date,
+        eligibility_confirmed_at, age_verified, tos_version,
+        created_at, updated_at, paid
+      )
+      VALUES (
+        gen_random_uuid(), $1, $2, $3, $4, 'email',
+        $5, $6, NOW(),
+        NOW(), true, $7,
+        NOW(), NOW(), false
+      )
+      RETURNING *`,
+      [
+        email.toLowerCase(),
+        password_hash,
+        name || null,
+        generatedUsername,
+        state.toUpperCase(),
+        ipState,
+        tos_version || '2025-12-12'
+      ]
+    );
+
+    // Log successful signup
+    await logSignupAttempt(null, email, name, state.toUpperCase(), ipState, false, null);
+
+    console.log(`[AUTH] Created new email user: ${insert.rows[0].id} (State: ${state})`);
+
+    // Return user (without password_hash)
+    const user = insert.rows[0];
+    delete user.password_hash;
+    res.json(user);
+  } catch (err) {
+    console.error('Error in /api/auth/register:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Login with email/password
+app.post('/api/auth/login', authLimiter, async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    console.log('POST /api/auth/login - Received:', { email });
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Find user by email
+    const result = await pool.query(
+      'SELECT * FROM users WHERE email = $1 LIMIT 1',
+      [email.toLowerCase()]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const user = result.rows[0];
+
+    // Check if user has password_hash (might be Apple Sign In user)
+    if (!user.password_hash) {
+      return res.status(401).json({ error: 'This account uses Sign in with Apple. Please use Apple Sign In.' });
+    }
+
+    // Verify password
+    const validPassword = await bcrypt.compare(password, user.password_hash);
+
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    console.log(`[AUTH] User logged in: ${user.id}`);
+
+    // Return user (without password_hash)
+    delete user.password_hash;
+    res.json(user);
+  } catch (err) {
+    console.error('Error in /api/auth/login:', err);
     res.status(500).json({ error: err.message });
   }
 });

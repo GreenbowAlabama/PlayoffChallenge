@@ -2,33 +2,63 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Current State (Last Updated: 2025-12-04)
+## Current State (Last Updated: 2025-12-12)
 
 ### Testing Status
-- **Current Week:** Week 14 (Conference Round simulation using NFL regular season)
+- **Current Week:** Week 14 (Conference Round simulation)
 - **Next Transition:** Week 15 (Super Bowl) - TBD
-- **Active Testers:** 26 users (2 real users, 24 bot accounts for testing)
-- **Week 14 Transition:** ✅ Completed successfully on Dec 4, 2025
-  - 201 picks in Week 14 (7 eliminations from Week 13's 208 picks)
-  - Bye teams: SF, NE, CAR, NYG (4 teams)
-  - 7 eliminated players available for real users to test replacement UI
-  - Bot users verified to have no bye team players
-- **Known Issues:** None blocking testing
-- **Last Deploy:** Dec 4, 2025 - Week 14 transition executed, player elimination/replacement tested
+- **Active Testers:** 1 admin user (User_hdss5l9s - admin, paid)
+- **Database State:** Clean slate with compliance features fully implemented
+- **iOS App Status:** ✅ Compliance flow complete and tested (Phase 5)
+  - New user signup flow: Apple Sign In → EligibilityView → TermsOfServiceView → Main App
+  - Existing user flow: Apple Sign In → Main App (or TOS if not accepted)
+- **Known Issues (iOS) - Ready to Fix Next Session:**
+  - **Bug #5 (Medium Priority):** Race condition on initial login
+    - **Issue:** Shows "No picks yet" until user taps any week tab
+    - **Root Cause:** `loadData()` called before `loadCurrentWeek()` completes (selectedWeek defaults to 12)
+    - **Location:** LineupView.swift lines 564-605
+    - **Fix:** Ensure `loadCurrentWeek()` completes before `loadData()` in init sequence
+    - **Workaround:** User can tap any tab to reload with correct week
+  - **Bug #3 (Low Priority):** RB not showing in UI until save
+    - **Issue:** Adding James Cook (RB) shows "2/2" but player not visible until save
+    - **Root Cause:** SwiftUI state not triggering view update
+    - **Impact:** Cosmetic only - data correct after save
+    - **Location:** Likely PlayerSelectionView.swift or MyPickView.swift state management
+- **Last Deploy (Backend):** Dec 12, 2025 - Compliance features (commit a2c1c9e)
+- **Last Deploy (iOS):** Dec 12, 2025 - Phase 5 complete (eligibility + TOS flows tested)
 
 ### Recent Major Changes (Last 7 Days)
-1. **Dec 4:** Executed Week 14 transition - advanced 201 picks from Week 13 with multiplier increases
-2. **Dec 4:** Verified player elimination flow - 7 players eliminated from bye teams (SF, NE, CAR, NYG)
-3. **Dec 4:** Verified bot users have no bye team players (transition correctly excluded eliminated players)
-4. **Dec 4:** Added Code Quality Guidelines to CLAUDE.md (DRY, Clean, Leverage, Readable)
-5. **Dec 1:** Added user profile update functionality (username, email, phone editing)
-6. **Dec 1:** Enhanced Admin Users tab with copy/paste contact info and proper column headers
-7. **Dec 1:** Added PUT /api/admin/settings endpoint for saving payment handles
-8. **Dec 1:** Enhanced scoring display to show 2 decimal places (e.g., +0.04 for passing yards)
+1. **Dec 12 (Compliance - Phases 0-5):** ✅ Complete legal compliance implementation - TESTED & WORKING
+   - **Backend (Phases 0-4):**
+     - Database wiped for fresh testing state (Phase 0)
+     - Added compliance fields to users table: state, eligibility, TOS tracking (Phase 1)
+     - Created signup_attempts audit table for compliance reporting (Phase 2)
+     - Installed geoip-lite for IP-based state verification (Phase 4)
+     - Blocked restricted states: NV, HI, ID, MT, WA at signup (Phase 4)
+     - Added TOS endpoints: GET /api/terms, PUT /api/admin/terms (Phase 3)
+     - Added compliance admin endpoints for reporting (Phase 4)
+   - **iOS (Phase 5 - COMPLETED):**
+     - Created EligibilityView.swift - state selection, age/residency/skill-based confirmations
+     - Created TermsOfServiceView.swift - TOS acceptance with scrollable content
+     - Updated APIService.swift - added `APIError.needsEligibility` handling
+     - Updated AuthService.swift - integrated eligibility + TOS flows
+     - Updated PlayoffChallengeApp.swift - routing logic for new user flows
+     - **Tested end-to-end:** New user signup → eligibility → TOS → main app ✅
+   - **Important Apple Sign In Behavior:** Email/name only provided on first authorization
+     - If user previously authorized app, Apple won't send email/name again
+     - Backend generates random username (e.g., User_hdss5l9s) when email/name unavailable
+     - Users can update username/email/phone later in Profile section
+2. **Dec 4 (iOS):** Fixed Bug #4 - Player removal now properly calls DELETE API and persists to backend
+3. **Dec 4 (Backend):** Fixed critical Bug #2 - Multipliers now preserved when iOS app saves picks (COALESCE fix)
+4. **Dec 4:** Executed Week 14 transition - advanced 201 picks from Week 13 with multiplier increases
+5. **Dec 4:** Corrected playoff week setting from 14 → 3 (Conference Round)
+6. **Dec 1:** Added user profile update functionality (username, email, phone editing)
+7. **Dec 1:** Enhanced Admin Users tab with copy/paste contact info
 
 ### Active Priorities (See `/wiki/LAUNCH_ROADMAP.md`)
 **Launch Target:** Jan 8-13, 2026 (NFL Wild Card weekend)
 
+- ✅ **P0 Critical:** Legal compliance (geoblocking, age verification, TOS) - COMPLETED Dec 12
 - **P0 Critical:** Monitoring & alerting system (Complexity: 8)
 - **P0 Critical:** Refactor server.js - remove unused code (Complexity: 3)
 - **P0 Critical:** Refactor database - remove unused tables/columns (Complexity: 5)
@@ -157,12 +187,12 @@ git push origin backend
 ```
 playoff-challenge/
 ├── backend/              # Node.js/Express API
-│   ├── server.js         # Main API server (2,246 lines, 40+ endpoints)
+│   ├── server.js         # Main API server (3,901 lines, 53 endpoints)
 │   └── schema.sql        # PostgreSQL schema
 ├── ios-app/PlayoffChallenge/
 │   ├── Services/         # APIService, AuthService
 │   ├── Models/           # Data models, ViewModels (includes PlayerViewModel.swift)
-│   └── Views/            # SwiftUI screens
+│   └── Views/            # SwiftUI screens (includes EligibilityView, TermsOfServiceView)
 └── admin-dashboard/      # (empty placeholder)
 ```
 
@@ -173,6 +203,7 @@ playoff-challenge/
 - Direct PostgreSQL queries using `pg` Pool (no ORM)
 - In-memory caching for live stats and player data
 - External API integration: Sleeper API (player roster), ESPN API (live stats)
+- **Compliance:** geoip-lite for IP geolocation, restricted states: NV, HI, ID, MT, WA
 
 **Key Caching Strategy:**
 - `playersCache`: 30-minute TTL for player list (in-memory object: `{ data: [], lastUpdate: timestamp }`)
@@ -190,12 +221,19 @@ playoff-challenge/
 **Key API Endpoints:**
 
 Authentication & Users:
-- `POST /api/users` - Create/get user with Apple ID
+- `POST /api/users` - Create/get user with Apple ID (requires state/eligibility for new users)
 - `GET /api/users/:userId` - Get user details
 - `PUT /api/users/:userId` - Update user profile (username, email, phone)
+- `POST /api/users/:userId/accept-tos` - **NEW:** Accept Terms of Service
 - `GET /api/admin/users` - List all users (admin)
 - `PUT /api/admin/users/:id/payment` - Mark user as paid
 - `DELETE /api/admin/users/:id` - Delete user
+
+Compliance & Legal (NEW Dec 12):
+- `GET /api/terms` - Get current active Terms of Service
+- `PUT /api/admin/terms` - Update/create TOS version (admin)
+- `GET /api/admin/compliance/signups` - Get signup attempts audit log (admin)
+- `GET /api/admin/compliance/stats` - Get compliance statistics (admin)
 
 Players & Picks:
 - `GET /api/players` - Get available players (uses cache)
@@ -240,7 +278,12 @@ Debugging & Testing:
 ### Database (schema.sql)
 
 **Core Tables:**
-- `users` - Apple ID authentication, payment status, admin flag
+- `users` - Apple ID authentication, payment status, admin flag, **compliance fields**
+  - Auth: `apple_id`, `email`, `name`, `username`, `phone`
+  - Payment: `paid`, `payment_method`, `payment_date`
+  - Admin: `is_admin`
+  - **Compliance (NEW Dec 12):** `state`, `ip_state_verified`, `state_certification_date`, `eligibility_confirmed_at`, `age_verified`, `tos_version`, `tos_accepted_at`
+  - Note: `email` and `name` may be NULL (Apple Sign In only provides on first authorization)
 - `players` - NFL player roster (synced from Sleeper API)
   - Critical fields for data integrity: `sleeper_id`, `espn_id`, `first_name`, `last_name`, `team`, `position`
 - `picks` - User player selections per week
@@ -258,6 +301,12 @@ Debugging & Testing:
 - `player_swaps` - Audit log for player substitutions (tracks old/new player, reason, timestamp)
 - `rules_content` - Dynamic game rules content (editable via admin panel)
 - `payouts` - Actual payout records linking users to amounts
+- **`signup_attempts` (NEW Dec 12)** - Compliance audit log for blocked/suspicious signups
+  - Tracks: `apple_id`, `email`, `claimed_state`, `ip_state`, `blocked`, `block_reason`, timestamps
+  - Used for compliance reporting and fraud detection
+- **`terms_of_service` (NEW Dec 12)** - TOS versioning and content management
+  - Fields: `version`, `content`, `effective_date`, `is_active`
+  - Retrieved via: `GET /api/terms`, managed via: `PUT /api/admin/terms`
 
 **Custom Functions:**
 - `get_nfl_week_number(playoff_week)` - Converts playoff week (1-4) to NFL week number
@@ -277,20 +326,24 @@ Debugging & Testing:
 - `APIService.swift` - Comprehensive REST API client
   - Base URL configured via `baseURL` property
   - All endpoints return decoded Swift models
-  - Error handling with `APIError` enum
+  - Error handling with `APIError` enum (includes `needsEligibility` for new user flow)
 - `AuthService.swift` - Sign in with Apple integration
   - Uses ASAuthorizationController
   - Returns `appleUserId` for backend authentication
+  - Manages `pendingAppleCredential` state for new user eligibility flow
+  - Checks `needsToAcceptTOS` flag for TOS enforcement
 
 **Key Views:**
+- `SignInView.swift` - Apple Sign In flow (entry point for unauthenticated users)
+- `EligibilityView.swift` - **NEW:** Compliance signup (state, age, residency verification)
+- `TermsOfServiceView.swift` - **NEW:** TOS acceptance (required for new users)
 - `HomeView.swift` - Dashboard, quick picks overview
 - `PlayerSelectionView.swift` - Pick players for a week
 - `MyPickView.swift` - View/manage user's picks
 - `LeaderboardView.swift` - Rankings and scores
-- `ProfileView.swift` - User settings and payment
+- `ProfileView.swift` - User settings and payment (username, email, phone editable)
 - `AdminView.swift` - Admin panel (sync players, manage users, settings)
 - `RulesView.swift` - Game rules display
-- `SignInView.swift` - Apple Sign In flow
 
 **Models (Models.swift):**
 - `User`, `Player`, `Pick`, `Score`, `GameConfig`, `PositionRequirement`, `Leaderboard`, etc.
@@ -374,12 +427,36 @@ The app uses a dual week numbering system:
 
 ### Authentication
 
-Sign in with Apple is the sole authentication method:
-- Apple User ID is stored as unique identifier
-- No passwords or tokens
-- iOS app gets Apple ID from AuthService
-- Backend creates/retrieves user by Apple ID
-- `GET /api/users/:userId` uses Apple ID as the `userId` parameter
+Sign in with Apple is the sole authentication method with **compliance-gated signup flow**:
+
+**Backend Endpoints:**
+- `POST /api/users` - Get or create user (requires state/eligibility for new users)
+- `GET /api/users/:userId` - Get user details (uses Apple ID as userId)
+- `POST /api/users/:userId/accept-tos` - Accept Terms of Service
+
+**New User Flow (with Compliance):**
+1. User signs in with Apple → iOS gets `apple_id`, `email?`, `name?`
+2. iOS calls `POST /api/users` with just `apple_id` (no state/eligibility)
+3. Backend returns **400 error** if user doesn't exist (needs eligibility)
+4. iOS catches `APIError.needsEligibility` → shows `EligibilityView`
+5. User selects state, confirms age/residency/skill-based → iOS calls `POST /api/users` with full compliance data
+6. Backend validates state (blocks NV, HI, ID, MT, WA), logs IP state for audit
+7. User created → iOS shows `TermsOfServiceView`
+8. User accepts TOS → iOS calls `POST /api/users/:userId/accept-tos`
+9. User authenticated → Main app loads
+
+**Existing User Flow:**
+1. User signs in with Apple → iOS gets `apple_id`
+2. iOS calls `POST /api/users` with just `apple_id`
+3. Backend returns existing user record
+4. If `tos_accepted_at` is NULL → show `TermsOfServiceView`
+5. Else → Main app loads
+
+**Important Apple Sign In Behavior:**
+- Email and name **only provided on first authorization** (privacy/security)
+- Subsequent signins: Apple sends only `apple_id`
+- Backend generates random username (e.g., `User_hdss5l9s`) if email/name unavailable
+- Users can update profile (username, email, phone) later in app
 
 ### Position Limits
 
