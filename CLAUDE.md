@@ -7,12 +7,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Testing Status
 - **Current Week:** Week 14 (Conference Round simulation)
 - **Next Transition:** Week 15 (Super Bowl) - TBD
-- **Active Testers:** 1 admin user (User_hdss5l9s - admin, paid)
+- **Active Testers:** 1 admin user (User_hdss5l9s - admin, paid), 1 email test account (test@test.com)
 - **Database State:** Clean slate with compliance features fully implemented
+- **Authentication:**
+  - ✅ **Apple Sign In** (Production) - Primary auth method
+  - ✅ **Email/Password** (TestFlight Only) - Easy tester onboarding, wrapped in `#if DEBUG`
 - **iOS App Status:** ✅ Compliance flow complete and tested (Phase 5)
   - New user signup flow: Apple Sign In → EligibilityView → TermsOfServiceView → Main App
-  - Existing user flow: Apple Sign In → Main App (or TOS if not accepted)
+  - Email signup flow: Email/Password → EligibilityView → TermsOfServiceView → Main App
+  - Existing user flow: Sign In → Main App (or TOS if not accepted)
 - **Known Issues (iOS) - Ready to Fix Next Session:**
+  - **Bug #6 (High Priority):** Phone number field not saving (test@test.com account)
+    - **Issue:** Gives "Process operation error" when trying to save phone number in Profile
+    - **Location:** ProfileView.swift or PUT /api/users/:userId endpoint
   - **Bug #5 (Medium Priority):** Race condition on initial login
     - **Issue:** Shows "No picks yet" until user taps any week tab
     - **Root Cause:** `loadData()` called before `loadCurrentWeek()` completes (selectedWeek defaults to 12)
@@ -24,11 +31,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     - **Root Cause:** SwiftUI state not triggering view update
     - **Impact:** Cosmetic only - data correct after save
     - **Location:** Likely PlayerSelectionView.swift or MyPickView.swift state management
-- **Last Deploy (Backend):** Dec 12, 2025 - Compliance features (commit a2c1c9e)
-- **Last Deploy (iOS):** Dec 12, 2025 - Phase 5 complete (eligibility + TOS flows tested)
+- **Last Deploy (Backend):** Dec 13, 2025 - Email/password authentication (TestFlight only)
+- **Last Deploy (iOS):** Not yet pushed - Email auth ready for user to push after testing
 
 ### Recent Major Changes (Last 7 Days)
-1. **Dec 12 (Compliance - Phases 0-5):** ✅ Complete legal compliance implementation - TESTED & WORKING
+1. **Dec 13 (Email Authentication):** ✅ Email/password auth for easier TestFlight onboarding - TESTED & WORKING
+   - **Backend:**
+     - Added bcrypt for password hashing (10 salt rounds)
+     - Added express-rate-limit (100 req/15min general, 10 req/15min auth)
+     - Created POST /api/auth/register endpoint (with compliance integration)
+     - Created POST /api/auth/login endpoint
+     - Database: added password_hash, auth_method columns, made apple_id nullable
+   - **iOS:**
+     - Created EmailSignInView.swift - email signup/login UI
+     - Added registerWithEmail() and loginWithEmail() to APIService
+     - Added email auth methods to AuthService
+     - Updated SignInView to show email option below Apple Sign In
+     - **All wrapped in `#if DEBUG`** - invisible in production builds
+   - **Documentation:** Created /wiki/EMAIL_AUTH_GUIDE.md with complete implementation details
+2. **Dec 12 (Compliance - Phases 0-5):** ✅ Complete legal compliance implementation - TESTED & WORKING
    - **Backend (Phases 0-4):**
      - Database wiped for fresh testing state (Phase 0)
      - Added compliance fields to users table: state, eligibility, TOS tracking (Phase 1)

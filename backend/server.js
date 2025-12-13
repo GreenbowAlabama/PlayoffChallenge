@@ -2436,7 +2436,12 @@ app.put('/api/users/:userId', async (req, res) => {
     const result = await pool.query(query, values);
 
     console.log('User updated successfully:', result.rows[0].id);
-    res.json(result.rows[0]);
+
+    // Remove password_hash from response (iOS User model doesn't have this field)
+    const user = result.rows[0];
+    delete user.password_hash;
+
+    res.json(user);
   } catch (err) {
     console.error('Error updating user:', err);
     res.status(500).json({ error: err.message });
