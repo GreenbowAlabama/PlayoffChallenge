@@ -2774,10 +2774,12 @@ app.get('/api/players', async (req, res) => {
       SELECT id, sleeper_id, full_name, first_name, last_name, position, team,
              number, status, injury_status, is_active, available, image_url
       FROM players
-      WHERE is_active = true 
+      WHERE is_active = true
         AND available = true
         AND team IS NOT NULL
-        AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')`;
+        AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
+        AND espn_id IS NOT NULL
+        AND espn_id != ''`;
     
     const params = [];
     
@@ -2794,11 +2796,13 @@ app.get('/api/players', async (req, res) => {
     // Get total count
     const countQuery = `
       SELECT COUNT(*) as total
-      FROM players 
-      WHERE is_active = true 
+      FROM players
+      WHERE is_active = true
         AND available = true
         AND team IS NOT NULL
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
+        AND espn_id IS NOT NULL
+        AND espn_id != ''
       ${position ? 'AND position = $1' : ''}
     `;
     const countParams = position ? [position] : [];
