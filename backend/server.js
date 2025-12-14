@@ -1497,29 +1497,46 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
         // Calculate fantasy points
         const points = await calculateFantasyPoints(scoringStats);
 
-        // Save to scores table (matching existing schema with stats_json)
-        await pool.query(`
-          INSERT INTO scores (
-            id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, $4, $4, 1.0, $4, $5, NOW()
-          )
-          ON CONFLICT (user_id, player_id, week_number)
-          DO UPDATE SET
-            points = EXCLUDED.points,
-            base_points = EXCLUDED.base_points,
-            stats_json = EXCLUDED.stats_json,
-            updated_at = NOW()
-        `, [
-          null, // user_id is null for backfilled stats
-          playerId,
-          weekNumber,
-          points,
-          JSON.stringify(scoringStats)
-        ]);
+        // Find all users who picked this player for this week
+        const picksResult = await pool.query(`
+          SELECT user_id, multiplier
+          FROM picks
+          WHERE player_id = $1 AND week_number = $2
+        `, [playerId, weekNumber]);
+
+        // Save a score for each user who picked this player
+        for (const pick of picksResult.rows) {
+          const multiplier = pick.multiplier || 1.0;
+          const finalPoints = points * multiplier;
+
+          await pool.query(`
+            INSERT INTO scores (
+              id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at
+            ) VALUES (
+              gen_random_uuid(), $1, $2, $3, $4, $4, $5, $6, $7, NOW()
+            )
+            ON CONFLICT (user_id, player_id, week_number)
+            DO UPDATE SET
+              points = EXCLUDED.points,
+              base_points = EXCLUDED.base_points,
+              multiplier = EXCLUDED.multiplier,
+              final_points = EXCLUDED.final_points,
+              stats_json = EXCLUDED.stats_json,
+              updated_at = NOW()
+          `, [
+            pick.user_id,
+            playerId,
+            weekNumber,
+            points,
+            multiplier,
+            finalPoints,
+            JSON.stringify(scoringStats)
+          ]);
+
+          playersScored++;
+        }
 
         processedPlayerIds.add(playerId);
-        playersScored++;
       }
 
       gamesProcessed++;
