@@ -1435,6 +1435,140 @@ app.post('/api/admin/update-live-stats', async (req, res) => {
   }
 });
 
+// Admin: Backfill playoff stats from historical games
+app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
+  try {
+    const { weekNumber, dates } = req.body;
+
+    if (!weekNumber || !dates) {
+      return res.status(400).json({ error: 'weekNumber and dates required (e.g., dates: "20250111-20250113")' });
+    }
+
+    console.log(`Backfilling playoff stats for week ${weekNumber}, dates: ${dates}...`);
+
+    // Fetch scoreboard using dates parameter for historical data
+    const scoreboardUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${dates}`;
+    const scoreboardResponse = await axios.get(scoreboardUrl);
+
+    if (!scoreboardResponse.data || !scoreboardResponse.data.events) {
+      return res.json({ success: false, message: 'No games found for those dates', gamesProcessed: 0 });
+    }
+
+    const games = scoreboardResponse.data.events;
+    console.log(`Found ${games.length} games for dates ${dates}`);
+
+    let gamesProcessed = 0;
+    let playersScored = 0;
+    const processedPlayerIds = new Set();
+
+    // Process each game
+    for (const game of games) {
+      const gameId = game.id;
+      const gameStatus = game.status?.type?.state;
+
+      console.log(`Processing game ${gameId}: ${game.shortName} (Status: ${gameStatus})`);
+
+      // Fetch game summary with player stats
+      const summaryUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
+      const summaryResponse = await axios.get(summaryUrl);
+
+      if (!summaryResponse.data || !summaryResponse.data.boxscore) {
+        console.log(`  No boxscore data for game ${gameId}`);
+        continue;
+      }
+
+      // Parse player stats from boxscore
+      const playerStats = parsePlayerStatsFromSummary(summaryResponse.data.boxscore);
+      console.log(`  Found stats for ${playerStats.length} players`);
+
+      // Map each player's stats to our database and save scores
+      for (const playerStat of playerStats) {
+        const espnId = playerStat.athleteId;
+        const playerId = await mapESPNAthleteToPlayer(espnId, playerStat.athleteName);
+
+        if (!playerId) {
+          // Player not in our database, skip
+          continue;
+        }
+
+        // Convert ESPN stats to our scoring format
+        const scoringStats = convertESPNStatsToScoring(playerStat.stats);
+
+        // Calculate fantasy points
+        const points = await calculateFantasyPoints(scoringStats);
+
+        // Save to scores table
+        await pool.query(`
+          INSERT INTO scores (
+            user_id, player_id, week_number, points,
+            pass_yd, pass_td, pass_int, pass_2pt,
+            rush_yd, rush_td, rush_2pt,
+            rec, rec_yd, rec_td, rec_2pt,
+            fum_lost
+          ) VALUES (
+            $1, $2, $3, $4,
+            $5, $6, $7, $8,
+            $9, $10, $11,
+            $12, $13, $14, $15,
+            $16
+          )
+          ON CONFLICT (player_id, week_number)
+          DO UPDATE SET
+            points = EXCLUDED.points,
+            pass_yd = EXCLUDED.pass_yd,
+            pass_td = EXCLUDED.pass_td,
+            pass_int = EXCLUDED.pass_int,
+            pass_2pt = EXCLUDED.pass_2pt,
+            rush_yd = EXCLUDED.rush_yd,
+            rush_td = EXCLUDED.rush_td,
+            rush_2pt = EXCLUDED.rush_2pt,
+            rec = EXCLUDED.rec,
+            rec_yd = EXCLUDED.rec_yd,
+            rec_td = EXCLUDED.rec_td,
+            rec_2pt = EXCLUDED.rec_2pt,
+            fum_lost = EXCLUDED.fum_lost
+        `, [
+          null, // user_id is null for backfilled stats
+          playerId,
+          weekNumber,
+          points,
+          scoringStats.pass_yd,
+          scoringStats.pass_td,
+          scoringStats.pass_int,
+          scoringStats.pass_2pt,
+          scoringStats.rush_yd,
+          scoringStats.rush_td,
+          scoringStats.rush_2pt,
+          scoringStats.rec,
+          scoringStats.rec_yd,
+          scoringStats.rec_td,
+          scoringStats.rec_2pt,
+          scoringStats.fum_lost
+        ]);
+
+        processedPlayerIds.add(playerId);
+        playersScored++;
+      }
+
+      gamesProcessed++;
+    }
+
+    console.log(`Backfill complete: ${gamesProcessed} games, ${playersScored} player scores saved (${processedPlayerIds.size} unique players)`);
+
+    res.json({
+      success: true,
+      message: `Backfilled stats for week ${weekNumber}`,
+      gamesProcessed,
+      playerScoresSaved: playersScored,
+      uniquePlayers: processedPlayerIds.size
+    });
+
+  } catch (err) {
+    console.error('Error backfilling playoff stats:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Admin: Initialize scores for a week (creates 0.0 scores for all picks)
 app.post('/api/admin/initialize-week-scores', async (req, res) => {
   try {
