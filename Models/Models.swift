@@ -41,11 +41,21 @@ struct User: Codable, Identifiable {
     let email: String?
     let name: String?
     let teamName: String?
+    let phone: String?
     let paid: Bool
     let paymentMethod: String?
     let paymentDate: String?
     let isAdmin: Bool
     let createdAt: String?
+
+    // Compliance fields
+    let state: String?
+    let ipStateVerified: String?
+    let stateCertificationDate: String?
+    let eligibilityConfirmedAt: String?
+    let tosVersion: String?
+    let tosAcceptedAt: String?
+    let ageVerified: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -54,13 +64,23 @@ struct User: Codable, Identifiable {
         case email
         case name
         case teamName = "team_name"
+        case phone
         case paid
         case paymentMethod = "payment_method"
         case paymentDate = "payment_date"
         case isAdmin = "is_admin"
         case createdAt = "created_at"
+
+        // Compliance fields
+        case state
+        case ipStateVerified = "ip_state_verified"
+        case stateCertificationDate = "state_certification_date"
+        case eligibilityConfirmedAt = "eligibility_confirmed_at"
+        case tosVersion = "tos_version"
+        case tosAcceptedAt = "tos_accepted_at"
+        case ageVerified = "age_verified"
     }
-    
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -69,14 +89,26 @@ struct User: Codable, Identifiable {
         email = try c.decodeIfPresent(String.self, forKey: .email)
         name = try c.decodeIfPresent(String.self, forKey: .name)
         teamName = try c.decodeIfPresent(String.self, forKey: .teamName)
+        phone = try c.decodeIfPresent(String.self, forKey: .phone)
         paid = (try? c.decode(Bool.self, forKey: .paid)) ?? false
         paymentMethod = try c.decodeIfPresent(String.self, forKey: .paymentMethod)
         paymentDate = try c.decodeIfPresent(String.self, forKey: .paymentDate)
         isAdmin = (try? c.decode(Bool.self, forKey: .isAdmin)) ?? false
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+
+        // Compliance fields
+        state = try c.decodeIfPresent(String.self, forKey: .state)
+        ipStateVerified = try c.decodeIfPresent(String.self, forKey: .ipStateVerified)
+        stateCertificationDate = try c.decodeIfPresent(String.self, forKey: .stateCertificationDate)
+        eligibilityConfirmedAt = try c.decodeIfPresent(String.self, forKey: .eligibilityConfirmedAt)
+        tosVersion = try c.decodeIfPresent(String.self, forKey: .tosVersion)
+        tosAcceptedAt = try c.decodeIfPresent(String.self, forKey: .tosAcceptedAt)
+        ageVerified = try c.decodeIfPresent(Bool.self, forKey: .ageVerified)
     }
 
     var hasPaid: Bool { paid }
+    var hasAcceptedTOS: Bool { tosAcceptedAt != nil }
+    var hasConfirmedEligibility: Bool { eligibilityConfirmedAt != nil }
 }
 
 // MARK: - Player
@@ -328,7 +360,7 @@ struct ScoringRule: Codable, Identifiable {
     let statName: String
     let points: Double
     let description: String?
-    let isActive: Bool
+    let isActive: Bool?  // Optional since API filters to active rules only
     let displayOrder: Int
 
     enum CodingKeys: String, CodingKey {
@@ -363,6 +395,25 @@ struct RulesContent: Codable, Identifiable {
         case section
         case content
         case displayOrder = "display_order"
+    }
+}
+
+// MARK: - Position Requirement
+struct PositionRequirement: Codable, Identifiable {
+    let id: Int
+    let position: String
+    let requiredCount: Int
+    let displayName: String
+    let displayOrder: Int
+    let isActive: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case position
+        case requiredCount = "required_count"
+        case displayName = "display_name"
+        case displayOrder = "display_order"
+        case isActive = "is_active"
     }
 }
 

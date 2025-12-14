@@ -10,7 +10,7 @@ import SwiftUI
 
 struct HomeView: View {
     @EnvironmentObject var authService: AuthService
-    @State private var selectedTab = 2  // Default to Leaderboard tab
+    @State private var selectedTab = 1  // Default to Leaderboard tab
     
     var isPaid: Bool {
         return authService.currentUser?.paid ?? false
@@ -23,35 +23,29 @@ struct HomeView: View {
             }
             
             TabView(selection: $selectedTab) {
-                PlayerSelectionView()
+                LineupView()
                     .tabItem {
-                        Label("Pick Players", systemImage: "person.3.fill")
+                        Label("My Lineup", systemImage: "person.3.fill")
                     }
                     .tag(0)
-                
-                MyPicksView()
-                    .tabItem {
-                        Label("My Picks", systemImage: "list.bullet")
-                    }
-                    .tag(1)
-                
+
                 LeaderboardView()
                     .tabItem {
                         Label("Leaderboard", systemImage: "chart.bar")
                     }
-                    .tag(2)
-                
+                    .tag(1)
+
                 RulesView()
                     .tabItem {
                         Label("Rules", systemImage: "book")
                     }
-                    .tag(3)
-                
+                    .tag(2)
+
                 ProfileView()
                     .tabItem {
                         Label("Profile", systemImage: "person")
                     }
-                    .tag(4)
+                    .tag(3)
             }
         }
     }
@@ -59,22 +53,28 @@ struct HomeView: View {
 
 struct PaymentBanner: View {
     let username: String
-    
+
     var body: some View {
-        VStack(spacing: 8) {
-            Text("Payment Pending")
-                .font(.headline)
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(.white)
-            
-            Text("Send $50 via Venmo/Cash App/Zelle")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.9))
-            
-            Text("Include: PlayoffChallenge-\(username)")
-                .font(.caption2)
-                .foregroundColor(.white.opacity(0.8))
+                .font(.title3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Payment Pending - Send $50")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+
+                Text("Include: PlayoffChallenge-\(username)")
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.9))
+            }
+
+            Spacer()
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
         .background(Color.orange)
     }

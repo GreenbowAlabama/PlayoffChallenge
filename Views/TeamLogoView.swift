@@ -16,9 +16,18 @@ struct TeamLogoView: View {
         self.size = size
     }
 
+    /// Normalize team abbreviations to match Sleeper CDN
+    /// ESPN uses different abbreviations for some teams
+    private var normalizedTeamAbbreviation: String {
+        switch teamAbbreviation.uppercased() {
+        case "WSH": return "WAS"  // Washington: ESPN uses WSH, Sleeper uses WAS
+        default: return teamAbbreviation
+        }
+    }
+
     private var logoUrl: String {
         // Sleeper CDN provides NFL team logos
-        "https://sleepercdn.com/images/team_logos/nfl/\(teamAbbreviation.lowercased()).png"
+        "https://sleepercdn.com/images/team_logos/nfl/\(normalizedTeamAbbreviation.lowercased()).png"
     }
 
     var body: some View {
