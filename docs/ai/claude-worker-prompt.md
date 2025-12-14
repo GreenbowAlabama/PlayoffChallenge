@@ -16,6 +16,14 @@ Rules:
 - Do not revisit design decisions unless impossible
 - Do not expand scope
 - Follow the handoff exactly
+- If required information is missing, ask the user to provide it instead of attempting to infer or explore.
+- Prefer showing minimal diffs when modifying existing code unless a full function replacement is required.
+- If a request would require exploration or missing information, stop and ask for that information explicitly.
+
+Execution Model:
+- All runtime execution, database queries, API calls, and file inspection are performed by the user.
+- You will be given the results of those actions as summarized input.
+- Do not ask to run or inspect anything yourself.
 
 Prompt:
 
