@@ -60,6 +60,18 @@ const SCOREBOARD_CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const GAME_SUMMARY_CACHE_MS = 90 * 1000; // 90 seconds
 const PLAYERS_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
+// Helper: Build ESPN scoreboard URL with correct season type for playoffs
+function getESPNScoreboardUrl(weekNumber) {
+  // Weeks 19+ are playoff weeks (seasontype=3)
+  // Regular season weeks use seasontype=2
+  if (weekNumber >= 19) {
+    const playoffWeek = weekNumber - 18; // Week 19 = playoff week 1
+    return `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=3&week=${playoffWeek}`;
+  } else {
+    return `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`;
+  }
+}
+
 // Helper: Generate image URL based on player position and sleeper_id
 function getPlayerImageUrl(sleeperId, position) {
   if (!sleeperId) return null;
@@ -729,9 +741,7 @@ async function fetchScoreboard(weekNumber) {
     }
     
     console.log(`Fetching ESPN scoreboard for week ${weekNumber}...`);
-    const response = await axios.get(
-      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`
-    );
+    const response = await axios.get(getESPNScoreboardUrl(weekNumber));
     
     const activeGames = [];
     
@@ -1750,9 +1760,7 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
     console.log(`[admin] Processing week transition: ${fromWeek} -> ${toWeek}`);
 
     // Fetch scoreboard for the NEW week to see which teams are still playing
-    const scoreboardResponse = await axios.get(
-      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${toWeek}`
-    );
+    const scoreboardResponse = await axios.get(getESPNScoreboardUrl(toWeek));
 
     const activeTeams = new Set();
 
@@ -1842,9 +1850,7 @@ app.get('/api/picks/eliminated/:userId/:weekNumber', async (req, res) => {
     }
 
     // Fetch scoreboard for this week to see which teams are active
-    const scoreboardResponse = await axios.get(
-      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`
-    );
+    const scoreboardResponse = await axios.get(getESPNScoreboardUrl(weekNumber));
 
     const activeTeams = new Set();
 
@@ -1912,9 +1918,7 @@ app.post('/api/picks/replace-player', async (req, res) => {
     }
 
     // Verify the old player's team is actually eliminated
-    const scoreboardResponse = await axios.get(
-      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`
-    );
+    const scoreboardResponse = await axios.get(getESPNScoreboardUrl(weekNumber));
 
     const activeTeams = new Set();
 
@@ -3450,9 +3454,7 @@ app.get('/api/scores', async (req, res) => {
 async function getWeekMatchupMap(weekNumber) {
   try {
     // Fetch ESPN scoreboard for this week
-    const response = await axios.get(
-      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`
-    );
+    const response = await axios.get(getESPNScoreboardUrl(weekNumber));
 
     if (!response.data || !response.data.events) {
       return new Map();
