@@ -1497,53 +1497,25 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
         // Calculate fantasy points
         const points = await calculateFantasyPoints(scoringStats);
 
-        // Save to scores table
+        // Save to scores table (matching existing schema with stats_json)
         await pool.query(`
           INSERT INTO scores (
-            user_id, player_id, week_number, points,
-            pass_yd, pass_td, pass_int, pass_2pt,
-            rush_yd, rush_td, rush_2pt,
-            rec, rec_yd, rec_td, rec_2pt,
-            fum_lost
+            id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at
           ) VALUES (
-            $1, $2, $3, $4,
-            $5, $6, $7, $8,
-            $9, $10, $11,
-            $12, $13, $14, $15,
-            $16
+            gen_random_uuid(), $1, $2, $3, $4, $4, 1.0, $4, $5, NOW()
           )
-          ON CONFLICT (player_id, week_number)
+          ON CONFLICT (user_id, player_id, week_number)
           DO UPDATE SET
             points = EXCLUDED.points,
-            pass_yd = EXCLUDED.pass_yd,
-            pass_td = EXCLUDED.pass_td,
-            pass_int = EXCLUDED.pass_int,
-            pass_2pt = EXCLUDED.pass_2pt,
-            rush_yd = EXCLUDED.rush_yd,
-            rush_td = EXCLUDED.rush_td,
-            rush_2pt = EXCLUDED.rush_2pt,
-            rec = EXCLUDED.rec,
-            rec_yd = EXCLUDED.rec_yd,
-            rec_td = EXCLUDED.rec_td,
-            rec_2pt = EXCLUDED.rec_2pt,
-            fum_lost = EXCLUDED.fum_lost
+            base_points = EXCLUDED.base_points,
+            stats_json = EXCLUDED.stats_json,
+            updated_at = NOW()
         `, [
           null, // user_id is null for backfilled stats
           playerId,
           weekNumber,
           points,
-          scoringStats.pass_yd,
-          scoringStats.pass_td,
-          scoringStats.pass_int,
-          scoringStats.pass_2pt,
-          scoringStats.rush_yd,
-          scoringStats.rush_td,
-          scoringStats.rush_2pt,
-          scoringStats.rec,
-          scoringStats.rec_yd,
-          scoringStats.rec_td,
-          scoringStats.rec_2pt,
-          scoringStats.fum_lost
+          JSON.stringify(scoringStats)
         ]);
 
         processedPlayerIds.add(playerId);
