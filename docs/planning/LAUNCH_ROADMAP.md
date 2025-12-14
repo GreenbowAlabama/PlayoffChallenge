@@ -1,3 +1,4 @@
+Status: Historical / Active
 # Launch Roadmap - NFL Playoff Challenge
 
 **Target Launch:** Day 1 of NFL Playoff Games (Jan 8-13, 2026)
