@@ -3293,16 +3293,17 @@ app.get('/api/admin/users', async (req, res) => {
     
     // Get all users
     const result = await pool.query(`
-      SELECT 
+      SELECT
         id,
         username,
         email,
         name,
+        phone,
         paid,
         is_admin,
         apple_id,
         created_at
-      FROM users 
+      FROM users
       ORDER BY username
     `);
     
