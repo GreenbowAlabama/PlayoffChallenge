@@ -2,24 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Current State (Last Updated: 2025-12-12)
+## Current State (Last Updated: 2025-12-14)
 
 ### Testing Status
-- **Current Week:** Week 14 (Conference Round simulation)
+- **Current Week:** Week 14 (Conference Round simulation) - for testing multiplier advancement
 - **Next Transition:** Week 15 (Super Bowl) - TBD
 - **Active Testers:** 1 admin user (User_hdss5l9s - admin, paid), 1 email test account (test@test.com)
 - **Database State:** Clean slate with compliance features fully implemented
 - **Authentication:**
   - ✅ **Apple Sign In** (Production) - Primary auth method
-  - ✅ **Email/Password** (TestFlight Only) - Easy tester onboarding, wrapped in `#if DEBUG`
-- **iOS App Status:** ✅ Compliance flow complete and tested (Phase 5)
-  - New user signup flow: Apple Sign In → EligibilityView → TermsOfServiceView → Main App
-  - Email signup flow: Email/Password → EligibilityView → TermsOfServiceView → Main App
+  - ✅ **Email/Password** (TestFlight Only) - Easy tester onboarding, wrapped in `#if DEBUG || TESTFLIGHT`
+- **iOS App Status:** ✅ Compliance flow + Username creation complete (Phase 6)
+  - New user signup flow: Apple Sign In → EligibilityView → **CreateUsernameView** → TermsOfServiceView → Main App
+  - Email signup flow: Email/Password → EligibilityView → **CreateUsernameView** → TermsOfServiceView → Main App
   - Existing user flow: Sign In → Main App (or TOS if not accepted)
 - **Known Issues (iOS) - Ready to Fix Next Session:**
-  - **Bug #6 (High Priority):** Phone number field not saving (test@test.com account)
-    - **Issue:** Gives "Process operation error" when trying to save phone number in Profile
-    - **Location:** ProfileView.swift or PUT /api/users/:userId endpoint
   - **Bug #5 (Medium Priority):** Race condition on initial login
     - **Issue:** Shows "No picks yet" until user taps any week tab
     - **Root Cause:** `loadData()` called before `loadCurrentWeek()` completes (selectedWeek defaults to 12)
@@ -31,11 +28,97 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     - **Root Cause:** SwiftUI state not triggering view update
     - **Impact:** Cosmetic only - data correct after save
     - **Location:** Likely PlayerSelectionView.swift or MyPickView.swift state management
-- **Last Deploy (Backend):** Dec 13, 2025 - Email/password authentication (TestFlight only)
-- **Last Deploy (iOS):** Not yet pushed - Email auth ready for user to push after testing
+- **Last Deploy (Backend):** Dec 14, 2025 - Admin users phone number fix
+- **Last Deploy (iOS):** Not yet pushed - Email auth + admin UI improvements ready for user to push after testing
+
+### Upcoming Testing Plan: Historical Playoff Stats
+**Goal:** Test full playoff flow with real 2024-25 playoff stats to validate scoring, elimination, and multiplier advancement
+
+**ESPN API Confirmed:**
+- ✅ Historical playoff data available via ESPN API
+- Wild Card (Week 19): Jan 11-15, 2025 (seasontype=3, week=1)
+- Divisional (Week 20): Jan 18-19, 2025 (seasontype=3, week=2)
+- Conference (Week 21): Jan 26, 2025 (seasontype=3, week=3)
+- Super Bowl (Week 22): Feb 9, 2025 (seasontype=3, week=4)
+
+**Implementation Needed:**
+1. **Backfill Script** (`scripts/backfill-playoff-stats.js`):
+   - Fetch scoreboard for each playoff week from ESPN API
+   - Parse player stats using existing `parsePlayerStatsFromSummary()` logic
+   - Insert into `scores` table with correct `week_number` (19-22)
+   - Reuse existing stat parsing from `server.js`
+
+2. **Player Roster**:
+   - **Option A (Recommended):** Manually add 50-100 key playoff players from 2024-25 playoffs
+   - **Option B:** Use Sleeper API sync filtered to playoff teams
+   - Need players from: DET, KC, PHI, WAS, BUF, BAL, HOU, LAR, TB, GB, MIN, LAC, PIT, DEN
+
+3. **Test Flow**:
+   - Set `playoff_start_week = 19` in game_settings
+   - Set `current_playoff_week = 1` (Wild Card)
+   - Admin + Chad pick teams for Wild Card
+   - Run backfill script for Week 19
+   - Verify scoring on leaderboard
+   - Advance to Week 20 via `POST /api/admin/advance-week`
+   - Replace eliminated players
+   - Repeat through Super Bowl
+
+**Complexity: Medium-High (6/10)** - 2-3 hours implementation
+**Status:** On hold - needs script creation when ready to test
 
 ### Recent Major Changes (Last 7 Days)
-1. **Dec 13 (Email Authentication):** ✅ Email/password auth for easier TestFlight onboarding - TESTED & WORKING
+1. **Dec 14 (Admin UI Polish):** ✅ Fixed admin users tab UX issues - DEPLOYED
+   - **Backend:**
+     - Fixed missing `phone` field in GET /api/admin/users endpoint (server.js:3301)
+     - Was causing phone numbers to not appear until payment toggle (which uses RETURNING *)
+     - Now phone numbers appear immediately when Users tab loads
+   - **iOS:**
+     - Enhanced email/phone copy buttons in AdminView.swift (UserRow)
+     - Added light blue backgrounds, larger tap targets, copy icons
+     - Separated email/phone visually with more spacing
+     - Changed checkmark to checkmark.circle.fill for clearer feedback
+     - Used PlainButtonStyle to ensure tappable areas work correctly
+   - **Note on Username Validation:**
+     - Current regex: `/^[a-zA-Z0-9_-]{3,30}$/` (no spaces allowed)
+     - Username NOT used in URL paths (only UUIDs in paths)
+     - Safe to allow spaces if desired - purely a UX choice
+     - Change regex to `/^[a-zA-Z0-9_ -]{3,30}$/` to allow spaces
+   - **Rate Limiting Encountered:**
+     - API has 100 req/15min limit per IP (general) and 10 req/15min for auth endpoints
+     - When testing, rapid API calls can trigger rate limiting (HTTP 304/429)
+     - Solution: Wait 15 minutes OR restart Railway backend to clear in-memory rate limit state
+     - Located in server.js lines 19-36
+
+2. **Dec 13 (Username Creation Flow + Brand Refresh):** ✅ Enhanced onboarding UX - READY TO TEST
+   - **iOS Changes:**
+     - **New Username Creation Screen:** Created CreateUsernameView.swift
+       - Shows after eligibility, before TOS acceptance
+       - Pre-fills with auto-generated username from backend
+       - Users can customize or keep the generated username
+       - Calls PUT /api/users/:userId to save username
+     - **Removed Name Field:** Eliminated name collection from EligibilityView and EmailSignInView
+       - Simplifies signup flow - backend generates random usernames (e.g., User_hdss5l9s)
+       - Users customize username in dedicated CreateUsernameView step
+     - **TestFlight Compiler Flag:** Changed all email auth from `#if DEBUG` to `#if DEBUG || TESTFLIGHT`
+       - Files updated: SignInView.swift, AuthService.swift, APIService.swift, EmailSignInView.swift
+       - **Required:** Add `-D TESTFLIGHT` to Release build "Other Swift Flags" in Xcode for TestFlight builds
+       - Email auth now available in TestFlight while hidden in production App Store builds
+     - **Brand Color Assets:** Created custom color sets matching AppIcon
+       - BrandOrange (#D94125) - vibrant orange-red, consistent across themes
+       - BrandCream (#F5E6D3) - off-white cream for highlights
+       - BrandBlack - adapts automatically (black in light mode, light gray in dark mode)
+       - Available app-wide via Color("BrandOrange"), etc.
+     - **SignInView Refresh:** Updated with brand identity
+       - Shield icon with football (layered ZStack) in BrandOrange
+       - "PLAYOFF CHALLENGE" title in BrandBlack with letter spacing
+       - Added "'67 Enterprises" branding in BrandOrange
+       - Responsive text sizing with minimumScaleFactor to prevent cutoff
+     - **AuthService Updates:** Added `needsUsernameSetup` published state for flow control
+     - **PlayoffChallengeApp Updates:** Added CreateUsernameView routing between eligibility and TOS
+   - **New Onboarding Flow:**
+     - Sign In → Eligibility (no name) → **Username Creation** → TOS → Main App
+     - Backend creates user with random username → User customizes in CreateUsernameView
+2. **Dec 13 (Email Authentication):** ✅ Email/password auth for easier TestFlight onboarding - TESTED & WORKING
    - **Backend:**
      - Added bcrypt for password hashing (10 salt rounds)
      - Added express-rate-limit (100 req/15min general, 10 req/15min auth)
@@ -47,7 +130,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
      - Added registerWithEmail() and loginWithEmail() to APIService
      - Added email auth methods to AuthService
      - Updated SignInView to show email option below Apple Sign In
-     - **All wrapped in `#if DEBUG`** - invisible in production builds
    - **Documentation:** Created /wiki/EMAIL_AUTH_GUIDE.md with complete implementation details
 2. **Dec 12 (Compliance - Phases 0-5):** ✅ Complete legal compliance implementation - TESTED & WORKING
    - **Backend (Phases 0-4):**
@@ -213,7 +295,8 @@ playoff-challenge/
 ├── ios-app/PlayoffChallenge/
 │   ├── Services/         # APIService, AuthService
 │   ├── Models/           # Data models, ViewModels (includes PlayerViewModel.swift)
-│   └── Views/            # SwiftUI screens (includes EligibilityView, TermsOfServiceView)
+│   ├── Views/            # SwiftUI screens (includes EligibilityView, CreateUsernameView, TermsOfServiceView)
+│   └── Assets.xcassets/  # App icons, brand colors (BrandOrange, BrandCream, BrandBlack)
 └── admin-dashboard/      # (empty placeholder)
 ```
 
@@ -352,12 +435,18 @@ Debugging & Testing:
   - Uses ASAuthorizationController
   - Returns `appleUserId` for backend authentication
   - Manages `pendingAppleCredential` state for new user eligibility flow
+  - Checks `needsUsernameSetup` flag for username creation flow
   - Checks `needsToAcceptTOS` flag for TOS enforcement
 
 **Key Views:**
-- `SignInView.swift` - Apple Sign In flow (entry point for unauthenticated users)
-- `EligibilityView.swift` - **NEW:** Compliance signup (state, age, residency verification)
-- `TermsOfServiceView.swift` - **NEW:** TOS acceptance (required for new users)
+- `SignInView.swift` - Apple Sign In flow with brand colors (shield icon, '67 Enterprises branding)
+- `EligibilityView.swift` - Compliance signup (state, age, residency verification) - no name field
+- `CreateUsernameView.swift` - **NEW (Dec 13):** Username customization screen
+  - Shows after eligibility, before TOS
+  - Pre-fills with auto-generated username from backend
+  - Users can edit or proceed with generated name
+  - Calls PUT /api/users/:userId to save username
+- `TermsOfServiceView.swift` - TOS acceptance (required for new users)
 - `HomeView.swift` - Dashboard, quick picks overview
 - `PlayerSelectionView.swift` - Pick players for a week
 - `MyPickView.swift` - View/manage user's picks
@@ -455,16 +544,19 @@ Sign in with Apple is the sole authentication method with **compliance-gated sig
 - `GET /api/users/:userId` - Get user details (uses Apple ID as userId)
 - `POST /api/users/:userId/accept-tos` - Accept Terms of Service
 
-**New User Flow (with Compliance):**
+**New User Flow (with Compliance + Username Creation):**
 1. User signs in with Apple → iOS gets `apple_id`, `email?`, `name?`
 2. iOS calls `POST /api/users` with just `apple_id` (no state/eligibility)
 3. Backend returns **400 error** if user doesn't exist (needs eligibility)
 4. iOS catches `APIError.needsEligibility` → shows `EligibilityView`
-5. User selects state, confirms age/residency/skill-based → iOS calls `POST /api/users` with full compliance data
+5. User selects state, confirms age/residency/skill-based (no name field) → iOS calls `POST /api/users` with compliance data (name=nil)
 6. Backend validates state (blocks NV, HI, ID, MT, WA), logs IP state for audit
-7. User created → iOS shows `TermsOfServiceView`
-8. User accepts TOS → iOS calls `POST /api/users/:userId/accept-tos`
-9. User authenticated → Main app loads
+7. Backend creates user with auto-generated username (e.g., `User_hdss5l9s`)
+8. iOS shows `CreateUsernameView` with pre-filled username
+9. User customizes username or keeps generated one → iOS calls `PUT /api/users/:userId` to save
+10. iOS shows `TermsOfServiceView`
+11. User accepts TOS → iOS calls `POST /api/users/:userId/accept-tos`
+12. User authenticated → Main app loads
 
 **Existing User Flow:**
 1. User signs in with Apple → iOS gets `apple_id`
@@ -473,11 +565,17 @@ Sign in with Apple is the sole authentication method with **compliance-gated sig
 4. If `tos_accepted_at` is NULL → show `TermsOfServiceView`
 5. Else → Main app loads
 
+**Email/Password Flow (TestFlight Only):**
+- Same as Apple Sign In flow, but uses email/password credentials
+- Available in Debug and TestFlight builds via `#if DEBUG || TESTFLIGHT`
+- **IMPORTANT:** Must add `-D TESTFLIGHT` to Release build "Other Swift Flags" in Xcode
+- Backend creates user with auto-generated username → User customizes in CreateUsernameView
+
 **Important Apple Sign In Behavior:**
 - Email and name **only provided on first authorization** (privacy/security)
 - Subsequent signins: Apple sends only `apple_id`
 - Backend generates random username (e.g., `User_hdss5l9s`) if email/name unavailable
-- Users can update profile (username, email, phone) later in app
+- All users (Apple + Email) customize username in CreateUsernameView during onboarding
 
 ### Position Limits
 
@@ -637,6 +735,33 @@ All API errors return JSON with an `error` field:
    ```sql
    UPDATE players SET espn_id = '12345' WHERE id = 'player-uuid-here';
    ```
+
+### Enabling Manual Testing (Add/Remove Players)
+
+**Goal:** Enable testers to add/remove players from My Picks tab for testing
+
+**Current State:** Pick editing is gated by `is_week_active` and `current_playoff_week` settings
+
+**To Enable Testing:**
+
+**Option 1: Single API Call** (Simplest - 30 seconds)
+```bash
+curl -X POST https://playoffchallenge-production.up.railway.app/api/admin/update-current-week \
+  -H "Content-Type: application/json" \
+  -d '{"current_playoff_week": 14, "is_week_active": true}'
+```
+
+**Option 2: iOS Admin Panel** (if available in Settings tab)
+- Navigate to Profile → Admin → Settings
+- Update current week to desired week (e.g., 14)
+- Toggle week active status
+
+**Important Notes:**
+- Backend does NOT enforce `is_week_active` or `locked` fields when creating/deleting picks
+- No validation on game start times
+- Week settings are purely for UI/display purposes
+- Testers can freely add/remove players once week is set and active
+- **Complexity:** VERY LOW (1/10) - just config changes, no code modifications needed
 
 ## External API Dependencies
 
