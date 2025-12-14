@@ -1352,6 +1352,72 @@ app.get('/api/live-stats/week/:weekNumber', async (req, res) => {
   }
 });
 
+// Alias endpoint for iOS app compatibility
+app.get('/api/live-scores', async (req, res) => {
+  try {
+    const weekNumber = req.query.weekNumber;
+
+    if (!weekNumber) {
+      return res.status(400).json({ error: 'weekNumber query parameter required' });
+    }
+
+    // Get all picks for this week with player info
+    const picksResult = await pool.query(`
+      SELECT
+        pk.id as pick_id,
+        pk.user_id,
+        pk.player_id,
+        pk.multiplier,
+        p.full_name,
+        p.espn_id,
+        p.team,
+        p.position
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id
+      WHERE pk.week_number = $1
+      ORDER BY pk.user_id, pk.position
+    `, [weekNumber]);
+
+    const picks = [];
+
+    for (const pick of picksResult.rows) {
+      let liveStats = null;
+      let points = 0;
+      let isLive = false;
+
+      if (pick.espn_id) {
+        const cached = liveStatsCache.playerStats.get(pick.espn_id);
+
+        if (cached) {
+          const scoringStats = convertESPNStatsToScoring(cached.stats);
+          points = await calculateFantasyPoints(scoringStats);
+          liveStats = scoringStats;
+          isLive = true;
+        }
+      }
+
+      picks.push({
+        pickId: pick.pick_id,
+        userId: pick.user_id,
+        playerId: pick.player_id,
+        playerName: pick.full_name,
+        team: pick.team,
+        position: pick.position,
+        multiplier: pick.multiplier,
+        basePoints: points,
+        finalPoints: points * pick.multiplier,
+        stats: liveStats,
+        isLive: isLive
+      });
+    }
+
+    res.json({ picks });
+  } catch (err) {
+    console.error('Error getting live scores:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Admin: Trigger live stats update
 app.post('/api/admin/update-live-stats', async (req, res) => {
   try {
