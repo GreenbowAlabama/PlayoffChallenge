@@ -3678,15 +3678,37 @@ function getTeamMatchup(teamAbbr, matchupMap) {
   return matchupMap.get(teamAbbr) || null;
 }
 
+// Helper: Map playoff round to NFL week number
+function getWeekNumberForRound(round) {
+  const roundToWeekMap = {
+    'wildcard':   19,
+    'divisional': 20,
+    'conference': 21,
+    'superbowl':  22,
+    'super bowl': 22
+  };
+
+  return roundToWeekMap[round.toLowerCase()] || null;
+}
+
 // Get leaderboard
 app.get('/api/leaderboard', async (req, res) => {
   try {
-    const { weekNumber, includePicks } = req.query;
+    const { weekNumber, round, includePicks } = req.query;
+
+    // Map round to week number if round is provided
+    let actualWeekNumber = weekNumber;
+    if (round && !weekNumber) {
+      actualWeekNumber = getWeekNumberForRound(round);
+      if (!actualWeekNumber) {
+        return res.status(400).json({ error: `Invalid round: ${round}` });
+      }
+    }
 
     let query;
     let params = [];
 
-    if (weekNumber) {
+    if (actualWeekNumber) {
       // Filter by specific week
       query = `
         SELECT
@@ -3703,9 +3725,9 @@ app.get('/api/leaderboard', async (req, res) => {
         GROUP BY u.id, u.username, u.email, u.name, u.team_name, u.paid
         ORDER BY total_points DESC
       `;
-      params = [weekNumber];
+      params = [actualWeekNumber];
     } else {
-      // All weeks (cumulative) - only include weeks 12 and 13 for testing
+      // All weeks (cumulative) - sum all playoff weeks (19-22)
       query = `
         SELECT
           u.id,
@@ -3716,7 +3738,7 @@ app.get('/api/leaderboard', async (req, res) => {
           u.paid as has_paid,
           COALESCE(SUM(s.final_points), 0) as total_points
         FROM users u
-        LEFT JOIN scores s ON u.id = s.user_id AND s.week_number IN (12, 13)
+        LEFT JOIN scores s ON u.id = s.user_id AND s.week_number IN (19, 20, 21, 22)
         WHERE u.paid = true
         GROUP BY u.id, u.username, u.email, u.name, u.team_name, u.paid
         ORDER BY total_points DESC
@@ -3726,12 +3748,12 @@ app.get('/api/leaderboard', async (req, res) => {
     const result = await pool.query(query, params);
 
     // If includePicks is requested, fetch picks for each user
-    if (includePicks === 'true' && weekNumber) {
-      console.log(`DEBUG: Fetching picks for ${result.rows.length} users for week ${weekNumber}`);
+    if (includePicks === 'true' && actualWeekNumber) {
+      console.log(`DEBUG: Fetching picks for ${result.rows.length} users for week ${actualWeekNumber}`);
 
       // Fetch matchup map once for this week
-      const matchupMap = await getWeekMatchupMap(weekNumber);
-      console.log(`DEBUG: Loaded ${matchupMap.size} team matchups for week ${weekNumber}`);
+      const matchupMap = await getWeekMatchupMap(actualWeekNumber);
+      console.log(`DEBUG: Loaded ${matchupMap.size} team matchups for week ${actualWeekNumber}`);
 
       const leaderboardWithPicks = await Promise.all(
         result.rows.map(async (user) => {
@@ -3763,7 +3785,7 @@ app.get('/api/leaderboard', async (req, res) => {
                 WHEN 'DEF' THEN 6
                 ELSE 7
               END
-          `, [user.id, weekNumber]);
+          `, [user.id, actualWeekNumber]);
 
           console.log(`  User ${user.name || user.username} has ${picksResult.rows.length} picks`);
 
@@ -3787,7 +3809,7 @@ app.get('/api/leaderboard', async (req, res) => {
       console.log(`DEBUG: Returning leaderboard with picks`);
       res.json(leaderboardWithPicks);
     } else {
-      console.log(`DEBUG: Returning leaderboard WITHOUT picks (includePicks=${includePicks}, weekNumber=${weekNumber})`);
+      console.log(`DEBUG: Returning leaderboard WITHOUT picks (includePicks=${includePicks}, weekNumber=${actualWeekNumber})`);
       res.json(result.rows);
     }
   } catch (err) {
