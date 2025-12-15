@@ -500,6 +500,15 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
     const normalizedTeam = normalizeTeamAbbr(teamAbbrev);
 
     for (const gameId of liveStatsCache.activeGameIds) {
+      console.log(
+        'DEF BACKFILL CHECK',
+        'teamAbbr:',
+        teamAbbr,
+        'normalized:',
+        normalizeTeamAbbr(teamAbbr),
+        'week:',
+        weekNumber
+      );
       try {
         const summaryUrl =
           `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
