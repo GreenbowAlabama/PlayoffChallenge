@@ -494,26 +494,27 @@ app.post('/admin/refresh-week', async (req, res) => {
   }
 });
 
-// Fetch defense stats from ESPN
+// Fetch defense stats from ESPN (LIVE + HISTORICAL SAFE)
 async function fetchDefenseStats(teamAbbrev, weekNumber) {
   try {
     const normalizedTeam = normalizeTeamAbbr(teamAbbrev);
 
     for (const gameId of liveStatsCache.activeGameIds) {
       try {
-        const summaryUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
+        const summaryUrl =
+          `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
         const summaryRes = await axios.get(summaryUrl);
 
         if (!summaryRes.data || !summaryRes.data.boxscore) continue;
 
         const competition = summaryRes.data.header?.competitions?.[0];
-        if (!competition) continue;
+        if (!competition?.competitors) continue;
 
         let isInGame = false;
         let opponentScore = 0;
         let teamId = null;
 
-        // Determine if the given team is in this game
+        // Identify team + opponent
         for (const competitor of competition.competitors) {
           const espnAbbr = normalizeTeamAbbr(competitor.team?.abbreviation);
 
@@ -539,7 +540,7 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
         };
 
         // ============================================================
-        // 1. Competitor statistics
+        // 1. Competitor defensive statistics (authoritative)
         // ============================================================
         const compStatsUrl =
           `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/${gameId}` +
@@ -560,14 +561,20 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
                     break;
 
                   case 'interceptions':
-                    if (category.name === 'defensive' || category.name === 'defensiveInterceptions') {
+                    if (
+                      category.name === 'defensive' ||
+                      category.name === 'defensiveInterceptions'
+                    ) {
                       stats.def_int += Number(stat.value) || 0;
                     }
                     break;
 
-                  case 'fumbleRecoveries':
                   case 'fumblesRecovered':
-                    if (category.name === 'defensive' || category.name === 'defensiveInterceptions') {
+                  case 'fumbleRecoveries':
+                    if (
+                      category.name === 'defensive' ||
+                      category.name === 'defensiveInterceptions'
+                    ) {
                       stats.def_fum_rec += Number(stat.value) || 0;
                     }
                     break;
@@ -597,13 +604,13 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
             }
           }
         } catch (_) {
-          // competitor stats may fail; continue gracefully
+          // competitor stats may fail early in games
         }
 
         // ============================================================
         // 2. Supplement sacks from team boxscore
         // ============================================================
-        const teamBox = summaryRes.data.boxscore.teams.find(
+        const teamBox = summaryRes.data.boxscore.teams?.find(
           t => normalizeTeamAbbr(t.team?.abbreviation) === normalizedTeam
         );
 
@@ -619,7 +626,7 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
         }
 
         // ============================================================
-        // 3. Supplement INT + defensive TD from player boxscore
+        // 3. Supplement INT + TD from defensive player boxscore
         // ============================================================
         const playerBox = summaryRes.data.boxscore.players;
         if (playerBox) {
@@ -628,7 +635,6 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
 
             const groupAbbr = normalizeTeamAbbr(group.team.abbreviation);
             if (groupAbbr !== normalizedTeam) continue;
-
             if (!group.statistics) continue;
 
             for (const cat of group.statistics) {
