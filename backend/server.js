@@ -505,8 +505,6 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
           `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
         const summaryRes = await axios.get(summaryUrl);
 
-        console.log('DEF STATS RESULT', teamAbbr, defStats);
-
         if (!summaryRes.data || !summaryRes.data.boxscore) continue;
 
         const competition = summaryRes.data.header?.competitions?.[0];
@@ -652,6 +650,9 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
             }
           }
         }
+
+        // Optional debug once validated
+        // console.log('DEF STATS RESULT', normalizedTeam, stats);
 
         return stats;
 
