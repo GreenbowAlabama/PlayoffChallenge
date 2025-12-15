@@ -93,26 +93,26 @@ async function mapESPNAthleteToPlayer(athleteId, athleteName) {
       'SELECT id FROM players WHERE espn_id = $1 LIMIT 1',
       [athleteId.toString()]
     );
-    
+
     if (result.rows.length > 0) {
       return result.rows[0].id;
     }
-    
+
     // Fallback: try name matching (fuzzy)
     if (athleteName) {
       const nameParts = athleteName.trim().split(' ');
       if (nameParts.length >= 2) {
         const firstName = nameParts[0];
         const lastName = nameParts[nameParts.length - 1];
-        
+
         result = await pool.query(
           `SELECT id FROM players 
-           WHERE LOWER(first_name) = LOWER($1) 
-           AND LOWER(last_name) = LOWER($2) 
-           LIMIT 1`,
+            WHERE LOWER(first_name) = LOWER($1) 
+            AND LOWER(last_name) = LOWER($2) 
+            LIMIT 1`,
           [firstName, lastName]
         );
-        
+
         if (result.rows.length > 0) {
           // Store the ESPN ID for future lookups
           await pool.query(
@@ -123,7 +123,7 @@ async function mapESPNAthleteToPlayer(athleteId, athleteName) {
         }
       }
     }
-    
+
     return null;
   } catch (err) {
     console.error('Error mapping ESPN athlete:', err);
@@ -259,12 +259,12 @@ async function fetchPlayerStats(espnId, weekNumber) {
       try {
         const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
         const response = await axios.get(url);
-        
+
         if (!response.data || !response.data.boxscore) continue;
-        
+
         const boxscore = response.data.boxscore;
         if (!boxscore.players) continue;
-        
+
         // Initialize stats object
         const stats = {
           pass_yd: 0,
@@ -280,22 +280,22 @@ async function fetchPlayerStats(espnId, weekNumber) {
           rec_2pt: 0,
           fum_lost: 0
         };
-        
+
         let foundPlayer = false;
         const categoriesSeen = new Set();
-        
+
         // Search through both teams
         for (const team of boxscore.players) {
           if (!team.statistics) continue;
-          
+
           for (const statCategory of team.statistics) {
             if (!statCategory.athletes) continue;
-            
+
             for (const athlete of statCategory.athletes) {
               // ESPN returns IDs as strings, ensure comparison works
               const athleteId = athlete.athlete?.id?.toString();
               const searchId = espnId.toString();
-              
+
               if (athleteId === searchId) {
                 foundPlayer = true;
                 categoriesSeen.add(statCategory.name);
@@ -303,27 +303,27 @@ async function fetchPlayerStats(espnId, weekNumber) {
             }
           }
         }
-        
+
         // Second pass: extract stats, prioritizing primary position
         // If player has receiving stats, skip their passing stats (trick plays)
         const skipPassing = categoriesSeen.has('receiving');
-        
+
         for (const team of boxscore.players) {
           if (!team.statistics) continue;
-          
+
           for (const statCategory of team.statistics) {
             if (!statCategory.athletes) continue;
-            
+
             for (const athlete of statCategory.athletes) {
               const athleteId = athlete.athlete?.id?.toString();
               const searchId = espnId.toString();
-              
+
               if (athleteId === searchId) {
                 // Skip passing if player is primarily a receiver
                 if (statCategory.name === 'passing' && skipPassing) {
                   continue;
                 }
-                
+
                 // Accumulate stats from this category
                 if (statCategory.name === 'passing' && athlete.stats) {
                   // ESPN Format: ["C/ATT", "YDS", "AVG", "TD", "INT", "SACKS", "QBR", "RTG"]
@@ -333,7 +333,7 @@ async function fetchPlayerStats(espnId, weekNumber) {
                   stats.pass_td += parseFloat(athlete.stats[3]) || 0;  // Fixed: was [2], now [3]
                   stats.pass_int += parseFloat(athlete.stats[4]) || 0; // Fixed: was [3], now [4]
                 }
-                
+
                 if (statCategory.name === 'rushing' && athlete.stats) {
                   // ESPN Format: ["CAR", "YDS", "AVG", "TD", "LONG"]
                   // Indices:        0      1      2      3     4
@@ -341,7 +341,7 @@ async function fetchPlayerStats(espnId, weekNumber) {
                   stats.rush_yd += yards;
                   stats.rush_td += parseFloat(athlete.stats[3]) || 0;
                 }
-                
+
                 if (statCategory.name === 'receiving' && athlete.stats) {
                   // ESPN Format: ["REC", "YDS", "AVG", "TD", "LONG", "TGTS"]
                   // Indices:        0      1      2      3     4       5
@@ -349,13 +349,13 @@ async function fetchPlayerStats(espnId, weekNumber) {
                   stats.rec_yd += parseFloat(athlete.stats[1]) || 0;
                   stats.rec_td += parseFloat(athlete.stats[3]) || 0;
                 }
-                
+
                 if (statCategory.name === 'fumbles' && athlete.stats) {
                   // ESPN Format: ["FUM", "LOST", "REC"]
                   // Indices:        0      1      2
                   stats.fum_lost += parseFloat(athlete.stats[1]) || 0;
                 }
-                
+
                 if (statCategory.name === 'kicking' && athlete.stats) {
                   // ESPN Format: ["FG", "PCT", "LONG", "XP", "PTS"]
                   // Indices:        0     1      2       3     4
@@ -365,12 +365,12 @@ async function fetchPlayerStats(espnId, weekNumber) {
                   const fgAtt = parseInt(fgMadeAtt[1]) || 0;
                   const fgMissed = fgAtt - fgMade;
                   const longest = parseInt(athlete.stats[2]) || 0;
-                  
+
                   const patMadeAtt = athlete.stats[3] ? athlete.stats[3].split('/') : ['0', '0'];
                   const patMade = parseInt(patMadeAtt[0]) || 0;
                   const patAtt = parseInt(patMadeAtt[1]) || 0;
                   const patMissed = patAtt - patMade;
-                  
+
                   // Store kicker stats
                   stats.fg_made = fgMade;
                   stats.fg_missed = fgMissed;
@@ -382,7 +382,7 @@ async function fetchPlayerStats(espnId, weekNumber) {
             }
           }
         }
-        
+
         if (foundPlayer) {
           // Also check for 2-pt conversions in drives data
           if (response.data.drives) {
@@ -645,31 +645,31 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
 async function savePlayerScoresToDatabase(weekNumber) {
   try {
     console.log(`Saving scores for week ${weekNumber}...`);
-    
+
     // Get all user picks for this week
     const picksResult = await pool.query(`
       SELECT pk.id as pick_id, pk.user_id, pk.player_id, pk.position, pk.multiplier
       FROM picks pk
       WHERE pk.week_number = $1
     `, [weekNumber]);
-    
+
     let savedCount = 0;
-    
+
     for (const pick of picksResult.rows) {
       // Check if player has ESPN ID
       const player = await pool.query('SELECT espn_id, full_name, position FROM players WHERE id::text = $1', [pick.player_id]);
       if (player.rows.length === 0) continue;
-      
+
       const espnId = player.rows[0].espn_id;
       const playerName = player.rows[0].full_name;
       const position = player.rows[0].position;
-      
+
       let scoring;
-      
+
       // Handle defense differently (uses team abbrev as ID)
       if (position === 'DEF') {
         console.log(`Fetching defense stats for ${playerName}...`);
-        
+
         const defStats = await fetchDefenseStats(pick.player_id, weekNumber);
         if (!defStats) {
           console.log(`No defense stats found for ${playerName} in week ${weekNumber}`);
@@ -682,19 +682,19 @@ async function savePlayerScoresToDatabase(weekNumber) {
         // Regular player - fetch from boxscore
         console.log(`Fetching stats for ${playerName} from boxscore...`);
         const playerStats = await fetchPlayerStats(espnId, weekNumber);
-        
+
         if (!playerStats) {
           console.log(`No stats found for ${playerName} in week ${weekNumber}`);
           continue;
         }
-        
+
         scoring = playerStats;
       }
-      
+
       const basePoints = await calculateFantasyPoints(scoring);
       const multiplier = pick.multiplier || 1;
       const finalPoints = basePoints * multiplier;
-      
+
       // Upsert to scores table
       await pool.query(`
         INSERT INTO scores (id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at)
@@ -707,18 +707,18 @@ async function savePlayerScoresToDatabase(weekNumber) {
           stats_json = $7,
           updated_at = NOW()
       `, [
-        pick.user_id, 
-        pick.player_id, 
+        pick.user_id,
+        pick.player_id,
         weekNumber,
         basePoints,
         multiplier,
         finalPoints,
         JSON.stringify(scoring)
       ]);
-      
+
       savedCount++;
     }
-    
+
     console.log(`Saved scores for ${savedCount} picks`);
     return savedCount;
   } catch (err) {
@@ -731,29 +731,29 @@ async function savePlayerScoresToDatabase(weekNumber) {
 async function fetchScoreboard(weekNumber) {
   try {
     const now = Date.now();
-    
+
     // Check cache (include week in cache key)
     const cacheKey = `week_${weekNumber}`;
-    if (liveStatsCache.lastScoreboardUpdate && 
+    if (liveStatsCache.lastScoreboardUpdate &&
         liveStatsCache.currentCachedWeek === weekNumber &&
         (now - liveStatsCache.lastScoreboardUpdate) < SCOREBOARD_CACHE_MS) {
       return Array.from(liveStatsCache.activeGameIds);
     }
-    
+
     console.log(`Fetching ESPN scoreboard for week ${weekNumber}...`);
     const response = await axios.get(getESPNScoreboardUrl(weekNumber));
-    
+
     const activeGames = [];
-    
+
     if (response.data && response.data.events) {
       for (const event of response.data.events) {
         const gameId = event.id;
         const status = event.status?.type?.state;
-        
+
         // Only track in-progress or recently completed games
         if (status === 'in' || status === 'post') {
           activeGames.push(gameId);
-          
+
           // Store basic game info
           liveStatsCache.games.set(gameId, {
             id: gameId,
@@ -766,11 +766,11 @@ async function fetchScoreboard(weekNumber) {
         }
       }
     }
-    
+
     liveStatsCache.activeGameIds = new Set(activeGames);
     liveStatsCache.currentCachedWeek = weekNumber;
     liveStatsCache.lastScoreboardUpdate = now;
-    
+
     console.log(`Found ${activeGames.length} active games`);
     return activeGames;
   } catch (err) {
@@ -897,12 +897,12 @@ async function fetchGameSummary(gameId) {
           updatedAt: now
         });
       }
-      
+
       liveStatsCache.lastGameUpdates.set(gameId, now);
       console.log(`Updated ${playerStats.length} player stats from game ${gameId}`);
       return true;
     }
-    
+
     return false;
   } catch (err) {
     console.error(`Error fetching game summary ${gameId}:`, err.message);
@@ -919,7 +919,7 @@ async function getActiveTeamsForWeek(weekNumber) {
       JOIN players p ON pk.player_id = p.id::text
       WHERE pk.week_number = $1 AND p.team IS NOT NULL
     `, [weekNumber]);
-    
+
     console.log(`Active teams for week ${weekNumber}:`, result.rows.map(r => r.team).join(', '));
     return result.rows.map(r => r.team);
   } catch (err) {
@@ -932,43 +932,43 @@ async function getActiveTeamsForWeek(weekNumber) {
 async function updateLiveStats(weekNumber) {
   try {
     console.log(`\n=== Updating live stats for week ${weekNumber} ===`);
-    
+
     // Step 1: Get active games for this specific week
     const activeGameIds = await fetchScoreboard(weekNumber);
     if (activeGameIds.length === 0) {
       console.log('No active games found');
       return { success: true, message: 'No active games', gamesUpdated: 0 };
     }
-    
+
     // Step 2: Get teams we care about
     const activeTeams = await getActiveTeamsForWeek(weekNumber);
     console.log(`Tracking teams: ${activeTeams.join(', ')}`);
-    
+
     // Step 3: Filter games to only those with our teams
     const relevantGames = [];
     for (const gameId of activeGameIds) {
       const gameInfo = liveStatsCache.games.get(gameId);
-      if (gameInfo && 
+      if (gameInfo &&
           (activeTeams.includes(gameInfo.homeTeam) || activeTeams.includes(gameInfo.awayTeam))) {
         relevantGames.push(gameId);
       }
     }
-    
+
     console.log(`Found ${relevantGames.length} relevant games out of ${activeGameIds.length} active`);
-    
+
     // Step 4: Fetch summaries for relevant games
     let gamesUpdated = 0;
     for (const gameId of relevantGames) {
       const updated = await fetchGameSummary(gameId);
       if (updated) gamesUpdated++;
-      
+
       // Small delay to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 500));
     }
-    
+
     // Step 5: Save scores to database
     await savePlayerScoresToDatabase(weekNumber);
-    
+
     return {
       success: true,
       message: `Updated ${gamesUpdated} games`,
@@ -988,39 +988,39 @@ async function calculateFantasyPoints(stats) {
     const rulesResult = await pool.query(
       'SELECT stat_name, points FROM scoring_rules WHERE is_active = true'
     );
-    
+
     const rules = {};
     for (const row of rulesResult.rows) {
       rules[row.stat_name] = parseFloat(row.points);
     }
-    
+
     let points = 0;
-    
+
     // Passing
     points += (stats.pass_yd || 0) * (rules.pass_yd || 0);
     points += (stats.pass_td || 0) * (rules.pass_td || 0);
     points += (stats.pass_int || 0) * (rules.pass_int || 0);
     points += (stats.pass_2pt || 0) * (rules.pass_2pt || 0);
-    
+
     // Rushing
     points += (stats.rush_yd || 0) * (rules.rush_yd || 0);
     points += (stats.rush_td || 0) * (rules.rush_td || 0);
     points += (stats.rush_2pt || 0) * (rules.rush_2pt || 0);
-    
+
     // Receiving
     points += (stats.rec || 0) * (rules.rec || 0);
     points += (stats.rec_yd || 0) * (rules.rec_yd || 0);
     points += (stats.rec_td || 0) * (rules.rec_td || 0);
     points += (stats.rec_2pt || 0) * (rules.rec_2pt || 0);
-    
+
     // Fumbles
     points += (stats.fum_lost || 0) * (rules.fum_lost || 0);
-    
+
     // Kicker stats
     if (stats.fg_made !== undefined) {
       const fgMade = stats.fg_made || 0;
       const fgLongest = stats.fg_longest || 0;
-      
+
       // Score based on distance (assume even distribution if we don't have individual FG distances)
       // For now, use longest to estimate: if longest >= 50, award one 50+ FG
       if (fgLongest >= 50 && fgMade > 0) {
@@ -1032,12 +1032,12 @@ async function calculateFantasyPoints(stats) {
       } else {
         points += fgMade * 3; // All standard 0-39 yards
       }
-      
+
       points += (stats.pat_made || 0) * (rules.pat_made || 1);
       points += (stats.fg_missed || 0) * (rules.fg_missed || -2);
       points += (stats.pat_missed || 0) * (rules.pat_missed || -1);
     }
-    
+
     // Defense stats
     if (stats.def_sack !== undefined) {
       points += (stats.def_sack || 0) * (rules.def_sack || 1);
@@ -1047,7 +1047,7 @@ async function calculateFantasyPoints(stats) {
       points += (stats.def_safety || 0) * (rules.def_safety || 2);
       points += (stats.def_block || 0) * (rules.def_block || 4);
       points += (stats.def_ret_td || 0) * (rules.def_ret_td || 6);
-      
+
       // Points allowed scoring
       const ptsAllowed = stats.def_pts_allowed || 0;
       if (ptsAllowed === 0) points += 20;
@@ -1058,12 +1058,12 @@ async function calculateFantasyPoints(stats) {
       else if (ptsAllowed <= 34) points += -1;
       else points += -4;
     }
-    
+
     // Bonuses
     if (stats.pass_yd >= 400) points += (rules.pass_yd_bonus || 0);
     if (stats.rush_yd >= 150) points += (rules.rush_yd_bonus || 0);
     if (stats.rec_yd >= 150) points += (rules.rec_yd_bonus || 0);
-    
+
     return parseFloat(points.toFixed(2));
   } catch (err) {
     console.error('Error calculating points:', err);
@@ -1082,18 +1082,18 @@ app.get('/health', (req, res) => {
 app.post('/api/admin/update-week-status', async (req, res) => {
   try {
     const { is_week_active } = req.body;
-    
+
     if (typeof is_week_active !== 'boolean') {
       return res.status(400).json({ success: false, error: 'is_week_active must be a boolean' });
     }
-    
+
     const result = await pool.query(
       'UPDATE game_settings SET is_week_active = $1 RETURNING *',
       [is_week_active]
     );
-    
+
     console.log(`Week lock status updated: is_week_active = ${is_week_active}`);
-    
+
     res.json({ success: true, message: is_week_active ? 'Week unlocked' : 'Week locked' });
   } catch (err) {
     console.error('Error updating week status:', err);
@@ -1105,11 +1105,11 @@ app.post('/api/admin/update-week-status', async (req, res) => {
 app.post('/api/admin/sync-espn-ids', async (req, res) => {
   try {
     console.log('Starting ESPN ID sync from Sleeper...');
-    
+
     // Fetch all players from Sleeper
     const response = await axios.get('https://api.sleeper.app/v1/players/nfl');
     const sleeperPlayers = response.data;
-    
+
     // Get all players missing ESPN IDs
     const playersResult = await pool.query(`
       SELECT id, sleeper_id, full_name, position
@@ -1117,12 +1117,12 @@ app.post('/api/admin/sync-espn-ids', async (req, res) => {
       WHERE (espn_id IS NULL OR espn_id = '')
         AND sleeper_id IS NOT NULL
     `);
-    
+
     console.log(`Found ${playersResult.rows.length} players missing ESPN IDs`);
-    
+
     let updated = 0;
     let notFound = 0;
-    
+
     for (const player of playersResult.rows) {
       const sleeperData = sleeperPlayers[player.sleeper_id];
 
@@ -1139,9 +1139,9 @@ app.post('/api/admin/sync-espn-ids', async (req, res) => {
         notFound++;
       }
     }
-    
+
     console.log(`ESPN ID sync complete: ${updated} updated, ${notFound} not found`);
-    
+
     res.json({
       success: true,
       message: `Synced ESPN IDs: ${updated} updated, ${notFound} not found`,
@@ -1199,7 +1199,7 @@ app.post('/api/admin/populate-image-urls', async (req, res) => {
     res.json({ success: true, message: `Updated ${updated} players with image URLs`, updated });
   } catch (err) {
     console.error('Error populating image URLs:', err);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1212,21 +1212,21 @@ app.post('/api/admin/update-current-week', async (req, res) => {
     if (!current_playoff_week || current_playoff_week < 1 || current_playoff_week > 22) {
       return res.status(400).json({ success: false, error: 'current_playoff_week must be between 1 and 22' });
     }
-    
+
     let query = 'UPDATE game_settings SET current_playoff_week = $1';
     const params = [current_playoff_week];
-    
+
     if (typeof is_week_active === 'boolean') {
       query += ', is_week_active = $2';
       params.push(is_week_active);
     }
-    
+
     query += ' RETURNING *';
-    
+
     const result = await pool.query(query, params);
-    
+
     console.log(`Current week updated to ${current_playoff_week}, is_week_active = ${is_week_active ?? 'unchanged'}`);
-    
+
     res.json({ success: true, message: `Current week set to ${current_playoff_week}` });
   } catch (err) {
     console.error('Error updating current week:', err);
@@ -1238,27 +1238,27 @@ app.post('/api/admin/update-current-week', async (req, res) => {
 app.get('/api/live-stats/player/:playerId', async (req, res) => {
   try {
     const { playerId } = req.params;
-    
+
     // Get player info including ESPN ID
     const playerResult = await pool.query(
       'SELECT id, full_name, espn_id, team, position FROM players WHERE id = $1',
       [playerId]
     );
-    
+
     if (playerResult.rows.length === 0) {
       return res.status(404).json({ error: 'Player not found' });
     }
-    
+
     const player = playerResult.rows[0];
-    
+
     // Check cache for live stats
     if (player.espn_id) {
       const liveStats = liveStatsCache.playerStats.get(player.espn_id);
-      
+
       if (liveStats) {
         const scoringStats = convertESPNStatsToScoring(liveStats.stats);
         const points = await calculateFantasyPoints(scoringStats);
-        
+
         return res.json({
           playerId: player.id,
           playerName: player.full_name,
@@ -1272,7 +1272,7 @@ app.get('/api/live-stats/player/:playerId', async (req, res) => {
         });
       }
     }
-    
+
     // No live stats available
     res.json({
       playerId: player.id,
@@ -1294,7 +1294,7 @@ app.get('/api/live-stats/player/:playerId', async (req, res) => {
 app.get('/api/live-stats/week/:weekNumber', async (req, res) => {
   try {
     const { weekNumber } = req.params;
-    
+
     // Get all picks for this week with player info
     const picksResult = await pool.query(`
       SELECT 
@@ -1311,17 +1311,17 @@ app.get('/api/live-stats/week/:weekNumber', async (req, res) => {
       WHERE pk.week_number = $1
       ORDER BY pk.user_id, pk.position
     `, [weekNumber]);
-    
+
     const picks = [];
-    
+
     for (const pick of picksResult.rows) {
       let liveStats = null;
       let points = 0;
       let isLive = false;
-      
+
       if (pick.espn_id) {
         const cached = liveStatsCache.playerStats.get(pick.espn_id);
-        
+
         if (cached) {
           const scoringStats = convertESPNStatsToScoring(cached.stats);
           points = await calculateFantasyPoints(scoringStats);
@@ -1329,7 +1329,7 @@ app.get('/api/live-stats/week/:weekNumber', async (req, res) => {
           isLive = true;
         }
       }
-      
+
       picks.push({
         pickId: pick.pick_id,
         userId: pick.user_id,
@@ -1344,7 +1344,7 @@ app.get('/api/live-stats/week/:weekNumber', async (req, res) => {
         isLive: isLive
       });
     }
-    
+
     res.json({ week_number: parseInt(weekNumber), picks: picks });
   } catch (err) {
     console.error('Error getting live week stats:', err);
@@ -1422,11 +1422,11 @@ app.get('/api/live-scores', async (req, res) => {
 app.post('/api/admin/update-live-stats', async (req, res) => {
   try {
     const { weekNumber } = req.body;
-    
+
     if (!weekNumber) {
       return res.status(400).json({ error: 'weekNumber required' });
     }
-    
+
     const result = await updateLiveStats(weekNumber);
     res.json(result);
   } catch (err) {
@@ -1467,6 +1467,9 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
       const gameStatus = game.status?.type?.state;
 
       console.log(`Processing game ${gameId}: ${game.shortName} (Status: ${gameStatus})`);
+
+      // Add gameId to cache so fetchDefenseStats can find it
+      liveStatsCache.activeGameIds.add(gameId);
 
       // Fetch game summary with player stats
       const summaryUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
@@ -1537,6 +1540,70 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
         }
 
         processedPlayerIds.add(playerId);
+      }
+
+      // Process team defenses for this game
+      const competition = summaryResponse.data.header?.competitions?.[0];
+      if (competition?.competitors) {
+        for (const competitor of competition.competitors) {
+          const teamAbbr = competitor.team?.abbreviation;
+          if (!teamAbbr) continue;
+
+          // Check if anyone picked this team's defense
+          const defPicksResult = await pool.query(`
+            SELECT user_id, multiplier
+            FROM picks
+            WHERE player_id = $1 AND week_number = $2 AND position = 'DEF'
+          `, [teamAbbr, weekNumber]);
+
+          if (defPicksResult.rows.length === 0) continue;
+
+          console.log(`  Processing DEF for ${teamAbbr} (${defPicksResult.rows.length} picks)`);
+
+          // Fetch defense stats
+          const defStats = await fetchDefenseStats(teamAbbr, weekNumber);
+          if (!defStats) {
+            console.log(`    No defense stats found for ${teamAbbr}`);
+            continue;
+          }
+
+          // Calculate fantasy points
+          const points = await calculateFantasyPoints(defStats);
+
+          // Save score for each user who picked this defense
+          for (const pick of defPicksResult.rows) {
+            const multiplier = pick.multiplier || 1.0;
+            const finalPoints = points * multiplier;
+
+            await pool.query(`
+              INSERT INTO scores (
+                id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at
+              ) VALUES (
+                gen_random_uuid(), $1, $2, $3, $4, $4, $5, $6, $7, NOW()
+              )
+              ON CONFLICT (user_id, player_id, week_number)
+              DO UPDATE SET
+                points = EXCLUDED.points,
+                base_points = EXCLUDED.base_points,
+                multiplier = EXCLUDED.multiplier,
+                final_points = EXCLUDED.final_points,
+                stats_json = EXCLUDED.stats_json,
+                updated_at = NOW()
+            `, [
+              pick.user_id,
+              teamAbbr,
+              weekNumber,
+              points,
+              multiplier,
+              finalPoints,
+              JSON.stringify(defStats)
+            ]);
+
+            playersScored++;
+          }
+
+          processedPlayerIds.add(teamAbbr);
+        }
       }
 
       gamesProcessed++;
@@ -1647,8 +1714,8 @@ app.post('/api/admin/backfill-user-scores', async (req, res) => {
       // Get target user's picks for this week
       const picksResult = await pool.query(
         `SELECT player_id, position, multiplier
-         FROM picks
-         WHERE user_id = $1 AND week_number = $2`,
+          FROM picks
+          WHERE user_id = $1 AND week_number = $2`,
         [targetUserId, week]
       );
 
@@ -1658,9 +1725,9 @@ app.post('/api/admin/backfill-user-scores', async (req, res) => {
         // Find an existing score for this player in this week (from any user)
         const existingScore = await pool.query(
           `SELECT base_points, stats_json, player_id
-           FROM scores
-           WHERE player_id = $1 AND week_number = $2
-           LIMIT 1`,
+            FROM scores
+            WHERE player_id = $1 AND week_number = $2
+            LIMIT 1`,
           [pick.player_id, week]
         );
 
@@ -1672,13 +1739,13 @@ app.post('/api/admin/backfill-user-scores', async (req, res) => {
           // Insert or update score for target user
           await pool.query(
             `INSERT INTO scores (id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at)
-             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, NOW())
-             ON CONFLICT (user_id, player_id, week_number)
-             DO UPDATE SET
-               base_points = $5,
-               final_points = $7,
-               stats_json = $8,
-               updated_at = NOW()`,
+              VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, NOW())
+              ON CONFLICT (user_id, player_id, week_number)
+              DO UPDATE SET
+                base_points = $5,
+                final_points = $7,
+                stats_json = $8,
+                updated_at = NOW()`,
             [
               targetUserId,
               pick.player_id,
@@ -1759,11 +1826,11 @@ app.delete('/api/admin/scores/teams/:weekNumber', async (req, res) => {
     // Delete scores for these teams
     const result = await pool.query(
       `DELETE FROM scores
-       WHERE week_number = $1
-       AND player_id IN (
-         SELECT id FROM players WHERE team = ANY($2)
-       )
-       RETURNING player_id, base_points, final_points`,
+        WHERE week_number = $1
+        AND player_id IN (
+          SELECT id FROM players WHERE team = ANY($2)
+        )
+        RETURNING player_id, base_points, final_points`,
       [weekNumber, teams]
     );
 
@@ -1800,8 +1867,8 @@ app.delete('/api/admin/scores/:userId/:weekNumber', async (req, res) => {
     // Delete the scores
     const result = await pool.query(
       `DELETE FROM scores
-       WHERE user_id = $1 AND week_number = $2
-       RETURNING player_id, base_points, final_points`,
+        WHERE user_id = $1 AND week_number = $2
+        RETURNING player_id, base_points, final_points`,
       [userId, weekNumber]
     );
 
@@ -1859,14 +1926,14 @@ app.put('/api/admin/players/:playerId/espn-id', async (req, res) => {
 // Debug: Check if specific ESPN IDs are in cache
 app.get('/api/admin/check-espn-ids', (req, res) => {
   const { espnIds } = req.query; // Comma-separated list
-  
+
   if (!espnIds) {
     return res.json({
       totalCached: liveStatsCache.playerStats.size,
       message: 'Provide ?espnIds=123,456,789 to check specific players'
     });
   }
-  
+
   const ids = espnIds.split(',');
   const results = ids.map(espnId => {
     const cached = liveStatsCache.playerStats.get(espnId);
@@ -1877,7 +1944,7 @@ app.get('/api/admin/check-espn-ids', (req, res) => {
       gameId: cached ? cached.gameId : null
     };
   });
-  
+
   res.json({
     totalCached: liveStatsCache.playerStats.size,
     results
@@ -1888,34 +1955,34 @@ app.get('/api/admin/check-espn-ids', (req, res) => {
 app.post('/api/admin/set-active-week', async (req, res) => {
   try {
     const { userId, weekNumber } = req.body;
-    
+
     if (!userId || !weekNumber) {
       return res.status(400).json({ error: 'userId and weekNumber required' });
     }
-    
+
     // Verify user is admin
     const userCheck = await pool.query(
       'SELECT is_admin FROM users WHERE id = $1',
       [userId]
     );
-    
+
     if (userCheck.rows.length === 0 || !userCheck.rows[0].is_admin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    
+
     // Update the playoff_start_week setting
     await pool.query(
       `INSERT INTO game_settings (setting_key, setting_value, updated_by, updated_at)
-       VALUES ('playoff_start_week', $1, $2, NOW())
-       ON CONFLICT (setting_key) 
-       DO UPDATE SET setting_value = $1, updated_by = $2, updated_at = NOW()`,
+        VALUES ('playoff_start_week', $1, $2, NOW())
+        ON CONFLICT (setting_key) 
+        DO UPDATE SET setting_value = $1, updated_by = $2, updated_at = NOW()`,
       [weekNumber.toString(), userId]
     );
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       message: `Active week set to ${weekNumber}`,
-      weekNumber 
+      weekNumber
     });
   } catch (err) {
     console.error('Error setting active week:', err);
@@ -2232,8 +2299,8 @@ async function logSignupAttempt(appleId, email, name, attemptedState, ipState, b
   try {
     await pool.query(
       `INSERT INTO signup_attempts
-       (apple_id, email, name, attempted_state, ip_state_verified, blocked, blocked_reason)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        (apple_id, email, name, attempted_state, ip_state_verified, blocked, blocked_reason)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [appleId, email, name, attemptedState, ipState, blocked, blockedReason]
     );
   } catch (err) {
@@ -2295,11 +2362,11 @@ app.post('/api/users', authLimiter, async (req, res) => {
         console.log('Updating user with new email/name');
         const updateResult = await pool.query(
           `UPDATE users
-           SET email = COALESCE($1, email),
-               name = COALESCE($2, name),
-               updated_at = NOW()
-           WHERE id = $3
-           RETURNING *`,
+            SET email = COALESCE($1, email),
+                name = COALESCE($2, name),
+                updated_at = NOW()
+            WHERE id = $3
+            RETURNING *`,
           [email || null, name || null, existingUser.id]
         );
         return res.json(updateResult.rows[0]);
@@ -2530,16 +2597,16 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 app.get('/api/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    
+
     const result = await pool.query(
       'SELECT * FROM users WHERE id = $1 LIMIT 1',
       [userId]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error fetching user:', err);
@@ -2649,11 +2716,11 @@ app.put('/api/users/:userId/accept-tos', async (req, res) => {
 
     const result = await pool.query(
       `UPDATE users
-       SET tos_accepted_at = NOW(),
-           tos_version = $1,
-           updated_at = NOW()
-       WHERE id = $2
-       RETURNING *`,
+        SET tos_accepted_at = NOW(),
+            tos_version = $1,
+            updated_at = NOW()
+        WHERE id = $2
+        RETURNING *`,
       [tos_version || '2025-12-12', userId]
     );
 
@@ -2814,37 +2881,37 @@ app.get('/api/admin/compliance/signup-attempts', async (req, res) => {
 app.post('/api/admin/sync-players', async (req, res) => {
   try {
     const { userId } = req.body;
-    
+
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
     }
-    
+
     // Verify user is admin
     const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [userId]);
     if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    
+
     console.log('Fetching players from Sleeper API...');
-    
+
     // Fetch all NFL players from Sleeper
     const response = await axios.get('https://api.sleeper.app/v1/players/nfl');
     const allPlayers = response.data;
-    
+
     // Filter to active players on ALL teams, top depth chart only
     const activePlayers = Object.values(allPlayers).filter(p => {
       return p.active &&
-             p.team &&
-             p.position &&
-             ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(p.position) &&
-             (p.depth_chart_order === 1 || p.depth_chart_order === 2 || p.position === 'K' || p.position === 'DEF');
+              p.team &&
+              p.position &&
+              ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(p.position) &&
+              (p.depth_chart_order === 1 || p.depth_chart_order === 2 || p.position === 'K' || p.position === 'DEF');
     });
-    
+
     console.log(`Found ${activePlayers.length} active players to sync`);
-    
+
     let inserted = 0;
     let updated = 0;
-    
+
     for (const player of activePlayers) {
       try {
         // Check if player already exists
@@ -2852,7 +2919,7 @@ app.post('/api/admin/sync-players', async (req, res) => {
           'SELECT id FROM players WHERE id = $1',
           [player.player_id || player.sleeper_id]
         );
-        
+
         if (existing.rows.length > 0) {
           // Update existing player
           const imageUrl = getPlayerImageUrl(player.player_id, player.position);
@@ -2916,20 +2983,20 @@ app.post('/api/admin/sync-players', async (req, res) => {
         console.error(`Error syncing player ${player.full_name}:`, err.message);
       }
     }
-    
+
     // Clear player cache so fresh data is fetched
     playersCache.data = [];
     playersCache.lastUpdate = null;
-    
+
     console.log(`Player sync complete: ${inserted} inserted, ${updated} updated`);
-    
+
     res.json({
       success: true,
       inserted,
       updated,
       total: inserted + updated
     });
-    
+
   } catch (err) {
     console.error('Error syncing players:', err);
     res.status(500).json({ error: err.message });
@@ -2942,12 +3009,12 @@ app.get('/api/players', async (req, res) => {
     const limit = parseInt(req.query.limit) || 200;
     const offset = parseInt(req.query.offset) || 0;
     const position = req.query.position;
-    
+
     const now = Date.now();
-    
+
     // Return cached data if fresh and no specific filters
-    if (!position && offset === 0 && 
-        playersCache.lastUpdate && 
+    if (!position && offset === 0 &&
+        playersCache.lastUpdate &&
         (now - playersCache.lastUpdate) < PLAYERS_CACHE_MS &&
         playersCache.data.length > 0) {
       console.log(`Returning ${playersCache.data.length} cached players`);
@@ -2958,14 +3025,14 @@ app.get('/api/players', async (req, res) => {
         offset: 0
       });
     }
-    
+
     // Fetch fresh data - only available and active players
     console.log('Fetching players from database...');
-    
+
     // Show all active players regardless of team
     let query = `
       SELECT id, sleeper_id, full_name, first_name, last_name, position, team,
-             number, status, injury_status, is_active, available, image_url
+              number, status, injury_status, is_active, available, image_url
       FROM players
       WHERE is_active = true
         AND available = true
@@ -2973,19 +3040,19 @@ app.get('/api/players', async (req, res) => {
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
         AND espn_id IS NOT NULL
         AND espn_id != ''`;
-    
+
     const params = [];
-    
+
     if (position) {
       query += ` AND position = $${params.length + 1}`;
       params.push(position);
     }
-    
+
     query += ` ORDER BY position, team, full_name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limit, offset);
-    
+
     const result = await pool.query(query, params);
-    
+
     // Get total count
     const countQuery = `
       SELECT COUNT(*) as total
@@ -2996,19 +3063,19 @@ app.get('/api/players', async (req, res) => {
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
         AND espn_id IS NOT NULL
         AND espn_id != ''
-      ${position ? 'AND position = $1' : ''}
+      ${position ? `AND position = $1` : ''}
     `;
     const countParams = position ? [position] : [];
     const countResult = await pool.query(countQuery, countParams);
     const total = parseInt(countResult.rows[0].total);
-    
+
     // Update cache if fetching all
     if (!position && offset === 0) {
       playersCache.data = result.rows;
       playersCache.lastUpdate = now;
       console.log(`Cached ${result.rows.length} players`);
     }
-    
+
     res.json({
       players: result.rows,
       total: total,
@@ -3061,20 +3128,20 @@ app.get('/api/picks/user/:userId', async (req, res) => {
 app.get('/api/picks', async (req, res) => {
   try {
     const { userId } = req.query;
-    
+
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
     }
-    
+
     const result = await pool.query(
       `SELECT p.*, pl.full_name, pl.position as player_position, pl.team, pl.sleeper_id, pl.image_url
-       FROM picks p
-       LEFT JOIN players pl ON p.player_id = pl.id
-       WHERE p.user_id = $1
-       ORDER BY p.week_number, p.position`,
+        FROM picks p
+        LEFT JOIN players pl ON p.player_id = pl.id
+        WHERE p.user_id = $1
+        ORDER BY p.week_number, p.position`,
       [userId]
     );
-    
+
     res.json(result.rows);
   } catch (err) {
     console.error('Error getting picks:', err);
