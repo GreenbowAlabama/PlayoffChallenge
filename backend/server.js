@@ -1588,6 +1588,13 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
           const teamAbbr = normalizeTeamAbbr(competitor.team?.abbreviation);
           if (!teamAbbr) continue;
 
+          console.log(
+            'DEF MATCH CHECK',
+            'raw:', competitor.team?.abbreviation,
+            'normalized:', teamAbbr,
+            'week:', weekNumber
+          );
+
           // Check if anyone picked this team's defense
           const defPicksResult = await pool.query(`
             SELECT user_id, multiplier
