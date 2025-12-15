@@ -1600,7 +1600,45 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
           console.log(`  Processing DEF for ${teamAbbr} (${defPicksResult.rows.length} picks)`);
 
           // Fetch defense stats
-          const defStats = await fetchDefenseStats(teamAbbr, weekNumber);
+          // Build DEF stats directly from this game's summary (HISTORICAL SAFE)
+          const defStats = {
+            def_sack: 0,
+            def_int: 0,
+            def_fum_rec: 0,
+            def_td: 0,
+            def_safety: 0,
+            def_block: 0,
+            def_ret_td: 0,
+            def_pts_allowed: parseInt(competitor.score) || 0
+          };
+
+          // 1. Team boxscore stats
+          const teamBox = summaryResponse.data.boxscore.teams?.find(
+            t => normalizeTeamAbbr(t.team?.abbreviation) === teamAbbr
+          );
+
+          if (teamBox?.statistics) {
+            for (const stat of teamBox.statistics) {
+              if (stat.name === 'sacksYardsLost') {
+                defStats.def_sack = parseInt(stat.displayValue.split('-')[0]) || 0;
+              }
+            }
+          }
+
+          // 2. Player boxscore defensive stats
+          for (const group of summaryResponse.data.boxscore.players || []) {
+            if (!group.team) continue;
+            if (normalizeTeamAbbr(group.team.abbreviation) !== teamAbbr) continue;
+
+            for (const cat of group.statistics || []) {
+              if (cat.name === 'interceptions' && cat.athletes) {
+                for (const a of cat.athletes) {
+                  defStats.def_int += parseInt(a.stats?.[0] || '0');
+                  defStats.def_td += parseInt(a.stats?.[2] || '0');
+                }
+              }
+            }
+          }
           if (!defStats) {
             console.log(`    No defense stats found for ${teamAbbr}`);
             continue;
