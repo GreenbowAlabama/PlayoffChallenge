@@ -60,6 +60,24 @@ const SCOREBOARD_CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const GAME_SUMMARY_CACHE_MS = 90 * 1000; // 90 seconds
 const PLAYERS_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
+// Helper: Handle team abbreviations better.
+
+function normalizeTeamAbbr(abbr) {
+  if (!abbr) return null;
+
+  const map = {
+    WSH: 'WAS',
+    JAC: 'JAX',
+    LA: 'LAR',
+    STL: 'LAR',
+    SD: 'LAC',
+    OAK: 'LV'
+  };
+
+  return map[abbr] || abbr;
+}
+
+
 // Helper: Build ESPN scoreboard URL with correct season type for playoffs
 function getESPNScoreboardUrl(weekNumber) {
   // Weeks 19+ are playoff weeks (seasontype=3)
@@ -479,9 +497,10 @@ app.post('/admin/refresh-week', async (req, res) => {
 // Fetch defense stats from ESPN
 async function fetchDefenseStats(teamAbbrev, weekNumber) {
   try {
+    const normalizedTeam = normalizeTeamAbbr(teamAbbrev);
+
     for (const gameId of liveStatsCache.activeGameIds) {
       try {
-        // Load the normal summary first
         const summaryUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
         const summaryRes = await axios.get(summaryUrl);
 
@@ -496,10 +515,11 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
 
         // Determine if the given team is in this game
         for (const competitor of competition.competitors) {
-          const abbrev = competitor.team.abbreviation;
-          if (abbrev === teamAbbrev) {
+          const espnAbbr = normalizeTeamAbbr(competitor.team?.abbreviation);
+
+          if (espnAbbr === normalizedTeam) {
             isInGame = true;
-            teamId = competitor.id;   // ESPN internal competitor ID
+            teamId = competitor.id;
           } else {
             opponentScore = parseInt(competitor.score) || 0;
           }
@@ -507,7 +527,6 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
 
         if (!isInGame || !teamId) continue;
 
-        // Initialize our stat bucket
         const stats = {
           def_sack: 0,
           def_int: 0,
@@ -520,102 +539,103 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
         };
 
         // ============================================================
-        // 1. Pull COMPETITOR statistics (the important endpoint)
+        // 1. Competitor statistics
         // ============================================================
         const compStatsUrl =
           `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/${gameId}` +
           `/competitions/${gameId}/competitors/${teamId}/statistics`;
 
-        let compStats = null;
         try {
           const compRes = await axios.get(compStatsUrl);
-          compStats = compRes.data;
-        } catch (_) {
-          // competitor stats may fail on early games — continue gracefully
-        }
+          const compStats = compRes.data;
 
-        if (compStats && compStats.splits && compStats.splits.categories) {
-          for (const category of compStats.splits.categories) {
-            if (!category.stats) continue;
+          if (compStats?.splits?.categories) {
+            for (const category of compStats.splits.categories) {
+              if (!category.stats) continue;
 
-            for (const stat of category.stats) {
-              switch (stat.name) {
-                case "sacks":
-                  stats.def_sack += Number(stat.value) || 0;
-                  break;
+              for (const stat of category.stats) {
+                switch (stat.name) {
+                  case 'sacks':
+                    stats.def_sack += Number(stat.value) || 0;
+                    break;
 
-                case "interceptions":
-                  // Only count interceptions from defensive categories
-                  if (category.name === "defensive" || category.name === "defensiveInterceptions") {
-                    stats.def_int += Number(stat.value) || 0;
-                  }
-                  break;
+                  case 'interceptions':
+                    if (category.name === 'defensive' || category.name === 'defensiveInterceptions') {
+                      stats.def_int += Number(stat.value) || 0;
+                    }
+                    break;
 
-                case "fumbleRecoveries":
-                case "fumblesRecovered":
-                  // Only count fumble recoveries from defensive categories
-                  if (category.name === "defensive" || category.name === "defensiveInterceptions") {
-                    stats.def_fum_rec += Number(stat.value) || 0;
-                  }
-                  break;
+                  case 'fumbleRecoveries':
+                  case 'fumblesRecovered':
+                    if (category.name === 'defensive' || category.name === 'defensiveInterceptions') {
+                      stats.def_fum_rec += Number(stat.value) || 0;
+                    }
+                    break;
 
-                case "defensiveTouchdowns":
-                  stats.def_td += Number(stat.value) || 0;
-                  break;
+                  case 'defensiveTouchdowns':
+                    stats.def_td += Number(stat.value) || 0;
+                    break;
 
-                case "kickReturnTouchdowns":
-                case "puntReturnTouchdowns":
-                  stats.def_ret_td += Number(stat.value) || 0;
-                  break;
+                  case 'kickReturnTouchdowns':
+                  case 'puntReturnTouchdowns':
+                    stats.def_ret_td += Number(stat.value) || 0;
+                    break;
 
-                case "pointsAllowed":
-                  stats.def_pts_allowed = Number(stat.value) || opponentScore;
-                  break;
+                  case 'pointsAllowed':
+                    stats.def_pts_allowed = Number(stat.value) || opponentScore;
+                    break;
 
-                case "safeties":
-                  stats.def_safety += Number(stat.value) || 0;
-                  break;
+                  case 'safeties':
+                    stats.def_safety += Number(stat.value) || 0;
+                    break;
 
-                case "kicksBlocked":
-                  stats.def_block += Number(stat.value) || 0;
-                  break;
+                  case 'kicksBlocked':
+                    stats.def_block += Number(stat.value) || 0;
+                    break;
+                }
               }
             }
           }
+        } catch (_) {
+          // competitor stats may fail; continue gracefully
         }
 
         // ============================================================
-        // 2. Supplement sacks with team-level boxscore if needed
+        // 2. Supplement sacks from team boxscore
         // ============================================================
         const teamBox = summaryRes.data.boxscore.teams.find(
-          t => t.team.abbreviation === teamAbbrev
+          t => normalizeTeamAbbr(t.team?.abbreviation) === normalizedTeam
         );
 
         if (teamBox?.statistics) {
           for (const stat of teamBox.statistics) {
-            if (stat.name === "sacksYardsLost" && stat.displayValue) {
-              const sacks = parseInt(stat.displayValue.split("-")[0]);
+            if (stat.name === 'sacksYardsLost' && stat.displayValue) {
+              const sacks = parseInt(stat.displayValue.split('-')[0]);
               if (!isNaN(sacks) && sacks > stats.def_sack) {
-                stats.def_sack = sacks; // Only override if boxscore is more accurate
+                stats.def_sack = sacks;
               }
             }
           }
         }
 
         // ============================================================
-        // 3. Supplement defensive TD + INT info from player stats
+        // 3. Supplement INT + defensive TD from player boxscore
         // ============================================================
         const playerBox = summaryRes.data.boxscore.players;
         if (playerBox) {
           for (const group of playerBox) {
-            if (!group.team || group.team.abbreviation !== teamAbbrev) continue;
+            if (!group.team) continue;
+
+            const groupAbbr = normalizeTeamAbbr(group.team.abbreviation);
+            if (groupAbbr !== normalizedTeam) continue;
+
             if (!group.statistics) continue;
 
             for (const cat of group.statistics) {
-              if (cat.name === "interceptions" && cat.athletes) {
+              if (cat.name === 'interceptions' && cat.athletes) {
                 for (const a of cat.athletes) {
-                  const ints = parseInt(a.stats?.[0] || "0");
-                  const td = parseInt(a.stats?.[2] || "0");
+                  const ints = parseInt(a.stats?.[0] || '0');
+                  const td = parseInt(a.stats?.[2] || '0');
 
                   if (!isNaN(ints)) stats.def_int += ints;
                   if (!isNaN(td)) stats.def_td += td;
@@ -625,7 +645,6 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
           }
         }
 
-        // Done — return merged defensive stats
         return stats;
 
       } catch (_) {
@@ -1548,7 +1567,7 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
       const competition = summaryResponse.data.header?.competitions?.[0];
       if (competition?.competitors) {
         for (const competitor of competition.competitors) {
-          const teamAbbr = competitor.team?.abbreviation;
+          const teamAbbr = normalizeTeamAbbr(competitor.team?.abbreviation);
           if (!teamAbbr) continue;
 
           // Check if anyone picked this team's defense
