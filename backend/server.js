@@ -1505,7 +1505,8 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
         const picksResult = await pool.query(`
           SELECT user_id, multiplier
           FROM picks
-          WHERE player_id = $1 AND week_number = $2
+          WHERE player_id = $1
+            AND week_number = $2
         `, [playerId, weekNumber]);
 
         // Save a score for each user who picked this player
