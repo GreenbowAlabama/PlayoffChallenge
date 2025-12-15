@@ -1437,6 +1437,7 @@ app.post('/api/admin/update-live-stats', async (req, res) => {
 
 // Admin: Backfill playoff stats from historical games
 app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
+  liveStatsCache.activeGameIds = new Set();
   try {
     const { weekNumber, dates } = req.body;
 
