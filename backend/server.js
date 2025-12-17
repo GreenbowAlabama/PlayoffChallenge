@@ -1476,24 +1476,29 @@ app.post('/api/admin/update-live-stats', async (req, res) => {
 app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
   liveStatsCache.activeGameIds = new Set();
   try {
-    const { weekNumber, dates } = req.body;
+    const { weekNumber } = req.body;
 
-    if (!weekNumber || !dates) {
-      return res.status(400).json({ error: 'weekNumber and dates required (e.g., dates: "20250111-20250113")' });
+    if (!weekNumber) {
+      return res.status(400).json({ error: 'weekNumber required' });
     }
 
-    console.log(`Backfilling playoff stats for week ${weekNumber}, dates: ${dates}...`);
+    console.log(`Backfilling playoff stats for week ${weekNumber}...`);
 
-    // Fetch scoreboard using dates parameter for historical data
-    const scoreboardUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${dates}`;
+    // Derive playoff parameters
+    const season = 2023;
+    const seasontype = 3;
+    const postseasonWeek = weekNumber - 18;
+
+    // Fetch scoreboard using playoff parameters
+    const scoreboardUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?season=${season}&seasontype=${seasontype}&week=${postseasonWeek}`;
     const scoreboardResponse = await axios.get(scoreboardUrl);
 
     if (!scoreboardResponse.data || !scoreboardResponse.data.events) {
-      return res.json({ success: false, message: 'No games found for those dates', gamesProcessed: 0 });
+      return res.json({ success: false, message: 'No games found for that week', gamesProcessed: 0 });
     }
 
     const games = scoreboardResponse.data.events;
-    console.log(`Found ${games.length} games for dates ${dates}`);
+    console.log(`Found ${games.length} games for week ${weekNumber}`);
 
     let gamesProcessed = 0;
     let playersScored = 0;
