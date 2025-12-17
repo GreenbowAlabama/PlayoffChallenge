@@ -1777,6 +1777,10 @@ app.post('/api/admin/initialize-week-scores', async (req, res) => {
   }
 });
 
+// NOTE:
+// Historical playoff backfill via ESPN scoreboard is unreliable.
+// This endpoint is NOT used in production gameplay.
+// Left intentionally for future fixture-based backfills.
 // Admin: Backfill playoff stats from historical games
 app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
   liveStatsCache.activeGameIds = new Set();
