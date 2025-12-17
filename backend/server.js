@@ -1795,11 +1795,23 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
     const currentMonth = now.getUTCMonth() + 1; // 1-12
     const season = currentMonth <= 2 ? currentYear - 1 : currentYear;
     const seasontype = 3;
-    const postseasonWeek = weekNumber - 18;
+    let postseasonWeek = weekNumber - 18;
+    if (postseasonWeek === 4) postseasonWeek = 5;
 
     // Fetch scoreboard using playoff parameters
     const scoreboardUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?season=${season}&seasontype=${seasontype}&week=${postseasonWeek}`;
-    const scoreboardResponse = await axios.get(scoreboardUrl);
+
+    let scoreboardResponse;
+    try {
+      scoreboardResponse = await axios.get(scoreboardUrl);
+    } catch (espnError) {
+      console.error('ESPN scoreboard error:', {
+        url: scoreboardUrl,
+        status: espnError.response?.status,
+        data: espnError.response?.data
+      });
+      throw espnError;
+    }
 
     if (!scoreboardResponse.data || !scoreboardResponse.data.events) {
       return res.json({ success: false, message: 'No games found for that week', gamesProcessed: 0 });
@@ -2021,6 +2033,7 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // Get cache status
 app.get('/api/admin/cache-status', (req, res) => {
