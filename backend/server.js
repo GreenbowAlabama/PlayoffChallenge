@@ -1810,6 +1810,17 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
         status: espnError.response?.status,
         data: espnError.response?.data
       });
+
+      // Handle ESPN 500s gracefully
+      if (espnError.response?.status === 500) {
+        console.warn('ESPN returned 500 for playoff scoreboard, no data available');
+        return res.json({
+          success: false,
+          message: 'ESPN returned no playoff data for this week',
+          gamesProcessed: 0
+        });
+      }
+
       throw espnError;
     }
 
@@ -2033,7 +2044,6 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // Get cache status
 app.get('/api/admin/cache-status', (req, res) => {
