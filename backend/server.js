@@ -1777,107 +1777,247 @@ app.post('/api/admin/initialize-week-scores', async (req, res) => {
   }
 });
 
-// Admin: Backfill scores for a user from existing player data
-app.post('/api/admin/backfill-user-scores', async (req, res) => {
+// Admin: Backfill playoff stats from historical games
+app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
+  liveStatsCache.activeGameIds = new Set();
   try {
-    const { adminUserId, targetUserId, weeks } = req.body;
+    const { weekNumber } = req.body;
 
-    if (!adminUserId || !targetUserId || !weeks || !Array.isArray(weeks)) {
-      return res.status(400).json({ error: 'adminUserId, targetUserId, and weeks array required' });
+    if (!weekNumber) {
+      return res.status(400).json({ error: 'weekNumber required' });
     }
 
-    // Verify requesting user is admin
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
-    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
+    console.log(`Backfilling playoff stats for week ${weekNumber}...`);
+
+    // Derive playoff parameters dynamically
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-12
+    const season = currentMonth <= 7 ? currentYear - 1 : currentYear;
+    const seasontype = 3; // playoffs
+    const postseasonWeek = weekNumber - 18;
+
+    // Fetch scoreboard using playoff parameters
+    const scoreboardUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?season=${season}&seasontype=${seasontype}&week=${postseasonWeek}`;
+    const scoreboardResponse = await axios.get(scoreboardUrl);
+
+    if (!scoreboardResponse.data || !scoreboardResponse.data.events) {
+      return res.json({ success: false, message: 'No games found for that week', gamesProcessed: 0 });
     }
 
-    console.log(`Backfilling scores for user ${targetUserId} for weeks ${weeks.join(', ')}...`);
+    const games = scoreboardResponse.data.events;
+    console.log(`Found ${games.length} games for week ${weekNumber}`);
 
-    let totalScoresCreated = 0;
-    const details = [];
+    let gamesProcessed = 0;
+    let playersScored = 0;
+    const processedPlayerIds = new Set();
 
-    for (const week of weeks) {
-      console.log(`\nProcessing Week ${week}:`);
+    // Process each game
+    for (const game of games) {
+      const gameId = game.id;
+      const gameStatus = game.status?.type?.state;
 
-      // Get target user's picks for this week
-      const picksResult = await pool.query(
-        `SELECT player_id, position, multiplier
+      console.log(`Processing game ${gameId}: ${game.shortName} (Status: ${gameStatus})`);
+
+      // Add gameId to cache so fetchDefenseStats can find it
+      liveStatsCache.activeGameIds.add(gameId);
+
+      // Fetch game summary with player stats
+      const summaryUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
+      const summaryResponse = await axios.get(summaryUrl);
+
+      if (!summaryResponse.data || !summaryResponse.data.boxscore) {
+        console.log(`  No boxscore data for game ${gameId}`);
+        continue;
+      }
+
+      // Parse player stats from boxscore
+      const playerStats = parsePlayerStatsFromSummary(summaryResponse.data.boxscore);
+      console.log(`  Found stats for ${playerStats.length} players`);
+
+      // Map each player's stats to our database and save scores
+      for (const playerStat of playerStats) {
+        const espnId = playerStat.athleteId;
+        const playerId = await mapESPNAthleteToPlayer(espnId, playerStat.athleteName);
+
+        if (!playerId) {
+          // Player not in our database, skip
+          continue;
+        }
+
+        // Convert ESPN stats to our scoring format
+        const scoringStats = convertESPNStatsToScoring(playerStat.stats);
+
+        // Calculate fantasy points
+        const points = await calculateFantasyPoints(scoringStats);
+
+        // Find all users who picked this player for this week
+        const picksResult = await pool.query(`
+          SELECT user_id, multiplier
           FROM picks
-          WHERE user_id = $1 AND week_number = $2`,
-        [targetUserId, week]
-      );
+          WHERE player_id = $1
+            AND week_number = $2
+        `, [playerId, weekNumber]);
 
-      console.log(`  Found ${picksResult.rows.length} picks`);
+        // Save a score for each user who picked this player
+        for (const pick of picksResult.rows) {
+          const multiplier = pick.multiplier || 1.0;
+          const finalPoints = points * multiplier;
 
-      for (const pick of picksResult.rows) {
-        // Find an existing score for this player in this week (from any user)
-        const existingScore = await pool.query(
-          `SELECT base_points, stats_json, player_id
-            FROM scores
-            WHERE player_id = $1 AND week_number = $2
-            LIMIT 1`,
-          [pick.player_id, week]
-        );
+          await pool.query(`
+            INSERT INTO scores (
+              id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at
+            ) VALUES (
+              gen_random_uuid(), $1, $2, $3, $4, $4, $5, $6, $7, NOW()
+            )
+            ON CONFLICT (user_id, player_id, week_number)
+            DO UPDATE SET
+              points = EXCLUDED.points,
+              base_points = EXCLUDED.base_points,
+              multiplier = EXCLUDED.multiplier,
+              final_points = EXCLUDED.final_points,
+              stats_json = EXCLUDED.stats_json,
+              updated_at = NOW()
+          `, [
+            pick.user_id,
+            playerId,
+            weekNumber,
+            points,
+            multiplier,
+            finalPoints,
+            JSON.stringify(scoringStats)
+          ]);
 
-        if (existingScore.rows.length > 0) {
-          const scoreData = existingScore.rows[0];
-          const basePoints = scoreData.base_points || 0;
-          const finalPoints = basePoints * (pick.multiplier || 1);
+          playersScored++;
+        }
 
-          // Insert or update score for target user
-          await pool.query(
-            `INSERT INTO scores (id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at)
-              VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, NOW())
-              ON CONFLICT (user_id, player_id, week_number)
-              DO UPDATE SET
-                base_points = $5,
-                final_points = $7,
-                stats_json = $8,
-                updated_at = NOW()`,
-            [
-              targetUserId,
-              pick.player_id,
-              week,
-              basePoints, // points (legacy field)
-              basePoints,
-              pick.multiplier || 1,
-              finalPoints,
-              scoreData.stats_json
-            ]
+        processedPlayerIds.add(playerId);
+      }
+
+      // Process team defenses for this game
+      const competition = summaryResponse.data.header?.competitions?.[0];
+      if (competition?.competitors) {
+        for (const competitor of competition.competitors) {
+          const teamAbbr = normalizeTeamAbbr(competitor.team?.abbreviation);
+          if (!teamAbbr) continue;
+
+          console.log(
+            'DEF MATCH CHECK',
+            'raw:', competitor.team?.abbreviation,
+            'normalized:', teamAbbr,
+            'week:', weekNumber
           );
 
-          totalScoresCreated++;
-          details.push({
-            week,
-            position: pick.position,
-            playerId: pick.player_id,
-            basePoints,
-            multiplier: pick.multiplier,
-            finalPoints
-          });
-          console.log(`  ✓ ${pick.position}: ${pick.player_id} - ${basePoints} base points (${finalPoints} with multiplier)`);
-        } else {
-          console.log(`  ⚠ ${pick.position}: ${pick.player_id} - NO SCORE DATA FOUND`);
-          details.push({
-            week,
-            position: pick.position,
-            playerId: pick.player_id,
-            error: 'No score data found'
-          });
+          // Check if anyone picked this team's defense
+          const defPicksResult = await pool.query(`
+            SELECT user_id, multiplier
+            FROM picks
+            WHERE player_id = $1 AND week_number = $2 AND position = 'DEF'
+          `, [teamAbbr, weekNumber]);
+
+          if (defPicksResult.rows.length === 0) continue;
+
+          console.log(`  Processing DEF for ${teamAbbr} (${defPicksResult.rows.length} picks)`);
+
+          // Fetch defense stats
+          // Build DEF stats directly from this game's summary (HISTORICAL SAFE)
+          const defStats = {
+            def_sack: 0,
+            def_int: 0,
+            def_fum_rec: 0,
+            def_td: 0,
+            def_safety: 0,
+            def_block: 0,
+            def_ret_td: 0,
+            def_pts_allowed: parseInt(competitor.score) || 0
+          };
+
+          // 1. Team boxscore stats
+          const teamBox = summaryResponse.data.boxscore.teams?.find(
+            t => normalizeTeamAbbr(t.team?.abbreviation) === teamAbbr
+          );
+
+          if (teamBox?.statistics) {
+            for (const stat of teamBox.statistics) {
+              if (stat.name === 'sacksYardsLost') {
+                defStats.def_sack = parseInt(stat.displayValue.split('-')[0]) || 0;
+              }
+            }
+          }
+
+          // 2. Player boxscore defensive stats
+          for (const group of summaryResponse.data.boxscore.players || []) {
+            if (!group.team) continue;
+            if (normalizeTeamAbbr(group.team.abbreviation) !== teamAbbr) continue;
+
+            for (const cat of group.statistics || []) {
+              if (cat.name === 'interceptions' && cat.athletes) {
+                for (const a of cat.athletes) {
+                  defStats.def_int += parseInt(a.stats?.[0] || '0');
+                  defStats.def_td += parseInt(a.stats?.[2] || '0');
+                }
+              }
+            }
+          }
+          if (!defStats) {
+            console.log(`    No defense stats found for ${teamAbbr}`);
+            continue;
+          }
+
+          // Calculate fantasy points
+          const points = await calculateFantasyPoints(defStats);
+
+          // Save score for each user who picked this defense
+          for (const pick of defPicksResult.rows) {
+            const multiplier = pick.multiplier || 1.0;
+            const finalPoints = points * multiplier;
+
+            await pool.query(`
+              INSERT INTO scores (
+                id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at
+              ) VALUES (
+                gen_random_uuid(), $1, $2, $3, $4, $4, $5, $6, $7, NOW()
+              )
+              ON CONFLICT (user_id, player_id, week_number)
+              DO UPDATE SET
+                points = EXCLUDED.points,
+                base_points = EXCLUDED.base_points,
+                multiplier = EXCLUDED.multiplier,
+                final_points = EXCLUDED.final_points,
+                stats_json = EXCLUDED.stats_json,
+                updated_at = NOW()
+            `, [
+              pick.user_id,
+              teamAbbr,
+              weekNumber,
+              points,
+              multiplier,
+              finalPoints,
+              JSON.stringify(defStats)
+            ]);
+
+            playersScored++;
+          }
+
+          processedPlayerIds.add(teamAbbr);
         }
       }
+
+      gamesProcessed++;
     }
 
-    console.log(`\n✅ Backfill complete! Created/updated ${totalScoresCreated} scores.`);
+    console.log(`Backfill complete: ${gamesProcessed} games, ${playersScored} player scores saved (${processedPlayerIds.size} unique players)`);
 
     res.json({
       success: true,
-      scoresCreated: totalScoresCreated,
-      details
+      message: `Backfilled stats for week ${weekNumber}`,
+      gamesProcessed,
+      playerScoresSaved: playersScored,
+      uniquePlayers: processedPlayerIds.size
     });
+
   } catch (err) {
-    console.error('Error backfilling user scores:', err);
+    console.error('Error backfilling playoff stats:', err);
     res.status(500).json({ error: err.message });
   }
 });
