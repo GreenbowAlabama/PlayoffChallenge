@@ -1789,16 +1789,11 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
 
     console.log(`Backfilling playoff stats for week ${weekNumber}...`);
 
-    // Derive season from weekNumber via database
-    const weekResult = await pool.query(`
-      SELECT EXTRACT(YEAR FROM start_date) as year
-      FROM weeks
-      WHERE week_number = $1
-      LIMIT 1
-    `, [weekNumber]);
-
-    const calendarYear = parseInt(weekResult.rows[0]?.year);
-    const season = calendarYear - 1;
+    // Derive playoff parameters dynamically
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth() + 1; // 1-12
+    const season = currentMonth <= 2 ? currentYear - 1 : currentYear;
     const seasontype = 3;
     const postseasonWeek = weekNumber - 18;
 
