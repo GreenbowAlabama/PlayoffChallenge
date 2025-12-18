@@ -3410,6 +3410,22 @@ app.post('/api/picks', async (req, res) => {
   try {
     const { userId, playerId, weekNumber, position, multiplier, picks } = req.body;
 
+    // FIX #1: Payment Enforcement - Check if user has paid before allowing pick submission
+    const userCheck = await pool.query(
+      'SELECT paid FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!userCheck.rows[0].paid) {
+      return res.status(403).json({
+        error: 'Payment required to create team. Please complete payment to continue.'
+      });
+    }
+
     // Support batch submission
     if (picks && Array.isArray(picks)) {
       const results = [];
