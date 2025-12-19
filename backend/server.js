@@ -3431,12 +3431,22 @@ app.post('/api/picks', async (req, res) => {
       const results = [];
 
       for (const pick of picks) {
-        // Validate position limit before inserting
-        const positionLimit = await pool.query(`
-          SELECT required_count FROM position_requirements WHERE position = $1
-        `, [pick.position]);
+        // Validate position limit before inserting - read from game_settings
+        const settingsResult = await pool.query(
+          `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
+        );
 
-        const maxPicks = positionLimit.rows[0]?.required_count || 2;
+        const settings = settingsResult.rows[0] || {};
+        const positionToLimit = {
+          'QB': settings.qb_limit,
+          'RB': settings.rb_limit,
+          'WR': settings.wr_limit,
+          'TE': settings.te_limit,
+          'K': settings.k_limit,
+          'DEF': settings.def_limit
+        };
+
+        const maxPicks = positionToLimit[pick.position] || 2;
 
         // Check current pick count for this position (excluding the current player if updating)
         const currentCount = await pool.query(`
@@ -3472,12 +3482,22 @@ app.post('/api/picks', async (req, res) => {
     }
 
     // Single pick submission with UPSERT
-    // Validate position limit before inserting
-    const positionLimit = await pool.query(`
-      SELECT required_count FROM position_requirements WHERE position = $1
-    `, [position]);
+    // Validate position limit before inserting - read from game_settings
+    const settingsResult = await pool.query(
+      `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
+    );
 
-    const maxPicks = positionLimit.rows[0]?.required_count || 2;
+    const settings = settingsResult.rows[0] || {};
+    const positionToLimit = {
+      'QB': settings.qb_limit,
+      'RB': settings.rb_limit,
+      'WR': settings.wr_limit,
+      'TE': settings.te_limit,
+      'K': settings.k_limit,
+      'DEF': settings.def_limit
+    };
+
+    const maxPicks = positionToLimit[position] || 2;
 
     // Check current pick count for this position (excluding the current player if updating)
     const currentCount = await pool.query(`
