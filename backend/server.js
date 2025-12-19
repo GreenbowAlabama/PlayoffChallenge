@@ -3294,8 +3294,7 @@ app.get('/api/players', async (req, res) => {
         AND available = true
         AND team IS NOT NULL
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
-        AND espn_id IS NOT NULL
-        AND espn_id != ''`;
+        AND (position = 'DEF' OR (espn_id IS NOT NULL AND espn_id != ''))`;
 
     const params = [];
 
@@ -3317,8 +3316,7 @@ app.get('/api/players', async (req, res) => {
         AND available = true
         AND team IS NOT NULL
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
-        AND espn_id IS NOT NULL
-        AND espn_id != ''
+        AND (position = 'DEF' OR (espn_id IS NOT NULL AND espn_id != ''))
       ${position ? `AND position = $1` : ''}
     `;
     const countParams = position ? [position] : [];
