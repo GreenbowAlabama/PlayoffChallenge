@@ -782,14 +782,56 @@ async function savePlayerScoresToDatabase(weekNumber) {
           continue;
         }
         scoring = defStats;
-      } else if (!espnId) {
-        continue;
       } else {
-        // Regular player - fetch from boxscore
-        console.log(`Fetching stats for ${playerName} from boxscore...`);
-        const playerStats = await fetchPlayerStats(espnId, weekNumber);
+        // Regular player - prefer cached summary stats over re-fetching
+        let playerStats = null;
+        let resolvedEspnId = espnId;
+
+        // If player has ESPN ID, try cache first
+        if (espnId) {
+          const cached = liveStatsCache.playerStats.get(espnId);
+          if (cached) {
+            playerStats = convertESPNStatsToScoring(cached.stats);
+            if (playerName.toLowerCase().includes('moore')) {
+              console.log(`[DJ Moore Debug] Found ${playerName} in cache via espn_id=${espnId}`);
+            }
+          }
+        }
+
+        // If no ESPN ID or not in cache, try name-based matching
+        if (!playerStats) {
+          const normalized = normalizePlayerName(playerName);
+
+          // Search cache for matching player by name
+          for (const [athleteId, cached] of liveStatsCache.playerStats) {
+            const cachedNormalized = normalizePlayerName(cached.athleteName);
+
+            if (normalized.firstName === cachedNormalized.firstName &&
+                normalized.lastName === cachedNormalized.lastName) {
+              // Found a match - set ESPN ID if missing
+              if (!espnId) {
+                await pool.query('UPDATE players SET espn_id = $1 WHERE id::text = $2', [athleteId, pick.player_id]);
+                console.log(`Linked ${playerName} to ESPN ID ${athleteId} via name match`);
+                resolvedEspnId = athleteId;
+              }
+              playerStats = convertESPNStatsToScoring(cached.stats);
+              if (playerName.toLowerCase().includes('moore')) {
+                console.log(`[DJ Moore Debug] Found ${playerName} in cache via name match, espn_id=${athleteId}`);
+              }
+              break;
+            }
+          }
+        }
+
+        // Fallback to direct ESPN fetch if still no stats
+        if (!playerStats && resolvedEspnId) {
+          playerStats = await fetchPlayerStats(resolvedEspnId, weekNumber);
+        }
 
         if (!playerStats) {
+          if (playerName.toLowerCase().includes('moore')) {
+            console.log(`[DJ Moore Debug] No stats found for ${playerName} - espn_id=${espnId}, cache size=${liveStatsCache.playerStats.size}`);
+          }
           console.log(`No stats found for ${playerName} in week ${weekNumber}`);
           continue;
         }
