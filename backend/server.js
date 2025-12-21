@@ -871,7 +871,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
           scoring = {};
         } else {
           const teamToCheck = playerTeam || dbTeam;  // Cache first, DB fallback
-          if (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck)) {
+          if (playerPosition === 'K' || (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck))) {
             scoring = {};
           } else {
             continue;
