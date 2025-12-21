@@ -881,6 +881,13 @@ async function savePlayerScoresToDatabase(weekNumber) {
           }
         }
       }
+      
+      if (position === 'K' && scoring && Object.keys(scoring).length === 0) {
+        scoring = {
+          fg_made: 0,
+          xp_made: 0
+        };
+      }
 
       const basePoints = await calculateFantasyPoints(scoring);
       const multiplier = pick.multiplier || 1;
