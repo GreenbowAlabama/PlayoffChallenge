@@ -811,11 +811,6 @@ async function savePlayerScoresToDatabase(weekNumber) {
       // PLAYER (INCLUDING K)
       // =====================
       else {
-        // Hard guarantee: kickers always get a scoring object once games are active
-        if (position === 'K') {
-          scoring = {};
-        }
-
         let playerStats = null;
         let resolvedEspnId = espnId;
         let playerTeam = null;
@@ -868,7 +863,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
           }
         }
 
-        // Final scoring decision for non-kickers
+        // Final scoring decision: use stats if found, otherwise check if team is active
         if (playerStats) {
           scoring = playerStats;
         } else if (position !== 'K') {
@@ -878,6 +873,9 @@ async function savePlayerScoresToDatabase(weekNumber) {
           } else {
             continue;
           }
+        } else {
+          // Kicker with no stats - always set scoring to ensure insertion
+          scoring = {};
         }
       }
 
