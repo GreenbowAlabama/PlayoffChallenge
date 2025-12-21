@@ -1205,7 +1205,11 @@ async function calculateFantasyPoints(stats) {
     points += (stats.fum_lost || 0) * (rules.fum_lost || 0);
 
     // Kicker stats
-    if (stats.fg_made !== undefined) {
+    if (
+      stats.fg_made !== undefined ||
+      stats.xp_made !== undefined ||
+      stats.xp_missed !== undefined
+    ) {
       const fgMade = stats.fg_made || 0;
       const fgLongest = Number(stats.fg_longest) || 0;
 
