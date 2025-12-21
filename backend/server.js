@@ -832,8 +832,18 @@ async function savePlayerScoresToDatabase(weekNumber) {
         }
 
         // ESPN fallback
+        // Fallback to direct ESPN fetch if still no stats
         if (!playerStats && resolvedEspnId) {
-          playerStats = await fetchPlayerStats(resolvedEspnId, weekNumber);
+          const fetched = await fetchPlayerStats(resolvedEspnId, weekNumber);
+          if (fetched) {
+            playerStats = fetched;
+
+            // FIX: ensure team is set for live-game detection
+            const cached = liveStatsCache.playerStats.get(resolvedEspnId);
+            if (cached?.team) {
+              playerTeam = cached.team;
+            }
+          }
         }
 
         if (playerStats) {
