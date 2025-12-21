@@ -747,7 +747,6 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
   }
 }
 
-// Save player scores to database
 async function savePlayerScoresToDatabase(weekNumber) {
   try {
     console.log(`Saving scores for week ${weekNumber}...`);
@@ -762,91 +761,109 @@ async function savePlayerScoresToDatabase(weekNumber) {
     let savedCount = 0;
 
     for (const pick of picksResult.rows) {
-      // Check if player has ESPN ID
-      const player = await pool.query('SELECT espn_id, full_name, position FROM players WHERE id::text = $1', [pick.player_id]);
+      // Check if player exists
+      const player = await pool.query(
+        'SELECT espn_id, full_name, position FROM players WHERE id::text = $1',
+        [pick.player_id]
+      );
       if (player.rows.length === 0) continue;
 
       const espnId = player.rows[0].espn_id;
       const playerName = player.rows[0].full_name;
       const position = player.rows[0].position;
 
-      let scoring;
+      let scoring = null;
 
-      // Handle defense differently (uses team abbrev as ID)
+      // DEFENSE
       if (position === 'DEF') {
-        console.log(`Fetching defense stats for ${playerName}...`);
-
         const defStats = await fetchDefenseStats(pick.player_id, weekNumber);
-        if (!defStats) {
-          console.log(`No defense stats found for ${playerName} in week ${weekNumber}`);
-          continue;
+
+        if (defStats) {
+          scoring = defStats;
+        } else {
+          const teamAbbrev = pick.player_id;
+          if (liveStatsCache.activeTeams.has(teamAbbrev)) {
+            // Game started, no stats yet
+            scoring = {};
+          } else {
+            // Game not started → No score
+            continue;
+          }
         }
-        scoring = defStats;
       } else {
-        // Regular player - prefer cached summary stats over re-fetching
+        // PLAYER
         let playerStats = null;
         let resolvedEspnId = espnId;
+        let playerTeam = null;
 
-        // If player has ESPN ID, try cache first
+        // Cache lookup by ESPN ID
         if (espnId) {
           const cached = liveStatsCache.playerStats.get(espnId);
           if (cached) {
             playerStats = convertESPNStatsToScoring(cached.stats);
-            if (playerName.toLowerCase().includes('moore')) {
-              console.log(`[DJ Moore Debug] Found ${playerName} in cache via espn_id=${espnId}`);
-            }
+            playerTeam = cached.team;
           }
         }
 
-        // If no ESPN ID or not in cache, try name-based matching
+        // Name-based cache lookup
         if (!playerStats) {
           const normalized = normalizePlayerName(playerName);
 
-          // Search cache for matching player by name
           for (const [athleteId, cached] of liveStatsCache.playerStats) {
             const cachedNormalized = normalizePlayerName(cached.athleteName);
 
-            if (normalized.firstName === cachedNormalized.firstName &&
-                normalized.lastName === cachedNormalized.lastName) {
-              // Found a match - set ESPN ID if missing
+            if (
+              normalized.firstName === cachedNormalized.firstName &&
+              normalized.lastName === cachedNormalized.lastName
+            ) {
               if (!espnId) {
-                await pool.query('UPDATE players SET espn_id = $1 WHERE id::text = $2', [athleteId, pick.player_id]);
-                console.log(`Linked ${playerName} to ESPN ID ${athleteId} via name match`);
+                await pool.query(
+                  'UPDATE players SET espn_id = $1 WHERE id::text = $2',
+                  [athleteId, pick.player_id]
+                );
                 resolvedEspnId = athleteId;
               }
+
               playerStats = convertESPNStatsToScoring(cached.stats);
-              if (playerName.toLowerCase().includes('moore')) {
-                console.log(`[DJ Moore Debug] Found ${playerName} in cache via name match, espn_id=${athleteId}`);
-              }
+              playerTeam = cached.team;
               break;
             }
           }
         }
 
-        // Fallback to direct ESPN fetch if still no stats
+        // ESPN fallback
         if (!playerStats && resolvedEspnId) {
           playerStats = await fetchPlayerStats(resolvedEspnId, weekNumber);
         }
 
-        if (!playerStats) {
-          if (playerName.toLowerCase().includes('moore')) {
-            console.log(`[DJ Moore Debug] No stats found for ${playerName} - espn_id=${espnId}, cache size=${liveStatsCache.playerStats.size}`);
+        if (playerStats) {
+          scoring = playerStats;
+        } else {
+          if (playerTeam && liveStatsCache.activeTeams.has(playerTeam)) {
+            // Game started, no stats yet
+            scoring = {};
+          } else {
+            // Game not started → No score
+            continue;
           }
-          console.log(`No stats found for ${playerName} in week ${weekNumber}`);
-          continue;
         }
-
-        scoring = playerStats;
       }
 
       const basePoints = await calculateFantasyPoints(scoring);
       const multiplier = pick.multiplier || 1;
       const finalPoints = basePoints * multiplier;
 
-      // Upsert to scores table
       await pool.query(`
-        INSERT INTO scores (id, user_id, player_id, week_number, points, base_points, multiplier, final_points, stats_json, updated_at)
-        VALUES (gen_random_uuid(), $1, $2, $3, $4, $4, $5, $6, $7, NOW())
+        INSERT INTO scores (
+          id, user_id, player_id, week_number,
+          points, base_points, multiplier, final_points,
+          stats_json, updated_at
+        )
+        VALUES (
+          gen_random_uuid(), $1, $2, $3,
+          $4, $4, $5, $6,
+          $7, NOW()
+        )
         ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
           points = $4,
           base_points = $4,
@@ -882,9 +899,11 @@ async function fetchScoreboard(weekNumber) {
 
     // Check cache (include week in cache key)
     const cacheKey = `week_${weekNumber}`;
-    if (liveStatsCache.lastScoreboardUpdate &&
-        liveStatsCache.currentCachedWeek === weekNumber &&
-        (now - liveStatsCache.lastScoreboardUpdate) < SCOREBOARD_CACHE_MS) {
+    if (
+      liveStatsCache.lastScoreboardUpdate &&
+      liveStatsCache.currentCachedWeek === weekNumber &&
+      (now - liveStatsCache.lastScoreboardUpdate) < SCOREBOARD_CACHE_MS
+    ) {
       return Array.from(liveStatsCache.activeGameIds);
     }
 
@@ -902,20 +921,31 @@ async function fetchScoreboard(weekNumber) {
         if (status === 'in' || status === 'post') {
           activeGames.push(gameId);
 
-          // Store basic game info
           liveStatsCache.games.set(gameId, {
             id: gameId,
             name: event.name,
             shortName: event.shortName,
             status: status,
-            homeTeam: event.competitions?.[0]?.competitors?.find(c => c.homeAway === 'home')?.team?.abbreviation,
-            awayTeam: event.competitions?.[0]?.competitors?.find(c => c.homeAway === 'away')?.team?.abbreviation
+            homeTeam: event.competitions?.[0]?.competitors?.find(
+              c => c.homeAway === 'home'
+            )?.team?.abbreviation,
+            awayTeam: event.competitions?.[0]?.competitors?.find(
+              c => c.homeAway === 'away'
+            )?.team?.abbreviation
           });
         }
       }
     }
 
     liveStatsCache.activeGameIds = new Set(activeGames);
+
+    // FIX: derive activeTeams from active games
+    liveStatsCache.activeTeams = new Set(
+      Array.from(liveStatsCache.games.values())
+        .flatMap(g => [g.homeTeam, g.awayTeam])
+        .filter(Boolean)
+    );
+
     liveStatsCache.currentCachedWeek = weekNumber;
     liveStatsCache.lastScoreboardUpdate = now;
 
