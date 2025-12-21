@@ -334,6 +334,29 @@ function convertESPNStatsToScoring(espnStats) {
   if (espnStats['fumbles_LOST']) {
     scoring.fum_lost = parseInt(espnStats['fumbles_LOST']) || 0;
   }
+  
+  // Kicker stats
+  if (espnStats['kicking_FGM'] !== undefined) {
+    scoring.fg_made = parseInt(espnStats['kicking_FGM']) || 0;
+  }
+  if (espnStats['kicking_FGA'] !== undefined) {
+    scoring.fg_att = parseInt(espnStats['kicking_FGA']) || 0;
+  }
+  if (espnStats['kicking_FGLONG'] !== undefined) {
+    scoring.fg_longest = parseInt(espnStats['kicking_FGLONG']) || 0;
+  }
+  if (espnStats['kicking_XPM'] !== undefined) {
+    scoring.xp_made = parseInt(espnStats['kicking_XPM']) || 0;
+  }
+  if (espnStats['kicking_XPA'] !== undefined) {
+    scoring.xp_att = parseInt(espnStats['kicking_XPA']) || 0;
+  }
+  if (espnStats['kicking_FG_MISSED'] !== undefined) {
+    scoring.fg_missed = parseInt(espnStats['kicking_FG_MISSED']) || 0;
+  }
+  if (espnStats['kicking_XP_MISSED'] !== undefined) {
+    scoring.xp_missed = parseInt(espnStats['kicking_XP_MISSED']) || 0;
+  }
 
   return scoring;
 }
@@ -751,7 +774,6 @@ async function savePlayerScoresToDatabase(weekNumber) {
   try {
     console.log(`Saving scores for week ${weekNumber}...`);
 
-    // Get all user picks for this week
     const picksResult = await pool.query(`
       SELECT pk.id as pick_id, pk.user_id, pk.player_id, pk.position, pk.multiplier
       FROM picks pk
@@ -761,6 +783,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
     let savedCount = 0;
 
     for (const pick of picksResult.rows) {
+<<<<<<< HEAD
       // Check if player exists
       const player = await pool.query(
         'SELECT espn_id, full_name, position, team FROM players WHERE id::text = $1',
@@ -772,27 +795,41 @@ async function savePlayerScoresToDatabase(weekNumber) {
       const playerName = player.rows[0].full_name;
       const position = player.rows[0].position;
       const dbTeam = player.rows[0].team;
+=======
+      const playerRes = await pool.query(
+        'SELECT espn_id, full_name, position FROM players WHERE id::text = $1',
+        [pick.player_id]
+      );
+      if (playerRes.rows.length === 0) continue;
+>>>>>>> d91dc545843ef91f6d1c117008c3527111398b7b
 
+      const { espn_id: espnId, full_name: playerName, position } = playerRes.rows[0];
       let scoring = null;
 
+      // =====================
       // DEFENSE
+      // =====================
       if (position === 'DEF') {
         const defStats = await fetchDefenseStats(pick.player_id, weekNumber);
 
         if (defStats) {
           scoring = defStats;
+        } else if (liveStatsCache.activeTeams.has(pick.player_id)) {
+          scoring = {};
         } else {
-          const teamAbbrev = pick.player_id;
-          if (liveStatsCache.activeTeams.has(teamAbbrev)) {
-            // Game started, no stats yet
-            scoring = {};
-          } else {
-            // Game not started → No score
-            continue;
-          }
+          continue;
         }
-      } else {
-        // PLAYER
+      }
+
+      // =====================
+      // PLAYER (INCLUDING K)
+      // =====================
+      else {
+        // Hard guarantee: kickers always get a scoring object once games are active
+        if (position === 'K') {
+          scoring = {};
+        }
+
         let playerStats = null;
         let resolvedEspnId = espnId;
         let playerTeam = null;
@@ -834,21 +871,44 @@ async function savePlayerScoresToDatabase(weekNumber) {
 
         // ESPN fallback
         if (!playerStats && resolvedEspnId) {
-          playerStats = await fetchPlayerStats(resolvedEspnId, weekNumber);
+          const fetched = await fetchPlayerStats(resolvedEspnId, weekNumber);
+          if (fetched) {
+            playerStats = fetched;
+
+            const cached = liveStatsCache.playerStats.get(resolvedEspnId);
+            if (cached?.team) {
+              playerTeam = cached.team;
+            }
+          }
         }
 
+        // Final scoring decision for non-kickers
         if (playerStats) {
           scoring = playerStats;
+<<<<<<< HEAD
         } else {
           const teamToCheck = playerTeam || dbTeam;
           if (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck)) {
             // Game started, no stats yet
+=======
+        } else if (position !== 'K') {
+          if (playerTeam && liveStatsCache.activeTeams.has(playerTeam)) {
+>>>>>>> d91dc545843ef91f6d1c117008c3527111398b7b
             scoring = {};
           } else {
-            // Game not started → No score
             continue;
           }
         }
+      }
+
+      // =====================
+      // KICKER ZERO FILL
+      // =====================
+      if (position === 'K' && Object.keys(scoring).length === 0) {
+        scoring = {
+          fg_made: 0,
+          xp_made: 0
+        };
       }
 
       const basePoints = await calculateFantasyPoints(scoring);
@@ -1197,25 +1257,27 @@ async function calculateFantasyPoints(stats) {
     points += (stats.fum_lost || 0) * (rules.fum_lost || 0);
 
     // Kicker stats
-    if (stats.fg_made !== undefined) {
+    if (
+      stats.fg_made !== undefined ||
+      stats.xp_made !== undefined ||
+      stats.xp_missed !== undefined
+    ) {
       const fgMade = stats.fg_made || 0;
-      const fgLongest = stats.fg_longest || 0;
+      const fgLongest = Number(stats.fg_longest) || 0;
 
-      // Score based on distance (assume even distribution if we don't have individual FG distances)
-      // For now, use longest to estimate: if longest >= 50, award one 50+ FG
       if (fgLongest >= 50 && fgMade > 0) {
-        points += 5; // One 50+ yarder
-        points += (fgMade - 1) * 3; // Rest are standard
+        points += 5;
+        points += (fgMade - 1) * 3;
       } else if (fgLongest >= 40 && fgMade > 0) {
-        points += 4; // One 40-49 yarder
-        points += (fgMade - 1) * 3; // Rest are standard
+        points += 4;
+        points += (fgMade - 1) * 3;
       } else {
-        points += fgMade * 3; // All standard 0-39 yards
+        points += fgMade * 3;
       }
 
-      points += (stats.pat_made || 0) * (rules.pat_made || 1);
+      points += (stats.xp_made || 0) * (rules.pat_made || 1);
       points += (stats.fg_missed || 0) * (rules.fg_missed || -2);
-      points += (stats.pat_missed || 0) * (rules.pat_missed || -1);
+      points += (stats.xp_missed || 0) * (rules.pat_missed || -1);
     }
 
     // Defense stats
@@ -1228,7 +1290,6 @@ async function calculateFantasyPoints(stats) {
       points += (stats.def_block || 0) * (rules.def_block || 4);
       points += (stats.def_ret_td || 0) * (rules.def_ret_td || 6);
 
-      // Points allowed scoring
       const ptsAllowed = stats.def_pts_allowed || 0;
       if (ptsAllowed === 0) points += 20;
       else if (ptsAllowed <= 6) points += 15;
