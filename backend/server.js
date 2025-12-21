@@ -1207,23 +1207,21 @@ async function calculateFantasyPoints(stats) {
     // Kicker stats
     if (stats.fg_made !== undefined) {
       const fgMade = stats.fg_made || 0;
-      const fgLongest = stats.fg_longest || 0;
+      const fgLongest = Number(stats.fg_longest) || 0;
 
-      // Score based on distance (assume even distribution if we don't have individual FG distances)
-      // For now, use longest to estimate: if longest >= 50, award one 50+ FG
       if (fgLongest >= 50 && fgMade > 0) {
-        points += 5; // One 50+ yarder
-        points += (fgMade - 1) * 3; // Rest are standard
+        points += 5;
+        points += (fgMade - 1) * 3;
       } else if (fgLongest >= 40 && fgMade > 0) {
-        points += 4; // One 40-49 yarder
-        points += (fgMade - 1) * 3; // Rest are standard
+        points += 4;
+        points += (fgMade - 1) * 3;
       } else {
-        points += fgMade * 3; // All standard 0-39 yards
+        points += fgMade * 3;
       }
 
-      points += (stats.pat_made || 0) * (rules.pat_made || 1);
+      points += (stats.xp_made || 0) * (rules.pat_made || 1);
       points += (stats.fg_missed || 0) * (rules.fg_missed || -2);
-      points += (stats.pat_missed || 0) * (rules.pat_missed || -1);
+      points += (stats.xp_missed || 0) * (rules.pat_missed || -1);
     }
 
     // Defense stats
@@ -1236,7 +1234,6 @@ async function calculateFantasyPoints(stats) {
       points += (stats.def_block || 0) * (rules.def_block || 4);
       points += (stats.def_ret_td || 0) * (rules.def_ret_td || 6);
 
-      // Points allowed scoring
       const ptsAllowed = stats.def_pts_allowed || 0;
       if (ptsAllowed === 0) points += 20;
       else if (ptsAllowed <= 6) points += 15;
