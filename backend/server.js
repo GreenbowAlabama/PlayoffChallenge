@@ -334,6 +334,29 @@ function convertESPNStatsToScoring(espnStats) {
   if (espnStats['fumbles_LOST']) {
     scoring.fum_lost = parseInt(espnStats['fumbles_LOST']) || 0;
   }
+  
+  // Kicker stats
+  if (espnStats['kicking_FGM'] !== undefined) {
+    scoring.fg_made = parseInt(espnStats['kicking_FGM']) || 0;
+  }
+  if (espnStats['kicking_FGA'] !== undefined) {
+    scoring.fg_att = parseInt(espnStats['kicking_FGA']) || 0;
+  }
+  if (espnStats['kicking_FGLONG'] !== undefined) {
+    scoring.fg_longest = parseInt(espnStats['kicking_FGLONG']) || 0;
+  }
+  if (espnStats['kicking_XPM'] !== undefined) {
+    scoring.xp_made = parseInt(espnStats['kicking_XPM']) || 0;
+  }
+  if (espnStats['kicking_XPA'] !== undefined) {
+    scoring.xp_att = parseInt(espnStats['kicking_XPA']) || 0;
+  }
+  if (espnStats['kicking_FG_MISSED'] !== undefined) {
+    scoring.fg_missed = parseInt(espnStats['kicking_FG_MISSED']) || 0;
+  }
+  if (espnStats['kicking_XP_MISSED'] !== undefined) {
+    scoring.xp_missed = parseInt(espnStats['kicking_XP_MISSED']) || 0;
+  }
 
   return scoring;
 }
