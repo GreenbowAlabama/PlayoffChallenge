@@ -863,15 +863,15 @@ async function savePlayerScoresToDatabase(weekNumber) {
           }
         }
 
-        // Final scoring decision: use stats if found, otherwise check if team is active
-        if (playerStats) {
+        // Final scoring decision: kickers first, then stats, then team check
+        if (playerPosition === 'K') {
+          // Kickers always get scoring set, regardless of stats availability
+          scoring = playerStats || {};
+        } else if (playerStats) {
           scoring = playerStats;
-        } else if (playerPosition === 'K') {
-          // Kicker with no stats - always set scoring to ensure insertion
-          scoring = {};
         } else {
           const teamToCheck = playerTeam || dbTeam;  // Cache first, DB fallback
-          if (playerPosition === 'K' || (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck))) {
+          if (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck)) {
             scoring = {};
           } else {
             continue;
