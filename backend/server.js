@@ -774,7 +774,6 @@ async function savePlayerScoresToDatabase(weekNumber) {
   try {
     console.log(`Saving scores for week ${weekNumber}...`);
 
-    // Get all user picks for this week
     const picksResult = await pool.query(`
       SELECT pk.id as pick_id, pk.user_id, pk.player_id, pk.position, pk.multiplier
       FROM picks pk
@@ -784,37 +783,36 @@ async function savePlayerScoresToDatabase(weekNumber) {
     let savedCount = 0;
 
     for (const pick of picksResult.rows) {
-      // Check if player exists
-      const player = await pool.query(
+      const playerRes = await pool.query(
         'SELECT espn_id, full_name, position FROM players WHERE id::text = $1',
         [pick.player_id]
       );
-      if (player.rows.length === 0) continue;
+      if (playerRes.rows.length === 0) continue;
 
-      const espnId = player.rows[0].espn_id;
-      const playerName = player.rows[0].full_name;
-      const position = player.rows[0].position;
-
+      const { espn_id: espnId, full_name: playerName, position } = playerRes.rows[0];
       let scoring = null;
 
+      // =====================
       // DEFENSE
+      // =====================
       if (position === 'DEF') {
         const defStats = await fetchDefenseStats(pick.player_id, weekNumber);
 
         if (defStats) {
           scoring = defStats;
+        } else if (liveStatsCache.activeTeams.has(pick.player_id)) {
+          // Game started, no stats yet
+          scoring = {};
         } else {
-          const teamAbbrev = pick.player_id;
-          if (liveStatsCache.activeTeams.has(teamAbbrev)) {
-            // Game started, no stats yet
-            scoring = {};
-          } else {
-            // Game not started → No score
-            continue;
-          }
+          // Game not started
+          continue;
         }
-      } else {
-        // PLAYER
+      }
+
+      // =====================
+      // PLAYER (including K)
+      // =====================
+      else {
         let playerStats = null;
         let resolvedEspnId = espnId;
         let playerTeam = null;
@@ -855,13 +853,11 @@ async function savePlayerScoresToDatabase(weekNumber) {
         }
 
         // ESPN fallback
-        // Fallback to direct ESPN fetch if still no stats
         if (!playerStats && resolvedEspnId) {
           const fetched = await fetchPlayerStats(resolvedEspnId, weekNumber);
           if (fetched) {
             playerStats = fetched;
 
-            // FIX: ensure team is set for live-game detection
             const cached = liveStatsCache.playerStats.get(resolvedEspnId);
             if (cached?.team) {
               playerTeam = cached.team;
@@ -869,22 +865,25 @@ async function savePlayerScoresToDatabase(weekNumber) {
           }
         }
 
+        // Final decision
         if (playerStats) {
           scoring = playerStats;
+        } else if (
+          position === 'K' ||
+          (playerTeam && liveStatsCache.activeTeams.has(playerTeam))
+        ) {
+          // Game started, no stats yet
+          scoring = {};
         } else {
-          if (
-            position === 'K' ||
-            (playerTeam && liveStatsCache.activeTeams.has(playerTeam))
-          ) {
-            scoring = {};
-          } else {
-            continue;
-          }
+          // Game not started
+          continue;
         }
-
       }
-      
-      if (position === 'K' && scoring && Object.keys(scoring).length === 0) {
+
+      // =====================
+      // KICKER ZERO-FILL
+      // =====================
+      if (position === 'K' && Object.keys(scoring).length === 0) {
         scoring = {
           fg_made: 0,
           xp_made: 0
