@@ -789,13 +789,13 @@ async function savePlayerScoresToDatabase(weekNumber) {
       );
       if (playerRes.rows.length === 0) continue;
 
-      const { espn_id: espnId, full_name: playerName, position, team: dbTeam } = playerRes.rows[0];
+      const { espn_id: espnId, full_name: playerName, position: playerPosition, team: dbTeam } = playerRes.rows[0];
       let scoring = null;
 
       // =====================
       // DEFENSE
       // =====================
-      if (position === 'DEF') {
+      if (playerPosition === 'DEF') {
         const defStats = await fetchDefenseStats(pick.player_id, weekNumber);
 
         if (defStats) {
@@ -866,7 +866,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
         // Final scoring decision: use stats if found, otherwise check if team is active
         if (playerStats) {
           scoring = playerStats;
-        } else if (position !== 'K') {
+        } else if (playerPosition !== 'K') {
           const teamToCheck = playerTeam || dbTeam;  // Cache first, DB fallback
           if (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck)) {
             scoring = {};
@@ -882,7 +882,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
       // =====================
       // KICKER ZERO FILL
       // =====================
-      if (position === 'K' && Object.keys(scoring).length === 0) {
+      if (playerPosition === 'K' && Object.keys(scoring).length === 0) {
         scoring = {
           fg_made: 0,
           xp_made: 0
