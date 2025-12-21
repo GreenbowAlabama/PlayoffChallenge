@@ -76,6 +76,34 @@ function normalizeTeamAbbr(abbr) {
   return map[abbr] || abbr;
 }
 
+// Helper: Normalize player name for matching (strips suffixes, periods, normalizes case)
+function normalizePlayerName(name) {
+  if (!name) return { firstName: '', lastName: '', normalized: '' };
+
+  // Common suffixes to strip
+  const suffixes = ['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv', 'v'];
+
+  // Normalize: lowercase, remove periods, trim
+  let normalized = name.toLowerCase().replace(/\./g, '').trim();
+
+  // Split into parts
+  let parts = normalized.split(/\s+/);
+
+  // Remove suffix if last part is a suffix
+  if (parts.length > 1 && suffixes.includes(parts[parts.length - 1])) {
+    parts = parts.slice(0, -1);
+  }
+
+  const firstName = parts[0] || '';
+  const lastName = parts.length > 1 ? parts[parts.length - 1] : '';
+
+  return {
+    firstName,
+    lastName,
+    normalized: parts.join(' '),
+    parts
+  };
+}
 
 // Helper: Build ESPN scoreboard URL with correct season type for playoffs
 function getESPNScoreboardUrl(weekNumber) {
@@ -103,9 +131,10 @@ function getPlayerImageUrl(sleeperId, position) {
 }
 
 // Helper: Map ESPN athlete ID to our player ID
-async function mapESPNAthleteToPlayer(athleteId, athleteName) {
+// Priority order: 1) ESPN ID, 2) Normalized name, 3) Last name only (single match)
+async function mapESPNAthleteToPlayer(athleteId, athleteName, teamAbbrev = null) {
   try {
-    // First try exact ESPN ID match
+    // 1. First try exact ESPN ID match
     let result = await pool.query(
       'SELECT id FROM players WHERE espn_id = $1 LIMIT 1',
       [athleteId.toString()]
@@ -115,29 +144,65 @@ async function mapESPNAthleteToPlayer(athleteId, athleteName) {
       return result.rows[0].id;
     }
 
-    // Fallback: try name matching (fuzzy)
+    // 2. Normalized name matching (handles D.J. -> DJ, suffixes like Jr/Sr/III)
     if (athleteName) {
-      const nameParts = athleteName.trim().split(' ');
-      if (nameParts.length >= 2) {
-        const firstName = nameParts[0];
-        const lastName = nameParts[nameParts.length - 1];
+      const normalized = normalizePlayerName(athleteName);
 
+      // 2a. Try normalized first + last name
+      result = await pool.query(
+        `SELECT id FROM players
+          WHERE LOWER(REPLACE(first_name, '.', '')) = $1
+          AND LOWER(REPLACE(last_name, '.', '')) = $2
+          LIMIT 1`,
+        [normalized.firstName, normalized.lastName]
+      );
+
+      if (result.rows.length > 0) {
+        // Store the ESPN ID for future lookups
+        await pool.query(
+          'UPDATE players SET espn_id = $1 WHERE id = $2',
+          [athleteId.toString(), result.rows[0].id]
+        );
+        console.log(`Matched ${athleteName} via normalized name -> ${result.rows[0].id}`);
+        return result.rows[0].id;
+      }
+
+      // 2b. Try last name + team (if team provided)
+      if (teamAbbrev) {
+        const normalizedTeam = normalizeTeamAbbr(teamAbbrev);
         result = await pool.query(
-          `SELECT id FROM players 
-            WHERE LOWER(first_name) = LOWER($1) 
-            AND LOWER(last_name) = LOWER($2) 
+          `SELECT id FROM players
+            WHERE LOWER(REPLACE(last_name, '.', '')) = $1
+            AND team = $2
             LIMIT 1`,
-          [firstName, lastName]
+          [normalized.lastName, normalizedTeam]
         );
 
         if (result.rows.length > 0) {
-          // Store the ESPN ID for future lookups
           await pool.query(
             'UPDATE players SET espn_id = $1 WHERE id = $2',
             [athleteId.toString(), result.rows[0].id]
           );
+          console.log(`Matched ${athleteName} via last name + team -> ${result.rows[0].id}`);
           return result.rows[0].id;
         }
+      }
+
+      // 2c. Try last name only (if unique match)
+      result = await pool.query(
+        `SELECT id FROM players
+          WHERE LOWER(REPLACE(last_name, '.', '')) = $1
+          AND is_active = true`,
+        [normalized.lastName]
+      );
+
+      if (result.rows.length === 1) {
+        await pool.query(
+          'UPDATE players SET espn_id = $1 WHERE id = $2',
+          [athleteId.toString(), result.rows[0].id]
+        );
+        console.log(`Matched ${athleteName} via unique last name -> ${result.rows[0].id}`);
+        return result.rows[0].id;
       }
     }
 
@@ -158,6 +223,9 @@ function parsePlayerStatsFromSummary(boxscore) {
   for (const team of boxscore.players) {
     if (!team.statistics) continue;
 
+    // Get team abbreviation for fallback matching
+    const teamAbbrev = team.team?.abbreviation || null;
+
     for (const statGroup of team.statistics) {
       if (!statGroup.athletes) continue;
       const categoryName = statGroup.name; // 'passing', 'rushing', 'receiving', etc.
@@ -175,6 +243,7 @@ function parsePlayerStatsFromSummary(boxscore) {
           playerStatsMap.set(athleteIdStr, {
             athleteId: athleteIdStr,
             athleteName: athleteName || 'Unknown',
+            teamAbbrev: teamAbbrev,
             stats: {}
           });
         }
@@ -501,10 +570,10 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
     for (const gameId of liveStatsCache.activeGameIds) {
       console.log(
         'DEF BACKFILL CHECK',
-        'teamAbbr:',
-        teamAbbr,
+        'teamAbbrev:',
+        teamAbbrev,
         'normalized:',
-        normalizeTeamAbbr(teamAbbr),
+        normalizedTeam,
         'week:',
         weekNumber
       );
@@ -1529,7 +1598,7 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
       // Map each player's stats to our database and save scores
       for (const playerStat of playerStats) {
         const espnId = playerStat.athleteId;
-        const playerId = await mapESPNAthleteToPlayer(espnId, playerStat.athleteName);
+        const playerId = await mapESPNAthleteToPlayer(espnId, playerStat.athleteName, playerStat.teamAbbrev);
 
         if (!playerId) {
           // Player not in our database, skip
@@ -1864,7 +1933,7 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
       // Map each player's stats to our database and save scores
       for (const playerStat of playerStats) {
         const espnId = playerStat.athleteId;
-        const playerId = await mapESPNAthleteToPlayer(espnId, playerStat.athleteName);
+        const playerId = await mapESPNAthleteToPlayer(espnId, playerStat.athleteName, playerStat.teamAbbrev);
 
         if (!playerId) {
           // Player not in our database, skip
