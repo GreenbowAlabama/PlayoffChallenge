@@ -801,18 +801,21 @@ async function savePlayerScoresToDatabase(weekNumber) {
         if (defStats) {
           scoring = defStats;
         } else if (liveStatsCache.activeTeams.has(pick.player_id)) {
-          // Game started, no stats yet
           scoring = {};
         } else {
-          // Game not started
           continue;
         }
       }
 
       // =====================
-      // PLAYER (including K)
+      // PLAYER (INCLUDING K)
       // =====================
       else {
+        // Hard guarantee: kickers always get a scoring object once games are active
+        if (position === 'K') {
+          scoring = {};
+        }
+
         let playerStats = null;
         let resolvedEspnId = espnId;
         let playerTeam = null;
@@ -865,23 +868,20 @@ async function savePlayerScoresToDatabase(weekNumber) {
           }
         }
 
-        // Final decision
+        // Final scoring decision for non-kickers
         if (playerStats) {
           scoring = playerStats;
-        } else if (
-          position === 'K' ||
-          (playerTeam && liveStatsCache.activeTeams.has(playerTeam))
-        ) {
-          // Game started, no stats yet
-          scoring = {};
-        } else {
-          // Game not started
-          continue;
+        } else if (position !== 'K') {
+          if (playerTeam && liveStatsCache.activeTeams.has(playerTeam)) {
+            scoring = {};
+          } else {
+            continue;
+          }
         }
       }
 
       // =====================
-      // KICKER ZERO-FILL
+      // KICKER ZERO FILL
       // =====================
       if (position === 'K' && Object.keys(scoring).length === 0) {
         scoring = {
