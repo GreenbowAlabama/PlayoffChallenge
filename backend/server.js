@@ -763,7 +763,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
     for (const pick of picksResult.rows) {
       // Check if player exists
       const player = await pool.query(
-        'SELECT espn_id, full_name, position FROM players WHERE id::text = $1',
+        'SELECT espn_id, full_name, position, team FROM players WHERE id::text = $1',
         [pick.player_id]
       );
       if (player.rows.length === 0) continue;
@@ -771,6 +771,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
       const espnId = player.rows[0].espn_id;
       const playerName = player.rows[0].full_name;
       const position = player.rows[0].position;
+      const dbTeam = player.rows[0].team;
 
       let scoring = null;
 
@@ -839,7 +840,8 @@ async function savePlayerScoresToDatabase(weekNumber) {
         if (playerStats) {
           scoring = playerStats;
         } else {
-          if (playerTeam && liveStatsCache.activeTeams.has(playerTeam)) {
+          const teamToCheck = playerTeam || dbTeam;
+          if (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck)) {
             // Game started, no stats yet
             scoring = {};
           } else {
