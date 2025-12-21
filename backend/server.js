@@ -872,14 +872,16 @@ async function savePlayerScoresToDatabase(weekNumber) {
         if (playerStats) {
           scoring = playerStats;
         } else {
-          if (playerTeam && liveStatsCache.activeTeams.has(playerTeam)) {
-            // Game started, no stats yet
+          if (
+            position === 'K' ||
+            (playerTeam && liveStatsCache.activeTeams.has(playerTeam))
+          ) {
             scoring = {};
           } else {
-            // Game not started → No score
             continue;
           }
         }
+
       }
       
       if (position === 'K' && scoring && Object.keys(scoring).length === 0) {
