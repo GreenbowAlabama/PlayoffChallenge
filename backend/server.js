@@ -783,27 +783,13 @@ async function savePlayerScoresToDatabase(weekNumber) {
     let savedCount = 0;
 
     for (const pick of picksResult.rows) {
-<<<<<<< HEAD
-      // Check if player exists
-      const player = await pool.query(
+      const playerRes = await pool.query(
         'SELECT espn_id, full_name, position, team FROM players WHERE id::text = $1',
         [pick.player_id]
       );
-      if (player.rows.length === 0) continue;
-
-      const espnId = player.rows[0].espn_id;
-      const playerName = player.rows[0].full_name;
-      const position = player.rows[0].position;
-      const dbTeam = player.rows[0].team;
-=======
-      const playerRes = await pool.query(
-        'SELECT espn_id, full_name, position FROM players WHERE id::text = $1',
-        [pick.player_id]
-      );
       if (playerRes.rows.length === 0) continue;
->>>>>>> d91dc545843ef91f6d1c117008c3527111398b7b
 
-      const { espn_id: espnId, full_name: playerName, position } = playerRes.rows[0];
+      const { espn_id: espnId, full_name: playerName, position, team: dbTeam } = playerRes.rows[0];
       let scoring = null;
 
       // =====================
@@ -885,15 +871,9 @@ async function savePlayerScoresToDatabase(weekNumber) {
         // Final scoring decision for non-kickers
         if (playerStats) {
           scoring = playerStats;
-<<<<<<< HEAD
-        } else {
-          const teamToCheck = playerTeam || dbTeam;
-          if (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck)) {
-            // Game started, no stats yet
-=======
         } else if (position !== 'K') {
-          if (playerTeam && liveStatsCache.activeTeams.has(playerTeam)) {
->>>>>>> d91dc545843ef91f6d1c117008c3527111398b7b
+          const teamToCheck = playerTeam || dbTeam;  // Cache first, DB fallback
+          if (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck)) {
             scoring = {};
           } else {
             continue;
