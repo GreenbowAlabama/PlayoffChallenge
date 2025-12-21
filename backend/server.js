@@ -8,6 +8,7 @@ const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 8080;
 
 pg.types.setTypeParser(1700, (v) => v === null ? null : parseFloat(v));
