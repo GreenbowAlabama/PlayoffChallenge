@@ -894,9 +894,17 @@ async function savePlayerScoresToDatabase(weekNumber) {
         };
       }
 
+      if (playerPosition === 'K') {
+        console.log(`KICKER INSERT: ${playerName} | scoring: ${JSON.stringify(scoring)} | user: ${pick.user_id} | player: ${pick.player_id}`);
+      }
+
       const basePoints = await calculateFantasyPoints(scoring);
       const multiplier = pick.multiplier || 1;
       const finalPoints = basePoints * multiplier;
+
+      if (playerPosition === 'K') {
+        console.log(`KICKER CALC: ${playerName} | base: ${basePoints} | mult: ${multiplier} | final: ${finalPoints}`);
+      }
 
       await pool.query(`
         INSERT INTO scores (
@@ -925,6 +933,10 @@ async function savePlayerScoresToDatabase(weekNumber) {
         finalPoints,
         JSON.stringify(scoring)
       ]);
+
+      if (playerPosition === 'K') {
+        console.log(`KICKER SAVED: ${playerName}`);
+      }
 
       savedCount++;
     }
