@@ -878,11 +878,13 @@ async function savePlayerScoresToDatabase(weekNumber) {
         if (playerStats) {
           scoring = playerStats;
         } else {
-          const teamToCheck = playerTeam || dbTeam;
-          if (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck)) {
+          const rawTeam = playerTeam || dbTeam;
+          const teamToCheck = rawTeam?.trim()?.toUpperCase();
+          const isTeamActive = teamToCheck && Array.from(liveStatsCache.activeTeams).some(t => t.trim().toUpperCase() === teamToCheck);
+          if (isTeamActive) {
             scoring = {};
           } else {
-            console.log(`SKIP[player_no_stats_team_not_active]: user=${pick.user_id} player=${pick.player_id} name=${playerName} pos=${playerPosition} team=${teamToCheck} active=${liveStatsCache.activeTeams.has(teamToCheck)}`);
+            console.log(`SKIP[player_no_stats_team_not_active]: user=${pick.user_id} player=${pick.player_id} name=${playerName} pos=${playerPosition} team=${rawTeam} normalized=${teamToCheck} active=${isTeamActive}`);
             continue;
           }
         }
