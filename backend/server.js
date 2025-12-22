@@ -793,6 +793,13 @@ async function savePlayerScoresToDatabase(weekNumber) {
       let scoring = null;
 
       // =====================
+      // KICKER GUARANTEE
+      // =====================
+      if (playerPosition === 'K') {
+        scoring = {};
+      } else {
+
+      // =====================
       // DEFENSE
       // =====================
       if (playerPosition === 'DEF') {
@@ -863,20 +870,18 @@ async function savePlayerScoresToDatabase(weekNumber) {
           }
         }
 
-        // Final scoring decision: kickers first, then stats, then team check
-        if (playerPosition === 'K') {
-          // Kickers always get scoring set, regardless of stats availability
-          scoring = playerStats || {};
-        } else if (playerStats) {
+        // Final scoring decision
+        if (playerStats) {
           scoring = playerStats;
         } else {
-          const teamToCheck = playerTeam || dbTeam;  // Cache first, DB fallback
+          const teamToCheck = playerTeam || dbTeam;
           if (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck)) {
             scoring = {};
           } else {
             continue;
           }
         }
+      }
       }
 
       // =====================
