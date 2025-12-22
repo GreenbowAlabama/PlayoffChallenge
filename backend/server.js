@@ -470,6 +470,8 @@ async function fetchPlayerStats(espnId, weekNumber) {
                   // ESPN Format: ["FG", "PCT", "LONG", "XP", "PTS"]
                   // Indices:        0     1      2       3     4
                   // FG and XP are in "made/att" format
+                  console.log(`[KICKER RAW ESPN] ID: ${espnId} | Raw stats: ${JSON.stringify(athlete.stats)}`);
+
                   const fgMadeAtt = athlete.stats[0] ? athlete.stats[0].split('/') : ['0', '0'];
                   const fgMade = parseInt(fgMadeAtt[0]) || 0;
                   const fgAtt = parseInt(fgMadeAtt[1]) || 0;
@@ -485,8 +487,10 @@ async function fetchPlayerStats(espnId, weekNumber) {
                   stats.fg_made = fgMade;
                   stats.fg_missed = fgMissed;
                   stats.fg_longest = longest;
-                  stats.pat_made = patMade;
-                  stats.pat_missed = patMissed;
+                  stats.xp_made = patMade;
+                  stats.xp_missed = patMissed;
+
+                  console.log(`[KICKER PARSED] ID: ${espnId} | FG: ${fgMade}/${fgAtt} | XP: ${patMade}/${patAtt} | Longest: ${longest}`);
                 }
               }
             }
