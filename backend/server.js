@@ -363,6 +363,7 @@ function convertESPNStatsToScoring(espnStats) {
 
 // Fetch individual player stats from ESPN boxscore (more reliable than summaries)
 async function fetchPlayerStats(espnId, weekNumber) {
+  console.log(`[FETCH PLAYER STATS] Searching for ESPN ID: ${espnId} in week ${weekNumber}`);
   try {
     // Search through the active games for this week
     for (const gameId of liveStatsCache.activeGameIds) {
@@ -429,6 +430,9 @@ async function fetchPlayerStats(espnId, weekNumber) {
               const searchId = espnId.toString();
 
               if (athleteId === searchId) {
+                // DEBUG: Log what stat category we found for this athlete
+                console.log(`[ATHLETE FOUND] ID: ${espnId} | Category: ${statCategory.name} | Has stats: ${!!athlete.stats} | Stats: ${JSON.stringify(athlete.stats)}`);
+
                 // Skip passing if player is primarily a receiver
                 if (statCategory.name === 'passing' && skipPassing) {
                   continue;
@@ -809,13 +813,6 @@ async function savePlayerScoresToDatabase(weekNumber) {
       let scoring = null;
 
       // =====================
-      // KICKER GUARANTEE
-      // =====================
-      if (playerPosition === 'K') {
-        scoring = {};
-      } else {
-
-      // =====================
       // DEFENSE
       // =====================
       if (playerPosition === 'DEF') {
@@ -901,7 +898,6 @@ async function savePlayerScoresToDatabase(weekNumber) {
             continue;
           }
         }
-      }
       }
 
       // =====================
