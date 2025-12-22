@@ -787,7 +787,10 @@ async function savePlayerScoresToDatabase(weekNumber) {
         'SELECT espn_id, full_name, position, team FROM players WHERE id::text = $1',
         [pick.player_id]
       );
-      if (playerRes.rows.length === 0) continue;
+      if (playerRes.rows.length === 0) {
+        console.log(`SKIP[player_not_found]: user=${pick.user_id} player_id=${pick.player_id}`);
+        continue;
+      }
 
       const { espn_id: espnId, full_name: playerName, position: playerPosition, team: dbTeam } = playerRes.rows[0];
       let scoring = null;
@@ -810,6 +813,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
         } else if (liveStatsCache.activeTeams.has(pick.player_id)) {
           scoring = {};
         } else {
+          console.log(`SKIP[def_no_stats_not_active]: user=${pick.user_id} player=${pick.player_id} name=${playerName} pos=${playerPosition}`);
           continue;
         }
       }
@@ -878,6 +882,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
           if (teamToCheck && liveStatsCache.activeTeams.has(teamToCheck)) {
             scoring = {};
           } else {
+            console.log(`SKIP[player_no_stats_team_not_active]: user=${pick.user_id} player=${pick.player_id} name=${playerName} pos=${playerPosition} team=${teamToCheck} active=${liveStatsCache.activeTeams.has(teamToCheck)}`);
             continue;
           }
         }
