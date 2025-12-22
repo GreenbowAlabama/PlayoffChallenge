@@ -239,6 +239,11 @@ function parsePlayerStatsFromSummary(boxscore) {
 
         const athleteIdStr = athleteId.toString();
 
+        // DEBUG: Log kicking category details
+        if (categoryName === 'kicking') {
+          console.log(`[PARSE KICKER] ID: ${athleteIdStr} | Name: ${athleteName} | Labels: ${JSON.stringify(statGroup.labels)} | Stats: ${JSON.stringify(athlete.stats)}`);
+        }
+
         // Get or create player entry
         if (!playerStatsMap.has(athleteIdStr)) {
           playerStatsMap.set(athleteIdStr, {
@@ -286,7 +291,15 @@ function convertESPNStatsToScoring(espnStats) {
     rec_yd: 0,
     rec_td: 0,
     rec_2pt: 0,
-    fum_lost: 0
+    fum_lost: 0,
+    // Kicker fields
+    fg_made: 0,
+    fg_att: 0,
+    fg_longest: 0,
+    fg_missed: 0,
+    xp_made: 0,
+    xp_att: 0,
+    xp_missed: 0
   };
 
   if (!espnStats) return scoring;
@@ -336,26 +349,21 @@ function convertESPNStatsToScoring(espnStats) {
   }
   
   // Kicker stats
-  if (espnStats['kicking_FGM'] !== undefined) {
-    scoring.fg_made = parseInt(espnStats['kicking_FGM']) || 0;
+  // ESPN provides FG and XP in "made/att" format (e.g., "2/2")
+  if (espnStats['kicking_FG']) {
+    const fgParts = espnStats['kicking_FG'].toString().split('/');
+    scoring.fg_made = parseInt(fgParts[0]) || 0;
+    scoring.fg_att = parseInt(fgParts[1]) || 0;
+    scoring.fg_missed = scoring.fg_att - scoring.fg_made;
   }
-  if (espnStats['kicking_FGA'] !== undefined) {
-    scoring.fg_att = parseInt(espnStats['kicking_FGA']) || 0;
+  if (espnStats['kicking_LONG']) {
+    scoring.fg_longest = parseInt(espnStats['kicking_LONG']) || 0;
   }
-  if (espnStats['kicking_FGLONG'] !== undefined) {
-    scoring.fg_longest = parseInt(espnStats['kicking_FGLONG']) || 0;
-  }
-  if (espnStats['kicking_XPM'] !== undefined) {
-    scoring.xp_made = parseInt(espnStats['kicking_XPM']) || 0;
-  }
-  if (espnStats['kicking_XPA'] !== undefined) {
-    scoring.xp_att = parseInt(espnStats['kicking_XPA']) || 0;
-  }
-  if (espnStats['kicking_FG_MISSED'] !== undefined) {
-    scoring.fg_missed = parseInt(espnStats['kicking_FG_MISSED']) || 0;
-  }
-  if (espnStats['kicking_XP_MISSED'] !== undefined) {
-    scoring.xp_missed = parseInt(espnStats['kicking_XP_MISSED']) || 0;
+  if (espnStats['kicking_XP']) {
+    const xpParts = espnStats['kicking_XP'].toString().split('/');
+    scoring.xp_made = parseInt(xpParts[0]) || 0;
+    scoring.xp_att = parseInt(xpParts[1]) || 0;
+    scoring.xp_missed = scoring.xp_att - scoring.xp_made;
   }
 
   return scoring;
@@ -840,7 +848,13 @@ async function savePlayerScoresToDatabase(weekNumber) {
         if (espnId) {
           const cached = liveStatsCache.playerStats.get(espnId);
           if (cached) {
+            if (playerPosition === 'K') {
+              console.log(`[KICKER CACHE HIT] ID: ${espnId} | Name: ${playerName} | Cached stats: ${JSON.stringify(cached.stats)}`);
+            }
             playerStats = convertESPNStatsToScoring(cached.stats);
+            if (playerPosition === 'K') {
+              console.log(`[KICKER AFTER CONVERT] ID: ${espnId} | Converted stats: ${JSON.stringify(playerStats)}`);
+            }
             playerTeam = cached.team;
           }
         }
