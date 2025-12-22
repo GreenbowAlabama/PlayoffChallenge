@@ -774,6 +774,15 @@ async function savePlayerScoresToDatabase(weekNumber) {
   try {
     console.log(`Saving scores for week ${weekNumber}...`);
 
+    // Get teams we're tracking from picks
+    const trackedTeamsResult = await pool.query(`
+      SELECT DISTINCT p.team
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id::text
+      WHERE pk.week_number = $1 AND p.team IS NOT NULL
+    `, [weekNumber]);
+    const trackedTeams = new Set(trackedTeamsResult.rows.map(r => r.team?.trim()?.toUpperCase()).filter(Boolean));
+
     const picksResult = await pool.query(`
       SELECT pk.id as pick_id, pk.user_id, pk.player_id, pk.position, pk.multiplier
       FROM picks pk
@@ -880,11 +889,11 @@ async function savePlayerScoresToDatabase(weekNumber) {
         } else {
           const rawTeam = playerTeam || dbTeam;
           const teamToCheck = rawTeam?.trim()?.toUpperCase();
-          const isTeamActive = teamToCheck && Array.from(liveStatsCache.activeTeams).some(t => t.trim().toUpperCase() === teamToCheck);
-          if (isTeamActive) {
+          const isTracked = teamToCheck && trackedTeams.has(teamToCheck);
+          if (isTracked) {
             scoring = {};
           } else {
-            console.log(`SKIP[player_no_stats_team_not_active]: user=${pick.user_id} player=${pick.player_id} name=${playerName} pos=${playerPosition} team=${rawTeam} normalized=${teamToCheck} active=${isTeamActive}`);
+            console.log(`SKIP[player_no_stats_team_not_tracked]: user=${pick.user_id} player=${pick.player_id} name=${playerName} pos=${playerPosition} team=${rawTeam} normalized=${teamToCheck} tracked=${isTracked}`);
             continue;
           }
         }
