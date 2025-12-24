@@ -1,108 +1,105 @@
 # CLAUDE.md
 
-Purpose:
-This file defines how AI tools are used in this repository.
-It is for humans, not for Claude.
-Claude does not read this file automatically.
+## Purpose
 
-Do not paste this entire file into Claude.
+This file documents how AI tools are intended to be used in this repository.
 
----
-
-## AI Usage Model
-
-This repository uses a two-role AI workflow:
-
-1. Architect
-2. Worker
-
-Each role has strict boundaries.
+It is written for **humans**, not for automated execution.
+It does not define instructions, triggers, or workflows for Claude.
+Agent behavior is defined elsewhere.
 
 ---
 
-## Architect Role
+## AI Usage Overview
 
-Use the Architect role when:
-- Designing a solution
-- Diagnosing a bug
-- Understanding existing architecture
-- Planning testing or data flows
-- Resuming partially completed work
+This repository commonly uses a two-role AI workflow during development:
 
-Rules:
-- No production code
-- No refactoring
-- No long-running sessions
-- Focus on reasoning and decisions
+- Architecture-oriented reasoning
+- Implementation-oriented execution
 
-Every Architect session must end with a handoff.
+These roles are conceptual and help structure how AI assistance is applied.
 
 ---
 
-## Worker Role
+## Architecture-Oriented Work
 
-Use the Worker role when:
+Architecture-oriented work typically involves:
+
+- Reasoning about existing behavior
+- Diagnosing bugs or inconsistencies
+- Understanding system structure
+- Planning validation or testing approaches
+- Preparing implementation guidance
+
+This work focuses on clarity and intent, not code changes.
+
+Outputs from this phase are often written as temporary handoff documents
+to guide implementation work.
+
+---
+
+## Implementation-Oriented Work
+
+Implementation-oriented work typically involves:
+
 - Writing or modifying code
-- Implementing a known plan
-- Debugging within defined scope
-- Creating scripts or SQL
-- Iterating on errors
+- Applying an existing plan
+- Fixing bugs within a defined scope
+- Iterating on errors or test failures
+- Producing concrete changes
 
-Rules:
-- Do not redesign
-- Do not expand scope
-- Follow the handoff exactly
-- Ask questions only when blocked
+This work is guided by prior analysis or a handoff document.
 
 ---
 
 ## Handoffs
 
-Handoffs are the contract between Architect and Worker.
+A handoff is a short-lived artifact used to communicate intent
+between analysis and implementation phases.
 
-Rules:
-- Handoffs live locally during active work as `handoff.md`
-- Handoffs are not committed by default
-- Promote a handoff to documentation only after it is validated
+Handoffs are usually kept local during active work and may later be
+promoted to documentation if they prove stable and reusable.
 
-A good handoff includes:
+A typical handoff includes:
 - Objective
-- Current state
-- Files to touch
-- What to reuse
-- What not to change
+- Current behavior
+- Intended behavior
+- Constraints
+- Files or areas involved
 - Validation steps
 
 ---
 
 ## Session Discipline
 
-- Start new Claude sessions aggressively
-- Never rely on session memory
-- Never attempt to resume a dying session
-- If interrupted, restart with a continuation goal
+AI-assisted work in this repository favors short, focused sessions.
 
-Claude has no memory unless you give it memory.
+Common practices include:
+- Starting new sessions frequently
+- Avoiding reliance on conversational memory
+- Restating context explicitly when needed
+
+AI systems only know what is provided in the current session.
 
 ---
 
-## Documentation Promotion
+## Documentation
 
-Only stable, repeatable knowledge belongs in documentation.
+Only stable, validated knowledge should be committed as documentation.
 
-Examples:
-- Final bug root cause analyses
-- Validated testing workflows
-- Reusable implementation guides
+Examples include:
+- Confirmed root cause analyses
+- Proven workflows
+- Repeatable implementation guidance
 
-Scratch work does not belong in the repo.
+Exploratory or scratch work should remain local.
 
 ---
 
 ## Source of Truth
 
-- Code is the source of truth
-- Documentation explains intent
-- AI assists, but does not decide
+- The codebase is the ultimate source of truth
+- Documentation explains intent and context
+- AI tools assist with analysis and execution
 
-If there is conflict, trust the code.
+When discrepancies arise, the code takes precedence.

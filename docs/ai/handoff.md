@@ -1,129 +1,128 @@
-# Implementation Handoff
+## Instructions for Worker (Strict, Non-Negotiable)
 
-**Date:** 2025-12-23
-**Role:** Worker
-**Type:** Bug Fix - Default Week Selection
+This is a **pure deletion task**. All discovery, scoping, and decision-making has already been completed by Architecture.
 
----
-
-## Objective
-
-Fix initial "My Picks" tab load to default to the current playoff week, ensuring picks are visible immediately for Apple review.
+You are an **executor only**, not an investigator.
 
 ---
 
-## Current State
+### Absolute Rules
 
-- User picks exist with `week_number = 16` (int)
-- `game_settings.current_playoff_week = 16`
-- `game_settings.playoff_start_week = 19`
-- Week tabs display playoff round names (Wildcard, Divisional, Conference, Super Bowl)
-- Initial load has no selected week → picks visible
-- Selecting "Wildcard" tab filters for week 19 → picks disappear (mismatch)
+- DO NOT perform discovery of any kind
+- DO NOT read server.js in full
+- DO NOT scan, search, grep, or explore for additional code
+- DO NOT infer usage or dependencies
+- DO NOT compare against APIService.swift
+- DO NOT request APIService.swift
+- DO NOT request server.js wholesale
+- DO NOT delete anything not explicitly listed in this handoff
 
----
-
-## Root Cause
-
-- Test mode uses `current_playoff_week = 16` but playoff tabs map to weeks 19-22
-- Initial nil selection bypasses strict filtering
-- Selecting any tab applies strict week filter that doesn't match test data
+If any instruction conflicts with this section, **this section wins**.
 
 ---
 
-## Discovery Steps (Execute in Order)
+### Execution Model (Enforced)
 
-**Step 1: Find the "My Picks" view file**
-- Grep for: `"My Picks"` in `ios-app/PlayoffChallenge/Views/**/*.swift`
-- Expected: One primary view file
-- Read only the first ~50 lines to identify the struct/class name
+You will perform **mechanical deletions only** based solely on the explicit KEEP and REMOVE lists in this handoff.
 
-**Step 2: Locate selectedWeek state variable**
-- Grep in that file for: `selectedWeek` or `@State.*week`
-- Read only the 5-10 lines around the state declaration
-- Confirm type (Int? or String? or custom type)
+You are authorized to:
+- Delete routes explicitly listed under **REMOVE → Routes**
+- Delete helpers explicitly listed under **REMOVE → Helpers**
+- Delete middleware explicitly listed under **REMOVE → Middleware**
+- Delete imports **only if** they are exclusively referenced by removed code
 
-**Step 3: Find where week tabs are rendered**
-- Grep in same file for: `Wildcard` or `TabView` or `Picker.*week`
-- Read only that specific section (~10-20 lines)
-- Identify how weeks are mapped to tabs
-
-**Step 4: Locate settings fetch**
-- Grep for: `current_playoff_week` or `currentPlayoffWeek`
-- Should find where game_settings are loaded
-- Read only the property definition and assignment
+You are NOT authorized to:
+- Discover additional unused code
+- Optimize or refactor
+- Reorder code
+- Rename functions
+- Modify KEEP routes or helpers
+- Change behavior of any retained code
 
 ---
 
-## What to Change
+### File Access Rules (Critical)
 
-**Single change location: My Picks view onAppear or init**
+You may request file content **only in bounded, targeted chunks**.
 
-Add default selection logic:
-```swift
-.onAppear {
-    if selectedWeek == nil {
-        selectedWeek = settingsService.currentPlayoffWeek ?? 16
-    }
-}
-```
+Allowed requests:
+- A specific route handler by path and method
+- A specific helper function by name
+- A specific middleware by name
+- A specific line range (maximum 200 lines)
 
-**Or if using init:**
-```swift
-init() {
-    _selectedWeek = State(initialValue: settingsService.currentPlayoffWeek ?? 16)
-}
-```
+Examples (Allowed):
+- “Please paste the route handler for `GET /api/users/:userId`.”
+- “Please paste the helper function `hashPassword`.”
+- “Please paste lines 320–420.”
 
-**Validation check before applying:**
-- Does selectedWeek initialize to nil currently? (confirm with targeted read)
-- Is currentPlayoffWeek accessible from this view? (grep for settings access)
-- If not accessible, may need to pass as parameter or fetch on load
+Examples (Not Allowed):
+- “Please paste server.js”
+- “I will scan server.js”
+- “I will search for unused helpers”
+
+If required context is not provided, **STOP** and wait.
 
 ---
 
-## What NOT to Change
+### Deletion Instructions (Authoritative)
 
-- Do not redesign the tab structure
-- Do not change playoff week mapping globally (production expects 19-22)
-- Do not add new backend endpoints
-- Do not modify how picks are stored
+Perform the following steps in order:
 
----
+1. Delete **all** Express route handlers listed under:
+   **REMOVE → Routes**
+   - Remove the full route block
+   - Remove any comments that exist solely for that route
 
-## Test Data Setup (for Apple Review)
+2. Delete **all** helper functions listed under:
+   **REMOVE → Helper Functions**
+   - Only if they are not referenced by any KEEP route
 
-Ensure your test database has:
-- At least one complete lineup for week 16 (1 QB, 2 RB, 3 WR, 1 TE, 1 K, 1 DEF)
-- `game_settings.current_playoff_week = 16`
-- `game_settings.is_week_active = true`
+3. Delete **all** middleware listed under:
+   **REMOVE → Middleware**
+   - Ensure `authenticateToken` is preserved
 
----
+4. Remove imports ONLY IF:
+   - They are exclusively referenced by removed routes, helpers, or middleware
+   - Example: bcrypt, jsonwebtoken
 
-## Validation Steps
-
-1. Fresh app launch → navigate to "My Picks"
-2. **Verify Week 16 tab is pre-selected/highlighted**
-3. **Verify Week 16 picks are immediately visible**
-4. Tap Week 17 tab → should show empty state (no picks yet)
-5. Tap back to Week 16 → picks remain visible
-6. Repeat for other week tabs → empty states are acceptable
+Do not remove shared imports unless exclusivity is obvious and explicit.
 
 ---
 
-## Edge Cases
+### Verification (Non-Exploratory)
 
-- If `current_playoff_week` is null → default to `playoff_start_week`
-- If no picks exist for current week → show empty state (don't crash)
+You must NOT:
+- Run the application
+- Execute tests
+- Perform validation logic
+- Infer correctness beyond syntax
+
+You must:
+- Ensure the file remains syntactically valid
+- Ensure all KEEP routes and helpers remain untouched
 
 ---
 
-## Success Criteria
+### Output Requirements (Strict)
 
-- Apple reviewer lands on a populated "My Picks" view with zero taps required
-- Week navigation works smoothly
-- No disappearing picks on tab selection
+Return ONLY the following, in plain text:
+
+- Deleted routes
+- Deleted helpers
+- Deleted middleware
+- Deleted imports (if any)
+
+No explanations  
+No summaries  
+No recommendations  
+No additional steps  
 
 ---
 
-**Status:** Ready for Worker implementation
+### Stop Condition (Mandatory)
+
+After reporting deletions:
+- STOP immediately
+- Await user validation
+- Do not proceed further without explicit instruction
