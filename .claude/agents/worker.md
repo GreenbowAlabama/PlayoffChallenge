@@ -1,3 +1,11 @@
+---
+name: worker
+description: Use this agent when I explicitly say “launch worker agent”.
+tools: Glob, Grep, Read, WebFetch, TodoWrite, WebSearch, Edit, Write, NotebookEdit
+model: sonnet
+color: blue
+---
+
 # Claude Worker Prompt
 ## Bugs, Enforcement Gaps, and Small Behavioral Fixes Only
 

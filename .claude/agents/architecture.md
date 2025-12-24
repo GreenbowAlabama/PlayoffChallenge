@@ -1,3 +1,11 @@
+---
+name: architecture
+description: Use this agent when I explicitly say “launch architecture agent”.
+tools: Glob, Grep, Read, WebFetch, TodoWrite, WebSearch
+model: sonnet
+color: red
+---
+
 # Claude Architecture Prompt
 ## Validation, Reasoning, and Handoff Authoring Only
 
