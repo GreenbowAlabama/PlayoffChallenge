@@ -731,16 +731,6 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
           t => normalizeTeamAbbr(t.team?.abbreviation) === normalizedTeam
         );
 
-        if (teamBox?.statistics) {
-          for (const stat of teamBox.statistics) {
-            if (stat.name === 'sacksYardsLost' && stat.displayValue) {
-              const sacks = parseInt(stat.displayValue.split('-')[0]);
-              if (!isNaN(sacks) && sacks > stats.def_sack) {
-                stats.def_sack = sacks;
-              }
-            }
-          }
-        }
 
         // ============================================================
         // 3. Supplement INT + TD from defensive player boxscore
@@ -1858,13 +1848,6 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
             t => normalizeTeamAbbr(t.team?.abbreviation) === teamAbbr
           );
 
-          if (teamBox?.statistics) {
-            for (const stat of teamBox.statistics) {
-              if (stat.name === 'sacksYardsLost') {
-                defStats.def_sack = parseInt(stat.displayValue.split('-')[0]) || 0;
-              }
-            }
-          }
 
           // 2. Player boxscore defensive stats
           for (const group of summaryResponse.data.boxscore.players || []) {
@@ -2193,13 +2176,6 @@ app.post('/api/admin/backfill-playoff-stats', async (req, res) => {
             t => normalizeTeamAbbr(t.team?.abbreviation) === teamAbbr
           );
 
-          if (teamBox?.statistics) {
-            for (const stat of teamBox.statistics) {
-              if (stat.name === 'sacksYardsLost') {
-                defStats.def_sack = parseInt(stat.displayValue.split('-')[0]) || 0;
-              }
-            }
-          }
 
           // 2. Player boxscore defensive stats
           for (const group of summaryResponse.data.boxscore.players || []) {
