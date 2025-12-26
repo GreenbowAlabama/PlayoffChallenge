@@ -6,6 +6,8 @@ const axios = require('axios');
 const geoip = require('geoip-lite');
 const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
+const requireAdmin = require('./middleware/adminAuth');
+const adminAuthRoutes = require('./routes/adminAuth');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1333,6 +1335,12 @@ async function calculateFantasyPoints(stats) {
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Admin auth routes (no protection)
+app.use('/api/admin/auth', adminAuthRoutes);
+
+// Admin protection middleware
+app.use('/api/admin', requireAdmin);
 
 // Update week active status (lock/unlock)
 app.post('/api/admin/update-week-status', async (req, res) => {
