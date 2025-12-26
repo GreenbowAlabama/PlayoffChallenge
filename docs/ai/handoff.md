@@ -158,7 +158,7 @@ Each API module exports typed functions:
 #### 3. Layout (Shared)
 - Top nav bar:
   - App title/logo
-  - Current admin user info (if available from session)
+  - Current admin user info received from api
   - Logout button
 - Side nav (optional, for future expansion):
   - "Users" link
