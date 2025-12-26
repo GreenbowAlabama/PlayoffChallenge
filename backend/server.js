@@ -43,6 +43,9 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
+// Make pool available to routes
+app.locals.pool = pool;
+
 // In-memory cache for live stats
 const liveStatsCache = {
   games: new Map(),
