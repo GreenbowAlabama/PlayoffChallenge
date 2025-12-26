@@ -18,7 +18,7 @@ interface AppleSignInConfig {
   scope: string;
   redirectURI: string;
   state: string;
-  usePopup: boolean;
+  usePopup?: boolean;
 }
 
 interface AppleSignInResponse {
@@ -42,30 +42,44 @@ export function Login() {
       window.AppleID.auth.init({
         clientId: import.meta.env.VITE_APPLE_CLIENT_ID,
         scope: 'name email',
-        redirectURI: 'https://playoffchallenge-production.up.railway.app/api/admin/auth/apple',
+        redirectURI: window.location.origin,
         state: 'web-admin',
-        usePopup: true,
+      });
+
+      // Handle redirect callback
+      document.addEventListener('AppleIDSignInOnSuccess', async (event: any) => {
+        try {
+          setLoading(true);
+          const idToken = event.detail.authorization.id_token;
+          await loginWithApple(idToken);
+          navigate('/users');
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Authentication failed');
+        } finally {
+          setLoading(false);
+        }
+      });
+
+      document.addEventListener('AppleIDSignInOnFailure', (event: any) => {
+        setError(event.detail.error || 'Authentication failed');
       });
     };
 
     return () => {
       document.body.removeChild(script);
+      document.removeEventListener('AppleIDSignInOnSuccess', () => {});
+      document.removeEventListener('AppleIDSignInOnFailure', () => {});
     };
-  }, []);
+  }, [navigate]);
 
   const handleAppleSignIn = async () => {
     try {
       setLoading(true);
       setError('');
-
-      const response = await window.AppleID.auth.signIn();
-      const idToken = response.authorization.id_token;
-
-      await loginWithApple(idToken);
-      navigate('/users');
+      // In redirect mode, signIn() redirects the page (doesn't return)
+      await window.AppleID.auth.signIn();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
-    } finally {
       setLoading(false);
     }
   };
