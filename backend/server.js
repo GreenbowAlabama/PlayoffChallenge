@@ -2284,19 +2284,12 @@ app.get('/api/admin/cache-status', (req, res) => {
 app.delete('/api/admin/scores/teams/:weekNumber', async (req, res) => {
   try {
     const { weekNumber } = req.params;
-    const { adminUserId, teams } = req.body;
+    const { teams } = req.body;
 
-    if (!adminUserId || !teams || !Array.isArray(teams)) {
-      return res.status(400).json({ error: 'adminUserId and teams array required' });
+    if (!teams || !Array.isArray(teams)) {
+      return res.status(400).json({ error: 'teams array required' });
     }
 
-    // Verify requesting user is admin
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
-    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Delete scores for these teams
     const result = await pool.query(
       `DELETE FROM scores
         WHERE week_number = $1
@@ -2307,12 +2300,10 @@ app.delete('/api/admin/scores/teams/:weekNumber', async (req, res) => {
       [weekNumber, teams]
     );
 
-    console.log(`Deleted ${result.rows.length} scores for teams ${teams.join(', ')} in week ${weekNumber}`);
-
     res.json({
       success: true,
       scoresDeleted: result.rows.length,
-      teams: teams,
+      teams,
       deletedScores: result.rows
     });
   } catch (err) {
@@ -2325,35 +2316,19 @@ app.delete('/api/admin/scores/teams/:weekNumber', async (req, res) => {
 app.delete('/api/admin/scores/:userId/:weekNumber', async (req, res) => {
   try {
     const { userId, weekNumber } = req.params;
-    const { adminUserId } = req.body;
 
-    if (!adminUserId) {
-      return res.status(400).json({ error: 'adminUserId required' });
-    }
-
-    // Verify requesting user is admin
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
-    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Delete the scores
     const result = await pool.query(
-      `DELETE FROM scores
-        WHERE user_id = $1 AND week_number = $2
-        RETURNING player_id, base_points, final_points`,
+      'DELETE FROM scores WHERE user_id = $1 AND week_number = $2 RETURNING *',
       [userId, weekNumber]
     );
 
-    console.log(`Deleted ${result.rows.length} scores for user ${userId}, week ${weekNumber}`);
-
     res.json({
       success: true,
-      scoresDeleted: result.rows.length,
+      deletedCount: result.rows.length,
       deletedScores: result.rows
     });
   } catch (err) {
-    console.error('Error deleting scores:', err);
+    console.error('Error deleting user scores:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -3265,18 +3240,6 @@ app.get('/api/admin/compliance/state-distribution', async (req, res) => {
 // Get users with IP/state mismatches
 app.get('/api/admin/compliance/ip-mismatches', async (req, res) => {
   try {
-    const { adminUserId } = req.query;
-
-    if (!adminUserId) {
-      return res.status(400).json({ error: 'adminUserId is required' });
-    }
-
-    // Check admin status
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
-    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
     const result = await pool.query(`
       SELECT
         id,
@@ -3302,18 +3265,6 @@ app.get('/api/admin/compliance/ip-mismatches', async (req, res) => {
 // Get all signup attempts (including blocked)
 app.get('/api/admin/compliance/signup-attempts', async (req, res) => {
   try {
-    const { adminUserId } = req.query;
-
-    if (!adminUserId) {
-      return res.status(400).json({ error: 'adminUserId is required' });
-    }
-
-    // Check admin status
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminUserId]);
-    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
     const result = await pool.query(`
       SELECT
         id,
@@ -3353,123 +3304,37 @@ app.get('/api/admin/compliance/signup-attempts', async (req, res) => {
 // Sync players from Sleeper API (admin only)
 app.post('/api/admin/sync-players', async (req, res) => {
   try {
-    const { userId } = req.body;
-
-    if (!userId) {
-      return res.status(400).json({ error: 'userId required' });
-    }
-
-    // Verify user is admin
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [userId]);
-    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    console.log('Fetching players from Sleeper API...');
-
-    // Fetch all NFL players from Sleeper
     const response = await axios.get('https://api.sleeper.app/v1/players/nfl');
-    const allPlayers = response.data;
-
-    // Filter to active players on ALL teams, top depth chart only
-    const activePlayers = Object.values(allPlayers).filter(p => {
-      return p.active &&
-              p.team &&
-              p.position &&
-              ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(p.position) &&
-              (p.depth_chart_order === 1 || p.depth_chart_order === 2 || p.position === 'K' || p.position === 'DEF');
-    });
-
-    console.log(`Found ${activePlayers.length} active players to sync`);
+    const sleeperPlayers = response.data;
 
     let inserted = 0;
     let updated = 0;
 
-    for (const player of activePlayers) {
-      try {
-        // Check if player already exists
-        const existing = await pool.query(
-          'SELECT id FROM players WHERE id = $1',
-          [player.player_id || player.sleeper_id]
-        );
+    for (const sleeperId in sleeperPlayers) {
+      const player = sleeperPlayers[sleeperId];
 
-        if (existing.rows.length > 0) {
-          // Update existing player
-          const imageUrl = getPlayerImageUrl(player.player_id, player.position);
-          await pool.query(`
-            UPDATE players SET
-              first_name = $1,
-              last_name = $2,
-              full_name = $3,
-              position = $4,
-              team = $5,
-              number = $6,
-              status = $7,
-              injury_status = $8,
-              espn_id = $9,
-              image_url = $10,
-              is_active = true,
-              available = true,
-              updated_at = NOW()
-            WHERE id = $11
-          `, [
-            player.first_name || '',
-            player.last_name || '',
-            player.full_name || `${player.first_name} ${player.last_name}`,
-            player.position,
-            player.team,
-            player.number ? player.number.toString() : null,
-            player.status || 'Active',
-            player.injury_status || null,
-            player.espn_id || null,
-            imageUrl,
-            player.player_id || player.sleeper_id
-          ]);
-          updated++;
-        } else {
-          // Insert new player
-          const imageUrl = getPlayerImageUrl(player.player_id, player.position);
-          await pool.query(`
-            INSERT INTO players (
-              id, sleeper_id, espn_id, first_name, last_name, full_name,
-              position, team, number, status, injury_status, image_url,
-              is_active, available, created_at, updated_at
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, true, NOW(), NOW())
-          `, [
-            player.player_id || player.sleeper_id,
-            player.player_id,
-            player.espn_id || null,
-            player.first_name || '',
-            player.last_name || '',
-            player.full_name || `${player.first_name} ${player.last_name}`,
-            player.position,
-            player.team,
-            player.number ? player.number.toString() : null,
-            player.status || 'Active',
-            player.injury_status || null,
-            imageUrl
-          ]);
-          inserted++;
-        }
-      } catch (err) {
-        console.error(`Error syncing player ${player.full_name}:`, err.message);
-      }
+      const result = await pool.query(
+        `INSERT INTO players (id, sleeper_id, full_name, position, team)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (sleeper_id) DO UPDATE
+          SET full_name = EXCLUDED.full_name,
+              position = EXCLUDED.position,
+              team = EXCLUDED.team
+          RETURNING xmax = 0 AS inserted`,
+        [
+          player.player_id,
+          sleeperId,
+          player.full_name,
+          player.position,
+          player.team
+        ]
+      );
+
+      if (result.rows[0].inserted) inserted++;
+      else updated++;
     }
 
-    // Clear player cache so fresh data is fetched
-    playersCache.data = [];
-    playersCache.lastUpdate = null;
-
-    console.log(`Player sync complete: ${inserted} inserted, ${updated} updated`);
-
-    res.json({
-      success: true,
-      inserted,
-      updated,
-      total: inserted + updated
-    });
-
+    res.json({ success: true, inserted, updated });
   } catch (err) {
     console.error('Error syncing players:', err);
     res.status(500).json({ error: err.message });
@@ -4079,32 +3944,23 @@ app.get('/api/admin/users', async (req, res) => {
 app.put('/api/admin/users/:id/payment', async (req, res) => {
   try {
     const { id } = req.params;
-    const { has_paid, user_id, adminUserId, hasPaid } = req.body;
-    
-    // Support both naming conventions
-    const actualUserId = user_id || adminUserId;
+    const { has_paid, hasPaid } = req.body;
+
     const actualHasPaid = has_paid !== undefined ? has_paid : hasPaid;
-    
-    if (!actualUserId) {
-      return res.status(400).json({ error: 'user_id or adminUserId required in request body' });
+
+    if (actualHasPaid === undefined) {
+      return res.status(400).json({ error: 'has_paid or hasPaid required in request body' });
     }
-    
-    // Verify requesting user is admin
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [actualUserId]);
-    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Update payment status
+
     const result = await pool.query(
       'UPDATE users SET paid = $1 WHERE id = $2 RETURNING *',
       [actualHasPaid, id]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error updating user payment:', err);
@@ -4116,32 +3972,23 @@ app.put('/api/admin/users/:id/payment', async (req, res) => {
 app.delete('/api/admin/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { user_id, adminId } = req.query;
-    const requestingUserId = user_id || adminId;
-    
-    if (!requestingUserId) {
-      return res.status(400).json({ error: 'user_id or adminId parameter required' });
-    }
-    
-    // Verify requesting user is admin
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [requestingUserId]);
-    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
+
     // Delete user's picks first (foreign key constraint)
     await pool.query('DELETE FROM picks WHERE user_id = $1', [id]);
-    
+
     // Delete user's scores
     await pool.query('DELETE FROM scores WHERE user_id = $1', [id]);
-    
+
     // Delete the user
-    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
-    
+    const result = await pool.query(
+      'DELETE FROM users WHERE id = $1 RETURNING *',
+      [id]
+    );
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     res.json({ success: true, deletedUser: result.rows[0] });
   } catch (err) {
     console.error('Error deleting user:', err);
