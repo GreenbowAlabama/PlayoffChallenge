@@ -1,429 +1,377 @@
-# Admin Web App Authentication & Authorization Architecture Handoff
+# Web Admin Application Architecture
 
 ## Objective
 
-Design and document a secure, Apple-compliant authentication and authorization architecture for a web-based Admin App that:
-- Uses Sign in with Apple (web) exclusively
-- Verifies users server-side against the `users` table
-- Enforces admin access via `users.is_admin = true`
-- Isolates admin functionality under `/api/admin/*`
-- Prevents any admin UI or logic from existing in the iOS app binary
+Design and specify a greenfield **Web Admin application** that provides administrative visibility and controls for the Playoff Challenge platform.
 
-This handoff is architecture only. No code is written yet.
+The web admin is the exclusive home for all admin functionality. No admin capabilities remain in the iOS app.
 
 ---
 
-## Confirmed Assumptions
+## High-Level Architecture
 
-1. The iOS app uses Sign in with Apple only. No passwords are stored.
-2. Admins are defined strictly by `users.is_admin = true`.
-3. There are currently 2 admins. Chad will use his real email (not private relay).
-4. The `users` table includes an `apple_id` column, which stores the Apple `sub` identifier from Sign in with Apple. This is the stable, primary lookup key.
-5. The Admin tab was removed from the iOS app to satisfy Apple App Review. No admin UI or functionality exists in the iOS binary.
-6. 28 admin endpoints currently exist in `server.js` under `/api/admin/*`.
-7. The admin web app will be the exclusive interface for admin capabilities.
-8. The backend is Node.js with Express.
-9. Session strategy is admin-scoped JWT (stateless, client-side storage).
+### Application Model
+- **Type**: Single Page Application (SPA)
+- **Hosting**: Vercel (or equivalent static/SSR hosting platform)
+- **Backend**: Existing backend at current hosting location
+- **Architecture Style**: Thin, API-driven client with all business logic on backend
 
----
-
-## Current State
-
-### Database Schema (users table)
-Relevant columns:
-- `id` (primary key)
-- `apple_id` (Apple `sub`, stable identifier)
-- `email` (fallback identifier, may be private relay)
-- `is_admin` (boolean, authorization gate)
-- `username`, `team_name`, `paid`, `created_at`, etc.
-
-No `apple_sub` column exists. `apple_id` is the Apple `sub`.
-
-### Existing Admin Endpoints (28 total)
-All routes are currently under `/api/admin/*`:
-
-1. POST `/api/admin/leagues`
-2. PUT `/api/admin/leagues/:id`
-3. DELETE `/api/admin/leagues/:id`
-4. POST `/api/admin/leagues/:id/playoff-weeks`
-5. PUT `/api/admin/leagues/:leagueId/playoff-weeks/:weekId`
-6. DELETE `/api/admin/leagues/:leagueId/playoff-weeks/:weekId`
-7. POST `/api/admin/leagues/:leagueId/playoff-weeks/:weekId/games`
-8. PUT `/api/admin/leagues/:leagueId/playoff-weeks/:weekId/games/:gameId`
-9. DELETE `/api/admin/leagues/:leagueId/playoff-weeks/:weekId/games/:gameId`
-10. PUT `/api/admin/games/:gameId/score`
-11. GET `/api/admin/users`
-12. PUT `/api/admin/users/:id`
-13. DELETE `/api/admin/users/:id`
-14. POST `/api/admin/users/:id/reset-password`
-15. GET `/api/admin/entries`
-16. PUT `/api/admin/entries/:id`
-17. DELETE `/api/admin/entries/:id`
-18. GET `/api/admin/picks`
-19. PUT `/api/admin/picks/:id`
-20. DELETE `/api/admin/picks/:id`
-21. GET `/api/admin/payments`
-22. PUT `/api/admin/payments/:id/verify`
-23. POST `/api/admin/debug/test-game-score`
-24. POST `/api/admin/debug/verify-calculations`
-25. GET `/api/admin/stats/overview`
-26. GET `/api/admin/stats/user-activity`
-27. GET `/api/admin/stats/payment-summary`
-28. GET `/api/admin/stats/league-participation`
-
-### Current Gaps
-- No server-side Apple `id_token` verification
-- No admin authentication layer for web
-- No JWT issuance for admin sessions
-- No jti-based replay protection
-- No audit logging
+### Design Philosophy
+- Web-first experience (not constrained by prior iOS admin UI)
+- Stateless frontend
+- All admin authorization enforced server-side via existing `requireAdmin` middleware
+- Minimal frontend complexity
+- Extensible for future admin capabilities
 
 ---
 
-## Intended Behavior
+## Authentication & Authorization Flow
 
-### Authentication Flow (Text Diagram)
+### Overview
+The web admin uses **Login with Apple** as the sole authentication mechanism. All admin routes are protected by backend middleware.
+
+### Detailed Flow
+
+1. **User Initiates Login**
+   - User navigates to web admin root (e.g., `https://admin.playoffchallenge.com`)
+   - Unauthenticated users see only a login page with "Sign in with Apple" button
+
+2. **Apple Authentication (Client-Side)**
+   - Web client invokes Apple's JS SDK for web authentication
+   - User completes Apple authentication flow
+   - Web client receives Apple `id_token` (JWT from Apple)
+
+3. **Token Exchange (Backend)**
+   - Web client POSTs Apple `id_token` to `/api/admin/auth/*` endpoint
+   - Backend validates Apple token
+   - Backend checks if authenticated user has admin privileges
+   - If valid and admin: backend returns session token or sets session cookie
+   - If invalid or not admin: backend returns 401/403
+
+4. **Session Management (Client)**
+   - Web client stores session token/cookie
+   - All subsequent API requests include session credentials
+   - Session persists across page refreshes
+
+5. **Protected Route Access**
+   - Every admin API call hits `/api/admin/*` (except initial auth)
+   - Backend `requireAdmin` middleware validates session and admin status
+   - Unauthorized requests receive 401/403 and trigger redirect to login
+
+### Session Mechanism (Backend-Determined)
+- Backend session/token mechanism is opaque to frontend
+- Assumed to be either:
+  - Session cookie (httpOnly, secure, sameSite)
+  - OR bearer token returned in response body
+- Frontend adapts to whichever mechanism backend uses
+- No JWT decoding or session logic in frontend
+
+---
+
+## Recommended Tech Stack
+
+### Frontend
+- **Framework**: React 18+ with TypeScript
+- **Routing**: React Router v6
+- **HTTP Client**: Native Fetch API (or Axios if preferred)
+- **API State Management**: React Query or SWR (handles caching, refetching, loading states)
+- **UI Library**: Tailwind CSS + Headless UI (or similar accessible component library)
+- **Build Tool**: Vite (fast, modern, good DX)
+
+### Rationale
+- **React + TypeScript**: Industry standard, good ecosystem, type safety
+- **React Query/SWR**: Eliminates need for Redux/complex state management for API-driven apps
+- **Tailwind CSS**: Rapid UI development, small bundle, no CSS-in-JS overhead
+- **Vite**: Fast dev server, optimized production builds
+
+### Hosting & Deployment
+- **Primary**: Vercel (zero-config React deployment, HTTPS, edge network)
+- **Alternatives**: Netlify, AWS Amplify, Cloudflare Pages
+- **Build Output**: Static SPA (client-side routing)
+- **Environment Variables**: Backend API URL configured via Vercel env vars
+
+---
+
+## API Integration Plan
+
+### Existing Admin Endpoints (Reuse)
+
+Based on backend analysis, the following endpoints are available and protected by `requireAdmin`:
+
+#### User Management (Core Requirement)
+| Method | Endpoint | Purpose | Request | Response |
+|--------|----------|---------|---------|----------|
+| GET | `/api/admin/users` | List all users | None | Array of user objects with: `id`, `email`, `phone`, `is_paid` |
+| PATCH | `/api/admin/users/:userId` | Update user eligibility | `{ is_paid: boolean }` | Updated user object |
+
+#### Additional Capabilities (Future Use)
+| Method | Endpoint | Purpose | Notes |
+|--------|----------|---------|-------|
+| GET | `/api/admin/settings` | Read admin settings | Available for future features |
+| PUT | `/api/admin/settings` | Update settings | Available for future features |
+| PATCH | `/api/admin/week` | Toggle week active state | Available for future features |
+
+### Frontend API Layer
+
+Recommended structure:
 
 ```
-1. Admin user visits Admin Web App
-2. Web App redirects to Sign in with Apple (web flow)
-3. User authenticates with Apple
-4. Apple redirects back to Web App with authorization code
-5. Web App sends authorization code to Backend at POST /api/admin/auth/apple
-6. Backend exchanges code for id_token with Apple token endpoint
-7. Backend verifies id_token:
-   - JWT signature (using Apple's public keys)
-   - Issuer: https://appleid.apple.com
-   - Audience: matches client_id
-   - Expiration: not expired
-   - jti: not previously used (replay protection)
-8. Backend extracts apple_id (sub claim) from id_token
-9. Backend queries users table: WHERE apple_id = <sub> AND is_admin = true
-10. If user exists and is_admin = true:
-    - Issue admin-scoped JWT (short-lived, e.g., 1 hour)
-    - Include claims: user_id, apple_id, is_admin, role: "admin", jti
-    - Return JWT to Web App
-11. If user does not exist or is_admin = false:
-    - Deny access, return 403
-    - Log denial attempt
-12. Web App stores JWT in memory or sessionStorage
-13. Web App includes JWT in Authorization: Bearer <token> header for all admin API calls
-14. Backend middleware on /api/admin/* routes:
-    - Verify JWT signature
-    - Check expiration
-    - Extract user_id, confirm is_admin claim
-    - Optional: re-query users.is_admin for defense in depth
-    - Proceed or deny
+src/
+  api/
+    client.ts          # Axios/fetch wrapper with auth headers
+    auth.ts            # Login, logout, session check
+    users.ts           # User list, update eligibility
+    settings.ts        # Future: settings CRUD
 ```
 
-### Backend Token Verification Steps
-
-**Location:** New module: `/middleware/adminAuth.js` or `/auth/appleVerify.js`
-
-**Apple ID Token Verification (POST /api/admin/auth/apple):**
-1. Exchange authorization code for `id_token` via Apple token endpoint
-2. Fetch Apple's public keys from `https://appleid.apple.com/auth/keys`
-3. Decode `id_token` header to identify `kid`
-4. Verify JWT signature using matching public key
-5. Validate claims:
-   - `iss` === `https://appleid.apple.com`
-   - `aud` === backend client_id
-   - `exp` > current time
-   - `sub` is present (apple_id)
-6. Check `jti` against recent jti cache (Redis or in-memory TTL map, expire after 10 minutes)
-7. If jti exists, reject (replay attempt)
-8. Store jti in cache
-9. Extract `sub` (apple_id) and `email` (if present)
-
-**User Lookup:**
-- Query: `SELECT id, apple_id, email, is_admin FROM users WHERE apple_id = ? LIMIT 1`
-- If no row or `is_admin = false`, return 403
-- If valid, proceed to JWT issuance
-
-**Admin JWT Issuance:**
-- Algorithm: HS256 or RS256 (recommend HS256 for simplicity)
-- Claims:
-  - `sub`: user.id
-  - `apple_id`: user.apple_id
-  - `is_admin`: true
-  - `role`: "admin"
-  - `jti`: unique identifier (UUIDv4)
-  - `iat`: issued at timestamp
-  - `exp`: 1 hour from iat
-- Sign with backend secret (env var: `ADMIN_JWT_SECRET`)
-- Return JWT to client
-
-### Authorization Enforcement Strategy
-
-**Middleware: `/middleware/requireAdmin.js`**
-
-Applied to all `/api/admin/*` routes.
-
-Steps:
-1. Extract `Authorization: Bearer <token>` header
-2. If missing, return 401
-3. Verify JWT signature using `ADMIN_JWT_SECRET`
-4. If invalid or expired, return 401
-5. Decode JWT, extract `sub` (user_id), `is_admin`, `role`
-6. If `is_admin !== true` or `role !== "admin"`, return 403
-7. Optional defense in depth: re-query `users.is_admin` for user_id
-8. If re-query shows `is_admin = false`, return 403 and log
-9. Attach `req.adminUser = { id, apple_id, is_admin }` to request
-10. Proceed to route handler
-
-**Route Isolation:**
-- All admin routes MUST be under `/api/admin/*`
-- No admin logic or UI should exist in user-facing routes
-- No admin routes should be accessible from iOS app
-
-### Session Approach: Admin-Scoped JWT
-
-**Choice:** Stateless JWT stored client-side (sessionStorage or memory).
-
-**Rationale:**
-- Simple, no backend session store required
-- Short expiry (1 hour) limits exposure
-- Replay protection via jti cache for Apple id_token only (not admin JWT)
-- No cookie complexity or CSRF concerns
-- Suitable for admin-only web app with low user count
-
-**Claims:**
-- `sub`: user.id
-- `apple_id`: user.apple_id
-- `is_admin`: true
-- `role`: "admin"
-- `jti`: unique ID
-- `iat`, `exp`
-
-**Expiry:** 1 hour. User must re-authenticate after expiry.
-
-**Storage:** sessionStorage (cleared on tab close) or memory (cleared on refresh).
+Each API module exports typed functions:
+- Type-safe request/response contracts
+- Automatic session token inclusion
+- Centralized error handling
+- React Query integration
 
 ---
 
-## Required Database Fields
+## UI Design (Minimum Viable)
 
-**users table** (already exists):
-- `id` (primary key)
-- `apple_id` (Apple `sub`, stable identifier, indexed)
-- `email` (fallback, may be private relay)
-- `is_admin` (boolean, authorization gate)
+### Page Structure
 
-**No new columns required.**
+#### 1. Login Page (`/login`)
+- "Sign in with Apple" button
+- No other content
+- Redirects to `/users` on successful auth
 
-**Indexes:**
-- Ensure `apple_id` is indexed for fast lookup
+#### 2. User List Page (`/users`)
+- **Table View** displaying:
+  - User ID
+  - Email (if available, else "N/A")
+  - Phone (if available, else "N/A")
+  - Eligibility Status (visual indicator: badge or toggle)
+  - Action: Toggle eligibility button/switch
+- **Functionality**:
+  - Fetch users via `GET /api/admin/users`
+  - Toggle eligibility via `PATCH /api/admin/users/:userId`
+  - Optimistic UI updates (toggle immediately, revert on error)
+  - Loading states during fetch/update
+  - Error handling with user-friendly messages
 
----
+#### 3. Layout (Shared)
+- Top nav bar:
+  - App title/logo
+  - Current admin user info (if available from session)
+  - Logout button
+- Side nav (optional, for future expansion):
+  - "Users" link
+  - Placeholder for future admin sections
 
-## Admin API Surface Separation and Guardrails
-
-### Guardrails
-1. **Path Isolation:** All admin routes under `/api/admin/*`
-2. **Middleware Enforcement:** `requireAdmin` middleware applied to all `/api/admin/*` routes
-3. **No Auto-Creation:** Do not create users during admin login. Only existing `is_admin=true` users may access.
-4. **No iOS Access:** iOS app must not include admin UI or call `/api/admin/*` routes. Code review and runtime checks recommended.
-5. **Audit Logging:** Log all admin authentication attempts (success and failure) and high-risk actions (e.g., delete, reset-password).
-6. **Token Expiry:** Short-lived JWTs (1 hour) reduce risk of token theft.
-7. **Replay Protection:** jti cache for Apple id_token prevents token replay during initial auth.
-
-### Admin API Surface
-All 28 existing `/api/admin/*` endpoints are in scope.
-
-Any admin endpoint not used by the web app should be removed or disabled.
+### Design Constraints
+- **Responsive**: Desktop-first, but functional on tablet
+- **Accessible**: WCAG 2.1 AA compliance (semantic HTML, ARIA labels, keyboard nav)
+- **Minimal**: No unnecessary features or UI chrome
 
 ---
 
 ## Security Considerations
 
-### Apple Private Relay Email Behavior
-- Admin users (currently 2) will use real email addresses, not private relay.
-- If private relay email is encountered and does not match `users.email`, lookup will rely on `apple_id` (Apple `sub`).
-- If `apple_id` match exists and `is_admin=true`, grant access.
-- If no match, deny access.
-- Future: Consider storing both real and relay emails if needed.
+### Backend Enforcement (Primary)
+- **All** admin authorization is enforced server-side via `requireAdmin` middleware
+- Frontend NEVER assumes admin status without backend validation
+- No client-side admin logic beyond UI rendering
 
-### Missing Email Claims
-- If Apple does not provide an `email` claim, rely solely on `apple_id` (Apple `sub`).
-- Email is a fallback identifier only.
+### Frontend Security Measures
 
-### Token Replay Protection
-- Apple `id_token` jti is checked against a cache (Redis or in-memory TTL map, expire after 10 minutes).
-- If jti exists, reject as replay attempt.
-- Admin JWT does not require jti replay protection (short-lived, 1 hour expiry).
+#### 1. Session Security
+- If using bearer tokens: store in `localStorage` with secure practices
+  - Clear on logout
+  - Validate on every page load
+- If using cookies: ensure backend sets `httpOnly`, `secure`, `sameSite=strict`
 
-### CSRF (Not Applicable)
-- Admin-scoped JWT is not stored in cookies.
-- No CSRF risk for Bearer token auth.
-- If future changes introduce cookies, add SameSite=Strict and CSRF tokens.
+#### 2. CORS Configuration
+- Backend must whitelist web admin origin (e.g., `https://admin.playoffchallenge.com`)
+- No wildcard CORS in production
 
-### Audit Logging
-- Log all admin authentication attempts (POST /api/admin/auth/apple):
-  - Timestamp
-  - apple_id
-  - Success or failure
-  - Reason for failure (user not found, not admin, invalid token, etc.)
-- Log high-risk admin actions:
-  - User deletion
-  - Password reset
-  - Payment verification
-  - Game score updates
-- Logs should be readable in Railway (stdout or structured logging to Railway logs).
-- Consider structured logging (e.g., JSON) for easier parsing.
+#### 3. HTTPS Only
+- Web admin MUST be served over HTTPS (Vercel provides by default)
+- Mixed content warnings indicate misconfiguration
 
-### Defense in Depth
-- Middleware re-queries `users.is_admin` on every request (optional but recommended).
-- If JWT claims `is_admin=true` but database shows `is_admin=false`, deny and log.
-- Prevents stale JWT abuse if admin status is revoked.
+#### 4. Input Validation
+- Frontend validates user input (e.g., toggle actions) before sending
+- Backend performs authoritative validation (never trust client)
 
-### Apple App Review Compliance
-- No admin UI or functionality in iOS app binary.
-- Admin routes are web-only.
-- iOS app must not call `/api/admin/*` routes.
-- Code review: Ensure no references to admin routes in iOS codebase.
-- Runtime check: Backend logs iOS requests to `/api/admin/*` as suspicious.
+#### 5. Error Handling
+- Do NOT expose backend error details to UI (log internally, show generic messages)
+- Sensitive info (stack traces, DB errors) only in server logs
+
+#### 6. Logout
+- Logout clears client-side session state AND calls backend logout endpoint (if exists)
+- Redirect to login page
+- Prevent back-button access to protected pages
 
 ---
 
-## Edge Cases and Risks
+## Deployment Overview
 
-### Edge Case: Admin Status Revoked During Active Session
-- Admin JWT claims `is_admin=true` but database shows `is_admin=false`.
-- Middleware re-query catches this and denies access.
-- Log revocation event.
-- User must re-authenticate to get new JWT.
+### Hosting
+1. **Web Admin**: Deployed to Vercel
+   - Git-based deployment (main branch = production)
+   - Environment variables for backend API URL
+   - Automatic HTTPS, CDN distribution
 
-### Edge Case: Apple ID Token Expired or Invalid
-- Backend rejects token during verification.
-- Return 401 to web app.
-- Web app prompts user to re-authenticate.
+2. **Backend**: No changes to existing hosting
+   - CORS updated to allow web admin origin
+   - No other backend modifications required
 
-### Edge Case: User Exists but is_admin=false
-- Backend denies access during initial auth.
-- Return 403.
-- Log denial attempt.
+### Environment Configuration
+- **Development**: `VITE_API_URL=http://localhost:3000` (or backend dev URL)
+- **Production**: `VITE_API_URL=https://api.playoffchallenge.com` (or actual backend URL)
 
-### Edge Case: User Does Not Exist
-- Backend denies access during initial auth.
-- Return 403.
-- Log denial attempt.
-- Do not auto-create user.
-
-### Risk: JWT Secret Compromise
-- If `ADMIN_JWT_SECRET` is leaked, attacker can forge admin JWTs.
-- Mitigation: Store secret securely (env var, Railway secrets).
-- Rotate secret periodically.
-- Short expiry (1 hour) limits exposure window.
-
-### Risk: Apple Public Key Rotation
-- Apple may rotate signing keys.
-- Backend must fetch keys dynamically from `https://appleid.apple.com/auth/keys`.
-- Cache keys with TTL (e.g., 1 hour) to reduce latency.
-- Fallback: Re-fetch if `kid` not found in cache.
-
-### Risk: Replay Attack on Admin JWT
-- Admin JWTs do not use jti replay protection.
-- Mitigation: Short expiry (1 hour) limits reuse window.
-- If stricter protection needed, add jti to admin JWT and track in cache.
+### CI/CD (Optional)
+- Vercel auto-deploys on git push (no manual CI/CD needed)
+- Preview deployments for PRs
 
 ---
 
-## Explicit Non-Goals
+## API Contract Assumptions
 
-- No UI design or frontend implementation guidance.
-- No code generation (architecture only).
-- No password-based auth or magic links.
-- No alternate auth providers (Google, email, etc.).
-- No auto-creation of users during admin login.
-- No admin functionality in iOS app binary.
-- No redesign of existing admin endpoints (reuse as-is).
-- No session store or stateful backend sessions.
-- No CSRF protection (JWT is not cookie-based).
+The architecture assumes the following about `/api/admin/auth`:
+
+### Admin Authentication Endpoint
+**Assumed Endpoint**: `POST /api/admin/auth/apple` (or similar)
+
+**Request**:
+```json
+{
+  "id_token": "eyJraWQiOiJXNldjT0tC..."
+}
+```
+
+**Response (Success - 200)**:
+```json
+{
+  "token": "session-token-string"
+}
+```
+OR
+```
+Set-Cookie: session=...; HttpOnly; Secure; SameSite=Strict
+```
+
+**Response (Unauthorized - 401/403)**:
+```json
+{
+  "error": "Not authorized as admin"
+}
+```
+
+### User List Endpoint
+**Endpoint**: `GET /api/admin/users`
+
+**Response**:
+```json
+[
+  {
+    "id": "uuid",
+    "email": "user@example.com",
+    "phone": "+1234567890",
+    "is_paid": true
+  },
+  ...
+]
+```
+
+### User Update Endpoint
+**Endpoint**: `PATCH /api/admin/users/:userId`
+
+**Request**:
+```json
+{
+  "is_paid": false
+}
+```
+
+**Response**:
+```json
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "phone": "+1234567890",
+  "is_paid": false
+}
+```
 
 ---
 
-## Validation Steps (Ordered)
+## Risks & Guardrails
 
-1. **Backend Setup:**
-   - Add POST `/api/admin/auth/apple` endpoint
-   - Implement Apple `id_token` verification (signature, claims, jti cache)
-   - Implement admin JWT issuance
-   - Add `requireAdmin` middleware
-   - Apply middleware to all `/api/admin/*` routes
+### Risk: Admin Authorization Bypass
+- **Mitigation**: All admin enforcement is server-side. Frontend is untrusted.
 
-2. **Admin Web App Setup:**
-   - Integrate Sign in with Apple (web) button
-   - Handle Apple redirect with authorization code
-   - Call POST `/api/admin/auth/apple` with code
-   - Store returned JWT in sessionStorage
-   - Include JWT in `Authorization: Bearer <token>` header for all API calls
+### Risk: Session Hijacking
+- **Mitigation**: HTTPS only, secure cookies (if used), short session TTL
 
-3. **Positive Path Test:**
-   - Admin user authenticates via Sign in with Apple
-   - Backend verifies token, issues JWT
-   - Web app calls GET `/api/admin/users` with JWT
-   - Backend middleware validates JWT, allows access
-   - Confirm response is successful
+### Risk: CORS Misconfiguration
+- **Mitigation**: Explicitly whitelist admin origin, test in production
 
-4. **Negative Path Tests:**
-   - Non-admin user authenticates → Expect 403
-   - User does not exist → Expect 403
-   - Expired JWT → Expect 401
-   - Invalid JWT signature → Expect 401
-   - Missing JWT → Expect 401
-   - Replay Apple `id_token` (reuse jti) → Expect 403 during auth
+### Risk: Login with Apple Web Flow Issues
+- **Mitigation**: Follow Apple's official web SDK docs, test across browsers
 
-5. **Audit Log Verification:**
-   - Check Railway logs for admin auth attempts (success and failure)
-   - Check logs for high-risk actions (if implemented)
+### Risk: Scope Creep (Admin UI Redesign)
+- **Mitigation**: Architecture explicitly limits scope to minimal viable admin capabilities
 
-6. **iOS App Compliance Check:**
-   - Review iOS codebase for any references to `/api/admin/*`
-   - Confirm no admin UI or logic exists in iOS binary
-   - Test: iOS app should never call `/api/admin/*` routes
+### Risk: Backend API Changes
+- **Mitigation**: Frontend API layer abstracts backend contracts, easy to update
 
-7. **Defense in Depth Test:**
-   - Revoke admin status (`is_admin=false`) for a user with active JWT
-   - Attempt API call with that JWT
-   - Expect 403 (middleware re-query catches revocation)
+---
 
-8. **Token Expiry Test:**
-   - Wait 1 hour after JWT issuance
-   - Attempt API call with expired JWT
-   - Expect 401
-   - Re-authenticate to get new JWT
+## Forward-Looking Considerations
+
+This architecture supports future expansion:
+
+1. **Additional Admin Capabilities**
+   - Settings management (already have endpoints)
+   - Week/state controls
+   - Analytics dashboards
+   - User activity logs
+
+2. **Multi-Role Admin**
+   - Backend already has `requireAdmin` enforcement
+   - Can extend to role-based permissions (super admin, moderator, etc.)
+
+3. **Real-Time Updates**
+   - WebSocket or SSE for live user status
+   - Requires backend support
+
+4. **Audit Logging**
+   - Track admin actions (who toggled eligibility, when)
+   - Backend feature, frontend just displays
 
 ---
 
 ## Exit Criteria
 
-- Admin Web App can authenticate via Sign in with Apple (web)
-- Backend verifies Apple `id_token` (signature, claims, jti)
-- Backend issues admin-scoped JWT with correct claims
-- All `/api/admin/*` routes enforce `requireAdmin` middleware
-- Non-admin users and non-existent users are denied (403)
-- Expired or invalid JWTs are rejected (401)
-- Audit logs capture auth attempts and high-risk actions
-- iOS app has no admin UI or `/api/admin/*` route calls
-- Defense in depth: Middleware re-queries `is_admin` on every request
+This architecture is complete when:
+
+1. Web admin authenticates via Login with Apple
+2. Authenticated admins can view user list (ID, email, phone, eligibility)
+3. Admins can toggle user eligibility and persist changes
+4. All admin API calls are protected by backend middleware
+5. No admin functionality remains in iOS app
+6. Web admin is deployed to production hosting
 
 ---
 
-## Instructions for Worker
+## Next Steps (For Worker)
 
-1. Do not write code yet. This is architecture only.
-2. When implementation begins, create the following components:
-   - `/middleware/adminAuth.js` (requireAdmin middleware)
-   - `/auth/appleVerify.js` (Apple token verification logic)
-   - `/routes/adminAuth.js` (POST /api/admin/auth/apple endpoint)
-3. Apply `requireAdmin` middleware to all `/api/admin/*` routes in `server.js`.
-4. Add structured logging for audit events (use existing logger or add JSON logging).
-5. Store `ADMIN_JWT_SECRET` in Railway environment variables.
-6. Test all validation steps in order.
-7. Remove or disable any `/api/admin/*` endpoints not used by the Admin Web App.
+This architecture is now **APPROVED FOR IMPLEMENTATION**.
 
----
+The Worker agent should:
 
-## Final Notes
+1. Scaffold React + TypeScript + Vite project
+2. Implement Login with Apple web authentication
+3. Integrate with `/api/admin/auth` for session creation
+4. Build user list page using `/api/admin/users`
+5. Implement eligibility toggle using `/api/admin/users/:userId`
+6. Configure Vercel deployment
+7. Test end-to-end flow with backend
 
-This handoff is complete and implementation-ready. No further architecture decisions are required. Proceed with backend and frontend implementation following the flow and enforcement described above.
+**No architectural decisions remain. This is an implementation-ready handoff.**
