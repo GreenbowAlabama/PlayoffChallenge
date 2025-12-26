@@ -38,9 +38,9 @@ function generateAppleClientSecret(teamId, clientId, keyId, privateKey) {
 }
 
 /**
- * POST /api/admin/auth/apple
+ * GET /api/admin/auth/apple
  *
- * Authenticates admin user via Sign in with Apple (web flow).
+ * Authenticates admin user via Sign in with Apple (web redirect flow).
  *
  * Steps:
  * 1. Exchange authorization code for Apple id_token
@@ -48,26 +48,29 @@ function generateAppleClientSecret(teamId, clientId, keyId, privateKey) {
  * 3. Lookup user by apple_id in database
  * 4. Verify is_admin = true
  * 5. Issue admin-scoped JWT
- * 6. Return JWT to client
+ * 6. Redirect to web-admin with token
  *
- * Request body:
- * - code: Authorization code from Apple redirect
- * - redirectUri: Redirect URI used in initial request (must match)
+ * Query parameters (from Apple redirect):
+ * - code: Authorization code from Apple
+ * - state: State parameter (should be 'web-admin')
  *
  * Response:
- * - token: Admin JWT (1 hour expiry)
- * - user: { id, apple_id, email }
+ * - Redirects to web-admin with token in URL
  */
-router.post('/auth/apple', async (req, res) => {
-  const { code, redirectUri } = req.body;
+router.get('/auth/apple', async (req, res) => {
+  const { code } = req.query;
 
-  if (!code || !redirectUri) {
-    console.log('[Admin Auth] Missing code or redirectUri', {
+  if (!code) {
+    console.log('[Admin Auth] Missing code in query parameters', {
       timestamp: new Date().toISOString(),
-      ip: req.ip
+      ip: req.ip,
+      query: req.query
     });
-    return res.status(400).json({ error: 'Missing code or redirectUri' });
+    return res.status(400).json({ error: 'Missing authorization code' });
   }
+
+  // The redirectUri must match what was sent to Apple in the initial request
+  const redirectUri = 'https://playoffchallenge-production.up.railway.app/api/admin/auth/apple';
 
   try {
     // Validate required environment variables
@@ -180,14 +183,11 @@ router.post('/auth/apple', async (req, res) => {
       ip: req.ip
     });
 
-    return res.json({
-      token: adminToken,
-      user: {
-        id: user.id,
-        apple_id: user.apple_id,
-        email: user.email
-      }
-    });
+    // Redirect to web-admin with token
+    const webAdminUrl = process.env.WEB_ADMIN_URL || 'https://upbeat-analysis-production.up.railway.app';
+    const redirectUrl = `${webAdminUrl}?token=${adminToken}`;
+
+    return res.redirect(redirectUrl);
   } catch (err) {
     console.error('[Admin Auth] Unexpected error in /auth/apple', {
       timestamp: new Date().toISOString(),
