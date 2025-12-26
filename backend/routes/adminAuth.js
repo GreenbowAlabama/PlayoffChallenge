@@ -162,9 +162,9 @@ router.post('/apple', async (req, res) => {
       ip: req.ip
     });
 
-    // Redirect to web-admin with token
+    // Redirect to web-admin login page with token
     const webAdminUrl = process.env.WEB_ADMIN_URL || 'https://upbeat-analysis-production.up.railway.app';
-    const redirectUrl = `${webAdminUrl}?token=${adminToken}`;
+    const redirectUrl = `${webAdminUrl}/login?token=${adminToken}`;
 
     return res.redirect(redirectUrl);
   } catch (err) {
