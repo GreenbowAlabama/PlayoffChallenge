@@ -17,6 +17,7 @@ interface AppleSignInConfig {
   clientId: string;
   scope: string;
   redirectURI: string;
+  state: string;
   usePopup: boolean;
 }
 
@@ -40,8 +41,9 @@ export function Login() {
     script.onload = () => {
       window.AppleID.auth.init({
         clientId: import.meta.env.VITE_APPLE_CLIENT_ID,
-        scope: 'email',
-        redirectURI: window.location.origin,
+        scope: 'name email',
+        redirectURI: 'https://playoffchallenge-production.up.railway.app/api/admin/auth/apple',
+        state: 'web-admin',
         usePopup: true,
       });
     };
