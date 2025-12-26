@@ -1,128 +1,196 @@
-## Instructions for Worker (Strict, Non-Negotiable)
+Architecture → Worker Handoff
 
-This is a **pure deletion task**. All discovery, scoping, and decision-making has already been completed by Architecture.
+TestFlight Payment Layer Visibility Fix
 
-You are an **executor only**, not an investigator.
+Objective
 
----
+Disable all payment related UI and StoreKit execution in TestFlight builds on real devices using a deterministic, compile time approach.
 
-### Absolute Rules
+This is an iOS client only change.
 
-- DO NOT perform discovery of any kind
-- DO NOT read server.js in full
-- DO NOT scan, search, grep, or explore for additional code
-- DO NOT infer usage or dependencies
-- DO NOT compare against APIService.swift
-- DO NOT request APIService.swift
-- DO NOT request server.js wholesale
-- DO NOT delete anything not explicitly listed in this handoff
+⸻
 
-If any instruction conflicts with this section, **this section wins**.
+Ground Truth
 
----
+These are not hypotheses. Treat them as facts.
 
-### Execution Model (Enforced)
+• Backend already allows access without an active entitlement
+• Backend must not be modified
+• Simulator behaves correctly
+• Real devices running TestFlight do not
+• This is caused by iOS environment detection or build configuration
+• Receipt state must not be used
+• Runtime heuristics must not be used
 
-You will perform **mechanical deletions only** based solely on the explicit KEEP and REMOVE lists in this handoff.
+⸻
 
-You are authorized to:
-- Delete routes explicitly listed under **REMOVE → Routes**
-- Delete helpers explicitly listed under **REMOVE → Helpers**
-- Delete middleware explicitly listed under **REMOVE → Middleware**
-- Delete imports **only if** they are exclusively referenced by removed code
+Success Criteria
 
-You are NOT authorized to:
-- Discover additional unused code
-- Optimize or refactor
-- Reorder code
-- Rename functions
-- Modify KEEP routes or helpers
-- Change behavior of any retained code
+In TestFlight builds on real devices:
 
----
+• No payment UI
+• No paywalls
+• No subscription screens
+• No StoreKit initialization
+• No StoreKit prompts
 
-### File Access Rules (Critical)
+In App Store builds:
 
-You may request file content **only in bounded, targeted chunks**.
+• Payment UI works normally
 
-Allowed requests:
-- A specific route handler by path and method
-- A specific helper function by name
-- A specific middleware by name
-- A specific line range (maximum 200 lines)
+⸻
 
-Examples (Allowed):
-- “Please paste the route handler for `GET /api/users/:userId`.”
-- “Please paste the helper function `hashPassword`.”
-- “Please paste lines 320–420.”
+Scope Lock
 
-Examples (Not Allowed):
-- “Please paste server.js”
-- “I will scan server.js”
-- “I will search for unused helpers”
+You may modify
 
-If required context is not provided, **STOP** and wait.
+• iOS client code only
+• Xcode build settings
+• Payment related UI and initialization paths
 
----
+You may NOT modify
 
-### Deletion Instructions (Authoritative)
+• Backend code
+• APIs
+• Subscription enforcement logic server side
+• Business logic unrelated to payments
 
-Perform the following steps in order:
+⸻
 
-1. Delete **all** Express route handlers listed under:
-   **REMOVE → Routes**
-   - Remove the full route block
-   - Remove any comments that exist solely for that route
+Required Implementation
 
-2. Delete **all** helper functions listed under:
-   **REMOVE → Helper Functions**
-   - Only if they are not referenced by any KEEP route
+1. Compile Time Flag
 
-3. Delete **all** middleware listed under:
-   **REMOVE → Middleware**
-   - Ensure `authenticateToken` is preserved
+Add a compile time flag for TestFlight.
 
-4. Remove imports ONLY IF:
-   - They are exclusively referenced by removed routes, helpers, or middleware
-   - Example: bcrypt, jsonwebtoken
+Xcode path:
+Target → Build Settings → Other Swift Flags → Release
 
-Do not remove shared imports unless exclusivity is obvious and explicit.
+Add:
+-DTESTFLIGHT
 
----
+Rules:
+• Only in Release
+• Not in Debug
+• Clean build after adding
 
-### Verification (Non-Exploratory)
+⸻
 
-You must NOT:
-- Run the application
-- Execute tests
-- Perform validation logic
-- Infer correctness beyond syntax
+2. Single Source of Truth
 
-You must:
-- Ensure the file remains syntactically valid
-- Ensure all KEEP routes and helpers remain untouched
+Create exactly one environment check.
 
----
+enum AppEnvironment {
+    static let isTestFlight: Bool = {
+        #if TESTFLIGHT
+        return true
+        #else
+        return false
+        #endif
+    }()
+}
 
-### Output Requirements (Strict)
+Rules:
+• Defined once
+• Globally accessible
+• No duplicate helpers
+• No inline #if TESTFLIGHT checks elsewhere
 
-Return ONLY the following, in plain text:
+⸻
 
-- Deleted routes
-- Deleted helpers
-- Deleted middleware
-- Deleted imports (if any)
+3. Payment Gating Rule
 
-No explanations  
-No summaries  
-No recommendations  
-No additional steps  
+All payment related code must be gated behind:
 
----
+guard !AppEnvironment.isTestFlight else { return }
 
-### Stop Condition (Mandatory)
+This includes:
+• StoreKit setup
+• Paywall presentation
+• Subscription UI
+• Purchase flows
+• Navigation paths that lead to payment UI
 
-After reporting deletions:
-- STOP immediately
-- Await user validation
-- Do not proceed further without explicit instruction
+⸻
+
+Files You Are Allowed to Read
+
+To avoid massive token reads, restrict inspection to only these categories.
+
+Search targets only:
+• Files importing StoreKit
+• Files containing payment or subscription view controllers
+• App launch code where StoreKit is initialized
+• Paywall presentation logic
+
+Do NOT read:
+• Networking layers
+• Backend API clients
+• Models unrelated to subscriptions
+• Feature flags unrelated to payments
+
+If unsure whether a file is relevant, do not open it.
+
+⸻
+
+Known Failure Modes to Check
+
+You are validating exactly one of these.
+	1.	TESTFLIGHT flag missing from Release
+	2.	Environment check occurs after payment UI is created
+	3.	Multiple payment entry points and only some are gated
+
+Do not invent new theories.
+
+⸻
+
+Validation Steps
+
+Run these in order.
+	1.	Confirm -DTESTFLIGHT exists in Release only
+	2.	Clean build folder
+	3.	Archive using Release configuration
+	4.	Upload to TestFlight
+	5.	Install on physical device
+	6.	Launch app
+	7.	Navigate entire app
+	8.	Confirm zero payment UI
+	9.	Confirm zero StoreKit logs
+
+Optional:
+• Remove flag and confirm App Store behavior works
+
+⸻
+
+Completion Report Requirements
+
+When done, report only:
+
+• Files modified
+• Where AppEnvironment.isTestFlight is defined
+• Where payment code paths are gated
+• Confirmation TestFlight device shows no payment UI
+
+No extra commentary.
+
+⸻
+
+Definition of Done
+
+All must be true.
+
+• Compile flag present
+• Central environment check exists
+• All payment code paths gated
+• TestFlight build on real device shows zero payment UI
+• No StoreKit calls occur
+
+⸻
+
+Final Constraint
+
+Do not refactor.
+Do not optimize.
+Do not clean unrelated code.
+
+Solve only the payment visibility problem.
