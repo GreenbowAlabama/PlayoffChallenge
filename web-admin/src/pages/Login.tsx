@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 declare global {
   interface Window {
@@ -20,8 +21,20 @@ interface AppleSignInConfig {
 }
 
 export function Login() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
+
+  // Check for token in URL (from backend redirect after Apple auth)
+  useEffect(() => {
+    const token = searchParams.get('token');
+    if (token) {
+      localStorage.setItem('admin_token', token);
+      navigate('/users', { replace: true });
+      return;
+    }
+  }, [searchParams, navigate]);
 
   useEffect(() => {
     const script = document.createElement('script');
