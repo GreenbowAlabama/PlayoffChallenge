@@ -7,6 +7,11 @@ const jwt = require('jsonwebtoken');
  * Logs all authorization failures for audit purposes.
  */
 async function requireAdmin(req, res, next) {
+  // Skip auth middleware for authentication endpoints
+  if (req.path.includes('/auth/')) {
+    return next();
+  }
+
   try {
     // Extract Authorization header
     const authHeader = req.headers.authorization;
