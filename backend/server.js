@@ -4049,19 +4049,9 @@ app.put('/api/admin/position-requirements/:id', async (req, res) => {
 // Get all users (admin only)
 app.get('/api/admin/users', async (req, res) => {
   try {
-    const { user_id, adminId } = req.query;
-    const requestingUserId = user_id || adminId; // Accept either parameter name
-    
-    if (!requestingUserId) {
-      return res.status(400).json({ error: 'user_id or adminId parameter required' });
-    }
-    
-    // Verify requesting user is admin
-    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [requestingUserId]);
-    if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
+    // Admin verification is handled by requireAdmin middleware
+    // req.adminUser is set by the middleware
+
     // Get all users
     const result = await pool.query(`
       SELECT
@@ -4070,14 +4060,14 @@ app.get('/api/admin/users', async (req, res) => {
         email,
         name,
         phone,
-        paid,
+        is_paid,
         is_admin,
         apple_id,
         created_at
       FROM users
       ORDER BY username
     `);
-    
+
     res.json(result.rows);
   } catch (err) {
     console.error('Error fetching users:', err);
