@@ -6,8 +6,8 @@ const axios = require('axios');
 const geoip = require('geoip-lite');
 const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
-const requireAdmin = require('../middleware/adminAuth');
-const adminAuthRoutes = require('../routes/adminAuth');
+const requireAdmin = require('./middleware/adminAuth');
+const adminAuthRoutes = require('./routes/adminAuth');
 
 const app = express();
 app.set('trust proxy', 1);
