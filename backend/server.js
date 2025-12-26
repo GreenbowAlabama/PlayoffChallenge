@@ -17,6 +17,7 @@ pg.types.setTypeParser(1700, (v) => v === null ? null : parseFloat(v));
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Rate limiting configuration
 const apiLimiter = rateLimit({

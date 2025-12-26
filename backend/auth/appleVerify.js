@@ -87,27 +87,25 @@ async function verifyAppleIdToken(idToken, clientId) {
     throw new Error('Invalid token: missing sub claim');
   }
 
-  if (!payload.jti) {
-    throw new Error('Invalid token: missing jti claim');
+  // Check jti for replay protection (if provided)
+  if (payload.jti) {
+    const jti = payload.jti;
+    const now = Date.now();
+
+    if (jtiCache.has(jti)) {
+      throw new Error('Token replay detected: jti already used');
+    }
+
+    // Store jti with 10-minute expiry
+    const expiryTime = now + 10 * 60 * 1000; // 10 minutes
+    jtiCache.set(jti, expiryTime);
   }
-
-  // Check jti for replay protection
-  const jti = payload.jti;
-  const now = Date.now();
-
-  if (jtiCache.has(jti)) {
-    throw new Error('Token replay detected: jti already used');
-  }
-
-  // Store jti with 10-minute expiry
-  const expiryTime = now + 10 * 60 * 1000; // 10 minutes
-  jtiCache.set(jti, expiryTime);
 
   // Return verified payload
   return {
     apple_id: payload.sub,
     email: payload.email || null,
-    jti: payload.jti,
+    jti: payload.jti || null,
     iat: payload.iat,
     exp: payload.exp
   };

@@ -38,89 +38,68 @@ function generateAppleClientSecret(teamId, clientId, keyId, privateKey) {
 }
 
 /**
- * GET /api/admin/auth/apple
+ * POST /api/admin/auth/apple
  *
  * Authenticates admin user via Sign in with Apple (web redirect flow).
+ * Apple POSTs form-encoded data with both code and id_token.
  *
  * Steps:
- * 1. Exchange authorization code for Apple id_token
- * 2. Verify id_token (signature, claims, jti replay protection)
- * 3. Lookup user by apple_id in database
- * 4. Verify is_admin = true
- * 5. Issue admin-scoped JWT
- * 6. Redirect to web-admin with token
+ * 1. Verify id_token from Apple POST (signature, claims, jti replay protection)
+ * 2. Lookup user by apple_id in database
+ * 3. Verify is_admin = true
+ * 4. Issue admin-scoped JWT
+ * 5. Redirect to web-admin with token
  *
- * Query parameters (from Apple redirect):
+ * Form data (from Apple POST):
  * - code: Authorization code from Apple
+ * - id_token: Signed JWT from Apple
  * - state: State parameter (should be 'web-admin')
  *
  * Response:
  * - Redirects to web-admin with token in URL
  */
-router.get('/auth/apple', async (req, res) => {
-  const { code } = req.query;
+router.post('/auth/apple', async (req, res) => {
+  const { id_token, code, state } = req.body;
 
-  if (!code) {
-    console.log('[Admin Auth] Missing code in query parameters', {
+  console.log('[Admin Auth] Apple callback received', {
+    timestamp: new Date().toISOString(),
+    hasIdToken: !!id_token,
+    hasCode: !!code,
+    state,
+    ip: req.ip
+  });
+
+  if (!id_token) {
+    console.log('[Admin Auth] Missing id_token in POST body', {
       timestamp: new Date().toISOString(),
       ip: req.ip,
-      query: req.query
+      body: req.body
     });
-    return res.status(400).json({ error: 'Missing authorization code' });
+    return res.status(400).json({ error: 'Missing id_token' });
   }
-
-  // The redirectUri must match what was sent to Apple in the initial request
-  const redirectUri = 'https://playoffchallenge-production.up.railway.app/api/admin/auth/apple';
 
   try {
     // Validate required environment variables
     const {
-      APPLE_TEAM_ID,
       APPLE_CLIENT_ID,
-      APPLE_KEY_ID,
-      APPLE_PRIVATE_KEY,
       ADMIN_JWT_SECRET
     } = process.env;
 
-    if (!APPLE_TEAM_ID || !APPLE_CLIENT_ID || !APPLE_KEY_ID || !APPLE_PRIVATE_KEY || !ADMIN_JWT_SECRET) {
+    if (!APPLE_CLIENT_ID || !ADMIN_JWT_SECRET) {
       console.error('[Admin Auth] Missing required environment variables', {
         timestamp: new Date().toISOString(),
         missing: {
-          APPLE_TEAM_ID: !APPLE_TEAM_ID,
           APPLE_CLIENT_ID: !APPLE_CLIENT_ID,
-          APPLE_KEY_ID: !APPLE_KEY_ID,
-          APPLE_PRIVATE_KEY: !APPLE_PRIVATE_KEY,
           ADMIN_JWT_SECRET: !ADMIN_JWT_SECRET
         }
       });
       return res.status(500).json({ error: 'Server configuration error' });
     }
 
-    // Generate Apple client secret
-    const clientSecret = generateAppleClientSecret(
-      APPLE_TEAM_ID,
-      APPLE_CLIENT_ID,
-      APPLE_KEY_ID,
-      APPLE_PRIVATE_KEY
-    );
-
-    // Exchange authorization code for id_token
-    let idToken;
-    try {
-      idToken = await exchangeAppleAuthCode(code, APPLE_CLIENT_ID, clientSecret, redirectUri);
-    } catch (err) {
-      console.log('[Admin Auth] Apple token exchange failed', {
-        timestamp: new Date().toISOString(),
-        error: err.message,
-        ip: req.ip
-      });
-      return res.status(401).json({ error: 'Apple authentication failed', details: err.message });
-    }
-
-    // Verify Apple id_token
+    // Verify Apple id_token (Apple provides it directly in POST body)
     let applePayload;
     try {
-      applePayload = await verifyAppleIdToken(idToken, APPLE_CLIENT_ID);
+      applePayload = await verifyAppleIdToken(id_token, APPLE_CLIENT_ID);
     } catch (err) {
       console.log('[Admin Auth] Apple token verification failed', {
         timestamp: new Date().toISOString(),
