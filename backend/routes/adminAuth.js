@@ -58,7 +58,7 @@ function generateAppleClientSecret(teamId, clientId, keyId, privateKey) {
  * Response:
  * - Redirects to web-admin with token in URL
  */
-router.post('/auth/apple', async (req, res) => {
+router.post('/apple', async (req, res) => {
   const { id_token, code, state } = req.body;
 
   console.log('[Admin Auth] Apple callback received', {
