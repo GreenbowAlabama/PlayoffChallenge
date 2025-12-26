@@ -19,6 +19,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
     "geoip-lite": "^1.4.10",
+    "jsonwebtoken": "^9.0.3",
     "node-fetch": "^2.7.0",
     "pg": "^8.16.3",
     "string-similarity": "^4.0.4"
