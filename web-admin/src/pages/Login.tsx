@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { loginWithApple } from '../api/auth';
 
 declare global {
   interface Window {
     AppleID: {
       auth: {
         init: (config: AppleSignInConfig) => void;
-        signIn: () => Promise<AppleSignInResponse>;
+        signIn: () => Promise<void>;
       };
     };
   }
@@ -17,18 +15,11 @@ interface AppleSignInConfig {
   clientId: string;
   scope: string;
   redirectURI: string;
+  responseType: string;
   state: string;
-  usePopup?: boolean;
-}
-
-interface AppleSignInResponse {
-  authorization: {
-    id_token: string;
-  };
 }
 
 export function Login() {
-  const navigate = useNavigate();
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
@@ -42,41 +33,21 @@ export function Login() {
       window.AppleID.auth.init({
         clientId: import.meta.env.VITE_APPLE_CLIENT_ID,
         scope: 'name email',
-        redirectURI: window.location.origin,
+        redirectURI: 'https://playoffchallenge-production.up.railway.app/api/admin/auth/apple',
+        responseType: 'code',
         state: 'web-admin',
-      });
-
-      // Handle redirect callback
-      document.addEventListener('AppleIDSignInOnSuccess', async (event: any) => {
-        try {
-          setLoading(true);
-          const idToken = event.detail.authorization.id_token;
-          await loginWithApple(idToken);
-          navigate('/users');
-        } catch (err) {
-          setError(err instanceof Error ? err.message : 'Authentication failed');
-        } finally {
-          setLoading(false);
-        }
-      });
-
-      document.addEventListener('AppleIDSignInOnFailure', (event: any) => {
-        setError(event.detail.error || 'Authentication failed');
       });
     };
 
     return () => {
       document.body.removeChild(script);
-      document.removeEventListener('AppleIDSignInOnSuccess', () => {});
-      document.removeEventListener('AppleIDSignInOnFailure', () => {});
     };
-  }, [navigate]);
+  }, []);
 
   const handleAppleSignIn = async () => {
     try {
       setLoading(true);
       setError('');
-      // In redirect mode, signIn() redirects the page (doesn't return)
       await window.AppleID.auth.signIn();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
