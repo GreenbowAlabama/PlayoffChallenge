@@ -30,7 +30,9 @@ export function Users() {
     onSuccess: (updatedUser) => {
       queryClient.setQueryData<User[]>(['users'], (old) =>
         old?.map((user) =>
-          user.id === updatedUser.id ? updatedUser : user
+          user.id === updatedUser.id
+            ? { ...user, ...updatedUser }
+            : user
         )
       );
     },
