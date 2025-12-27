@@ -27,13 +27,17 @@ export function Users() {
 
       return { previousUsers };
     },
+    onSuccess: (updatedUser) => {
+      queryClient.setQueryData<User[]>(['users'], (old) =>
+        old?.map((user) =>
+          user.id === updatedUser.id ? updatedUser : user
+        )
+      );
+    },
     onError: (_err, _variables, context) => {
       if (context?.previousUsers) {
         queryClient.setQueryData(['users'], context.previousUsers);
       }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
     },
   });
 
