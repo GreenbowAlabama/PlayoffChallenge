@@ -2,7 +2,7 @@ export interface User {
   id: string;
   email: string | null;
   phone: string | null;
-  is_paid: boolean;
+  paid: boolean;
 }
 
 export interface AuthResponse {

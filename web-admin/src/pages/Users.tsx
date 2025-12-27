@@ -21,7 +21,7 @@ export function Users() {
 
       queryClient.setQueryData<User[]>(['users'], (old) =>
         old?.map((user) =>
-          user.id === userId ? { ...user, is_paid: isPaid } : user
+          user.id === userId ? { ...user, paid: isPaid } : user
         )
       );
 
@@ -108,26 +108,26 @@ export function Users() {
                     <td className="whitespace-nowrap px-3 py-4 text-sm">
                       <span
                         className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${
-                          user.is_paid
+                          user.paid
                             ? 'bg-green-100 text-green-800'
                             : 'bg-red-100 text-red-800'
                         }`}
                       >
-                        {user.is_paid ? 'Eligible' : 'Ineligible'}
+                        {user.paid ? 'Eligible' : 'Ineligible'}
                       </span>
                     </td>
                     <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-0">
                       <Switch
-                        checked={user.is_paid}
-                        onChange={() => handleToggleEligibility(user.id, user.is_paid)}
+                        checked={user.paid}
+                        onChange={() => handleToggleEligibility(user.id, user.paid)}
                         className={`${
-                          user.is_paid ? 'bg-green-600' : 'bg-gray-200'
+                          user.paid ? 'bg-green-600' : 'bg-gray-200'
                         } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2`}
                       >
                         <span className="sr-only">Toggle eligibility</span>
                         <span
                           className={`${
-                            user.is_paid ? 'translate-x-6' : 'translate-x-1'
+                            user.paid ? 'translate-x-6' : 'translate-x-1'
                           } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
                         />
                       </Switch>

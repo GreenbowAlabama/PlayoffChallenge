@@ -11,6 +11,6 @@ export async function updateUserEligibility(
 ): Promise<User> {
   return apiRequest<User>(`/api/admin/users/${userId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ is_paid: isPaid }),
+    body: JSON.stringify({ paid: isPaid }),
   });
 }

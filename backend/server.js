@@ -3925,7 +3925,7 @@ app.get('/api/admin/users', async (req, res) => {
         email,
         name,
         phone,
-        is_paid,
+        paid,
         is_admin,
         apple_id,
         created_at
