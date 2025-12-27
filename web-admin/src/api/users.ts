@@ -9,8 +9,8 @@ export async function updateUserEligibility(
   userId: string,
   isPaid: boolean
 ): Promise<User> {
-  return apiRequest<User>(`/api/admin/users/${userId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ paid: isPaid }),
+  return apiRequest<User>(`/api/admin/users/${userId}/payment`, {
+    method: 'PUT',
+    body: JSON.stringify({ has_paid: isPaid }),
   });
 }
