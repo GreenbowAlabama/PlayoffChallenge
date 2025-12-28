@@ -3,6 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Login } from './pages/Login';
 import { Users } from './pages/Users';
 import { Dashboard } from './pages/Dashboard';
+import { DiagnosticsDashboard } from './pages/DiagnosticsDashboard';
+import { DiagnosticsUsers } from './pages/DiagnosticsUsers';
+import { DiagnosticsUserDetail } from './pages/DiagnosticsUserDetail';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -32,6 +35,9 @@ function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="users" element={<Users />} />
+            <Route path="diagnostics" element={<DiagnosticsDashboard />} />
+            <Route path="diagnostics/users" element={<DiagnosticsUsers />} />
+            <Route path="diagnostics/users/:userId" element={<DiagnosticsUserDetail />} />
           </Route>
         </Routes>
       </BrowserRouter>
