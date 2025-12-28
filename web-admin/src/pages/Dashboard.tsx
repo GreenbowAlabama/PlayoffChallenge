@@ -6,7 +6,6 @@ import {
   getUsers,
   setActiveWeek,
   processWeekTransition,
-  updateWeekStatus,
   cleanupNonAdminUsers,
   cleanupNonAdminPicks,
   getNonAdminUserCount,
@@ -53,13 +52,6 @@ export function Dashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cacheStatus'] });
       setWeekTransitionModalOpen(false);
-    },
-  });
-
-  const toggleWeekStatusMutation = useMutation({
-    mutationFn: (isActive: boolean) => updateWeekStatus(isActive),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cacheStatus'] });
     },
   });
 
