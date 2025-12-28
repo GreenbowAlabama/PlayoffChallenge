@@ -35,7 +35,7 @@ function AuthBadge({ provider }: { provider: string }) {
   );
 }
 
-function StatusRow({ label, value, type = 'text' }: { label: string; value: string | boolean | null; type?: 'text' | 'boolean' | 'date' }) {
+function StatusRow({ label, value, type = 'text' }: { label: string; value: string | boolean | null | undefined; type?: 'text' | 'boolean' | 'date' }) {
   let displayValue: React.ReactNode = '—';
 
   if (value !== null && value !== undefined) {
