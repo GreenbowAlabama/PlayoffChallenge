@@ -8,6 +8,8 @@ const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
 const requireAdmin = require('./middleware/adminAuth');
 const adminAuthRoutes = require('./routes/adminAuth');
+const adminDiagnosticsRoutes = require('./routes/admin.diagnostics.routes');
+const jobsService = require('./services/adminJobs.service');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1345,6 +1347,9 @@ app.use('/api/admin/auth', adminAuthRoutes);
 
 // Admin protection middleware
 app.use('/api/admin', requireAdmin);
+
+// Admin diagnostics routes (protected by requireAdmin above)
+app.use('/api/admin/diagnostics', adminDiagnosticsRoutes);
 
 // Update week active status (lock/unlock)
 app.post('/api/admin/update-week-status', async (req, res) => {
@@ -3186,23 +3191,42 @@ app.put('/api/admin/settings', async (req, res) => {
 
 // Start background polling for live stats (every 2 minutes)
 let liveStatsInterval = null;
+const LIVE_STATS_INTERVAL_MS = 2 * 60 * 1000;
 
 async function startLiveStatsPolling() {
+  // Register the job with diagnostics service
+  jobsService.registerJob('live-stats-polling', {
+    interval_ms: LIVE_STATS_INTERVAL_MS,
+    description: 'Polls ESPN for live game stats and updates scores'
+  });
+
   // Get current playoff week
   const configResult = await pool.query('SELECT current_playoff_week FROM game_settings LIMIT 1');
   const currentWeek = configResult.rows[0]?.current_playoff_week || 1;
-  
+
   console.log(`Starting live stats polling for week ${currentWeek}...`);
-  
+
   // Initial update
-  await updateLiveStats(currentWeek);
-  
+  await runLiveStatsWithTracking(currentWeek);
+
   // Poll every 2 minutes
   liveStatsInterval = setInterval(async () => {
     const config = await pool.query('SELECT current_playoff_week FROM game_settings LIMIT 1');
     const week = config.rows[0]?.current_playoff_week || 1;
+    await runLiveStatsWithTracking(week);
+  }, LIVE_STATS_INTERVAL_MS);
+}
+
+// Wrapper to track job status for diagnostics
+async function runLiveStatsWithTracking(week) {
+  jobsService.markJobRunning('live-stats-polling');
+  try {
     await updateLiveStats(week);
-  }, 2 * 60 * 1000);
+    jobsService.updateJobStatus('live-stats-polling', { success: true });
+  } catch (err) {
+    console.error('[Live Stats Job] Error:', err.message);
+    jobsService.updateJobStatus('live-stats-polling', { success: false, error: err.message });
+  }
 }
 
 // ==============================================
