@@ -1,13 +1,16 @@
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { logout } from '../api/auth';
 
 export function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
+
+  const isActive = (path: string) => location.pathname === path;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -21,12 +24,26 @@ export function Layout() {
                 </h1>
               </div>
               <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-                <a
-                  href="/users"
-                  className="inline-flex items-center border-b-2 border-indigo-500 px-1 pt-1 text-sm font-medium text-gray-900"
+                <Link
+                  to="/dashboard"
+                  className={`inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium ${
+                    isActive('/dashboard')
+                      ? 'border-indigo-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  }`}
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  to="/users"
+                  className={`inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium ${
+                    isActive('/users')
+                      ? 'border-indigo-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  }`}
                 >
                   Users
-                </a>
+                </Link>
               </div>
             </div>
             <div className="flex items-center">

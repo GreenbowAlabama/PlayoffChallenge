@@ -1,377 +1,291 @@
-# Web Admin Application Architecture
+# Handoff: web-admin Admin Endpoint Contract and UI Enhancement
+
+**Scope: web-admin**
+
+---
 
 ## Objective
 
-Design and specify a greenfield **Web Admin application** that provides administrative visibility and controls for the Playoff Challenge platform.
-
-The web admin is the exclusive home for all admin functionality. No admin capabilities remain in the iOS app.
-
----
-
-## High-Level Architecture
-
-### Application Model
-- **Type**: Single Page Application (SPA)
-- **Hosting**: Vercel (or equivalent static/SSR hosting platform)
-- **Backend**: Existing backend at current hosting location
-- **Architecture Style**: Thin, API-driven client with all business logic on backend
-
-### Design Philosophy
-- Web-first experience (not constrained by prior iOS admin UI)
-- Stateless frontend
-- All admin authorization enforced server-side via existing `requireAdmin` middleware
-- Minimal frontend complexity
-- Extensible for future admin capabilities
+Establish a strict, safe admin UI surface for web-admin by:
+1. Classifying all existing admin endpoints
+2. Exposing only 4 bounded capabilities in the UI
+3. Removing dangerous endpoints entirely
+4. Implementing guardrails for all UI-exposed actions
 
 ---
 
-## Authentication & Authorization Flow
+## Confirmed Assumptions
 
-### Overview
-The web admin uses **Login with Apple** as the sole authentication mechanism. All admin routes are protected by backend middleware.
-
-### Detailed Flow
-
-1. **User Initiates Login**
-   - User navigates to web admin root (e.g., `https://admin.playoffchallenge.com`)
-   - Unauthenticated users see only a login page with "Sign in with Apple" button
-
-2. **Apple Authentication (Client-Side)**
-   - Web client invokes Apple's JS SDK for web authentication
-   - User completes Apple authentication flow
-   - Web client receives Apple `id_token` (JWT from Apple)
-
-3. **Token Exchange (Backend)**
-   - Web client POSTs Apple `id_token` to `/api/admin/auth/*` endpoint
-   - Backend validates Apple token
-   - Backend checks if authenticated user has admin privileges
-   - If valid and admin: backend returns session token or sets session cookie
-   - If invalid or not admin: backend returns 401/403
-
-4. **Session Management (Client)**
-   - Web client stores session token/cookie
-   - All subsequent API requests include session credentials
-   - Session persists across page refreshes
-
-5. **Protected Route Access**
-   - Every admin API call hits `/api/admin/*` (except initial auth)
-   - Backend `requireAdmin` middleware validates session and admin status
-   - Unauthorized requests receive 401/403 and trigger redirect to login
-
-### Session Mechanism (Backend-Determined)
-- Backend session/token mechanism is opaque to frontend
-- Assumed to be either:
-  - Session cookie (httpOnly, secure, sameSite)
-  - OR bearer token returned in response body
-- Frontend adapts to whichever mechanism backend uses
-- No JWT decoding or session logic in frontend
+- web-admin is admin-only; `users.is_admin = true` is always preserved
+- The API is the source of truth; the UI must not invent behavior
+- Only 4 high-level capabilities may be UI-exposed
+- Per-user mutations are forbidden in the UI
+- Score deletion and backfill endpoints are unacceptable risk
 
 ---
 
-## Recommended Tech Stack
+## Critical Finding: Missing Endpoints
 
-### Frontend
-- **Framework**: React 18+ with TypeScript
-- **Routing**: React Router v6
-- **HTTP Client**: Native Fetch API (or Axios if preferred)
-- **API State Management**: React Query or SWR (handles caching, refetching, loading states)
-- **UI Library**: Tailwind CSS + Headless UI (or similar accessible component library)
-- **Build Tool**: Vite (fast, modern, good DX)
+Two of the 4 required capabilities have **no corresponding API endpoint**:
 
-### Rationale
-- **React + TypeScript**: Industry standard, good ecosystem, type safety
-- **React Query/SWR**: Eliminates need for Redux/complex state management for API-driven apps
-- **Tailwind CSS**: Rapid UI development, small bundle, no CSS-in-JS overhead
-- **Vite**: Fast dev server, optimized production builds
+| Capability | API Status |
+|------------|------------|
+| Non-admin user cleanup (bulk) | **DOES NOT EXIST** — only per-user DELETE exists |
+| Non-admin pick cleanup (bulk) | **DOES NOT EXIST** — no picks admin endpoint found |
 
-### Hosting & Deployment
-- **Primary**: Vercel (zero-config React deployment, HTTPS, edge network)
-- **Alternatives**: Netlify, AWS Amplify, Cloudflare Pages
-- **Build Output**: Static SPA (client-side routing)
-- **Environment Variables**: Backend API URL configured via Vercel env vars
+**Worker must create these endpoints before UI can expose them.**
 
 ---
 
-## API Integration Plan
+## Complete Admin Endpoint Inventory
 
-### Existing Admin Endpoints (Reuse)
-
-Based on backend analysis, the following endpoints are available and protected by `requireAdmin`:
-
-#### User Management (Core Requirement)
-| Method | Endpoint | Purpose | Request | Response |
-|--------|----------|---------|---------|----------|
-| GET | `/api/admin/users` | List all users | None | Array of user objects with: `id`, `email`, `phone`, `is_paid` |
-| PATCH | `/api/admin/users/:userId` | Update user eligibility | `{ is_paid: boolean }` | Updated user object |
-
-#### Additional Capabilities (Future Use)
-| Method | Endpoint | Purpose | Notes |
-|--------|----------|---------|-------|
-| GET | `/api/admin/settings` | Read admin settings | Available for future features |
-| PUT | `/api/admin/settings` | Update settings | Available for future features |
-| PATCH | `/api/admin/week` | Toggle week active state | Available for future features |
-
-### Frontend API Layer
-
-Recommended structure:
-
-```
-src/
-  api/
-    client.ts          # Axios/fetch wrapper with auth headers
-    auth.ts            # Login, logout, session check
-    users.ts           # User list, update eligibility
-    settings.ts        # Future: settings CRUD
-```
-
-Each API module exports typed functions:
-- Type-safe request/response contracts
-- Automatic session token inclusion
-- Centralized error handling
-- React Query integration
+### Classification Key
+- **Type**: READ / DESTRUCTIVE / SYSTEM
+- **Disposition**: UI-EXPOSED / API-ONLY / DELETE-ENTIRELY
 
 ---
 
-## UI Design (Minimum Viable)
+### UI-EXPOSED (4 Capabilities)
 
-### Page Structure
+These endpoints support the allowed UI surface.
 
-#### 1. Login Page (`/login`)
-- "Sign in with Apple" button
-- No other content
-- Redirects to `/users` on successful auth
+#### Capability 1: Contest/Week Reset and Activation
 
-#### 2. User List Page (`/users`)
-- **Table View** displaying:
-  - User ID
-  - Email (if available, else "N/A")
-  - Phone (if available, else "N/A")
-  - Eligibility Status (visual indicator: badge or toggle)
-  - Action: Toggle eligibility button/switch
-- **Functionality**:
-  - Fetch users via `GET /api/admin/users`
-  - Toggle eligibility via `PATCH /api/admin/users/:userId`
-  - Optimistic UI updates (toggle immediately, revert on error)
-  - Loading states during fetch/update
-  - Error handling with user-friendly messages
+| Method | Path | Type | Notes |
+|--------|------|------|-------|
+| POST | /api/admin/set-active-week | DESTRUCTIVE | Sets active week state |
+| POST | /api/admin/update-week-status | DESTRUCTIVE | Updates week active/inactive |
+| POST | /api/admin/update-current-week | DESTRUCTIVE | Changes current playoff week |
+| POST | /api/admin/process-week-transition | DESTRUCTIVE | Advances contest to next week |
 
-#### 3. Layout (Shared)
-- Top nav bar:
-  - App title/logo
-  - Current admin user info received from api
-  - Logout button
-- Side nav (optional, for future expansion):
-  - "Users" link
-  - Placeholder for future admin sections
+**UI Requirement**: Compose these into a single "Week Management" panel with explicit confirmation.
 
-### Design Constraints
-- **Responsive**: Desktop-first, but functional on tablet
-- **Accessible**: WCAG 2.1 AA compliance (semantic HTML, ARIA labels, keyboard nav)
-- **Minimal**: No unnecessary features or UI chrome
+#### Capability 2: Non-Admin User Cleanup
 
----
+| Method | Path | Type | Notes |
+|--------|------|------|-------|
+| — | **ENDPOINT MUST BE CREATED** | — | POST /api/admin/users/cleanup |
 
-## Security Considerations
+**Required behavior**: Delete all users where `is_admin = false`. Must preserve admin users.
 
-### Backend Enforcement (Primary)
-- **All** admin authorization is enforced server-side via `requireAdmin` middleware
-- Frontend NEVER assumes admin status without backend validation
-- No client-side admin logic beyond UI rendering
+#### Capability 3: Non-Admin Pick Cleanup
 
-### Frontend Security Measures
+| Method | Path | Type | Notes |
+|--------|------|------|-------|
+| — | **ENDPOINT MUST BE CREATED** | — | POST /api/admin/picks/cleanup |
 
-#### 1. Session Security
-- If using bearer tokens: store in `localStorage` with secure practices
-  - Clear on logout
-  - Validate on every page load
-- If using cookies: ensure backend sets `httpOnly`, `secure`, `sameSite=strict`
+**Required behavior**: Delete all picks belonging to non-admin users. Must preserve admin picks.
 
-#### 2. CORS Configuration
-- Backend must whitelist web admin origin (e.g., `https://admin.playoffchallenge.com`)
-- No wildcard CORS in production
+#### Capability 4: Read-Only Game State Inspection
 
-#### 3. HTTPS Only
-- Web admin MUST be served over HTTPS (Vercel provides by default)
-- Mixed content warnings indicate misconfiguration
+| Method | Path | Type | Notes |
+|--------|------|------|-------|
+| GET | /api/admin/users | READ | List all users |
+| GET | /api/admin/cache-status | READ | View cache state |
+| GET | /api/admin/position-requirements | READ | View position rules |
+| GET | /api/admin/check-espn-ids | READ | View ESPN ID mapping status |
 
-#### 4. Input Validation
-- Frontend validates user input (e.g., toggle actions) before sending
-- Backend performs authoritative validation (never trust client)
-
-#### 5. Error Handling
-- Do NOT expose backend error details to UI (log internally, show generic messages)
-- Sensitive info (stack traces, DB errors) only in server logs
-
-#### 6. Logout
-- Logout clears client-side session state AND calls backend logout endpoint (if exists)
-- Redirect to login page
-- Prevent back-button access to protected pages
+**Note**: PUT /api/admin/settings exists but mutations are API-ONLY.
 
 ---
 
-## Deployment Overview
+### API-ONLY (Never UI-Exposed)
 
-### Hosting
-1. **Web Admin**: Deployed to Vercel
-   - Git-based deployment (main branch = production)
-   - Environment variables for backend API URL
-   - Automatic HTTPS, CDN distribution
+These endpoints remain in the API but must never appear in web-admin UI.
 
-2. **Backend**: No changes to existing hosting
-   - CORS updated to allow web admin origin
-   - No other backend modifications required
+#### Per-User Mutations
 
-### Environment Configuration
-- **Development**: `VITE_API_URL=http://localhost:3000` (or backend dev URL)
-- **Production**: `VITE_API_URL=https://api.playoffchallenge.com` (or actual backend URL)
+| Method | Path | Type | Reason |
+|--------|------|------|--------|
+| PUT | /api/admin/users/:id/payment | DESTRUCTIVE | Per-user mutation forbidden |
+| DELETE | /api/admin/users/:id | DESTRUCTIVE | Per-user mutation forbidden |
 
-### CI/CD (Optional)
-- Vercel auto-deploys on git push (no manual CI/CD needed)
-- Preview deployments for PRs
+#### Sync Operations
+
+| Method | Path | Type | Reason |
+|--------|------|------|--------|
+| POST | /api/admin/sync-espn-ids | DESTRUCTIVE | System operation |
+| POST | /api/admin/sync-players | DESTRUCTIVE | System operation |
+| POST | /api/admin/populate-image-urls | DESTRUCTIVE | System operation |
+| POST | /api/admin/update-live-stats | DESTRUCTIVE | System operation |
+| PUT | /api/admin/players/:playerId/espn-id | DESTRUCTIVE | Per-player mutation |
+
+#### Compliance and Diagnostics
+
+| Method | Path | Type | Reason |
+|--------|------|------|--------|
+| GET | /api/admin/compliance/state-distribution | READ | Diagnostic only |
+| GET | /api/admin/compliance/ip-mismatches | READ | Diagnostic only |
+| GET | /api/admin/compliance/signup-attempts | READ | Diagnostic only |
+
+#### Settings and Rules Mutation
+
+| Method | Path | Type | Reason |
+|--------|------|------|--------|
+| PUT | /api/admin/settings | DESTRUCTIVE | Config mutation |
+| PUT | /api/admin/position-requirements/:id | DESTRUCTIVE | Rules mutation |
+| PUT | /api/admin/rules/:id | DESTRUCTIVE | Rules mutation |
+| PUT | /api/admin/terms | DESTRUCTIVE | Legal mutation |
+
+#### Legacy/Ambiguous
+
+| Method | Path | Type | Reason |
+|--------|------|------|--------|
+| POST | /admin/refresh-week | DESTRUCTIVE | Missing /api prefix; review for deletion |
+
+#### Auth
+
+| Method | Path | Type | Reason |
+|--------|------|------|--------|
+| POST | /api/admin/auth/apple | SYSTEM | Auth flow; not user-invoked |
 
 ---
 
-## API Contract Assumptions
+### DELETE-ENTIRELY (Must Be Removed from API)
 
-The architecture assumes the following about `/api/admin/auth`:
+These endpoints represent unacceptable risk and must be deleted.
 
-### Admin Authentication Endpoint
-**Assumed Endpoint**: `POST /api/admin/auth/apple` (or similar)
+| Method | Path | Type | Risk |
+|--------|------|------|------|
+| DELETE | /api/admin/scores/teams/:weekNumber | DESTRUCTIVE | Selective score destruction |
+| DELETE | /api/admin/scores/:userId/:weekNumber | DESTRUCTIVE | Per-user score destruction |
+| POST | /api/admin/backfill-playoff-stats | DESTRUCTIVE | Historical data replay |
+| POST | /api/admin/initialize-week-scores | DESTRUCTIVE | Partial recomputation |
+| POST | /api/admin/migrate-add-image-url | DESTRUCTIVE | One-off migration artifact |
 
-**Request**:
-```json
-{
-  "id_token": "eyJraWQiOiJXNldjT0tC..."
-}
+**Worker instruction**: Remove these route handlers entirely from server.js.
+
+---
+
+## UI Layout Specification
+
+### Panel Structure
+
 ```
+┌─────────────────────────────────────────────────────────┐
+│  GAME STATE (Read-Only)                                 │
+│  ─────────────────────────────────────────────────────  │
+│  Current Week: [value]    Season: [value]               │
+│  Week Active: [yes/no]    Users: [count]                │
+│  Cache Status: [healthy/stale]                          │
+└─────────────────────────────────────────────────────────┘
 
-**Response (Success - 200)**:
-```json
-{
-  "token": "session-token-string"
-}
-```
-OR
-```
-Set-Cookie: session=...; HttpOnly; Secure; SameSite=Strict
-```
+┌─────────────────────────────────────────────────────────┐
+│  WEEK MANAGEMENT                                        │
+│  ─────────────────────────────────────────────────────  │
+│  [Set Active Week]  [Process Week Transition]           │
+│                                                         │
+│  ⚠️ These actions affect all users                      │
+└─────────────────────────────────────────────────────────┘
 
-**Response (Unauthorized - 401/403)**:
-```json
-{
-  "error": "Not authorized as admin"
-}
-```
-
-### User List Endpoint
-**Endpoint**: `GET /api/admin/users`
-
-**Response**:
-```json
-[
-  {
-    "id": "uuid",
-    "email": "user@example.com",
-    "phone": "+1234567890",
-    "is_paid": true
-  },
-  ...
-]
-```
-
-### User Update Endpoint
-**Endpoint**: `PATCH /api/admin/users/:userId`
-
-**Request**:
-```json
-{
-  "is_paid": false
-}
-```
-
-**Response**:
-```json
-{
-  "id": "uuid",
-  "email": "user@example.com",
-  "phone": "+1234567890",
-  "is_paid": false
-}
+┌─────────────────────────────────────────────────────────┐
+│  ⛔ DESTRUCTIVE ACTIONS                                 │
+│  ─────────────────────────────────────────────────────  │
+│  All actions below permanently delete data.             │
+│  Admin users and admin picks are always preserved.      │
+│                                                         │
+│  [Clear Non-Admin Users]    [Clear Non-Admin Picks]     │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Risks & Guardrails
+## Guardrails Per Capability
 
-### Risk: Admin Authorization Bypass
-- **Mitigation**: All admin enforcement is server-side. Frontend is untrusted.
+### Capability 1: Week Management
 
-### Risk: Session Hijacking
-- **Mitigation**: HTTPS only, secure cookies (if used), short session TTL
+| Action | Guardrail |
+|--------|-----------|
+| Set Active Week | Dropdown selection + confirm dialog |
+| Process Week Transition | Two-step confirm: "This will advance all users to week N" |
 
-### Risk: CORS Misconfiguration
-- **Mitigation**: Explicitly whitelist admin origin, test in production
+### Capability 2: Clear Non-Admin Users
 
-### Risk: Login with Apple Web Flow Issues
-- **Mitigation**: Follow Apple's official web SDK docs, test across browsers
+| Step | Requirement |
+|------|-------------|
+| 1 | Display count of users to be deleted |
+| 2 | Require typed confirmation: `DELETE USERS` |
+| 3 | Show explicit message: "Admin users will NOT be deleted" |
+| 4 | Disable button for 3 seconds after modal opens |
 
-### Risk: Scope Creep (Admin UI Redesign)
-- **Mitigation**: Architecture explicitly limits scope to minimal viable admin capabilities
+### Capability 3: Clear Non-Admin Picks
 
-### Risk: Backend API Changes
-- **Mitigation**: Frontend API layer abstracts backend contracts, easy to update
+| Step | Requirement |
+|------|-------------|
+| 1 | Display count of picks to be deleted |
+| 2 | Require typed confirmation: `DELETE PICKS` |
+| 3 | Show explicit message: "Admin picks will NOT be deleted" |
+| 4 | Disable button for 3 seconds after modal opens |
+
+### Capability 4: Game State Inspection
+
+| Requirement |
+|-------------|
+| Read-only display; no mutation controls |
+| Auto-refresh every 30 seconds or manual refresh button |
 
 ---
 
-## Forward-Looking Considerations
+## Validation Steps (Ordered)
 
-This architecture supports future expansion:
+1. **Verify endpoint removal**: Confirm DELETE-ENTIRELY endpoints are removed from server.js
+2. **Verify new endpoints exist**: Confirm /api/admin/users/cleanup and /api/admin/picks/cleanup are created
+3. **Verify admin preservation**: Call cleanup endpoints and confirm `is_admin = true` users/picks remain
+4. **Verify UI isolation**: Confirm no API-ONLY endpoints are callable from web-admin
+5. **Verify guardrails**: Attempt destructive action; confirm typed confirmation is required
+6. **Verify read-only panel**: Confirm game state panel has no mutation controls
 
-1. **Additional Admin Capabilities**
-   - Settings management (already have endpoints)
-   - Week/state controls
-   - Analytics dashboards
-   - User activity logs
+---
 
-2. **Multi-Role Admin**
-   - Backend already has `requireAdmin` enforcement
-   - Can extend to role-based permissions (super admin, moderator, etc.)
+## Risks and Edge Cases
 
-3. **Real-Time Updates**
-   - WebSocket or SSE for live user status
-   - Requires backend support
+| Risk | Mitigation |
+|------|------------|
+| Admin accidentally deletes themselves | Cleanup endpoints explicitly filter `is_admin = false` |
+| UI calls wrong endpoint | UI must use capability-specific wrapper functions, not raw fetch |
+| Stale UI shows wrong state | Read-only panel auto-refreshes; actions refresh state on completion |
+| Typed confirmation bypassed | Disable submit button until exact match |
 
-4. **Audit Logging**
-   - Track admin actions (who toggled eligibility, when)
-   - Backend feature, frontend just displays
+---
+
+## Worker Instructions
+
+### Phase 1: API Cleanup
+
+1. Delete the following route handlers from `backend/server.js`:
+   - DELETE /api/admin/scores/teams/:weekNumber (line ~2284)
+   - DELETE /api/admin/scores/:userId/:weekNumber (line ~2316)
+   - POST /api/admin/backfill-playoff-stats (lines ~1707 and ~2009)
+   - POST /api/admin/initialize-week-scores (line ~1942)
+   - POST /api/admin/migrate-add-image-url (line ~1426)
+
+2. Create two new endpoints in `backend/server.js`:
+   - POST /api/admin/users/cleanup
+     - Delete from users WHERE is_admin = false
+     - Return count of deleted users
+   - POST /api/admin/picks/cleanup
+     - Delete from picks WHERE user_id IN (SELECT id FROM users WHERE is_admin = false)
+     - Return count of deleted picks
+
+### Phase 2: web-admin UI
+
+1. Create admin dashboard with 3 panels as specified
+2. Implement typed confirmation modal component
+3. Wire UI-EXPOSED endpoints only
+4. Ensure no API-ONLY endpoints are imported or callable
+
+### Phase 3: Verification
+
+1. Run validation steps in order
+2. Confirm all exit criteria pass
 
 ---
 
 ## Exit Criteria
 
-This architecture is complete when:
-
-1. Web admin authenticates via Login with Apple
-2. Authenticated admins can view user list (ID, email, phone, eligibility)
-3. Admins can toggle user eligibility and persist changes
-4. All admin API calls are protected by backend middleware
-5. No admin functionality remains in iOS app
-6. Web admin is deployed to production hosting
-
----
-
-## Next Steps (For Worker)
-
-This architecture is now **APPROVED FOR IMPLEMENTATION**.
-
-The Worker agent should:
-
-1. Scaffold React + TypeScript + Vite project
-2. Implement Login with Apple web authentication
-3. Integrate with `/api/admin/auth` for session creation
-4. Build user list page using `/api/admin/users`
-5. Implement eligibility toggle using `/api/admin/users/:userId`
-6. Configure Vercel deployment
-7. Test end-to-end flow with backend
-
-**No architectural decisions remain. This is an implementation-ready handoff.**
+- [ ] 5 dangerous endpoints removed from API
+- [ ] 2 new cleanup endpoints created and functional
+- [ ] web-admin exposes exactly 4 capabilities
+- [ ] All destructive actions require typed confirmation
+- [ ] Admin users/picks survive all cleanup operations
+- [ ] No API-ONLY endpoints accessible from UI
