@@ -13,10 +13,11 @@ import {
 
 export function Dashboard() {
   const queryClient = useQueryClient();
-  const [selectedWeek, setSelectedWeek] = useState<number>(19);
+  const [startingWeekInput, setStartingWeekInput] = useState<string>('');
   const [userCleanupModalOpen, setUserCleanupModalOpen] = useState(false);
   const [pickCleanupModalOpen, setPickCleanupModalOpen] = useState(false);
   const [weekTransitionModalOpen, setWeekTransitionModalOpen] = useState(false);
+  const [setWeekModalOpen, setSetWeekModalOpen] = useState(false);
   const [nonAdminUserCount, setNonAdminUserCount] = useState<number>(-1);
 
   // Read-only queries with auto-refresh
@@ -44,6 +45,8 @@ export function Dashboard() {
     mutationFn: (week: number) => setActiveWeek(week),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cacheStatus'] });
+      setSetWeekModalOpen(false);
+      setStartingWeekInput('');
     },
   });
 
@@ -152,44 +155,47 @@ export function Dashboard() {
           <h2 className="text-lg font-medium text-gray-900">Week Management</h2>
           <p className="text-sm text-gray-500">Control contest week state</p>
         </div>
-        <div className="p-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label htmlFor="weekSelect" className="text-sm font-medium text-gray-700">
-                Set Active Week:
-              </label>
-              <select
-                id="weekSelect"
-                value={selectedWeek}
-                onChange={(e) => setSelectedWeek(Number(e.target.value))}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              >
-                {[19, 20, 21, 22].map((week) => (
-                  <option key={week} value={week}>
-                    Week {week} (Playoff Week {week - 18})
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => setWeekMutation.mutate(selectedWeek)}
-                disabled={setWeekMutation.isPending}
-                className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
-              >
-                {setWeekMutation.isPending ? 'Setting...' : 'Set Week'}
-              </button>
-            </div>
-
-            <div className="h-8 w-px bg-gray-200" />
-
+        <div className="p-4 space-y-4">
+          {/* Set Starting NFL Week */}
+          <div className="flex flex-wrap items-center gap-3">
+            <label htmlFor="startingWeek" className="text-sm font-medium text-gray-700">
+              Set Starting NFL Week:
+            </label>
+            <input
+              id="startingWeek"
+              type="number"
+              min="1"
+              max="22"
+              value={startingWeekInput}
+              onChange={(e) => setStartingWeekInput(e.target.value)}
+              placeholder="e.g. 19"
+              className="w-24 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
             <button
-              onClick={() => setWeekTransitionModalOpen(true)}
-              className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+              onClick={() => setSetWeekModalOpen(true)}
+              disabled={!startingWeekInput || isNaN(Number(startingWeekInput))}
+              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Process Week Transition
+              Set Week
             </button>
           </div>
 
-          <div className="mt-4 rounded-md bg-amber-50 border border-amber-200 p-3">
+          <div className="h-px bg-gray-200" />
+
+          {/* Advance to Next Week */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setWeekTransitionModalOpen(true)}
+              className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+            >
+              Advance to Next Week
+            </button>
+            <span className="text-sm text-gray-500">
+              Progress the contest to the next NFL week
+            </span>
+          </div>
+
+          <div className="rounded-md bg-amber-50 border border-amber-200 p-3">
             <p className="text-sm text-amber-800">
               <strong>Warning:</strong> These actions affect all users in the contest.
             </p>
@@ -268,11 +274,22 @@ export function Dashboard() {
         isOpen={weekTransitionModalOpen}
         onClose={() => setWeekTransitionModalOpen(false)}
         onConfirm={() => weekTransitionMutation.mutate()}
-        title="Process Week Transition"
-        description="This will advance all users to the next playoff week. Ensure all scores are finalized before proceeding."
-        confirmText="Process Transition"
+        title="Advance to Next Week"
+        description="This will advance the contest to the next NFL week. Ensure all scores are finalized before proceeding. This action affects all users."
+        confirmText="Advance Week"
         confirmationPhrase="ADVANCE WEEK"
         isLoading={weekTransitionMutation.isPending}
+      />
+
+      <ConfirmationModal
+        isOpen={setWeekModalOpen}
+        onClose={() => setSetWeekModalOpen(false)}
+        onConfirm={() => setWeekMutation.mutate(Number(startingWeekInput))}
+        title="Set Starting NFL Week"
+        description={`This will set the active NFL week to Week ${startingWeekInput}. The API will fetch stats for this week. This action affects all users.`}
+        confirmText="Set Week"
+        confirmationPhrase="SET WEEK"
+        isLoading={setWeekMutation.isPending}
       />
     </div>
   );

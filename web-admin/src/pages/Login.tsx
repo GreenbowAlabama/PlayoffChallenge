@@ -31,7 +31,7 @@ export function Login() {
     const token = searchParams.get('token');
     if (token) {
       localStorage.setItem('admin_token', token);
-      navigate('/users', { replace: true });
+      navigate('/dashboard', { replace: true });
       return;
     }
   }, [searchParams, navigate]);
