@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import {
@@ -101,12 +102,13 @@ export function Dashboard() {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-gray-50 rounded-md p-3">
+              <Link to="/users" className="bg-gray-50 rounded-md p-3 block hover:bg-gray-100 transition-colors">
                 <dt className="text-sm font-medium text-gray-500">Users</dt>
-                <dd className="mt-1 text-2xl font-semibold text-gray-900">
+                <dd className="mt-1 text-2xl font-semibold text-indigo-600">
                   {userStats?.count ?? '—'}
                 </dd>
-              </div>
+                <span className="text-xs text-indigo-500">View all →</span>
+              </Link>
               <div className="bg-gray-50 rounded-md p-3">
                 <dt className="text-sm font-medium text-gray-500">Cached Players</dt>
                 <dd className="mt-1 text-2xl font-semibold text-gray-900">
