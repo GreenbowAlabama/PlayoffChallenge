@@ -2562,35 +2562,59 @@ app.put('/api/users/:userId/accept-tos', async (req, res) => {
 // ACCOUNT DELETION ENDPOINT
 // ==============================================
 
+// Shared helper for deleting a user and all related data
+// Accepts a client from pool.connect() - caller is responsible for BEGIN/COMMIT/ROLLBACK
+async function deleteUserById(client, userId) {
+  // Delete in order: picks, player_swaps, scores, then user
+  await client.query('DELETE FROM picks WHERE user_id = $1', [userId]);
+  await client.query('DELETE FROM player_swaps WHERE user_id = $1', [userId]);
+  await client.query('DELETE FROM scores WHERE user_id = $1', [userId]);
+  const result = await client.query('DELETE FROM users WHERE id = $1 RETURNING *', [userId]);
+  return result;
+}
+
 // DELETE /api/user - Permanently delete the authenticated user's account
 // This endpoint satisfies Apple App Review requirements for account deletion
 app.delete('/api/user', async (req, res) => {
+  const client = await pool.connect();
+  let inTransaction = false;
   try {
     const { userId } = req.query;
 
     if (!userId) {
+      client.release();
       return res.status(401).json({ error: 'Unauthorized - userId is required' });
     }
 
+    await client.query('BEGIN');
+    inTransaction = true;
+
     // Verify user exists
-    const userCheck = await pool.query(
+    const userCheck = await client.query(
       'SELECT id FROM users WHERE id = $1',
       [userId]
     );
 
     if (userCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      client.release();
       return res.status(401).json({ error: 'Unauthorized - user not found' });
     }
 
     console.log(`[ACCOUNT DELETION] Deleting user: ${userId}`);
 
-    // Delete user - CASCADE will handle related records (picks, scores, player_swaps)
-    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+    await deleteUserById(client, userId);
+    await client.query('COMMIT');
 
     console.log(`[ACCOUNT DELETION] User ${userId} permanently deleted`);
 
+    client.release();
     res.json({ success: true });
   } catch (err) {
+    if (inTransaction) {
+      await client.query('ROLLBACK');
+    }
+    client.release();
     console.error('Error deleting user account:', err);
     res.status(500).json({ error: 'Failed to delete account' });
   }
@@ -3401,20 +3425,18 @@ app.put('/api/admin/users/:id/payment', async (req, res) => {
 
 // Delete user (admin only)
 app.delete('/api/admin/users/:id', async (req, res) => {
+  const client = await pool.connect();
+  let inTransaction = false;
   try {
     const { id } = req.params;
 
-    // Delete user's picks first (foreign key constraint)
-    await pool.query('DELETE FROM picks WHERE user_id = $1', [id]);
+    await client.query('BEGIN');
+    inTransaction = true;
 
-    // Delete user's scores
-    await pool.query('DELETE FROM scores WHERE user_id = $1', [id]);
+    const result = await deleteUserById(client, id);
+    await client.query('COMMIT');
 
-    // Delete the user
-    const result = await pool.query(
-      'DELETE FROM users WHERE id = $1 RETURNING *',
-      [id]
-    );
+    client.release();
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
@@ -3422,6 +3444,10 @@ app.delete('/api/admin/users/:id', async (req, res) => {
 
     res.json({ success: true, deletedUser: result.rows[0] });
   } catch (err) {
+    if (inTransaction) {
+      await client.query('ROLLBACK');
+    }
+    client.release();
     console.error('Error deleting user:', err);
     res.status(500).json({ error: err.message });
   }
