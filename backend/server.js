@@ -2559,6 +2559,44 @@ app.put('/api/users/:userId/accept-tos', async (req, res) => {
 });
 
 // ==============================================
+// ACCOUNT DELETION ENDPOINT
+// ==============================================
+
+// DELETE /api/user - Permanently delete the authenticated user's account
+// This endpoint satisfies Apple App Review requirements for account deletion
+app.delete('/api/user', async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized - userId is required' });
+    }
+
+    // Verify user exists
+    const userCheck = await pool.query(
+      'SELECT id FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userCheck.rows.length === 0) {
+      return res.status(401).json({ error: 'Unauthorized - user not found' });
+    }
+
+    console.log(`[ACCOUNT DELETION] Deleting user: ${userId}`);
+
+    // Delete user - CASCADE will handle related records (picks, scores, player_swaps)
+    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+
+    console.log(`[ACCOUNT DELETION] User ${userId} permanently deleted`);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting user account:', err);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
+// ==============================================
 // ADMIN COMPLIANCE ENDPOINTS
 // ==============================================
 
