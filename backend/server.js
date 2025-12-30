@@ -2242,7 +2242,7 @@ app.post('/api/users', authLimiter, async (req, res) => {
         gen_random_uuid(), $1, $2, $3, $4,
         $5, $6, NOW(),
         NOW(), true, $7,
-        NOW(), NOW(), false
+        NOW(), NOW(), true
       )
       RETURNING *`,
       [
