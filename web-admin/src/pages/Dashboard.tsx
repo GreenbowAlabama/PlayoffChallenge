@@ -250,10 +250,7 @@ export function Dashboard() {
       <ConfirmationModal
         isOpen={userCleanupModalOpen}
         onClose={() => setUserCleanupModalOpen(false)}
-        onConfirm={() => {
-          alert('onConfirm fired');
-          userCleanupMutation.mutate();
-        }}
+        onConfirm={() => userCleanupMutation.mutate()}
         title="Delete All Non-Admin Users"
         description="This action will permanently delete all users who are not administrators. This cannot be undone."
         confirmText="Delete Users"
@@ -266,7 +263,10 @@ export function Dashboard() {
       <ConfirmationModal
         isOpen={pickCleanupModalOpen}
         onClose={() => setPickCleanupModalOpen(false)}
-        onConfirm={() => pickCleanupMutation.mutate()}
+        onConfirm={() => {
+          alert('onConfirm fired');
+          pickCleanupMutation.mutate();
+        }}
         title="Delete All Non-Admin Picks"
         description="This action will permanently delete all picks belonging to non-admin users. This cannot be undone."
         confirmText="Delete Picks"
