@@ -53,13 +53,19 @@ export function ConfirmationModal({
   const isConfirmEnabled = inputValue === confirmationPhrase && !isButtonDisabled && !isLoading;
 
   const handleConfirm = () => {
+    console.log('CONFIRM CLICKED');
     if (isConfirmEnabled) {
       onConfirm();
     }
   };
 
+  const handleClose = () => {
+    console.log('DIALOG CLOSED');
+    onClose();
+  };
+
   return (
-    <Dialog open={isOpen} onClose={onClose} className="relative z-50">
+    <Dialog open={isOpen} onClose={handleClose} className="relative z-50">
       <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
 
       <div className="fixed inset-0 flex items-center justify-center p-4">
@@ -132,6 +138,7 @@ export function ConfirmationModal({
             </button>
             <button
               type="button"
+              onMouseDown={() => console.log('MOUSEDOWN')}
               onClick={handleConfirm}
               disabled={!isConfirmEnabled}
               className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
