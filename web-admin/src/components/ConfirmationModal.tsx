@@ -61,11 +61,26 @@ export function ConfirmationModal({
   };
 
   return (
-    <Dialog open={isOpen} onClose={() => {}}>
-      <div className="fixed inset-0 z-50">
-        <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-        <div className="fixed inset-0 flex items-center justify-center p-4">
-          <Dialog.Panel className="mx-auto max-w-md rounded-lg bg-white p-6 shadow-xl">
+    <Dialog
+      open={isOpen}
+      onClose={() => {}}
+      style={{ position: 'fixed', inset: 0, zIndex: 9999 }}
+    >
+      <div
+        style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)' }}
+        aria-hidden="true"
+      />
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem',
+        }}
+      >
+        <Dialog.Panel className="mx-auto max-w-md rounded-lg bg-white p-6 shadow-xl">
           <div className="flex items-center gap-3 mb-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
               <svg
@@ -147,8 +162,7 @@ export function ConfirmationModal({
               )}
             </button>
           </div>
-          </Dialog.Panel>
-        </div>
+        </Dialog.Panel>
       </div>
     </Dialog>
   );
