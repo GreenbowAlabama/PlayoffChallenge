@@ -27,32 +27,29 @@ export function ConfirmationModal({
   isLoading = false,
 }: ConfirmationModalProps) {
   const [inputValue, setInputValue] = useState('');
-  const [isButtonDisabled, setIsButtonDisabled] = useState(true);
   const [countdown, setCountdown] = useState(3);
 
   // Reset state when modal opens
   useEffect(() => {
-    if (isOpen) {
-      setInputValue('');
-      setIsButtonDisabled(true);
-      setCountdown(3);
+    if (!isOpen) return;
+    // eslint-disable-next-line
+    setInputValue('');
+    setCountdown(3);
 
-      // 3-second countdown before enabling button
-      const timer = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            setIsButtonDisabled(false);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
-      return () => clearInterval(timer);
-    }
+    return () => clearInterval(timer);
   }, [isOpen]);
 
+  const isButtonDisabled = countdown > 0;
   const isConfirmEnabled = inputValue === confirmationPhrase && !isButtonDisabled && !isLoading;
 
   const handleConfirm = () => {
