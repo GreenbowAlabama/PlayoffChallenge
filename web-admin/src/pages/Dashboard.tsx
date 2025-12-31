@@ -250,7 +250,10 @@ export function Dashboard() {
       <ConfirmationModal
         isOpen={userCleanupModalOpen}
         onClose={() => setUserCleanupModalOpen(false)}
-        onConfirm={() => userCleanupMutation.mutate()}
+        onConfirm={() => {
+          alert('onConfirm fired');
+          userCleanupMutation.mutate();
+        }}
         title="Delete All Non-Admin Users"
         description="This action will permanently delete all users who are not administrators. This cannot be undone."
         confirmText="Delete Users"
