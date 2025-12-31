@@ -263,10 +263,7 @@ export function Dashboard() {
       <ConfirmationModal
         isOpen={pickCleanupModalOpen}
         onClose={() => setPickCleanupModalOpen(false)}
-        onConfirm={() => {
-          alert('onConfirm fired');
-          pickCleanupMutation.mutate();
-        }}
+        onConfirm={() => pickCleanupMutation.mutate()}
         title="Delete All Non-Admin Picks"
         description="This action will permanently delete all picks belonging to non-admin users. This cannot be undone."
         confirmText="Delete Picks"

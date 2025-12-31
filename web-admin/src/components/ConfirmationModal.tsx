@@ -53,7 +53,6 @@ export function ConfirmationModal({
   const isConfirmEnabled = inputValue === confirmationPhrase && !isButtonDisabled && !isLoading;
 
   const handleConfirm = () => {
-    alert(`handleConfirm called. isConfirmEnabled=${isConfirmEnabled}, inputValue="${inputValue}", confirmationPhrase="${confirmationPhrase}", countdown=${countdown}`);
     if (isConfirmEnabled) {
       onConfirm();
     }
