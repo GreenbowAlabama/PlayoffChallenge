@@ -172,7 +172,6 @@ async function mapESPNAthleteToPlayer(athleteId, athleteName, teamAbbrev = null)
           'UPDATE players SET espn_id = $1 WHERE id = $2',
           [athleteId.toString(), result.rows[0].id]
         );
-        console.log(`Matched ${athleteName} via normalized name -> ${result.rows[0].id}`);
         return result.rows[0].id;
       }
 
@@ -192,7 +191,6 @@ async function mapESPNAthleteToPlayer(athleteId, athleteName, teamAbbrev = null)
             'UPDATE players SET espn_id = $1 WHERE id = $2',
             [athleteId.toString(), result.rows[0].id]
           );
-          console.log(`Matched ${athleteName} via last name + team -> ${result.rows[0].id}`);
           return result.rows[0].id;
         }
       }
@@ -210,7 +208,6 @@ async function mapESPNAthleteToPlayer(athleteId, athleteName, teamAbbrev = null)
           'UPDATE players SET espn_id = $1 WHERE id = $2',
           [athleteId.toString(), result.rows[0].id]
         );
-        console.log(`Matched ${athleteName} via unique last name -> ${result.rows[0].id}`);
         return result.rows[0].id;
       }
     }
@@ -247,10 +244,6 @@ function parsePlayerStatsFromSummary(boxscore) {
 
         const athleteIdStr = athleteId.toString();
 
-        // DEBUG: Log kicking category details
-        if (categoryName === 'kicking') {
-          console.log(`[PARSE KICKER] ID: ${athleteIdStr} | Name: ${athleteName} | Labels: ${JSON.stringify(statGroup.labels)} | Stats: ${JSON.stringify(athlete.stats)}`);
-        }
 
         // Get or create player entry
         if (!playerStatsMap.has(athleteIdStr)) {
@@ -379,7 +372,6 @@ function convertESPNStatsToScoring(espnStats) {
 
 // Fetch individual player stats from ESPN boxscore (more reliable than summaries)
 async function fetchPlayerStats(espnId, weekNumber) {
-  console.log(`[FETCH PLAYER STATS] Searching for ESPN ID: ${espnId} in week ${weekNumber}`);
   try {
     // Search through the active games for this week
     for (const gameId of liveStatsCache.activeGameIds) {
@@ -446,9 +438,6 @@ async function fetchPlayerStats(espnId, weekNumber) {
               const searchId = espnId.toString();
 
               if (athleteId === searchId) {
-                // DEBUG: Log what stat category we found for this athlete
-                console.log(`[ATHLETE FOUND] ID: ${espnId} | Category: ${statCategory.name} | Has stats: ${!!athlete.stats} | Stats: ${JSON.stringify(athlete.stats)}`);
-
                 // Skip passing if player is primarily a receiver
                 if (statCategory.name === 'passing' && skipPassing) {
                   continue;
@@ -490,8 +479,6 @@ async function fetchPlayerStats(espnId, weekNumber) {
                   // ESPN Format: ["FG", "PCT", "LONG", "XP", "PTS"]
                   // Indices:        0     1      2       3     4
                   // FG and XP are in "made/att" format
-                  console.log(`[KICKER RAW ESPN] ID: ${espnId} | Raw stats: ${JSON.stringify(athlete.stats)}`);
-
                   const fgMadeAtt = athlete.stats[0] ? athlete.stats[0].split('/') : ['0', '0'];
                   const fgMade = parseInt(fgMadeAtt[0]) || 0;
                   const fgAtt = parseInt(fgMadeAtt[1]) || 0;
@@ -509,8 +496,6 @@ async function fetchPlayerStats(espnId, weekNumber) {
                   stats.fg_longest = longest;
                   stats.xp_made = patMade;
                   stats.xp_missed = patMissed;
-
-                  console.log(`[KICKER PARSED] ID: ${espnId} | FG: ${fgMade}/${fgAtt} | XP: ${patMade}/${patAtt} | Longest: ${longest}`);
                 }
               }
             }
@@ -616,15 +601,6 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
     const normalizedTeam = normalizeTeamAbbr(teamAbbrev);
 
     for (const gameId of liveStatsCache.activeGameIds) {
-      console.log(
-        'DEF BACKFILL CHECK',
-        'teamAbbrev:',
-        teamAbbrev,
-        'normalized:',
-        normalizedTeam,
-        'week:',
-        weekNumber
-      );
       try {
         const summaryUrl =
           `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
@@ -786,8 +762,6 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
 
 async function savePlayerScoresToDatabase(weekNumber) {
   try {
-    console.log(`Saving scores for week ${weekNumber}...`);
-
     // Get teams we're tracking from picks
     const trackedTeamsResult = await pool.query(`
       SELECT DISTINCT p.team
@@ -811,7 +785,6 @@ async function savePlayerScoresToDatabase(weekNumber) {
         [pick.player_id]
       );
       if (playerRes.rows.length === 0) {
-        console.log(`SKIP[player_not_found]: user=${pick.user_id} player_id=${pick.player_id}`);
         continue;
       }
 
@@ -829,7 +802,6 @@ async function savePlayerScoresToDatabase(weekNumber) {
         } else if (liveStatsCache.activeTeams.has(pick.player_id)) {
           scoring = {};
         } else {
-          console.log(`SKIP[def_no_stats_not_active]: user=${pick.user_id} player=${pick.player_id} name=${playerName} pos=${playerPosition}`);
           continue;
         }
       }
@@ -846,13 +818,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
         if (espnId) {
           const cached = liveStatsCache.playerStats.get(espnId);
           if (cached) {
-            if (playerPosition === 'K') {
-              console.log(`[KICKER CACHE HIT] ID: ${espnId} | Name: ${playerName} | Cached stats: ${JSON.stringify(cached.stats)}`);
-            }
             playerStats = convertESPNStatsToScoring(cached.stats);
-            if (playerPosition === 'K') {
-              console.log(`[KICKER AFTER CONVERT] ID: ${espnId} | Converted stats: ${JSON.stringify(playerStats)}`);
-            }
             playerTeam = cached.team;
           }
         }
@@ -906,7 +872,6 @@ async function savePlayerScoresToDatabase(weekNumber) {
           if (isTracked) {
             scoring = {};
           } else {
-            console.log(`SKIP[player_no_stats_team_not_tracked]: user=${pick.user_id} player=${pick.player_id} name=${playerName} pos=${playerPosition} team=${rawTeam} normalized=${teamToCheck} tracked=${isTracked}`);
             continue;
           }
         }
@@ -922,17 +887,9 @@ async function savePlayerScoresToDatabase(weekNumber) {
         };
       }
 
-      if (playerPosition === 'K') {
-        console.log(`KICKER INSERT: ${playerName} | scoring: ${JSON.stringify(scoring)} | user: ${pick.user_id} | player: ${pick.player_id}`);
-      }
-
       const basePoints = await calculateFantasyPoints(scoring);
       const multiplier = pick.multiplier || 1;
       const finalPoints = basePoints * multiplier;
-
-      if (playerPosition === 'K') {
-        console.log(`KICKER CALC: ${playerName} | base: ${basePoints} | mult: ${multiplier} | final: ${finalPoints}`);
-      }
 
       await pool.query(`
         INSERT INTO scores (
@@ -962,17 +919,13 @@ async function savePlayerScoresToDatabase(weekNumber) {
         JSON.stringify(scoring)
       ]);
 
-      if (playerPosition === 'K') {
-        console.log(`KICKER SAVED: ${playerName}`);
-      }
-
       savedCount++;
     }
 
-    console.log(`Saved scores for ${savedCount} picks`);
+    console.log(`Scores persisted`, { week: weekNumber, score_count: savedCount });
     return savedCount;
   } catch (err) {
-    console.error('Error saving scores:', err);
+    console.error('Error persisting scores:', { week: weekNumber, error: err.message });
     return 0;
   }
 }
@@ -992,15 +945,10 @@ async function fetchScoreboard(weekNumber) {
       return Array.from(liveStatsCache.activeGameIds);
     }
 
-    console.log(`Fetching ESPN scoreboard for week ${weekNumber}...`);
     const response = await axios.get(getESPNScoreboardUrl(weekNumber));
 
     // CRITICAL: Clear stale caches when week changes to prevent cross-week stat leakage
     if (liveStatsCache.currentCachedWeek !== weekNumber) {
-      console.log(
-        `Week changed from ${liveStatsCache.currentCachedWeek} to ${weekNumber}, clearing caches...`
-      );
-
       liveStatsCache.playerStats.clear();
       liveStatsCache.games.clear();
       liveStatsCache.lastGameUpdates.clear();
@@ -1048,7 +996,6 @@ async function fetchScoreboard(weekNumber) {
     liveStatsCache.currentCachedWeek = weekNumber;
     liveStatsCache.lastScoreboardUpdate = now;
 
-    console.log(`Found ${activeGames.length} active games`);
     return activeGames;
   } catch (err) {
     console.error('Error fetching scoreboard:', err.message);
@@ -1125,7 +1072,6 @@ async function fetchGameSummary(gameId) {
       return false; // Already up to date
     }
 
-    console.log(`Fetching summary for game ${gameId}...`);
     const response = await axios.get(
       `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`
     );
@@ -1176,7 +1122,6 @@ async function fetchGameSummary(gameId) {
       }
 
       liveStatsCache.lastGameUpdates.set(gameId, now);
-      console.log(`Updated ${playerStats.length} player stats from game ${gameId}`);
       return true;
     }
 
@@ -1197,7 +1142,6 @@ async function getActiveTeamsForWeek(weekNumber) {
       WHERE pk.week_number = $1 AND p.team IS NOT NULL
     `, [weekNumber]);
 
-    console.log(`Active teams for week ${weekNumber}:`, result.rows.map(r => r.team).join(', '));
     return result.rows.map(r => r.team);
   } catch (err) {
     console.error('Error getting active teams:', err);
@@ -1207,19 +1151,19 @@ async function getActiveTeamsForWeek(weekNumber) {
 
 // Main live stats update function
 async function updateLiveStats(weekNumber) {
+  const startTime = Date.now();
   try {
-    console.log(`\n=== Updating live stats for week ${weekNumber} ===`);
+    console.log(`Scoring job started`, { week: weekNumber });
 
     // Step 1: Get active games for this specific week
     const activeGameIds = await fetchScoreboard(weekNumber);
     if (activeGameIds.length === 0) {
-      console.log('No active games found');
+      console.log('No active games found', { week: weekNumber });
       return { success: true, message: 'No active games', gamesUpdated: 0 };
     }
 
     // Step 2: Get teams we care about
     const activeTeams = await getActiveTeamsForWeek(weekNumber);
-    console.log(`Tracking teams: ${activeTeams.join(', ')}`);
 
     // Step 3: Filter games to only those with our teams
     const relevantGames = [];
@@ -1230,8 +1174,6 @@ async function updateLiveStats(weekNumber) {
         relevantGames.push(gameId);
       }
     }
-
-    console.log(`Found ${relevantGames.length} relevant games out of ${activeGameIds.length} active`);
 
     // Step 4: Fetch summaries for relevant games
     let gamesUpdated = 0;
@@ -1244,7 +1186,10 @@ async function updateLiveStats(weekNumber) {
     }
 
     // Step 5: Save scores to database
-    await savePlayerScoresToDatabase(weekNumber);
+    const scoreCount = await savePlayerScoresToDatabase(weekNumber);
+
+    const durationMs = Date.now() - startTime;
+    console.log(`Scoring job completed successfully`, { week: weekNumber, scores_written: scoreCount, duration_ms: durationMs });
 
     return {
       success: true,
@@ -1254,7 +1199,7 @@ async function updateLiveStats(weekNumber) {
       relevantGames: relevantGames.length
     };
   } catch (err) {
-    console.error('Error in updateLiveStats:', err);
+    console.error('Scoring job failed', { week: weekNumber, error: err.message, stack: err.stack });
     return { success: false, error: err.message };
   }
 }
@@ -3704,11 +3649,8 @@ app.get('/api/leaderboard', async (req, res) => {
 
     // If includePicks is requested, fetch picks for each user
     if (includePicks === 'true' && actualWeekNumber) {
-      console.log(`DEBUG: Fetching picks for ${result.rows.length} users for week ${actualWeekNumber}`);
-
       // Fetch matchup map once for this week
       const matchupMap = await getWeekMatchupMap(actualWeekNumber);
-      console.log(`DEBUG: Loaded ${matchupMap.size} team matchups for week ${actualWeekNumber}`);
 
       const leaderboardWithPicks = await Promise.all(
         result.rows.map(async (user) => {
@@ -3742,8 +3684,6 @@ app.get('/api/leaderboard', async (req, res) => {
               END
           `, [user.id, actualWeekNumber]);
 
-          console.log(`  User ${user.name || user.username} has ${picksResult.rows.length} picks`);
-
           // Add opponent matchup data to each pick
           const picksWithMatchups = picksResult.rows.map((pick) => {
             const matchup = getTeamMatchup(pick.team, matchupMap);
@@ -3761,10 +3701,8 @@ app.get('/api/leaderboard', async (req, res) => {
         })
       );
 
-      console.log(`DEBUG: Returning leaderboard with picks`);
       res.json(leaderboardWithPicks);
     } else {
-      console.log(`DEBUG: Returning leaderboard WITHOUT picks (includePicks=${includePicks}, weekNumber=${actualWeekNumber})`);
       res.json(result.rows);
     }
   } catch (err) {
