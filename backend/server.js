@@ -995,6 +995,20 @@ async function fetchScoreboard(weekNumber) {
     console.log(`Fetching ESPN scoreboard for week ${weekNumber}...`);
     const response = await axios.get(getESPNScoreboardUrl(weekNumber));
 
+    // CRITICAL: Clear stale caches when week changes to prevent cross-week stat leakage
+    if (liveStatsCache.currentCachedWeek !== weekNumber) {
+      console.log(
+        `Week changed from ${liveStatsCache.currentCachedWeek} to ${weekNumber}, clearing caches...`
+      );
+
+      liveStatsCache.playerStats.clear();
+      liveStatsCache.games.clear();
+      liveStatsCache.lastGameUpdates.clear();
+
+      // IMPORTANT: lock cache to this week
+      liveStatsCache.currentCachedWeek = weekNumber;
+    }
+
     const activeGames = [];
 
     if (response.data && response.data.events) {
