@@ -3830,3 +3830,6 @@ process.on('SIGTERM', () => {
   if (liveStatsInterval) clearInterval(liveStatsInterval);
   process.exit(0);
 });
+
+// Export for testing (does not affect production behavior)
+module.exports = { app, pool, calculateFantasyPoints };
