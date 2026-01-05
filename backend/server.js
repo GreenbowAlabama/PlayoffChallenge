@@ -3260,9 +3260,15 @@ async function startLiveStatsPolling() {
     description: 'Polls ESPN for live game stats and updates scores'
   });
 
-  // Get current playoff week
-  const configResult = await pool.query('SELECT current_playoff_week FROM game_settings LIMIT 1');
-  const currentWeek = configResult.rows[0]?.current_playoff_week || 1;
+  // Get current playoff week and derive NFL week number
+  // FIX: Use NFL week numbers (19-22) for scoring, not playoff round (1-4)
+  const configResult = await pool.query(
+    'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
+  );
+  const { current_playoff_week, playoff_start_week } = configResult.rows[0] || {};
+  const currentWeek = current_playoff_week > 0
+    ? playoff_start_week + current_playoff_week - 1
+    : current_playoff_week || 1;
 
   console.log(`Starting live stats polling for week ${currentWeek}...`);
 
@@ -3271,8 +3277,11 @@ async function startLiveStatsPolling() {
 
   // Poll every 2 minutes
   liveStatsInterval = setInterval(async () => {
-    const config = await pool.query('SELECT current_playoff_week FROM game_settings LIMIT 1');
-    const week = config.rows[0]?.current_playoff_week || 1;
+    const config = await pool.query(
+      'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
+    );
+    const { current_playoff_week: cpw, playoff_start_week: psw } = config.rows[0] || {};
+    const week = cpw > 0 ? psw + cpw - 1 : cpw || 1;
     await runLiveStatsWithTracking(week);
   }, LIVE_STATS_INTERVAL_MS);
 }
