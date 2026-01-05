@@ -1877,8 +1877,17 @@ app.post('/api/picks/replace-player', async (req, res) => {
       });
     }
 
+    // Server-side week derivation for playoffs (same as pick submission)
+    const gameStateResult = await pool.query(
+      'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
+    );
+    const { current_playoff_week, playoff_start_week } = gameStateResult.rows[0] || {};
+    const effectiveWeekNumber = current_playoff_week > 0
+      ? playoff_start_week + current_playoff_week - 1
+      : weekNumber;
+
     // Verify the old player's team is actually eliminated
-    const scoreboardResponse = await axios.get(getESPNScoreboardUrl(weekNumber));
+    const scoreboardResponse = await axios.get(getESPNScoreboardUrl(effectiveWeekNumber));
 
     const activeTeams = new Set();
 
@@ -1944,7 +1953,7 @@ app.post('/api/picks/replace-player', async (req, res) => {
         AND week_number = $2
         AND position = $3
         AND player_id != $4
-    `, [userId, weekNumber, position, oldPlayerId]);
+    `, [userId, effectiveWeekNumber, position, oldPlayerId]);
 
     if (parseInt(currentCount.rows[0].count) >= maxPicks) {
       return res.status(400).json({
@@ -1955,7 +1964,7 @@ app.post('/api/picks/replace-player', async (req, res) => {
     // Delete old pick if it exists for this week
     await pool.query(
       'DELETE FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
-      [userId, oldPlayerId, weekNumber]
+      [userId, oldPlayerId, effectiveWeekNumber]
     );
 
     // Create new pick with multiplier = 1 (fresh start)
@@ -1967,15 +1976,15 @@ app.post('/api/picks/replace-player', async (req, res) => {
         multiplier = 1.0,
         consecutive_weeks = 1
       RETURNING *
-    `, [userId, newPlayerId, weekNumber, position]);
+    `, [userId, newPlayerId, effectiveWeekNumber, position]);
 
     // Log the swap to player_swaps table
     await pool.query(`
       INSERT INTO player_swaps (user_id, old_player_id, new_player_id, position, week_number, swapped_at)
       VALUES ($1, $2, $3, $4, $5, NOW())
-    `, [userId, oldPlayerId, newPlayerId, position, weekNumber]);
+    `, [userId, oldPlayerId, newPlayerId, position, effectiveWeekNumber]);
 
-    console.log(`[swap] User ${userId} replaced ${oldPlayerResult.rows[0].full_name} with ${newPlayerResult.rows[0].full_name} for week ${weekNumber}`);
+    console.log(`[swap] User ${userId} replaced ${oldPlayerResult.rows[0].full_name} with ${newPlayerResult.rows[0].full_name} for week ${effectiveWeekNumber}`);
 
     res.json({
       success: true,
@@ -2753,6 +2762,13 @@ app.get('/api/players', async (req, res) => {
 app.get('/api/picks/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
+
+    // Fetch playoff_start_week for display field derivation
+    const settingsResult = await pool.query(
+      'SELECT playoff_start_week FROM game_settings LIMIT 1'
+    );
+    const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
+
     const result = await pool.query(`
       SELECT pk.*, p.full_name, p.position, p.team
       FROM picks pk
@@ -2760,7 +2776,20 @@ app.get('/api/picks/:userId', async (req, res) => {
       WHERE pk.user_id = $1
       ORDER BY pk.week_number, pk.position
     `, [userId]);
-    res.json(result.rows);
+
+    // Add display fields derived at response time
+    const picksWithDisplayFields = result.rows.map(pick => {
+      const isPlayoff = pick.week_number >= playoffStartWeek;
+      const playoffWeek = isPlayoff ? pick.week_number - playoffStartWeek + 1 : null;
+      return {
+        ...pick,
+        is_playoff: isPlayoff,
+        playoff_week: playoffWeek,
+        display_week: isPlayoff ? `Playoff Week ${playoffWeek}` : `Week ${pick.week_number}`
+      };
+    });
+
+    res.json(picksWithDisplayFields);
   } catch (err) {
     console.error('Error fetching picks:', err);
     res.status(500).json({ error: err.message });
@@ -2771,6 +2800,13 @@ app.get('/api/picks/:userId', async (req, res) => {
 app.get('/api/picks/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
+
+    // Fetch playoff_start_week for display field derivation
+    const settingsResult = await pool.query(
+      'SELECT playoff_start_week FROM game_settings LIMIT 1'
+    );
+    const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
+
     const result = await pool.query(`
       SELECT pk.*, p.full_name, p.position, p.team, p.sleeper_id, p.image_url
       FROM picks pk
@@ -2778,7 +2814,20 @@ app.get('/api/picks/user/:userId', async (req, res) => {
       WHERE pk.user_id = $1
       ORDER BY pk.week_number, pk.position
     `, [userId]);
-    res.json(result.rows);
+
+    // Add display fields derived at response time
+    const picksWithDisplayFields = result.rows.map(pick => {
+      const isPlayoff = pick.week_number >= playoffStartWeek;
+      const playoffWeek = isPlayoff ? pick.week_number - playoffStartWeek + 1 : null;
+      return {
+        ...pick,
+        is_playoff: isPlayoff,
+        playoff_week: playoffWeek,
+        display_week: isPlayoff ? `Playoff Week ${playoffWeek}` : `Week ${pick.week_number}`
+      };
+    });
+
+    res.json(picksWithDisplayFields);
   } catch (err) {
     console.error('Error fetching picks:', err);
     res.status(500).json({ error: err.message });
@@ -2794,6 +2843,12 @@ app.get('/api/picks', async (req, res) => {
       return res.status(400).json({ error: 'userId required' });
     }
 
+    // Fetch playoff_start_week for display field derivation
+    const settingsResult = await pool.query(
+      'SELECT playoff_start_week FROM game_settings LIMIT 1'
+    );
+    const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
+
     const result = await pool.query(
       `SELECT p.*, pl.full_name, pl.position as player_position, pl.team, pl.sleeper_id, pl.image_url
         FROM picks p
@@ -2803,7 +2858,19 @@ app.get('/api/picks', async (req, res) => {
       [userId]
     );
 
-    res.json(result.rows);
+    // Add display fields derived at response time
+    const picksWithDisplayFields = result.rows.map(pick => {
+      const isPlayoff = pick.week_number >= playoffStartWeek;
+      const playoffWeek = isPlayoff ? pick.week_number - playoffStartWeek + 1 : null;
+      return {
+        ...pick,
+        is_playoff: isPlayoff,
+        playoff_week: playoffWeek,
+        display_week: isPlayoff ? `Playoff Week ${playoffWeek}` : `Week ${pick.week_number}`
+      };
+    });
+
+    res.json(picksWithDisplayFields);
   } catch (err) {
     console.error('Error getting picks:', err);
     res.status(500).json({ error: err.message });
@@ -2830,6 +2897,20 @@ app.post('/api/picks', async (req, res) => {
         error: 'Payment required to create team. Please complete payment to continue.'
       });
     }
+
+    // FIX #2: Server-side week derivation for playoffs
+    // During playoffs, ignore client weekNumber and derive from game state
+    // This prevents misconfiguration bugs where picks land on wrong week
+    const gameStateResult = await pool.query(
+      'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
+    );
+    const { current_playoff_week, playoff_start_week } = gameStateResult.rows[0] || {};
+
+    // If in playoff mode (current_playoff_week > 0), compute NFL week from playoff round
+    // playoff_week 1 = Wild Card = week 19, playoff_week 2 = Divisional = week 20, etc.
+    const effectiveWeekNumber = current_playoff_week > 0
+      ? playoff_start_week + current_playoff_week - 1
+      : weekNumber;
 
     // Support batch submission
     if (picks && Array.isArray(picks)) {
@@ -2875,7 +2956,7 @@ app.post('/api/picks', async (req, res) => {
             AND week_number = $2
             AND position = $3
             AND player_id != $4
-        `, [userId, weekNumber, pick.position, pick.playerId]);
+        `, [userId, effectiveWeekNumber, pick.position, pick.playerId]);
 
         if (parseInt(currentCount.rows[0].count) >= maxPicks) {
           return res.status(400).json({
@@ -2892,7 +2973,7 @@ app.post('/api/picks', async (req, res) => {
             multiplier = COALESCE($5, picks.multiplier),
             created_at = NOW()
           RETURNING *
-        `, [userId, pick.playerId, weekNumber, pick.position, pick.multiplier || null]);
+        `, [userId, pick.playerId, effectiveWeekNumber, pick.position, pick.multiplier || null]);
 
         results.push(result.rows[0]);
       }
@@ -2940,7 +3021,7 @@ app.post('/api/picks', async (req, res) => {
         AND week_number = $2
         AND position = $3
         AND player_id != $4
-    `, [userId, weekNumber, position, playerId]);
+    `, [userId, effectiveWeekNumber, position, playerId]);
 
     if (parseInt(currentCount.rows[0].count) >= maxPicks) {
       return res.status(400).json({
@@ -2957,7 +3038,7 @@ app.post('/api/picks', async (req, res) => {
         multiplier = COALESCE($5, picks.multiplier),
         created_at = NOW()
       RETURNING *
-    `, [userId, playerId, weekNumber, position, multiplier || null]);
+    `, [userId, playerId, effectiveWeekNumber, position, multiplier || null]);
 
     res.json(result.rows[0]);
   } catch (err) {
