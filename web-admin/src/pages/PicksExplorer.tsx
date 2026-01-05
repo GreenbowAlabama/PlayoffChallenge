@@ -287,15 +287,15 @@ export function PicksExplorer() {
                             {picks.map((pick) => (
                               <tr key={pick.id} className="hover:bg-gray-50">
                                 <td className="px-3 py-2 text-sm text-gray-900">
-                                  {pick.player?.full_name || 'Unknown Player'}
+                                  {pick.full_name || 'Unknown Player'}
                                 </td>
                                 <td className="px-3 py-2 text-sm text-gray-600">
                                   <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-gray-100">
-                                    {pick.player?.position || '—'}
+                                    {pick.player_position || pick.position || '—'}
                                   </span>
                                 </td>
                                 <td className="px-3 py-2 text-sm text-gray-600">
-                                  {pick.player?.team || '—'}
+                                  {pick.team || '—'}
                                 </td>
                                 <td className="px-3 py-2 text-sm text-gray-600">
                                   {pick.display_week || `Week ${pick.week_number}`}

@@ -140,22 +140,21 @@ export interface JobsStatusResponse {
 // PICKS EXPLORER TYPES
 // ============================================
 
-export interface PlayerInfo {
-  player_id: string;
-  full_name: string;
-  position: string;
-  team: string;
-}
-
 export interface Pick {
   id: string;
   user_id: string;
   player_id: string;
   week_number: number;
+  position: string | null;
   is_playoff: boolean;
   playoff_week: number | null;
   display_week: string;
-  player: PlayerInfo;
+  // Player fields (flat, joined from players table)
+  full_name: string | null;
+  team: string | null;
+  sleeper_id: string | null;
+  image_url: string | null;
+  player_position?: string | null; // alternative field name from some endpoints
 }
 
 export interface UserWithPicks {
