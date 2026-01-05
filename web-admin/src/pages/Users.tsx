@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getUsers, updateUserEligibility } from '../api/users';
 import { Switch } from '@headlessui/react';
@@ -5,6 +6,19 @@ import type { User } from '../types';
 
 export function Users() {
   const queryClient = useQueryClient();
+  const [mutatingUserId, setMutatingUserId] = useState<string | null>(null);
+  const [successUserId, setSuccessUserId] = useState<string | null>(null);
+
+  const clearSuccess = useCallback(() => {
+    setSuccessUserId(null);
+  }, []);
+
+  useEffect(() => {
+    if (successUserId) {
+      const timer = setTimeout(clearSuccess, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [successUserId, clearSuccess]);
 
   const { data: users, isLoading, error } = useQuery({
     queryKey: ['users'],
@@ -15,6 +29,7 @@ export function Users() {
     mutationFn: ({ userId, isPaid }: { userId: string; isPaid: boolean }) =>
       updateUserEligibility(userId, isPaid),
     onMutate: async ({ userId, isPaid }) => {
+      setMutatingUserId(userId);
       await queryClient.cancelQueries({ queryKey: ['users'] });
 
       const previousUsers = queryClient.getQueryData<User[]>(['users']);
@@ -35,11 +50,14 @@ export function Users() {
             : user
         )
       );
+      setSuccessUserId(updatedUser.id);
+      setMutatingUserId(null);
     },
     onError: (_err, _variables, context) => {
       if (context?.previousUsers) {
         queryClient.setQueryData(['users'], context.previousUsers);
       }
+      setMutatingUserId(null);
     },
   });
 
@@ -95,79 +113,104 @@ export function Users() {
                     Phone
                   </th>
                   <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Paid
-                  </th>
-                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
                     Role
                   </th>
                   <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
                     Created
                   </th>
-                  <th className="relative py-3.5 pl-3 pr-4 sm:pr-0">
-                    <span className="sr-only">Actions</span>
+                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                    Payment Status
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {users?.map((user) => (
-                  <tr key={user.id}>
-                    <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-0">
-                      {user.username || 'N/A'}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                      {user.email || 'N/A'}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                      {user.name || 'N/A'}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                      {user.phone || 'N/A'}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-4 text-sm">
-                      <span
-                        className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${
-                          user.paid
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {user.paid ? 'Paid' : 'Unpaid'}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-4 text-sm">
-                      <span
-                        className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${
-                          user.is_admin
-                            ? 'bg-purple-100 text-purple-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {user.is_admin ? 'Admin' : 'User'}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                      {user.created_at
-                        ? new Date(user.created_at).toLocaleDateString()
-                        : 'N/A'}
-                    </td>
-                    <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-0">
-                      <Switch
-                        checked={user.paid}
-                        onChange={() => handleToggleEligibility(user.id, user.paid)}
-                        className={`${
-                          user.paid ? 'bg-green-600' : 'bg-gray-200'
-                        } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2`}
-                      >
-                        <span className="sr-only">Toggle eligibility</span>
+                {users?.map((user) => {
+                  const isMutating = mutatingUserId === user.id;
+                  const showSuccess = successUserId === user.id;
+
+                  return (
+                    <tr key={user.id}>
+                      <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-0">
+                        {user.username || 'N/A'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        {user.email || 'N/A'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        {user.name || 'N/A'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        {user.phone || 'N/A'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm">
                         <span
-                          className={`${
-                            user.paid ? 'translate-x-6' : 'translate-x-1'
-                          } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
-                        />
-                      </Switch>
-                    </td>
-                  </tr>
-                ))}
+                          className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${
+                            user.is_admin
+                              ? 'bg-purple-100 text-purple-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}
+                        >
+                          {user.is_admin ? 'Admin' : 'User'}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        {user.created_at
+                          ? new Date(user.created_at).toLocaleDateString()
+                          : 'N/A'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-xs font-medium w-12 ${
+                              user.paid ? 'text-gray-400' : 'text-red-600'
+                            }`}
+                          >
+                            Unpaid
+                          </span>
+                          <Switch
+                            checked={user.paid}
+                            onChange={() => handleToggleEligibility(user.id, user.paid)}
+                            disabled={isMutating}
+                            className={`${
+                              user.paid ? 'bg-green-600' : 'bg-gray-300'
+                            } ${
+                              isMutating ? 'opacity-50 cursor-not-allowed' : ''
+                            } relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2`}
+                          >
+                            <span className="sr-only">Toggle payment status</span>
+                            <span
+                              className={`${
+                                user.paid ? 'translate-x-6' : 'translate-x-1'
+                              } inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm`}
+                            />
+                          </Switch>
+                          <span
+                            className={`text-xs font-medium w-10 ${
+                              user.paid ? 'text-green-600' : 'text-gray-400'
+                            }`}
+                          >
+                            Paid
+                          </span>
+                          {showSuccess && (
+                            <span className="text-green-600 text-sm">
+                              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            </span>
+                          )}
+                          {isMutating && (
+                            <span className="text-gray-400 text-sm">
+                              <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                              </svg>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
 
