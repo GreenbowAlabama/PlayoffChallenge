@@ -159,10 +159,12 @@ export function Users() {
                           : 'N/A'}
                       </td>
                       <td className="whitespace-nowrap px-3 py-4 text-sm">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <span
-                            className={`text-xs font-medium w-12 ${
-                              user.paid ? 'text-gray-400' : 'text-red-600'
+                            className={`text-xs transition-all ${
+                              user.paid
+                                ? 'text-gray-300 font-normal'
+                                : 'text-red-600 font-semibold'
                             }`}
                           >
                             Unpaid
@@ -172,21 +174,25 @@ export function Users() {
                             onChange={() => handleToggleEligibility(user.id, user.paid)}
                             disabled={isMutating}
                             className={`${
-                              user.paid ? 'bg-green-600' : 'bg-gray-300'
+                              user.paid ? 'bg-green-600' : 'bg-gray-400'
                             } ${
-                              isMutating ? 'opacity-50 cursor-not-allowed' : ''
-                            } relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2`}
+                              isMutating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                            } relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                              user.paid ? 'focus:ring-green-500' : 'focus:ring-gray-400'
+                            }`}
                           >
                             <span className="sr-only">Toggle payment status</span>
                             <span
                               className={`${
-                                user.paid ? 'translate-x-6' : 'translate-x-1'
-                              } inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm`}
+                                user.paid ? 'translate-x-5' : 'translate-x-0.5'
+                              } inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform`}
                             />
                           </Switch>
                           <span
-                            className={`text-xs font-medium w-10 ${
-                              user.paid ? 'text-green-600' : 'text-gray-400'
+                            className={`text-xs transition-all ${
+                              user.paid
+                                ? 'text-green-600 font-semibold'
+                                : 'text-gray-300 font-normal'
                             }`}
                           >
                             Paid
