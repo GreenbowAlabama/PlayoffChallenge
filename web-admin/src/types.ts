@@ -135,3 +135,32 @@ export interface JobsStatusResponse {
   summary: JobHealthSummary;
   jobs: JobStatus[];
 }
+
+// ============================================
+// PICKS EXPLORER TYPES
+// ============================================
+
+export interface PlayerInfo {
+  player_id: string;
+  full_name: string;
+  position: string;
+  team: string;
+}
+
+export interface Pick {
+  id: string;
+  user_id: string;
+  player_id: string;
+  week_number: number;
+  is_playoff: boolean;
+  playoff_week: number | null;
+  display_week: string;
+  player: PlayerInfo;
+}
+
+export interface UserWithPicks {
+  user: User;
+  picks: Pick[];
+  loading: boolean;
+  error: string | null;
+}

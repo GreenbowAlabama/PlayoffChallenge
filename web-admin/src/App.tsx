@@ -6,6 +6,7 @@ import { Dashboard } from './pages/Dashboard';
 import { DiagnosticsDashboard } from './pages/DiagnosticsDashboard';
 import { DiagnosticsUsers } from './pages/DiagnosticsUsers';
 import { DiagnosticsUserDetail } from './pages/DiagnosticsUserDetail';
+import { PicksExplorer } from './pages/PicksExplorer';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -38,6 +39,7 @@ function App() {
             <Route path="diagnostics" element={<DiagnosticsDashboard />} />
             <Route path="diagnostics/users" element={<DiagnosticsUsers />} />
             <Route path="diagnostics/users/:userId" element={<DiagnosticsUserDetail />} />
+            <Route path="picks" element={<PicksExplorer />} />
           </Route>
         </Routes>
       </BrowserRouter>
