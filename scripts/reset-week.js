@@ -6,16 +6,18 @@
  * Resets the current playoff week and optionally clears picks/scores for future weeks.
  *
  * Usage:
- *   node scripts/reset-week.js <week_number> [--activate] [--delete-future]
+ *   node scripts/reset-week.js <week_number> [--activate] [--delete-future] [--wipe-all-picks]
  *
  * Examples:
  *   node scripts/reset-week.js 12 --activate --delete-future
  *   node scripts/reset-week.js 1 --activate
  *   node scripts/reset-week.js 13
+ *   node scripts/reset-week.js 1 --activate --wipe-all-picks   # PLAYOFF RESET: clears ALL picks
  *
  * Options:
  *   --activate        Set is_week_active to true (enable picking)
  *   --delete-future   Delete all picks/scores for weeks > specified week
+ *   --wipe-all-picks  DELETE ALL picks, scores, pick_multipliers, player_swaps (ALL weeks)
  *   --help           Show this help message
  *
  * Requirements:
@@ -35,16 +37,18 @@ Reset Week Script
 Resets the current playoff week and optionally clears picks/scores for future weeks.
 
 Usage:
-  node scripts/reset-week.js <week_number> [--activate] [--delete-future]
+  node scripts/reset-week.js <week_number> [--activate] [--delete-future] [--wipe-all-picks]
 
 Examples:
   node scripts/reset-week.js 12 --activate --delete-future
   node scripts/reset-week.js 1 --activate
   node scripts/reset-week.js 13
+  node scripts/reset-week.js 1 --activate --wipe-all-picks   # PLAYOFF RESET: clears ALL picks
 
 Options:
   --activate        Set is_week_active to true (enable picking)
   --delete-future   Delete all picks/scores for weeks > specified week
+  --wipe-all-picks  DELETE ALL picks, scores, pick_multipliers, player_swaps (ALL weeks)
   --help           Show this help message
 
 Environment:
@@ -56,6 +60,7 @@ Environment:
 const weekNumber = parseInt(args[0]);
 const shouldActivate = args.includes('--activate');
 const shouldDeleteFuture = args.includes('--delete-future');
+const wipeAllPicks = args.includes('--wipe-all-picks');
 
 if (isNaN(weekNumber) || weekNumber < 0) {
   console.error('❌ Error: Invalid week number. Must be a positive integer.');
@@ -92,8 +97,58 @@ async function resetWeek() {
     const scoreCount = await client.query('SELECT week_number, COUNT(*) as count FROM scores GROUP BY week_number ORDER BY week_number');
     console.log(`   Scores by week:`, scoreCount.rows.length > 0 ? scoreCount.rows : 'None');
 
-    // 2. Delete future data if requested
-    if (shouldDeleteFuture) {
+    // 2. WIPE ALL PICKS MODE (takes precedence over --delete-future)
+    if (wipeAllPicks) {
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`⚠️  WIPE ALL PICKS MODE ENABLED`);
+      console.log(`⚠️  THIS WILL DELETE ALL PICKS FOR ALL USERS`);
+      console.log(`⚠️  THIS CANNOT BE UNDONE`);
+      console.log(`${'='.repeat(60)}\n`);
+
+      if (process.env.NODE_ENV === 'production') {
+        console.log(`🔴 Proceeding with WIPE ALL PICKS in PRODUCTION\n`);
+      }
+
+      try {
+        await client.query('BEGIN');
+
+        console.log(`🗑️  Deleting ALL pick-related data...`);
+
+        // Delete in order due to FK constraints: pick_multipliers -> scores -> picks -> player_swaps
+        const deletedMultipliers = await client.query('DELETE FROM pick_multipliers');
+        console.log(`   ✓ Deleted ${deletedMultipliers.rowCount} pick_multipliers`);
+
+        const deletedScores = await client.query('DELETE FROM scores');
+        console.log(`   ✓ Deleted ${deletedScores.rowCount} scores`);
+
+        const deletedPicks = await client.query('DELETE FROM picks');
+        console.log(`   ✓ Deleted ${deletedPicks.rowCount} picks`);
+
+        const deletedSwaps = await client.query('DELETE FROM player_swaps');
+        console.log(`   ✓ Deleted ${deletedSwaps.rowCount} player_swaps`);
+
+        await client.query('COMMIT');
+        console.log(`\n✅ Transaction committed successfully`);
+
+        // Verification queries
+        console.log(`\n📋 Verification (all should be 0):`);
+        const verifyPicks = await client.query('SELECT COUNT(*) as count FROM picks');
+        const verifyScores = await client.query('SELECT COUNT(*) as count FROM scores');
+        const verifyMultipliers = await client.query('SELECT COUNT(*) as count FROM pick_multipliers');
+        const verifySwaps = await client.query('SELECT COUNT(*) as count FROM player_swaps');
+        console.log(`   picks: ${verifyPicks.rows[0].count}`);
+        console.log(`   scores: ${verifyScores.rows[0].count}`);
+        console.log(`   pick_multipliers: ${verifyMultipliers.rows[0].count}`);
+        console.log(`   player_swaps: ${verifySwaps.rows[0].count}`);
+
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error(`\n❌ Transaction rolled back due to error:`, error.message);
+        throw error;
+      }
+    }
+    // 3. Delete future data if requested (skipped if wipeAllPicks was used)
+    else if (shouldDeleteFuture) {
       console.log(`\n🗑️  Deleting picks/scores for weeks > ${weekNumber}...`);
 
       const deletedPicks = await client.query('DELETE FROM picks WHERE week_number > $1', [weekNumber]);

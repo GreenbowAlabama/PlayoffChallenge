@@ -68,6 +68,12 @@ const SCOREBOARD_CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const GAME_SUMMARY_CACHE_MS = 90 * 1000; // 90 seconds
 const PLAYERS_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
+// 2024-25 NFL Playoff Teams - Only these teams are selectable
+// Override via PLAYOFF_TEAMS env var (comma-separated) or use hardcoded fallback
+const PLAYOFF_TEAMS = process.env.PLAYOFF_TEAMS
+  ? process.env.PLAYOFF_TEAMS.split(',').map(t => t.trim())
+  : ['BAL', 'BUF', 'KC', 'HOU', 'CLE', 'MIA', 'PIT', 'SF', 'DAL', 'DET', 'TB', 'PHI', 'LAR', 'GB'];
+
 // Helper: Handle team abbreviations better.
 
 function normalizeTeamAbbr(abbr) {
@@ -1915,6 +1921,13 @@ app.post('/api/picks/replace-player', async (req, res) => {
       return res.status(404).json({ error: 'New player not found' });
     }
 
+    // Validate new player is on a playoff team
+    if (!PLAYOFF_TEAMS.includes(newPlayerResult.rows[0].team)) {
+      return res.status(400).json({
+        error: `${newPlayerResult.rows[0].full_name} is not on a playoff team. Only playoff team players are selectable.`
+      });
+    }
+
     // Validate position limit
     const positionLimit = await pool.query(
       'SELECT required_count FROM position_requirements WHERE position = $1',
@@ -2676,21 +2689,21 @@ app.get('/api/players', async (req, res) => {
       });
     }
 
-    // Fetch fresh data - only available and active players
-    console.log('Fetching players from database...');
+    // Fetch fresh data - only available and active players from PLAYOFF TEAMS
+    console.log(`Fetching players from database (playoff teams: ${PLAYOFF_TEAMS.join(', ')})...`);
 
-    // Show all active players regardless of team
+    // Filter to only playoff teams
     let query = `
       SELECT id, sleeper_id, full_name, first_name, last_name, position, team,
               number, status, injury_status, is_active, available, image_url
       FROM players
       WHERE is_active = true
         AND available = true
-        AND team IS NOT NULL
+        AND team = ANY($1)
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
         AND (position = 'DEF' OR (espn_id IS NOT NULL AND espn_id != ''))`;
 
-    const params = [];
+    const params = [PLAYOFF_TEAMS];
 
     if (position) {
       query += ` AND position = $${params.length + 1}`;
@@ -2702,18 +2715,18 @@ app.get('/api/players', async (req, res) => {
 
     const result = await pool.query(query, params);
 
-    // Get total count
+    // Get total count (filtered to playoff teams)
     const countQuery = `
       SELECT COUNT(*) as total
       FROM players
       WHERE is_active = true
         AND available = true
-        AND team IS NOT NULL
+        AND team = ANY($1)
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
         AND (position = 'DEF' OR (espn_id IS NOT NULL AND espn_id != ''))
-      ${position ? `AND position = $1` : ''}
+      ${position ? `AND position = $2` : ''}
     `;
-    const countParams = position ? [position] : [];
+    const countParams = position ? [PLAYOFF_TEAMS, position] : [PLAYOFF_TEAMS];
     const countResult = await pool.query(countQuery, countParams);
     const total = parseInt(countResult.rows[0].total);
 
@@ -2823,6 +2836,20 @@ app.post('/api/picks', async (req, res) => {
       const results = [];
 
       for (const pick of picks) {
+        // Validate player belongs to a playoff team
+        const playerTeamCheck = await pool.query(
+          'SELECT team FROM players WHERE id = $1',
+          [pick.playerId]
+        );
+        if (playerTeamCheck.rows.length === 0) {
+          return res.status(404).json({ error: `Player not found: ${pick.playerId}` });
+        }
+        if (!PLAYOFF_TEAMS.includes(playerTeamCheck.rows[0].team)) {
+          return res.status(400).json({
+            error: `Player ${pick.playerId} is not on a playoff team. Only playoff team players are selectable.`
+          });
+        }
+
         // Validate position limit before inserting - read from game_settings
         const settingsResult = await pool.query(
           `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
@@ -2874,6 +2901,20 @@ app.post('/api/picks', async (req, res) => {
     }
 
     // Single pick submission with UPSERT
+    // Validate player belongs to a playoff team
+    const playerTeamCheck = await pool.query(
+      'SELECT team FROM players WHERE id = $1',
+      [playerId]
+    );
+    if (playerTeamCheck.rows.length === 0) {
+      return res.status(404).json({ error: `Player not found: ${playerId}` });
+    }
+    if (!PLAYOFF_TEAMS.includes(playerTeamCheck.rows[0].team)) {
+      return res.status(400).json({
+        error: `Player ${playerId} is not on a playoff team. Only playoff team players are selectable.`
+      });
+    }
+
     // Validate position limit before inserting - read from game_settings
     const settingsResult = await pool.query(
       `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
