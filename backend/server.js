@@ -72,7 +72,7 @@ const PLAYERS_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 // Override via PLAYOFF_TEAMS env var (comma-separated) or use hardcoded fallback
 const PLAYOFF_TEAMS = process.env.PLAYOFF_TEAMS
   ? process.env.PLAYOFF_TEAMS.split(',').map(t => t.trim())
-  : ['BAL', 'BUF', 'KC', 'HOU', 'CLE', 'MIA', 'PIT', 'SF', 'DAL', 'DET', 'TB', 'PHI', 'LAR', 'GB'];
+  : ['DEN','NE','JAX','PIT','HOU','LAC','BUF','SEA','CHI','PHI','CAR','SF','LAR','GB'];
 
 // Helper: Handle team abbreviations better.
 
