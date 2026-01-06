@@ -3719,8 +3719,9 @@ app.get('/api/leaderboard', async (req, res) => {
       : null;
 
     // Check if games have started for the active week (for visibility gating)
-    let gamesStarted = true; // Default to visible for past weeks
-    if (activeWeekNumber && (!actualWeekNumber || parseInt(actualWeekNumber) === activeWeekNumber)) {
+    // Only gate when explicitly requesting the active week, not cumulative view
+    let gamesStarted = true; // Default to visible
+    if (activeWeekNumber && actualWeekNumber && parseInt(actualWeekNumber) === activeWeekNumber) {
       gamesStarted = await hasAnyGameStarted(activeWeekNumber);
     }
 
