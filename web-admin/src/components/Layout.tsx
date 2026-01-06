@@ -18,16 +18,16 @@ export function Layout() {
       <nav className="bg-white shadow-sm">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 justify-between">
-            <div className="flex">
+            <div className="flex min-w-0 flex-1">
               <div className="flex flex-shrink-0 items-center">
-                <h1 className="text-xl font-bold text-gray-900">
+                <h1 className="text-lg font-bold text-gray-900 sm:text-xl">
                   Playoff Challenge Admin
                 </h1>
               </div>
-              <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
+              <div className="ml-4 flex space-x-4 overflow-x-auto sm:ml-6 sm:space-x-8">
                 <Link
                   to="/dashboard"
-                  className={`inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium ${
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
                     isActive('/dashboard')
                       ? 'border-indigo-500 text-gray-900'
                       : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
@@ -37,7 +37,7 @@ export function Layout() {
                 </Link>
                 <Link
                   to="/users"
-                  className={`inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium ${
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
                     isActive('/users')
                       ? 'border-indigo-500 text-gray-900'
                       : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
@@ -47,7 +47,7 @@ export function Layout() {
                 </Link>
                 <Link
                   to="/diagnostics"
-                  className={`inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium ${
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
                     isActivePrefix('/diagnostics')
                       ? 'border-indigo-500 text-gray-900'
                       : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
@@ -57,7 +57,7 @@ export function Layout() {
                 </Link>
                 <Link
                   to="/picks"
-                  className={`inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium ${
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
                     isActive('/picks')
                       ? 'border-indigo-500 text-gray-900'
                       : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'

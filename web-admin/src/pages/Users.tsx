@@ -95,8 +95,11 @@ export function Users() {
       </div>
 
       <div className="mt-8 flow-root">
-        <div className="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
-          <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
+        <div className="relative">
+          {/* Scroll hint gradient - mobile only */}
+          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none z-10 sm:hidden" aria-hidden="true" />
+          <div className="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+            <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
             <table className="min-w-full divide-y divide-gray-300">
               <thead>
                 <tr>
@@ -225,6 +228,7 @@ export function Users() {
                 <p className="text-sm text-gray-500">No users found</p>
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>
