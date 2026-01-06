@@ -54,7 +54,8 @@ const liveStatsCache = {
   playerStats: new Map(),
   lastScoreboardUpdate: null,
   lastGameUpdates: new Map(),
-  activeGameIds: new Set()
+  activeGameIds: new Set(),
+  gamesStartedByWeek: new Map() // Cache: weekNumber -> { started: boolean, lastCheck: timestamp }
 };
 
 // Player cache
@@ -923,6 +924,45 @@ async function fetchScoreboard(weekNumber) {
   } catch (err) {
     console.error('Error fetching scoreboard:', err.message);
     return [];
+  }
+}
+
+// Helper: Check if any games have started for the week (for leaderboard gating)
+// Uses cached result, only refreshes every 5 minutes. Fails closed (returns false on error).
+const GAMES_STARTED_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+
+async function hasAnyGameStarted(weekNumber) {
+  try {
+    const now = Date.now();
+    const cached = liveStatsCache.gamesStartedByWeek.get(weekNumber);
+
+    // Return cached value if fresh
+    if (cached && (now - cached.lastCheck) < GAMES_STARTED_CACHE_MS) {
+      return cached.started;
+    }
+
+    // Fetch fresh data from ESPN
+    const response = await axios.get(getESPNScoreboardUrl(weekNumber));
+    let started = false;
+
+    if (response.data && response.data.events) {
+      for (const event of response.data.events) {
+        const status = event.status?.type?.state;
+        // 'in' = in progress, 'post' = completed
+        if (status === 'in' || status === 'post') {
+          started = true;
+          break;
+        }
+      }
+    }
+
+    // Cache the result
+    liveStatsCache.gamesStartedByWeek.set(weekNumber, { started, lastCheck: now });
+    return started;
+  } catch (err) {
+    console.error('Error checking game status:', err.message);
+    // FAIL CLOSED: If we can't check, assume games haven't started (protect leaderboard)
+    return false;
   }
 }
 
@@ -1879,9 +1919,17 @@ app.post('/api/picks/replace-player', async (req, res) => {
 
     // Server-side week derivation for playoffs (same as pick submission)
     const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
+      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
     );
-    const { current_playoff_week, playoff_start_week } = gameStateResult.rows[0] || {};
+    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0] || {};
+
+    // Week lockout check - block modifications when week is locked
+    if (!is_week_active) {
+      return res.status(403).json({
+        error: 'Picks are locked for this week. The submission window has closed.'
+      });
+    }
+
     const effectiveWeekNumber = current_playoff_week > 0
       ? playoff_start_week + current_playoff_week - 1
       : weekNumber;
@@ -2124,7 +2172,8 @@ app.post('/api/users', authLimiter, async (req, res) => {
 
     // Create new user with compliance fields
     console.log('Creating new user with compliance data...');
-    let generatedUsername = name || email;
+    // Username = email prefix (before @), never full email for privacy
+    let generatedUsername = email ? email.split('@')[0] : null;
     if (!generatedUsername) {
       generatedUsername = 'User_' + Math.random().toString(36).substring(2, 10);
     }
@@ -2220,8 +2269,8 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     const saltRounds = 10;
     const password_hash = await bcrypt.hash(password, saltRounds);
 
-    // Generate username
-    let generatedUsername = name || email.split('@')[0];
+    // Generate username = email prefix (before @), never full email for privacy
+    let generatedUsername = email ? email.split('@')[0] : null;
     if (!generatedUsername) {
       generatedUsername = 'User_' + Math.random().toString(36).substring(2, 10);
     }
@@ -2902,9 +2951,16 @@ app.post('/api/picks', async (req, res) => {
     // During playoffs, ignore client weekNumber and derive from game state
     // This prevents misconfiguration bugs where picks land on wrong week
     const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
+      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
     );
-    const { current_playoff_week, playoff_start_week } = gameStateResult.rows[0] || {};
+    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0] || {};
+
+    // FIX #3: Future week lockout - block picks when week is locked
+    if (!is_week_active) {
+      return res.status(403).json({
+        error: 'Picks are locked for this week. The submission window has closed.'
+      });
+    }
 
     // If in playoff mode (current_playoff_week > 0), compute NFL week from playoff round
     // playoff_week 1 = Wild Card = week 19, playoff_week 2 = Divisional = week 20, etc.
@@ -3653,16 +3709,36 @@ app.get('/api/leaderboard', async (req, res) => {
       }
     }
 
+    // Determine active week for gating check
+    const settingsResult = await pool.query(
+      'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
+    );
+    const { current_playoff_week, playoff_start_week } = settingsResult.rows[0] || {};
+    const activeWeekNumber = current_playoff_week > 0
+      ? playoff_start_week + current_playoff_week - 1
+      : null;
+
+    // Check if games have started for the active week (for visibility gating)
+    let gamesStarted = true; // Default to visible for past weeks
+    if (activeWeekNumber && (!actualWeekNumber || parseInt(actualWeekNumber) === activeWeekNumber)) {
+      gamesStarted = await hasAnyGameStarted(activeWeekNumber);
+    }
+
+    // VISIBILITY GATING: Before first game of active week, leaderboard is hidden
+    // No auth context available, so fail closed - return empty with flag
+    if (!gamesStarted) {
+      return res.json({ leaderboard: [], gamesStarted: false });
+    }
+
     let query;
     let params = [];
 
     if (actualWeekNumber) {
-      // Filter by specific week
+      // Filter by specific week - email removed from SELECT for privacy
       query = `
         SELECT
           u.id,
           u.username,
-          u.email,
           u.name,
           u.team_name,
           u.paid as has_paid,
@@ -3670,17 +3746,16 @@ app.get('/api/leaderboard', async (req, res) => {
         FROM users u
         LEFT JOIN scores s ON u.id = s.user_id AND s.week_number = $1
         WHERE u.paid = true
-        GROUP BY u.id, u.username, u.email, u.name, u.team_name, u.paid
+        GROUP BY u.id, u.username, u.name, u.team_name, u.paid
         ORDER BY total_points DESC
       `;
       params = [actualWeekNumber];
     } else {
-      // All weeks (cumulative) - sum all playoff weeks (19-22)
+      // All weeks (cumulative) - sum all playoff weeks (19-22) - email removed from SELECT
       query = `
         SELECT
           u.id,
           u.username,
-          u.email,
           u.name,
           u.team_name,
           u.paid as has_paid,
@@ -3688,7 +3763,7 @@ app.get('/api/leaderboard', async (req, res) => {
         FROM users u
         LEFT JOIN scores s ON u.id = s.user_id AND s.week_number IN (19, 20, 21, 22)
         WHERE u.paid = true
-        GROUP BY u.id, u.username, u.email, u.name, u.team_name, u.paid
+        GROUP BY u.id, u.username, u.name, u.team_name, u.paid
         ORDER BY total_points DESC
       `;
     }
@@ -3749,9 +3824,9 @@ app.get('/api/leaderboard', async (req, res) => {
         })
       );
 
-      res.json(leaderboardWithPicks);
+      res.json({ leaderboard: leaderboardWithPicks, gamesStarted: true });
     } else {
-      res.json(result.rows);
+      res.json({ leaderboard: result.rows, gamesStarted: true });
     }
   } catch (err) {
     console.error('Error fetching leaderboard:', err);
