@@ -54,8 +54,7 @@ const liveStatsCache = {
   playerStats: new Map(),
   lastScoreboardUpdate: null,
   lastGameUpdates: new Map(),
-  activeGameIds: new Set(),
-  gamesStartedByWeek: new Map() // Cache: weekNumber -> { started: boolean, lastCheck: timestamp }
+  activeGameIds: new Set()
 };
 
 // Player cache
@@ -924,45 +923,6 @@ async function fetchScoreboard(weekNumber) {
   } catch (err) {
     console.error('Error fetching scoreboard:', err.message);
     return [];
-  }
-}
-
-// Helper: Check if any games have started for the week (for leaderboard gating)
-// Uses cached result, only refreshes every 5 minutes. Fails closed (returns false on error).
-const GAMES_STARTED_CACHE_MS = 5 * 60 * 1000; // 5 minutes
-
-async function hasAnyGameStarted(weekNumber) {
-  try {
-    const now = Date.now();
-    const cached = liveStatsCache.gamesStartedByWeek.get(weekNumber);
-
-    // Return cached value if fresh
-    if (cached && (now - cached.lastCheck) < GAMES_STARTED_CACHE_MS) {
-      return cached.started;
-    }
-
-    // Fetch fresh data from ESPN
-    const response = await axios.get(getESPNScoreboardUrl(weekNumber));
-    let started = false;
-
-    if (response.data && response.data.events) {
-      for (const event of response.data.events) {
-        const status = event.status?.type?.state;
-        // 'in' = in progress, 'post' = completed
-        if (status === 'in' || status === 'post') {
-          started = true;
-          break;
-        }
-      }
-    }
-
-    // Cache the result
-    liveStatsCache.gamesStartedByWeek.set(weekNumber, { started, lastCheck: now });
-    return started;
-  } catch (err) {
-    console.error('Error checking game status:', err.message);
-    // FAIL CLOSED: If we can't check, assume games haven't started (protect leaderboard)
-    return false;
   }
 }
 
@@ -3709,28 +3669,6 @@ app.get('/api/leaderboard', async (req, res) => {
       }
     }
 
-    // Determine active week for gating check
-    const settingsResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
-    );
-    const { current_playoff_week, playoff_start_week } = settingsResult.rows[0] || {};
-    const activeWeekNumber = current_playoff_week > 0
-      ? playoff_start_week + current_playoff_week - 1
-      : null;
-
-    // Check if games have started for the active week (for visibility gating)
-    // Only gate when explicitly requesting the active week, not cumulative view
-    let gamesStarted = true; // Default to visible
-    if (activeWeekNumber && actualWeekNumber && parseInt(actualWeekNumber) === activeWeekNumber) {
-      gamesStarted = await hasAnyGameStarted(activeWeekNumber);
-    }
-
-    // VISIBILITY GATING: Before first game of active week, leaderboard is hidden
-    // No auth context available, so fail closed - return empty with flag
-    if (!gamesStarted) {
-      return res.json({ leaderboard: [], gamesStarted: false });
-    }
-
     let query;
     let params = [];
 
@@ -3825,9 +3763,9 @@ app.get('/api/leaderboard', async (req, res) => {
         })
       );
 
-      res.json({ leaderboard: leaderboardWithPicks, gamesStarted: true });
+      res.json(leaderboardWithPicks);
     } else {
-      res.json({ leaderboard: result.rows, gamesStarted: true });
+      res.json(result.rows);
     }
   } catch (err) {
     console.error('Error fetching leaderboard:', err);
