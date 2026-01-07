@@ -2865,6 +2865,197 @@ app.get('/api/players', async (req, res) => {
   }
 });
 
+// ==============================================
+// V2 PICKS API - MUST BE DEFINED BEFORE /:userId ROUTES
+// ==============================================
+// These routes must come BEFORE /api/picks/:userId to prevent
+// "v2" from being captured as a userId parameter
+
+// GET /api/picks/v2 - Get normalized lineup for v2 clients
+app.get('/api/picks/v2', async (req, res) => {
+  try {
+    const { userId, weekNumber } = req.query;
+
+    // Require picks_v2 capability
+    const client = getClientCapabilities(req);
+    if (!client.has('picks_v2')) {
+      return res.status(400).json({
+        error: 'This endpoint requires picks_v2 capability. Use /api/picks/:userId instead.'
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const effectiveWeek = await getEffectiveWeekNumber(weekNumber ? parseInt(weekNumber, 10) : null);
+
+    // Get picks with player info
+    const picksResult = await pool.query(`
+      SELECT
+        pk.id as pick_id,
+        pk.player_id,
+        pk.position,
+        pk.multiplier,
+        pk.locked,
+        pk.consecutive_weeks,
+        p.full_name,
+        p.team,
+        p.sleeper_id,
+        p.image_url
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id
+      WHERE pk.user_id = $1 AND pk.week_number = $2
+      ORDER BY
+        CASE pk.position
+          WHEN 'QB' THEN 1
+          WHEN 'RB' THEN 2
+          WHEN 'WR' THEN 3
+          WHEN 'TE' THEN 4
+          WHEN 'K' THEN 5
+          WHEN 'DEF' THEN 6
+          ELSE 7
+        END
+    `, [userId, effectiveWeek]);
+
+    // Get position limits
+    const settingsResult = await pool.query(
+      `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
+    );
+    const settings = settingsResult.rows[0] || {};
+
+    res.json({
+      userId,
+      weekNumber: effectiveWeek,
+      picks: picksResult.rows,
+      positionLimits: {
+        QB: settings.qb_limit || 1,
+        RB: settings.rb_limit || 2,
+        WR: settings.wr_limit || 2,
+        TE: settings.te_limit || 1,
+        K: settings.k_limit || 1,
+        DEF: settings.def_limit || 1
+      }
+    });
+  } catch (err) {
+    console.error('Error in GET /api/picks/v2:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/picks/v2 - Operation-based lineup management
+app.post('/api/picks/v2', async (req, res) => {
+  try {
+    const { userId, weekNumber, ops } = req.body;
+
+    // Require picks_v2 capability
+    const client = getClientCapabilities(req);
+    if (!client.has('picks_v2')) {
+      return res.status(400).json({
+        error: 'This endpoint requires picks_v2 capability. Use POST /api/picks instead.'
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    if (!ops || !Array.isArray(ops) || ops.length === 0) {
+      return res.status(400).json({ error: 'ops array is required and must not be empty' });
+    }
+
+    // User validation
+    const userCheck = await pool.query('SELECT paid FROM users WHERE id = $1', [userId]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Payment check - only block new team creation, not lineup modifications
+    // Existing users with any prior picks should be allowed to modify their lineup
+    if (!userCheck.rows[0].paid) {
+      const existingPicks = await pool.query('SELECT 1 FROM picks WHERE user_id = $1 LIMIT 1', [userId]);
+      if (existingPicks.rows.length === 0) {
+        return res.status(403).json({
+          error: 'Payment required to create team. Please complete payment to continue.'
+        });
+      }
+    }
+
+    // Week lockout check
+    const gameStateResult = await pool.query(
+      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
+    );
+    const { is_week_active } = gameStateResult.rows[0] || {};
+    if (!is_week_active) {
+      return res.status(403).json({
+        error: 'Picks are locked for this week. The submission window has closed.'
+      });
+    }
+
+    const effectiveWeek = await getEffectiveWeekNumber(weekNumber ? parseInt(weekNumber, 10) : null);
+
+    // Build proposed operations with position info
+    const proposedOps = [];
+    for (const op of ops) {
+      if (op.action === 'add') {
+        // Get player position
+        const playerResult = await pool.query('SELECT position FROM players WHERE id = $1', [op.playerId]);
+        if (playerResult.rows.length === 0) {
+          return res.status(400).json({ error: `Player ${op.playerId} not found` });
+        }
+        proposedOps.push({ action: 'add', position: playerResult.rows[0].position, playerId: op.playerId });
+      } else if (op.action === 'remove') {
+        // Get pick position
+        const pickResult = await pool.query('SELECT position FROM picks WHERE id = $1', [op.pickId]);
+        if (pickResult.rows.length === 0) {
+          return res.status(400).json({ error: `Pick ${op.pickId} not found` });
+        }
+        proposedOps.push({ action: 'remove', position: pickResult.rows[0].position, pickId: op.pickId });
+      }
+    }
+
+    // Validate position limits
+    const validation = await validatePositionCounts(userId, effectiveWeek, proposedOps);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: 'Position limit exceeded',
+        details: validation.errors
+      });
+    }
+
+    // Execute operations
+    const results = [];
+    for (const op of proposedOps) {
+      if (op.action === 'add') {
+        const insertResult = await pool.query(`
+          INSERT INTO picks (user_id, player_id, position, week_number, multiplier, locked)
+          VALUES ($1, $2, $3, $4, 1, false)
+          RETURNING *
+        `, [userId, op.playerId, op.position, effectiveWeek]);
+        results.push({ action: 'add', success: true, pick: insertResult.rows[0] });
+      } else if (op.action === 'remove') {
+        await pool.query('DELETE FROM picks WHERE id = $1 AND user_id = $2', [op.pickId, userId]);
+        results.push({ action: 'remove', success: true, pickId: op.pickId });
+      }
+    }
+
+    // Return updated position counts
+    res.json({
+      success: true,
+      weekNumber: effectiveWeek,
+      operations: results,
+      positionCounts: validation.counts
+    });
+  } catch (err) {
+    console.error('Error in POST /api/picks/v2:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==============================================
+// LEGACY PICKS ROUTES (v1) - Keep for backward compatibility
+// ==============================================
+
 // Get user's picks
 app.get('/api/picks/:userId', async (req, res) => {
   try {
@@ -4182,214 +4373,6 @@ async function validatePositionCounts(userId, weekNumber, proposedOps = []) {
 
   return { valid: errors.length === 0, errors, counts, limits };
 }
-
-// GET /api/picks/v2 - Get normalized lineup for v2 clients
-app.get('/api/picks/v2', async (req, res) => {
-  try {
-    const { userId, weekNumber } = req.query;
-
-    // Require picks_v2 capability
-    const client = getClientCapabilities(req);
-    if (!client.has('picks_v2')) {
-      return res.status(400).json({
-        error: 'This endpoint requires picks_v2 capability. Use /api/picks/:userId instead.'
-      });
-    }
-
-    if (!userId) {
-      return res.status(400).json({ error: 'userId is required' });
-    }
-
-    const effectiveWeek = await getEffectiveWeekNumber(weekNumber ? parseInt(weekNumber, 10) : null);
-
-    // Get picks with player info
-    const picksResult = await pool.query(`
-      SELECT
-        pk.id as pick_id,
-        pk.player_id,
-        pk.position,
-        pk.multiplier,
-        pk.locked,
-        pk.consecutive_weeks,
-        p.full_name,
-        p.team,
-        p.sleeper_id,
-        p.image_url
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id
-      WHERE pk.user_id = $1 AND pk.week_number = $2
-      ORDER BY
-        CASE pk.position
-          WHEN 'QB' THEN 1
-          WHEN 'RB' THEN 2
-          WHEN 'WR' THEN 3
-          WHEN 'TE' THEN 4
-          WHEN 'K' THEN 5
-          WHEN 'DEF' THEN 6
-          ELSE 7
-        END
-    `, [userId, effectiveWeek]);
-
-    // Get position limits
-    const settingsResult = await pool.query(
-      `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
-    );
-    const settings = settingsResult.rows[0] || {};
-
-    res.json({
-      userId,
-      weekNumber: effectiveWeek,
-      picks: picksResult.rows,
-      positionLimits: {
-        QB: settings.qb_limit || 1,
-        RB: settings.rb_limit || 2,
-        WR: settings.wr_limit || 2,
-        TE: settings.te_limit || 1,
-        K: settings.k_limit || 1,
-        DEF: settings.def_limit || 1
-      }
-    });
-  } catch (err) {
-    console.error('Error in GET /api/picks/v2:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/picks/v2 - Operation-based lineup management
-app.post('/api/picks/v2', async (req, res) => {
-  try {
-    const { userId, weekNumber, ops } = req.body;
-
-    // Require picks_v2 capability
-    const client = getClientCapabilities(req);
-    if (!client.has('picks_v2')) {
-      return res.status(400).json({
-        error: 'This endpoint requires picks_v2 capability. Use POST /api/picks instead.'
-      });
-    }
-
-    if (!userId) {
-      return res.status(400).json({ error: 'userId is required' });
-    }
-
-    if (!ops || !Array.isArray(ops) || ops.length === 0) {
-      return res.status(400).json({ error: 'ops array is required and must not be empty' });
-    }
-
-    // User validation
-    const userCheck = await pool.query('SELECT paid FROM users WHERE id = $1', [userId]);
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Payment check - only block new team creation, not lineup modifications
-    // Existing users with any prior picks should be allowed to modify their lineup
-    if (!userCheck.rows[0].paid) {
-      const existingPicks = await pool.query('SELECT 1 FROM picks WHERE user_id = $1 LIMIT 1', [userId]);
-      if (existingPicks.rows.length === 0) {
-        return res.status(403).json({
-          error: 'Payment required to create team. Please complete payment to continue.'
-        });
-      }
-    }
-
-    // Week lockout check
-    const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
-    );
-    const { is_week_active } = gameStateResult.rows[0] || {};
-    if (!is_week_active) {
-      return res.status(403).json({
-        error: 'Picks are locked for this week. The submission window has closed.'
-      });
-    }
-
-    const effectiveWeek = await getEffectiveWeekNumber(weekNumber ? parseInt(weekNumber, 10) : null);
-
-    // Build proposed operations with position info
-    const proposedOps = [];
-    for (const op of ops) {
-      if (op.action === 'add') {
-        if (!op.playerId || !op.position) {
-          return res.status(400).json({ error: 'add operation requires playerId and position' });
-        }
-
-        // Validate player exists and is on playoff team
-        const playerCheck = await pool.query('SELECT team FROM players WHERE id = $1', [op.playerId]);
-        if (playerCheck.rows.length === 0) {
-          return res.status(404).json({ error: `Player not found: ${op.playerId}` });
-        }
-        if (!PLAYOFF_TEAMS.includes(playerCheck.rows[0].team)) {
-          return res.status(400).json({
-            error: `Player ${op.playerId} is not on a playoff team.`
-          });
-        }
-
-        proposedOps.push({ action: 'add', playerId: op.playerId, position: op.position });
-      } else if (op.action === 'remove') {
-        if (!op.pickId) {
-          return res.status(400).json({ error: 'remove operation requires pickId' });
-        }
-
-        // Get position of pick being removed
-        const pickCheck = await pool.query(
-          'SELECT position FROM picks WHERE id = $1 AND user_id = $2',
-          [op.pickId, userId]
-        );
-        if (pickCheck.rows.length === 0) {
-          return res.status(404).json({ error: `Pick not found: ${op.pickId}` });
-        }
-
-        proposedOps.push({ action: 'remove', pickId: op.pickId, position: pickCheck.rows[0].position });
-      } else {
-        return res.status(400).json({ error: `Unknown action: ${op.action}` });
-      }
-    }
-
-    // Validate position counts after applying all operations
-    const validation = await validatePositionCounts(userId, effectiveWeek, proposedOps);
-    if (!validation.valid) {
-      return res.status(400).json({
-        error: 'Position limit violation',
-        details: validation.errors,
-        currentLimits: validation.limits
-      });
-    }
-
-    // Execute operations in order
-    const results = [];
-    for (const op of proposedOps) {
-      if (op.action === 'add') {
-        const result = await pool.query(`
-          INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-          VALUES (gen_random_uuid(), $1, $2, $3, $4, 1.0, 1, false, NOW())
-          ON CONFLICT (user_id, player_id, week_number)
-          DO UPDATE SET
-            position = $4,
-            created_at = NOW()
-          RETURNING *
-        `, [userId, op.playerId, effectiveWeek, op.position]);
-        results.push({ action: 'add', success: true, pick: result.rows[0] });
-      } else if (op.action === 'remove') {
-        const result = await pool.query(
-          'DELETE FROM picks WHERE id = $1 AND user_id = $2 RETURNING *',
-          [op.pickId, userId]
-        );
-        results.push({ action: 'remove', success: result.rows.length > 0, pickId: op.pickId });
-      }
-    }
-
-    res.json({
-      success: true,
-      weekNumber: effectiveWeek,
-      operations: results,
-      positionCounts: validation.counts
-    });
-  } catch (err) {
-    console.error('Error in POST /api/picks/v2:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ==============================================
 // TOS FLAGS ENDPOINT (Dual-Support)
