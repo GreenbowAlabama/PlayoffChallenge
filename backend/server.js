@@ -2965,20 +2965,9 @@ app.post('/api/picks/v2', async (req, res) => {
     }
 
     // User validation
-    const userCheck = await pool.query('SELECT paid FROM users WHERE id = $1', [userId]);
+    const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
     if (userCheck.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Payment check - only block new team creation, not lineup modifications
-    // Existing users with any prior picks should be allowed to modify their lineup
-    if (!userCheck.rows[0].paid) {
-      const existingPicks = await pool.query('SELECT 1 FROM picks WHERE user_id = $1 LIMIT 1', [userId]);
-      if (existingPicks.rows.length === 0) {
-        return res.status(403).json({
-          error: 'Payment required to create team. Please complete payment to continue.'
-        });
-      }
     }
 
     // Week lockout check
@@ -3180,9 +3169,9 @@ app.post('/api/picks', async (req, res) => {
   try {
     const { userId, playerId, weekNumber, position, multiplier, picks } = req.body;
 
-    // FIX #1: Payment Enforcement - Check if user has paid before allowing pick submission
+    // User validation
     const userCheck = await pool.query(
-      'SELECT paid FROM users WHERE id = $1',
+      'SELECT id FROM users WHERE id = $1',
       [userId]
     );
 
@@ -3190,13 +3179,7 @@ app.post('/api/picks', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (!userCheck.rows[0].paid) {
-      return res.status(403).json({
-        error: 'Payment required to create team. Please complete payment to continue.'
-      });
-    }
-
-    // FIX #2: Server-side week derivation for playoffs
+    // Server-side week derivation for playoffs
     // During playoffs, ignore client weekNumber and derive from game state
     // This prevents misconfiguration bugs where picks land on wrong week
     const gameStateResult = await pool.query(
@@ -3204,7 +3187,7 @@ app.post('/api/picks', async (req, res) => {
     );
     const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0] || {};
 
-    // FIX #3: Future week lockout - block picks when week is locked
+    // Week lockout check - block picks when week is locked
     if (!is_week_active) {
       return res.status(403).json({
         error: 'Picks are locked for this week. The submission window has closed.'
