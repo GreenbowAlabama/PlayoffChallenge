@@ -91,6 +91,104 @@ function normalizeTeamAbbr(abbr) {
   return map[abbr] || abbr;
 }
 
+// ==============================================
+// CLIENT CAPABILITY DETECTION (Dual-Support)
+// ==============================================
+// Supported capability flags:
+// - leaderboard_meta: Client can handle X-Leaderboard-* response headers
+// - leaderboard_gating: Client supports pre-game gating (empty array before kickoff)
+// - tos_required_flag: Client can handle /api/me/flags TOS signaling
+// - picks_v2: Client supports /api/picks/v2 operation-based API
+
+function getClientCapabilities(req) {
+  const capabilities = new Set();
+  let clientVersion = null;
+
+  // 1. Check X-Client-Capabilities header (comma-separated tokens)
+  const capHeader = req.headers['x-client-capabilities'];
+  if (capHeader && typeof capHeader === 'string') {
+    const tokens = capHeader.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+    tokens.forEach(t => capabilities.add(t));
+  }
+
+  // 2. Check X-Client-Version header (semver string)
+  const versionHeader = req.headers['x-client-version'];
+  if (versionHeader && typeof versionHeader === 'string') {
+    clientVersion = versionHeader.trim();
+  }
+
+  // 3. Query param fallback only if headers missing
+  if (capabilities.size === 0 && !clientVersion) {
+    const qCaps = req.query.clientCapabilities;
+    if (qCaps && typeof qCaps === 'string') {
+      const tokens = qCaps.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+      tokens.forEach(t => capabilities.add(t));
+    }
+    const qVersion = req.query.clientVersion;
+    if (qVersion && typeof qVersion === 'string') {
+      clientVersion = qVersion.trim();
+    }
+  }
+
+  return {
+    capabilities,
+    clientVersion,
+    has: (cap) => capabilities.has(cap.toLowerCase()),
+    isLegacy: () => capabilities.size === 0 && !clientVersion
+  };
+}
+
+// Helper: Check if any games have started for a given week (for leaderboard gating)
+// Uses ESPN scoreboard API with caching
+const gameStartedCache = new Map();
+const GAME_STARTED_CACHE_MS = 60 * 1000; // 1 minute cache
+
+async function hasAnyGameStartedForWeek(weekNumber) {
+  const cacheKey = `week_${weekNumber}`;
+  const cached = gameStartedCache.get(cacheKey);
+
+  if (cached && (Date.now() - cached.timestamp < GAME_STARTED_CACHE_MS)) {
+    return cached.value;
+  }
+
+  try {
+    const url = getESPNScoreboardUrl(weekNumber);
+    const response = await axios.get(url, { timeout: 5000 });
+
+    if (!response.data || !response.data.events) {
+      // Fail closed for opt-in clients: treat as not started
+      gameStartedCache.set(cacheKey, { value: false, timestamp: Date.now() });
+      return false;
+    }
+
+    const now = new Date();
+    let anyStarted = false;
+
+    for (const event of response.data.events) {
+      const gameDate = event.date ? new Date(event.date) : null;
+      const status = event.status?.type?.name;
+
+      // Game has started if: status is not "STATUS_SCHEDULED" or game date is in the past
+      if (status && status !== 'STATUS_SCHEDULED') {
+        anyStarted = true;
+        break;
+      }
+      if (gameDate && gameDate <= now) {
+        anyStarted = true;
+        break;
+      }
+    }
+
+    gameStartedCache.set(cacheKey, { value: anyStarted, timestamp: Date.now() });
+    return anyStarted;
+  } catch (err) {
+    console.error(`[leaderboard] Error checking game start for week ${weekNumber}:`, err.message);
+    // Fail closed for opt-in clients: treat as not started
+    gameStartedCache.set(cacheKey, { value: false, timestamp: Date.now() });
+    return false;
+  }
+}
+
 // Helper: Normalize player name for matching (strips suffixes, periods, normalizes case)
 function normalizePlayerName(name) {
   if (!name) return { firstName: '', lastName: '', normalized: '' };
@@ -3660,6 +3758,11 @@ app.get('/api/leaderboard', async (req, res) => {
   try {
     const { weekNumber, round, includePicks } = req.query;
 
+    // === DUAL-SUPPORT: Client capability detection ===
+    const client = getClientCapabilities(req);
+    const supportsMetadata = client.has('leaderboard_meta');
+    const supportsGating = client.has('leaderboard_gating');
+
     // Map round to week number if round is provided
     let actualWeekNumber = weekNumber;
     if (round && !weekNumber) {
@@ -3669,6 +3772,36 @@ app.get('/api/leaderboard', async (req, res) => {
       }
     }
 
+    // Determine if this is a week-specific or cumulative request
+    const isWeekSpecific = !!actualWeekNumber;
+    const isCumulative = !actualWeekNumber;
+    const mode = isWeekSpecific ? 'week' : 'cumulative';
+
+    // === DUAL-SUPPORT: Gating logic (opt-in only, week-specific only) ===
+    // Gating is NEVER applied for:
+    // - Legacy clients (no capability headers)
+    // - Cumulative view (no weekNumber specified)
+    let gamesStarted = true; // Default: assume started (no gating)
+    if (supportsGating && isWeekSpecific) {
+      gamesStarted = await hasAnyGameStartedForWeek(parseInt(actualWeekNumber, 10));
+    }
+
+    // === DUAL-SUPPORT: Set metadata headers for opt-in clients ===
+    if (supportsMetadata) {
+      res.set('X-Leaderboard-Meta', '1');
+      res.set('X-Leaderboard-Games-Started', gamesStarted ? 'true' : 'false');
+      res.set('X-Leaderboard-Active-Week', actualWeekNumber || '');
+      res.set('X-Leaderboard-Mode', mode);
+    }
+
+    // === DUAL-SUPPORT: Apply gating (empty array) for opt-in clients only ===
+    // If games haven't started AND client supports gating AND week-specific request
+    if (supportsGating && isWeekSpecific && !gamesStarted) {
+      // Return empty array with headers - client knows to show "games haven't started"
+      return res.json([]);
+    }
+
+    // === LEGACY BEHAVIOR: Query and return data (unchanged) ===
     let query;
     let params = [];
 
@@ -3955,6 +4088,347 @@ app.get('/api/scoring-rules', async (req, res) => {
   } catch (err) {
     console.error('Error fetching scoring rules:', err);
     res.json([]);
+  }
+});
+
+// ==============================================
+// V2 PICKS API (Dual-Support for WR Bug Fix)
+// ==============================================
+// These endpoints support operation-based lineup management
+// Required for iOS clients with picks_v2 capability
+
+// Helper: Get effective week number (centralized)
+async function getEffectiveWeekNumber(clientWeekNumber) {
+  const gameStateResult = await pool.query(
+    'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
+  );
+  const { current_playoff_week, playoff_start_week } = gameStateResult.rows[0] || {};
+
+  if (current_playoff_week > 0) {
+    return playoff_start_week + current_playoff_week - 1;
+  }
+  return clientWeekNumber || current_playoff_week;
+}
+
+// Helper: Validate position counts for v2 API
+async function validatePositionCounts(userId, weekNumber, proposedOps = []) {
+  // Get current position limits from game_settings
+  const settingsResult = await pool.query(
+    `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
+  );
+  const settings = settingsResult.rows[0] || {};
+  const limits = {
+    'QB': settings.qb_limit || 1,
+    'RB': settings.rb_limit || 2,
+    'WR': settings.wr_limit || 2,
+    'TE': settings.te_limit || 1,
+    'K': settings.k_limit || 1,
+    'DEF': settings.def_limit || 1
+  };
+
+  // Get current pick counts by position
+  const currentPicks = await pool.query(`
+    SELECT position, COUNT(*) as count
+    FROM picks
+    WHERE user_id = $1 AND week_number = $2
+    GROUP BY position
+  `, [userId, weekNumber]);
+
+  const counts = {};
+  for (const row of currentPicks.rows) {
+    counts[row.position] = parseInt(row.count, 10);
+  }
+
+  // Apply proposed operations
+  for (const op of proposedOps) {
+    const pos = op.position;
+    if (!counts[pos]) counts[pos] = 0;
+
+    if (op.action === 'add') {
+      counts[pos]++;
+    } else if (op.action === 'remove') {
+      counts[pos]--;
+    }
+  }
+
+  // Validate against limits
+  const errors = [];
+  for (const [pos, count] of Object.entries(counts)) {
+    if (count > limits[pos]) {
+      errors.push(`${pos}: ${count} exceeds limit of ${limits[pos]}`);
+    }
+    if (count < 0) {
+      errors.push(`${pos}: cannot have negative count`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors, counts, limits };
+}
+
+// GET /api/picks/v2 - Get normalized lineup for v2 clients
+app.get('/api/picks/v2', async (req, res) => {
+  try {
+    const { userId, weekNumber } = req.query;
+
+    // Require picks_v2 capability
+    const client = getClientCapabilities(req);
+    if (!client.has('picks_v2')) {
+      return res.status(400).json({
+        error: 'This endpoint requires picks_v2 capability. Use /api/picks/:userId instead.'
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const effectiveWeek = await getEffectiveWeekNumber(weekNumber ? parseInt(weekNumber, 10) : null);
+
+    // Get picks with player info
+    const picksResult = await pool.query(`
+      SELECT
+        pk.id as pick_id,
+        pk.player_id,
+        pk.position,
+        pk.multiplier,
+        pk.locked,
+        pk.consecutive_weeks,
+        p.full_name,
+        p.team,
+        p.sleeper_id,
+        p.image_url
+      FROM picks pk
+      JOIN players p ON pk.player_id = p.id
+      WHERE pk.user_id = $1 AND pk.week_number = $2
+      ORDER BY
+        CASE pk.position
+          WHEN 'QB' THEN 1
+          WHEN 'RB' THEN 2
+          WHEN 'WR' THEN 3
+          WHEN 'TE' THEN 4
+          WHEN 'K' THEN 5
+          WHEN 'DEF' THEN 6
+          ELSE 7
+        END
+    `, [userId, effectiveWeek]);
+
+    // Get position limits
+    const settingsResult = await pool.query(
+      `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
+    );
+    const settings = settingsResult.rows[0] || {};
+
+    res.json({
+      userId,
+      weekNumber: effectiveWeek,
+      picks: picksResult.rows,
+      positionLimits: {
+        QB: settings.qb_limit || 1,
+        RB: settings.rb_limit || 2,
+        WR: settings.wr_limit || 2,
+        TE: settings.te_limit || 1,
+        K: settings.k_limit || 1,
+        DEF: settings.def_limit || 1
+      }
+    });
+  } catch (err) {
+    console.error('Error in GET /api/picks/v2:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/picks/v2 - Operation-based lineup management
+app.post('/api/picks/v2', async (req, res) => {
+  try {
+    const { userId, weekNumber, ops } = req.body;
+
+    // Require picks_v2 capability
+    const client = getClientCapabilities(req);
+    if (!client.has('picks_v2')) {
+      return res.status(400).json({
+        error: 'This endpoint requires picks_v2 capability. Use POST /api/picks instead.'
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    if (!ops || !Array.isArray(ops) || ops.length === 0) {
+      return res.status(400).json({ error: 'ops array is required and must not be empty' });
+    }
+
+    // Payment check
+    const userCheck = await pool.query('SELECT paid FROM users WHERE id = $1', [userId]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (!userCheck.rows[0].paid) {
+      return res.status(403).json({
+        error: 'Payment required to create team. Please complete payment to continue.'
+      });
+    }
+
+    // Week lockout check
+    const gameStateResult = await pool.query(
+      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
+    );
+    const { is_week_active } = gameStateResult.rows[0] || {};
+    if (!is_week_active) {
+      return res.status(403).json({
+        error: 'Picks are locked for this week. The submission window has closed.'
+      });
+    }
+
+    const effectiveWeek = await getEffectiveWeekNumber(weekNumber ? parseInt(weekNumber, 10) : null);
+
+    // Build proposed operations with position info
+    const proposedOps = [];
+    for (const op of ops) {
+      if (op.action === 'add') {
+        if (!op.playerId || !op.position) {
+          return res.status(400).json({ error: 'add operation requires playerId and position' });
+        }
+
+        // Validate player exists and is on playoff team
+        const playerCheck = await pool.query('SELECT team FROM players WHERE id = $1', [op.playerId]);
+        if (playerCheck.rows.length === 0) {
+          return res.status(404).json({ error: `Player not found: ${op.playerId}` });
+        }
+        if (!PLAYOFF_TEAMS.includes(playerCheck.rows[0].team)) {
+          return res.status(400).json({
+            error: `Player ${op.playerId} is not on a playoff team.`
+          });
+        }
+
+        proposedOps.push({ action: 'add', playerId: op.playerId, position: op.position });
+      } else if (op.action === 'remove') {
+        if (!op.pickId) {
+          return res.status(400).json({ error: 'remove operation requires pickId' });
+        }
+
+        // Get position of pick being removed
+        const pickCheck = await pool.query(
+          'SELECT position FROM picks WHERE id = $1 AND user_id = $2',
+          [op.pickId, userId]
+        );
+        if (pickCheck.rows.length === 0) {
+          return res.status(404).json({ error: `Pick not found: ${op.pickId}` });
+        }
+
+        proposedOps.push({ action: 'remove', pickId: op.pickId, position: pickCheck.rows[0].position });
+      } else {
+        return res.status(400).json({ error: `Unknown action: ${op.action}` });
+      }
+    }
+
+    // Validate position counts after applying all operations
+    const validation = await validatePositionCounts(userId, effectiveWeek, proposedOps);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: 'Position limit violation',
+        details: validation.errors,
+        currentLimits: validation.limits
+      });
+    }
+
+    // Execute operations in order
+    const results = [];
+    for (const op of proposedOps) {
+      if (op.action === 'add') {
+        const result = await pool.query(`
+          INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
+          VALUES (gen_random_uuid(), $1, $2, $3, $4, 1.0, 1, false, NOW())
+          ON CONFLICT (user_id, player_id, week_number)
+          DO UPDATE SET
+            position = $4,
+            created_at = NOW()
+          RETURNING *
+        `, [userId, op.playerId, effectiveWeek, op.position]);
+        results.push({ action: 'add', success: true, pick: result.rows[0] });
+      } else if (op.action === 'remove') {
+        const result = await pool.query(
+          'DELETE FROM picks WHERE id = $1 AND user_id = $2 RETURNING *',
+          [op.pickId, userId]
+        );
+        results.push({ action: 'remove', success: result.rows.length > 0, pickId: op.pickId });
+      }
+    }
+
+    res.json({
+      success: true,
+      weekNumber: effectiveWeek,
+      operations: results,
+      positionCounts: validation.counts
+    });
+  } catch (err) {
+    console.error('Error in POST /api/picks/v2:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==============================================
+// TOS FLAGS ENDPOINT (Dual-Support)
+// ==============================================
+// Signals TOS requirements to new iOS clients
+// Non-blocking - for investigative/signaling purposes only
+
+app.get('/api/me/flags', async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    // Require tos_required_flag capability (or allow for diagnostic purposes)
+    const client = getClientCapabilities(req);
+    // Note: We allow this endpoint even for legacy clients for diagnostic purposes
+    // but new clients should send tos_required_flag capability
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    // Get user's TOS status
+    const userResult = await pool.query(
+      'SELECT tos_accepted_at, tos_version FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Get current TOS version from terms
+    let currentTermsVersion = null;
+    try {
+      const termsResult = await pool.query(`
+        SELECT updated_at FROM rules_content WHERE section = 'terms_of_service'
+      `);
+      if (termsResult.rows.length > 0) {
+        currentTermsVersion = termsResult.rows[0].updated_at.toISOString().split('T')[0];
+      }
+    } catch (termsErr) {
+      console.warn('[flags] Could not fetch current TOS version:', termsErr.message);
+      // Fail open - don't block if we can't determine version
+    }
+
+    // Determine if TOS is required
+    let requiresTos = false;
+    if (!user.tos_accepted_at) {
+      requiresTos = true;
+    } else if (currentTermsVersion && user.tos_version !== currentTermsVersion) {
+      requiresTos = true;
+    }
+
+    res.json({
+      requires_tos: requiresTos,
+      tos_version_required: currentTermsVersion,
+      tos_accepted_at: user.tos_accepted_at,
+      tos_version_accepted: user.tos_version
+    });
+  } catch (err) {
+    console.error('Error in GET /api/me/flags:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
