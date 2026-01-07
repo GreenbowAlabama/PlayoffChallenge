@@ -2445,9 +2445,9 @@ app.get('/api/users/:userId', async (req, res) => {
 app.put('/api/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    const { username, email, phone } = req.body;
+    const { username, email, phone, name } = req.body;
 
-    console.log('PUT /api/users/:userId - Updating user:', { userId, username, email, phone });
+    console.log('PUT /api/users/:userId - Updating user:', { userId, username, email, phone, name });
 
     // Verify user exists
     const userCheck = await pool.query(
@@ -2499,6 +2499,12 @@ app.put('/api/users/:userId', async (req, res) => {
     if (phone !== undefined) {
       updates.push(`phone = $${paramCount}`);
       values.push(phone);
+      paramCount++;
+    }
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramCount}`);
+      values.push(name);
       paramCount++;
     }
 
