@@ -4104,10 +4104,28 @@ async function getEffectiveWeekNumber(clientWeekNumber) {
   );
   const { current_playoff_week, playoff_start_week } = gameStateResult.rows[0] || {};
 
-  if (current_playoff_week > 0) {
+  // Priority 1: Use client-provided week if valid (positive integer)
+  if (clientWeekNumber && clientWeekNumber > 0) {
+    return clientWeekNumber;
+  }
+
+  // Priority 2: Calculate from playoff state if in playoffs
+  if (current_playoff_week > 0 && playoff_start_week > 0) {
     return playoff_start_week + current_playoff_week - 1;
   }
-  return clientWeekNumber || current_playoff_week;
+
+  // Priority 3: Fall back to current_playoff_week if set
+  if (current_playoff_week > 0) {
+    return current_playoff_week;
+  }
+
+  // Priority 4: Fall back to playoff_start_week if set
+  if (playoff_start_week > 0) {
+    return playoff_start_week;
+  }
+
+  // Final fallback: return 1 (never return 0, null, or undefined)
+  return 1;
 }
 
 // Helper: Validate position counts for v2 API
@@ -4258,15 +4276,21 @@ app.post('/api/picks/v2', async (req, res) => {
       return res.status(400).json({ error: 'ops array is required and must not be empty' });
     }
 
-    // Payment check
+    // User validation
     const userCheck = await pool.query('SELECT paid FROM users WHERE id = $1', [userId]);
     if (userCheck.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    // Payment check - only block new team creation, not lineup modifications
+    // Existing users with any prior picks should be allowed to modify their lineup
     if (!userCheck.rows[0].paid) {
-      return res.status(403).json({
-        error: 'Payment required to create team. Please complete payment to continue.'
-      });
+      const existingPicks = await pool.query('SELECT 1 FROM picks WHERE user_id = $1 LIMIT 1', [userId]);
+      if (existingPicks.rows.length === 0) {
+        return res.status(403).json({
+          error: 'Payment required to create team. Please complete payment to continue.'
+        });
+      }
     }
 
     // Week lockout check
