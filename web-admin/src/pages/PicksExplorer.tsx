@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Switch } from '@headlessui/react';
 import { getUsers } from '../api/users';
 import { getUserPicks } from '../api/picks';
 import type { User, UserWithPicks } from '../types';
@@ -10,6 +11,7 @@ export function PicksExplorer() {
   const [usersWithPicks, setUsersWithPicks] = useState<UserWithPicks[]>([]);
   const [loadingProgress, setLoadingProgress] = useState<{ loaded: number; total: number } | null>(null);
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
+  const [hideZeroPicks, setHideZeroPicks] = useState(true);
 
   const { data: users, isLoading: usersLoading, error: usersError } = useQuery({
     queryKey: ['adminUsers'],
@@ -87,6 +89,11 @@ export function PicksExplorer() {
 
   const totalPicks = usersWithPicks.reduce((sum, u) => sum + u.picks.length, 0);
   const usersWithPicksCount = usersWithPicks.filter(u => u.picks.length > 0).length;
+
+  // Filter users based on toggle state
+  const displayedUsers = hideZeroPicks
+    ? usersWithPicks.filter(u => u.picks.length > 0 || u.loading)
+    : usersWithPicks;
 
   if (usersLoading) {
     return (
@@ -186,7 +193,25 @@ export function PicksExplorer() {
             <h2 className="text-lg font-medium text-gray-900">Picks by User</h2>
             <p className="text-sm text-gray-500">Click a user to expand their picks</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Hide 0 picks</span>
+              <Switch
+                checked={hideZeroPicks}
+                onChange={setHideZeroPicks}
+                className={`${
+                  hideZeroPicks ? 'bg-indigo-600' : 'bg-gray-400'
+                } relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+              >
+                <span className="sr-only">Hide users with zero picks</span>
+                <span
+                  className={`${
+                    hideZeroPicks ? 'translate-x-5' : 'translate-x-0.5'
+                  } inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform`}
+                />
+              </Switch>
+            </div>
+            <span className="text-gray-300">|</span>
             <button
               onClick={expandAll}
               className="text-sm text-indigo-600 hover:text-indigo-500"
@@ -203,10 +228,14 @@ export function PicksExplorer() {
           </div>
         </div>
         <div className="divide-y divide-gray-200">
-          {usersWithPicks.length === 0 ? (
-            <div className="p-4 text-center text-gray-500">No users found</div>
+          {displayedUsers.length === 0 ? (
+            <div className="p-4 text-center text-gray-500">
+              {hideZeroPicks && usersWithPicks.length > 0
+                ? 'No users with picks yet'
+                : 'No users found'}
+            </div>
           ) : (
-            usersWithPicks.map(({ user, picks, loading, error }) => (
+            displayedUsers.map(({ user, picks, loading, error }) => (
               <div key={user.id} className="bg-white">
                 <button
                   onClick={() => toggleUserExpanded(user.id)}
