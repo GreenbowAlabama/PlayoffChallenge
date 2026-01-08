@@ -12,6 +12,8 @@ export function Users() {
   const [copiedAll, setCopiedAll] = useState(false);
   const [editingNotesUserId, setEditingNotesUserId] = useState<string | null>(null);
   const [editingNotesValue, setEditingNotesValue] = useState('');
+  const [hideUnpaid, setHideUnpaid] = useState(true);
+  const [filterText, setFilterText] = useState('');
 
   const clearSuccess = useCallback(() => {
     setSuccessUserId(null);
@@ -53,6 +55,18 @@ export function Users() {
   const { data: users, isLoading, error } = useQuery({
     queryKey: ['users'],
     queryFn: getUsers,
+  });
+
+  const unpaidUsersCount = users?.filter(u => !u.paid).length ?? 0;
+  const displayedUsers = users?.filter(u => {
+    if (hideUnpaid && !u.paid) return false;
+    if (filterText) {
+      const searchTerm = filterText.toLowerCase();
+      const matchesUsername = u.username?.toLowerCase().includes(searchTerm);
+      const matchesName = u.name?.toLowerCase().includes(searchTerm);
+      if (!matchesUsername && !matchesName) return false;
+    }
+    return true;
   });
 
   const updateMutation = useMutation({
@@ -156,12 +170,38 @@ export function Users() {
 
   return (
     <div>
-      <div className="sm:flex sm:items-center">
+      <div className="sm:flex sm:items-center sm:justify-between">
         <div className="sm:flex-auto">
           <h1 className="text-2xl font-semibold text-gray-900">Users</h1>
           <p className="mt-2 text-sm text-gray-700">
             View registered users and manage payment eligibility
           </p>
+        </div>
+        <div className="mt-4 sm:mt-0 flex items-center gap-4">
+          <input
+            type="text"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Filter by username or name..."
+            className="w-64 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          />
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Hide {unpaidUsersCount} (unpaid)</span>
+            <Switch
+              checked={hideUnpaid}
+              onChange={setHideUnpaid}
+              className={`${
+                hideUnpaid ? 'bg-indigo-600' : 'bg-gray-400'
+              } relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+            >
+              <span className="sr-only">Hide unpaid users</span>
+              <span
+                className={`${
+                  hideUnpaid ? 'translate-x-5' : 'translate-x-0.5'
+                } inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform`}
+              />
+            </Switch>
+          </div>
         </div>
       </div>
 
@@ -182,7 +222,7 @@ export function Users() {
                       Email
                       <button
                         type="button"
-                        onClick={() => users && copyAllEmails(users)}
+                        onClick={() => displayedUsers && copyAllEmails(displayedUsers)}
                         className="inline-flex items-center gap-1 text-xs font-normal text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 rounded px-1.5 py-0.5 transition-colors"
                         title="Copy all emails"
                       >
@@ -225,7 +265,7 @@ export function Users() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {users?.map((user) => {
+                {displayedUsers?.map((user) => {
                   const isMutating = mutatingUserId === user.id;
                   const showSuccess = successUserId === user.id;
 
@@ -369,7 +409,7 @@ export function Users() {
               </tbody>
             </table>
 
-            {users?.length === 0 && (
+            {displayedUsers?.length === 0 && (
               <div className="text-center py-12">
                 <p className="text-sm text-gray-500">No users found</p>
               </div>
