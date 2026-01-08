@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getUsers, updateUserEligibility } from '../api/users';
+import { getUsers, updateUserEligibility, updateUserNotes } from '../api/users';
 import { Switch } from '@headlessui/react';
 import type { User } from '../types';
 
@@ -10,6 +10,8 @@ export function Users() {
   const [successUserId, setSuccessUserId] = useState<string | null>(null);
   const [copiedEmailId, setCopiedEmailId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [editingNotesUserId, setEditingNotesUserId] = useState<string | null>(null);
+  const [editingNotesValue, setEditingNotesValue] = useState('');
 
   const clearSuccess = useCallback(() => {
     setSuccessUserId(null);
@@ -88,6 +90,47 @@ export function Users() {
       setMutatingUserId(null);
     },
   });
+
+  const notesMutation = useMutation({
+    mutationFn: ({ userId, adminNotes }: { userId: string; adminNotes: string }) =>
+      updateUserNotes(userId, adminNotes),
+    onMutate: async ({ userId, adminNotes }) => {
+      await queryClient.cancelQueries({ queryKey: ['users'] });
+      const previousUsers = queryClient.getQueryData<User[]>(['users']);
+      queryClient.setQueryData<User[]>(['users'], (old) =>
+        old?.map((user) =>
+          user.id === userId ? { ...user, admin_notes: adminNotes || null } : user
+        )
+      );
+      return { previousUsers };
+    },
+    onSuccess: () => {
+      setEditingNotesUserId(null);
+      setEditingNotesValue('');
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousUsers) {
+        queryClient.setQueryData(['users'], context.previousUsers);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+
+  const handleNotesClick = (user: User) => {
+    setEditingNotesUserId(user.id);
+    setEditingNotesValue(user.admin_notes || '');
+  };
+
+  const handleNotesSave = (userId: string) => {
+    notesMutation.mutate({ userId, adminNotes: editingNotesValue });
+  };
+
+  const handleNotesCancel = () => {
+    setEditingNotesUserId(null);
+    setEditingNotesValue('');
+  };
 
   const handleToggleEligibility = (userId: string, currentStatus: boolean) => {
     updateMutation.mutate({ userId, isPaid: !currentStatus });
@@ -175,6 +218,9 @@ export function Users() {
                   </th>
                   <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
                     Payment Status
+                  </th>
+                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                    Notes (Admin)
                   </th>
                 </tr>
               </thead>
@@ -289,6 +335,33 @@ export function Users() {
                             </span>
                           )}
                         </div>
+                      </td>
+                      <td className="px-3 py-4 text-sm text-gray-500">
+                        {editingNotesUserId === user.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={editingNotesValue}
+                              onChange={(e) => setEditingNotesValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleNotesSave(user.id);
+                                if (e.key === 'Escape') handleNotesCancel();
+                              }}
+                              onBlur={() => handleNotesSave(user.id)}
+                              maxLength={500}
+                              className="w-48 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              autoFocus
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleNotesClick(user)}
+                            className="text-left hover:text-indigo-600 focus:outline-none"
+                          >
+                            {user.admin_notes || <span className="text-gray-400 italic">Add note</span>}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

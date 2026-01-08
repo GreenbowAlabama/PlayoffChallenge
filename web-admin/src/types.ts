@@ -8,6 +8,7 @@ export interface User {
   is_admin: boolean;
   apple_id: string | null;
   created_at: string | null;
+  admin_notes: string | null;
 }
 
 export interface AuthResponse {

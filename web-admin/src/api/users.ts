@@ -14,3 +14,13 @@ export async function updateUserEligibility(
     body: JSON.stringify({ has_paid: isPaid }),
   });
 }
+
+export async function updateUserNotes(
+  userId: string,
+  adminNotes: string
+): Promise<{ adminNotes: string | null }> {
+  return apiRequest<{ adminNotes: string | null }>(`/api/admin/users/${userId}/notes`, {
+    method: 'PATCH',
+    body: JSON.stringify({ adminNotes }),
+  });
+}

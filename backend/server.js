@@ -3707,7 +3707,8 @@ app.get('/api/admin/users', async (req, res) => {
         paid,
         is_admin,
         apple_id,
-        created_at
+        created_at,
+        admin_notes
       FROM users
       ORDER BY username
     `);
@@ -3743,6 +3744,38 @@ app.put('/api/admin/users/:id/payment', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error updating user payment:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update user admin notes (admin only)
+app.patch('/api/admin/users/:id/notes', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminNotes } = req.body;
+
+    if (adminNotes === undefined) {
+      return res.status(400).json({ error: 'adminNotes required in request body' });
+    }
+
+    const trimmed = typeof adminNotes === 'string' ? adminNotes.trim() : '';
+
+    if (trimmed.length > 500) {
+      return res.status(400).json({ error: 'adminNotes must be 500 characters or less' });
+    }
+
+    const result = await pool.query(
+      'UPDATE users SET admin_notes = $1 WHERE id = $2 RETURNING admin_notes',
+      [trimmed || null, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ adminNotes: result.rows[0].admin_notes });
+  } catch (err) {
+    console.error('Error updating user notes:', err);
     res.status(500).json({ error: err.message });
   }
 });
