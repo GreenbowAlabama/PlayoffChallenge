@@ -2894,7 +2894,10 @@ app.get('/api/picks/v2', async (req, res) => {
       return res.status(400).json({ error: 'userId is required' });
     }
 
-    const effectiveWeek = await getEffectiveWeekNumber(weekNumber ? parseInt(weekNumber, 10) : null);
+    // For reads: allow viewing historical weeks, default to server week when omitted
+    const effectiveWeek = weekNumber
+      ? parseInt(weekNumber, 10)
+      : await getEffectiveWeekNumber();
 
     // Get picks with player info
     const picksResult = await pool.query(`
@@ -2987,7 +2990,17 @@ app.post('/api/picks/v2', async (req, res) => {
       });
     }
 
-    const effectiveWeek = await getEffectiveWeekNumber(weekNumber ? parseInt(weekNumber, 10) : null);
+    // Server is the single source of truth for active week
+    const effectiveWeek = await getEffectiveWeekNumber();
+
+    // Guard: reject if client sent a mismatched week (prevents future-week writes)
+    if (weekNumber && parseInt(weekNumber, 10) !== effectiveWeek) {
+      return res.status(409).json({
+        error: 'Week mismatch. The active playoff week has changed. Please refresh.',
+        serverWeek: effectiveWeek,
+        clientWeek: parseInt(weekNumber, 10)
+      });
+    }
 
     // Build proposed operations with position info
     const proposedOps = [];
@@ -3200,11 +3213,21 @@ app.post('/api/picks', async (req, res) => {
       });
     }
 
-    // If in playoff mode (current_playoff_week > 0), compute NFL week from playoff round
+    // Server is the single source of truth for active week (never trust client weekNumber)
+    // If in playoff mode, compute NFL week from playoff round
     // playoff_week 1 = Wild Card = week 19, playoff_week 2 = Divisional = week 20, etc.
     const effectiveWeekNumber = current_playoff_week > 0
       ? playoff_start_week + current_playoff_week - 1
-      : weekNumber;
+      : (playoff_start_week > 0 ? playoff_start_week : 1);
+
+    // Guard: reject if client sent a mismatched week (prevents future-week writes)
+    if (weekNumber && parseInt(weekNumber, 10) !== effectiveWeekNumber) {
+      return res.status(409).json({
+        error: 'Week mismatch. The active playoff week has changed. Please refresh.',
+        serverWeek: effectiveWeekNumber,
+        clientWeek: parseInt(weekNumber, 10)
+      });
+    }
 
     // Support batch submission
     if (picks && Array.isArray(picks)) {
@@ -4277,29 +4300,21 @@ app.get('/api/scoring-rules', async (req, res) => {
 // These endpoints support operation-based lineup management
 // Required for iOS clients with picks_v2 capability
 
-// Helper: Get effective week number (centralized)
-async function getEffectiveWeekNumber(clientWeekNumber) {
+// Helper: Get effective week number (centralized, server-authoritative)
+// IMPORTANT: This function is the single source of truth for the active week.
+// It NEVER trusts client-provided week numbers for write operations.
+async function getEffectiveWeekNumber() {
   const gameStateResult = await pool.query(
     'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
   );
   const { current_playoff_week, playoff_start_week } = gameStateResult.rows[0] || {};
 
-  // Priority 1: Use client-provided week if valid (positive integer)
-  if (clientWeekNumber && clientWeekNumber > 0) {
-    return clientWeekNumber;
-  }
-
-  // Priority 2: Calculate from playoff state if in playoffs
+  // Calculate from playoff state if in playoffs
   if (current_playoff_week > 0 && playoff_start_week > 0) {
     return playoff_start_week + current_playoff_week - 1;
   }
 
-  // Priority 3: Fall back to current_playoff_week if set
-  if (current_playoff_week > 0) {
-    return current_playoff_week;
-  }
-
-  // Priority 4: Fall back to playoff_start_week if set
+  // Fall back to playoff_start_week if set
   if (playoff_start_week > 0) {
     return playoff_start_week;
   }
