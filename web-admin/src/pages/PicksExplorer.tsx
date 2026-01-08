@@ -89,6 +89,7 @@ export function PicksExplorer() {
 
   const totalPicks = usersWithPicks.reduce((sum, u) => sum + u.picks.length, 0);
   const usersWithPicksCount = usersWithPicks.filter(u => u.picks.length > 0).length;
+  const usersWithZeroPicksCount = usersWithPicks.filter(u => u.picks.length === 0 && !u.loading).length;
 
   // Filter users based on toggle state
   const displayedUsers = hideZeroPicks
@@ -195,7 +196,7 @@ export function PicksExplorer() {
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">Hide 0 picks</span>
+              <span className="text-sm text-gray-600">Hide {usersWithZeroPicksCount} (0 picks)</span>
               <Switch
                 checked={hideZeroPicks}
                 onChange={setHideZeroPicks}
