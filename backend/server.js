@@ -963,10 +963,13 @@ async function fetchScoreboard(weekNumber) {
       liveStatsCache.currentCachedWeek === weekNumber &&
       (now - liveStatsCache.lastScoreboardUpdate) < SCOREBOARD_CACHE_MS
     ) {
+      console.log('Scoreboard cache hit', { cachedGames: liveStatsCache.activeGameIds.size, cacheAgeMs: now - liveStatsCache.lastScoreboardUpdate });
       return Array.from(liveStatsCache.activeGameIds);
     }
 
-    const response = await axios.get(getESPNScoreboardUrl(weekNumber));
+    const url = getESPNScoreboardUrl(weekNumber);
+    console.log('Fetching fresh scoreboard', { url });
+    const response = await axios.get(url);
 
     // CRITICAL: Clear stale caches when week changes to prevent cross-week stat leakage
     if (liveStatsCache.currentCachedWeek !== weekNumber) {
@@ -1006,6 +1009,7 @@ async function fetchScoreboard(weekNumber) {
     }
 
     liveStatsCache.activeGameIds = new Set(activeGames);
+    console.log('Fresh scoreboard fetched', { activeGames: activeGames.length, totalEvents: response.data?.events?.length || 0 });
 
     // FIX: derive activeTeams from active games
     liveStatsCache.activeTeams = new Set(
@@ -1015,7 +1019,10 @@ async function fetchScoreboard(weekNumber) {
     );
 
     liveStatsCache.currentCachedWeek = weekNumber;
-    liveStatsCache.lastScoreboardUpdate = now;
+    // Only cache timestamp when games found - prevents stale empty cache blocking live game detection
+    if (activeGames.length > 0) {
+      liveStatsCache.lastScoreboardUpdate = now;
+    }
 
     return activeGames;
   } catch (err) {
