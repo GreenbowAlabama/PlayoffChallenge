@@ -2946,7 +2946,7 @@ app.get('/api/picks/v2', async (req, res) => {
     // Get picks with player info
     const picksResult = await pool.query(`
       SELECT
-        pk.id as pick_id,
+        pk.id AS pick_id,
         pk.player_id,
         pk.position,
         pk.multiplier,
@@ -2955,10 +2955,17 @@ app.get('/api/picks/v2', async (req, res) => {
         p.full_name,
         p.team,
         p.sleeper_id,
-        p.image_url
+        p.image_url,
+        COALESCE(s.final_points, 0) AS final_points
       FROM picks pk
-      JOIN players p ON pk.player_id = p.id
-      WHERE pk.user_id = $1 AND pk.week_number = $2
+      JOIN players p
+        ON pk.player_id = p.id
+      LEFT JOIN scores s
+        ON s.player_id = pk.player_id
+      AND s.user_id = pk.user_id
+      AND s.week_number = pk.week_number
+      WHERE pk.user_id = $1
+        AND pk.week_number = $2
       ORDER BY
         CASE pk.position
           WHEN 'QB' THEN 1
@@ -2968,7 +2975,7 @@ app.get('/api/picks/v2', async (req, res) => {
           WHEN 'K' THEN 5
           WHEN 'DEF' THEN 6
           ELSE 7
-        END
+        END;
     `, [userId, effectiveWeek]);
 
     // Get position limits
