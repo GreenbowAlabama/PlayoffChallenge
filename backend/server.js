@@ -4020,6 +4020,31 @@ app.get('/api/leaderboard', async (req, res) => {
       }
     }
 
+    // === PLAYOFF WEEK INDEX REMAPPING ===
+    // iOS app sends weekNumber as playoff index (1-4) but scores table uses NFL weeks.
+    // Fetch playoff_start_week from settings and remap:
+    //   - If weekNumber is 1-4: actualWeekNumber = playoff_start_week + (weekNumber - 1)
+    //   - If weekNumber >= playoff_start_week: treat as literal NFL week (no remap)
+    if (actualWeekNumber) {
+      const inputWeek = parseInt(actualWeekNumber, 10);
+      const settingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
+      const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
+
+      if (inputWeek >= 1 && inputWeek <= 4) {
+        // Treat as playoff index week (1=Wild Card, 2=Divisional, etc.)
+        actualWeekNumber = playoffStartWeek + (inputWeek - 1);
+        console.log(`[Leaderboard] Week remap: received=${inputWeek}, playoff_start_week=${playoffStartWeek}, resolved=${actualWeekNumber}`);
+      } else if (inputWeek >= playoffStartWeek) {
+        // Already an NFL week number, use as-is
+        actualWeekNumber = inputWeek;
+        console.log(`[Leaderboard] Week passthrough: received=${inputWeek}, playoff_start_week=${playoffStartWeek}, resolved=${actualWeekNumber} (literal NFL week)`);
+      } else {
+        // Week number outside expected range - use as-is but log warning
+        actualWeekNumber = inputWeek;
+        console.log(`[Leaderboard] Week WARNING: received=${inputWeek}, playoff_start_week=${playoffStartWeek}, resolved=${actualWeekNumber} (unexpected range)`);
+      }
+    }
+
     // Determine if this is a week-specific or cumulative request
     const isWeekSpecific = !!actualWeekNumber;
     const isCumulative = !actualWeekNumber;
