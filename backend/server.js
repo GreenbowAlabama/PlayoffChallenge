@@ -3999,6 +3999,11 @@ function getWeekNumberForRound(round) {
 // Get leaderboard
 app.get('/api/leaderboard', async (req, res) => {
   try {
+    // Force iOS clients to bypass cached responses (CFNetwork/URLSession caching fix)
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
     const { weekNumber, round, includePicks } = req.query;
 
     // === DUAL-SUPPORT: Client capability detection ===
