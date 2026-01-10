@@ -2920,6 +2920,9 @@ app.get('/api/players', async (req, res) => {
 
 // GET /api/picks/v2 - Get normalized lineup for v2 clients
 app.get('/api/picks/v2', async (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   try {
     const { userId, weekNumber } = req.query;
 
