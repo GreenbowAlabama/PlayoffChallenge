@@ -189,6 +189,34 @@ async function hasAnyGameStartedForWeek(weekNumber) {
   }
 }
 
+// Helper: Resolve actual NFL week number from iOS playoff index
+// iOS sends playoff week indices (1-4), but backend stores NFL weeks (19-22).
+// This function performs the same remapping used in /api/leaderboard.
+async function resolveActualWeekNumber(inputWeek, pool, logPrefix = 'WeekRemap') {
+  if (!inputWeek) return null;
+
+  const weekNum = parseInt(inputWeek, 10);
+  if (isNaN(weekNum)) return null;
+
+  const settingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
+  const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
+
+  if (weekNum >= 1 && weekNum <= 4) {
+    // Treat as playoff index week (1=Wild Card, 2=Divisional, etc.)
+    const resolved = playoffStartWeek + (weekNum - 1);
+    console.log(`[${logPrefix}] Week remap: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${resolved}`);
+    return resolved;
+  } else if (weekNum >= playoffStartWeek) {
+    // Already an NFL week number, use as-is
+    console.log(`[${logPrefix}] Week passthrough: received=${weekNum}, resolved=${weekNum} (literal NFL week)`);
+    return weekNum;
+  } else {
+    // Week number outside expected range - use as-is but log warning
+    console.log(`[${logPrefix}] Week WARNING: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${weekNum} (unexpected range)`);
+    return weekNum;
+  }
+}
+
 // Helper: Normalize player name for matching (strips suffixes, periods, normalizes case)
 function normalizePlayerName(name) {
   if (!name) return { firstName: '', lastName: '', normalized: '' };
@@ -1606,6 +1634,12 @@ app.get('/api/live-scores', async (req, res) => {
       return res.status(400).json({ error: 'weekNumber query parameter required' });
     }
 
+    // Remap playoff week index (1-4) to NFL week (19-22)
+    const actualWeekNumber = await resolveActualWeekNumber(weekNumber, pool, 'LiveScores');
+    if (!actualWeekNumber) {
+      return res.status(400).json({ error: 'Invalid weekNumber' });
+    }
+
     // Get all picks for this week with player info
     const picksResult = await pool.query(`
       SELECT
@@ -1621,7 +1655,7 @@ app.get('/api/live-scores', async (req, res) => {
       JOIN players p ON pk.player_id = p.id
       WHERE pk.week_number = $1
       ORDER BY pk.user_id, pk.position
-    `, [weekNumber]);
+    `, [actualWeekNumber]);
 
     const picks = [];
 
@@ -3397,6 +3431,12 @@ app.get('/api/users/:userId/picks/:weekNumber', async (req, res) => {
   try {
     const { userId, weekNumber } = req.params;
 
+    // Remap playoff week index (1-4) to NFL week (19-22)
+    const actualWeekNumber = await resolveActualWeekNumber(weekNumber, pool, 'UserPicks');
+    if (!actualWeekNumber) {
+      return res.status(400).json({ error: 'Invalid weekNumber' });
+    }
+
     const result = await pool.query(`
       SELECT
         pk.id as pick_id,
@@ -3424,7 +3464,7 @@ app.get('/api/users/:userId/picks/:weekNumber', async (req, res) => {
           WHEN 'DEF' THEN 6
           ELSE 7
         END
-    `, [userId, weekNumber]);
+    `, [userId, actualWeekNumber]);
 
     res.json({ picks: result.rows });
   } catch (err) {
