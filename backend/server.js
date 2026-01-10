@@ -4050,6 +4050,7 @@ app.get('/api/leaderboard', async (req, res) => {
 
     if (actualWeekNumber) {
       // Filter by specific week - email removed from SELECT for privacy
+      // NOTE: 'points' alias added for iOS app compatibility (expects 'points', not 'total_points')
       query = `
         SELECT
           u.id,
@@ -4057,7 +4058,8 @@ app.get('/api/leaderboard', async (req, res) => {
           u.name,
           u.team_name,
           u.paid as has_paid,
-          COALESCE(SUM(s.final_points), 0) as total_points
+          COALESCE(SUM(s.final_points), 0) as total_points,
+          COALESCE(SUM(s.final_points), 0) as points
         FROM users u
         LEFT JOIN scores s ON u.id = s.user_id AND s.week_number = $1
         WHERE u.paid = true
@@ -4067,6 +4069,7 @@ app.get('/api/leaderboard', async (req, res) => {
       params = [actualWeekNumber];
     } else {
       // All weeks (cumulative) - sum all playoff weeks (19-22) - email removed from SELECT
+      // NOTE: 'points' alias added for iOS app compatibility (expects 'points', not 'total_points')
       query = `
         SELECT
           u.id,
@@ -4074,7 +4077,8 @@ app.get('/api/leaderboard', async (req, res) => {
           u.name,
           u.team_name,
           u.paid as has_paid,
-          COALESCE(SUM(s.final_points), 0) as total_points
+          COALESCE(SUM(s.final_points), 0) as total_points,
+          COALESCE(SUM(s.final_points), 0) as points
         FROM users u
         LEFT JOIN scores s ON u.id = s.user_id AND s.week_number IN (19, 20, 21, 22)
         WHERE u.paid = true
