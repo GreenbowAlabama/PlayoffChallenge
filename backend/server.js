@@ -191,6 +191,7 @@ async function hasAnyGameStartedForWeek(weekNumber) {
 
 // Helper: Resolve actual NFL week number from iOS playoff index
 // iOS sends playoff week indices (1-4), but backend stores NFL weeks (19-22).
+// iOS LeaderboardView picker also uses 16-19 for Wild Card through Super Bowl.
 // This function performs the same remapping used in /api/leaderboard.
 async function resolveActualWeekNumber(inputWeek, pool, logPrefix = 'WeekRemap') {
   if (!inputWeek) return null;
@@ -206,12 +207,18 @@ async function resolveActualWeekNumber(inputWeek, pool, logPrefix = 'WeekRemap')
     const resolved = playoffStartWeek + (weekNum - 1);
     console.log(`[${logPrefix}] Week remap: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${resolved}`);
     return resolved;
-  } else if (weekNum >= playoffStartWeek) {
-    // Already an NFL week number, use as-is
+  } else if (weekNum >= 16 && weekNum <= 19) {
+    // iOS LeaderboardView/MyPicksView picker uses 16-19 for playoff rounds
+    // Remap: 16→19 (Wild Card), 17→20 (Divisional), 18→21 (Conference), 19→22 (Super Bowl)
+    const resolved = weekNum + 3;
+    console.log(`[${logPrefix}] Week remap (iOS picker): received=${weekNum}, resolved=${resolved}`);
+    return resolved;
+  } else if (weekNum >= 20) {
+    // Already an NFL week number (20-22), use as-is
     console.log(`[${logPrefix}] Week passthrough: received=${weekNum}, resolved=${weekNum} (literal NFL week)`);
     return weekNum;
   } else {
-    // Week number outside expected range - use as-is but log warning
+    // Week number outside expected range (5-15) - use as-is but log warning
     console.log(`[${logPrefix}] Week WARNING: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${weekNum} (unexpected range)`);
     return weekNum;
   }
@@ -4080,9 +4087,11 @@ app.get('/api/leaderboard', async (req, res) => {
 
     // === PLAYOFF WEEK INDEX REMAPPING ===
     // iOS app sends weekNumber as playoff index (1-4) but scores table uses NFL weeks.
+    // iOS LeaderboardView/MyPicksView picker also uses 16-19 for playoff rounds.
     // Fetch playoff_start_week from settings and remap:
     //   - If weekNumber is 1-4: actualWeekNumber = playoff_start_week + (weekNumber - 1)
-    //   - If weekNumber >= playoff_start_week: treat as literal NFL week (no remap)
+    //   - If weekNumber is 16-19: actualWeekNumber = weekNumber + 3 (iOS picker)
+    //   - If weekNumber >= 20: treat as literal NFL week (no remap)
     if (actualWeekNumber) {
       const inputWeek = parseInt(actualWeekNumber, 10);
       const settingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
@@ -4092,12 +4101,17 @@ app.get('/api/leaderboard', async (req, res) => {
         // Treat as playoff index week (1=Wild Card, 2=Divisional, etc.)
         actualWeekNumber = playoffStartWeek + (inputWeek - 1);
         console.log(`[Leaderboard] Week remap: received=${inputWeek}, playoff_start_week=${playoffStartWeek}, resolved=${actualWeekNumber}`);
-      } else if (inputWeek >= playoffStartWeek) {
-        // Already an NFL week number, use as-is
+      } else if (inputWeek >= 16 && inputWeek <= 19) {
+        // iOS picker uses 16-19 for playoff rounds
+        // Remap: 16→19 (Wild Card), 17→20 (Divisional), 18→21 (Conference), 19→22 (Super Bowl)
+        actualWeekNumber = inputWeek + 3;
+        console.log(`[Leaderboard] Week remap (iOS picker): received=${inputWeek}, resolved=${actualWeekNumber}`);
+      } else if (inputWeek >= 20) {
+        // Already an NFL week number (20-22), use as-is
         actualWeekNumber = inputWeek;
-        console.log(`[Leaderboard] Week passthrough: received=${inputWeek}, playoff_start_week=${playoffStartWeek}, resolved=${actualWeekNumber} (literal NFL week)`);
+        console.log(`[Leaderboard] Week passthrough: received=${inputWeek}, resolved=${actualWeekNumber} (literal NFL week)`);
       } else {
-        // Week number outside expected range - use as-is but log warning
+        // Week number outside expected range (5-15) - use as-is but log warning
         actualWeekNumber = inputWeek;
         console.log(`[Leaderboard] Week WARNING: received=${inputWeek}, playoff_start_week=${playoffStartWeek}, resolved=${actualWeekNumber} (unexpected range)`);
       }
