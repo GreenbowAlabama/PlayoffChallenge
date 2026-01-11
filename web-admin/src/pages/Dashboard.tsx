@@ -12,6 +12,11 @@ import {
   getNonAdminUserCount,
 } from '../api/admin';
 
+// Production safety: Disable destructive dashboard actions to prevent accidental
+// clicks on production-impacting controls. Informational panels remain visible.
+// This only affects the Dashboard page; other admin pages (Users, Picks, etc.) are unchanged.
+const IS_PROD_DASHBOARD_READONLY = import.meta.env.PROD;
+
 export function Dashboard() {
   const queryClient = useQueryClient();
   const [startingWeekInput, setStartingWeekInput] = useState<string>('');
@@ -88,6 +93,24 @@ export function Dashboard() {
         </p>
       </div>
 
+      {/* Production read-only banner - Dashboard specific */}
+      {IS_PROD_DASHBOARD_READONLY && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 p-4">
+          <div className="flex">
+            <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-blue-800">Production Mode - Read Only</h3>
+              <p className="mt-1 text-sm text-blue-700">
+                Destructive actions are disabled on this page to prevent accidental changes.
+                Use a non-production environment to access week management and cleanup controls.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Panel 1: Game State (Read-Only) */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
@@ -152,10 +175,12 @@ export function Dashboard() {
       </div>
 
       {/* Panel 2: Week Management */}
-      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className={`rounded-lg border bg-white shadow-sm ${IS_PROD_DASHBOARD_READONLY ? 'border-gray-100 opacity-60' : 'border-gray-200'}`}>
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
           <h2 className="text-lg font-medium text-gray-900">Week Management</h2>
-          <p className="text-sm text-gray-500">Control contest week state</p>
+          <p className="text-sm text-gray-500">
+            {IS_PROD_DASHBOARD_READONLY ? 'Disabled in production' : 'Control contest week state'}
+          </p>
         </div>
         <div className="p-4 space-y-4">
           {/* Set Starting NFL Week */}
@@ -171,11 +196,12 @@ export function Dashboard() {
               value={startingWeekInput}
               onChange={(e) => setStartingWeekInput(e.target.value)}
               placeholder="e.g. 19"
-              className="w-24 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              disabled={IS_PROD_DASHBOARD_READONLY}
+              className="w-24 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
             />
             <button
               onClick={() => setSetWeekModalOpen(true)}
-              disabled={!startingWeekInput || isNaN(Number(startingWeekInput))}
+              disabled={IS_PROD_DASHBOARD_READONLY || !startingWeekInput || isNaN(Number(startingWeekInput))}
               className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Set Week
@@ -188,7 +214,8 @@ export function Dashboard() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setWeekTransitionModalOpen(true)}
-              className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+              disabled={IS_PROD_DASHBOARD_READONLY}
+              className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Advance to Next Week
             </button>
@@ -206,11 +233,11 @@ export function Dashboard() {
       </div>
 
       {/* Panel 3: Destructive Actions */}
-      <div className="rounded-lg border-2 border-red-200 bg-white shadow-sm">
-        <div className="border-b border-red-200 bg-red-50 px-4 py-3">
+      <div className={`rounded-lg border-2 bg-white shadow-sm ${IS_PROD_DASHBOARD_READONLY ? 'border-gray-200 opacity-60' : 'border-red-200'}`}>
+        <div className={`border-b px-4 py-3 ${IS_PROD_DASHBOARD_READONLY ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50'}`}>
           <div className="flex items-center gap-2">
             <svg
-              className="h-5 w-5 text-red-600"
+              className={`h-5 w-5 ${IS_PROD_DASHBOARD_READONLY ? 'text-gray-400' : 'text-red-600'}`}
               fill="none"
               viewBox="0 0 24 24"
               strokeWidth="1.5"
@@ -222,23 +249,27 @@ export function Dashboard() {
                 d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
               />
             </svg>
-            <h2 className="text-lg font-medium text-red-900">Destructive Actions</h2>
+            <h2 className={`text-lg font-medium ${IS_PROD_DASHBOARD_READONLY ? 'text-gray-700' : 'text-red-900'}`}>Destructive Actions</h2>
           </div>
-          <p className="mt-1 text-sm text-red-700">
-            All actions below permanently delete data. Admin users and admin picks are always preserved.
+          <p className={`mt-1 text-sm ${IS_PROD_DASHBOARD_READONLY ? 'text-gray-500' : 'text-red-700'}`}>
+            {IS_PROD_DASHBOARD_READONLY
+              ? 'Disabled in production to prevent accidental data loss.'
+              : 'All actions below permanently delete data. Admin users and admin picks are always preserved.'}
           </p>
         </div>
         <div className="p-4">
           <div className="flex flex-wrap gap-4">
             <button
               onClick={() => setUserCleanupModalOpen(true)}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              disabled={IS_PROD_DASHBOARD_READONLY}
+              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Clear Non-Admin Users
             </button>
             <button
               onClick={() => setPickCleanupModalOpen(true)}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              disabled={IS_PROD_DASHBOARD_READONLY}
+              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Clear Non-Admin Picks
             </button>
