@@ -60,6 +60,32 @@ export interface GameConfig {
 }
 
 // ============================================
+// READ-ONLY TREND ANALYTICS TYPES
+// ============================================
+// These types are for informational display only.
+// They must NOT influence admin actions or mutate state.
+
+export interface PlayerPickTrend {
+  playerId: string;
+  playerName: string;
+  position: string;
+  team: string;
+  pickCount: number;
+}
+
+export interface TeamPickTrend {
+  teamAbbr: string;
+  pickCount: number;
+}
+
+export interface ConferencePickTrend {
+  conference: 'AFC' | 'NFC';
+  pickCount: number;
+}
+
+export type TrendWeekRange = 'current' | 'all';
+
+// ============================================
 // UI-EXPOSED ENDPOINTS ONLY
 // ============================================
 
@@ -206,4 +232,55 @@ export async function getWeekVerificationStatus(weekNumber: number): Promise<Ver
     multiplierDistribution: multiplierDist,
     anomalies,
   };
+}
+
+// ============================================
+// READ-ONLY TREND ANALYTICS ENDPOINTS
+// ============================================
+// INFORMATIONAL ONLY - These functions provide observational data.
+// They must NOT influence admin decisions or trigger any actions.
+// No retries, no assumptions. Return empty arrays on failure.
+//
+// BACKEND DEPENDENCIES:
+//   GET /api/admin/trends/players?weekRange={current|all}
+//   GET /api/admin/trends/teams?weekRange={current|all}
+//   GET /api/admin/trends/conferences?weekRange={current|all}
+//
+// These endpoints are NOT YET IMPLEMENTED in the backend.
+// Functions will return empty arrays until backend support is added.
+
+export async function getPlayerPickTrends(weekRange: TrendWeekRange = 'current'): Promise<PlayerPickTrend[]> {
+  // STUB: Backend endpoint not yet implemented
+  // Expected: GET /api/admin/trends/players?weekRange={current|all}
+  // Returns: Array of { playerId, playerName, position, team, pickCount }
+  try {
+    return await apiRequest<PlayerPickTrend[]>(`/api/admin/trends/players?weekRange=${weekRange}`);
+  } catch {
+    // Return empty array on failure - do not retry
+    return [];
+  }
+}
+
+export async function getTeamPickTrends(weekRange: TrendWeekRange = 'current'): Promise<TeamPickTrend[]> {
+  // STUB: Backend endpoint not yet implemented
+  // Expected: GET /api/admin/trends/teams?weekRange={current|all}
+  // Returns: Array of { teamAbbr, pickCount }
+  try {
+    return await apiRequest<TeamPickTrend[]>(`/api/admin/trends/teams?weekRange=${weekRange}`);
+  } catch {
+    // Return empty array on failure - do not retry
+    return [];
+  }
+}
+
+export async function getConferencePickTrends(weekRange: TrendWeekRange = 'current'): Promise<ConferencePickTrend[]> {
+  // STUB: Backend endpoint not yet implemented
+  // Expected: GET /api/admin/trends/conferences?weekRange={current|all}
+  // Returns: Array of { conference: 'AFC' | 'NFC', pickCount }
+  try {
+    return await apiRequest<ConferencePickTrend[]>(`/api/admin/trends/conferences?weekRange=${weekRange}`);
+  } catch {
+    // Return empty array on failure - do not retry
+    return [];
+  }
 }
