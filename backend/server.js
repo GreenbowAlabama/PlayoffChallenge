@@ -2029,11 +2029,19 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
 
     console.log(`[admin] Week transition complete: ${advancedCount} advanced, ${eliminatedCount} eliminated`);
 
+    // Persist active_teams to game_settings for pick eligibility enforcement
+    const activeTeamsArray = Array.from(activeTeams);
+    await pool.query(
+      'UPDATE game_settings SET active_teams = $1',
+      [activeTeamsArray]
+    );
+    console.log(`[admin] Active teams persisted to game_settings: ${activeTeamsArray.join(', ')}`);
+
     res.json({
       success: true,
       fromWeek,
       toWeek,
-      activeTeams: Array.from(activeTeams),
+      activeTeams: activeTeamsArray,
       advancedCount,
       eliminatedCount,
       eliminated
@@ -2124,9 +2132,9 @@ app.post('/api/picks/replace-player', async (req, res) => {
 
     // Server-side week derivation for playoffs (same as pick submission)
     const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
+      'SELECT current_playoff_week, playoff_start_week, is_week_active, active_teams FROM game_settings LIMIT 1'
     );
-    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0] || {};
+    const { current_playoff_week, playoff_start_week, is_week_active, active_teams: storedActiveTeams } = gameStateResult.rows[0] || {};
 
     // Week lockout check - block modifications when week is locked
     if (!is_week_active) {
@@ -2187,6 +2195,13 @@ app.post('/api/picks/replace-player', async (req, res) => {
     if (!PLAYOFF_TEAMS.includes(newPlayerResult.rows[0].team)) {
       return res.status(400).json({
         error: `${newPlayerResult.rows[0].full_name} is not on a playoff team. Only playoff team players are selectable.`
+      });
+    }
+
+    // Validate new player's team is still active this week (if active_teams is set)
+    if (storedActiveTeams && storedActiveTeams.length > 0 && !storedActiveTeams.includes(newPlayerResult.rows[0].team)) {
+      return res.status(400).json({
+        error: `${newPlayerResult.rows[0].full_name}'s team (${newPlayerResult.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
       });
     }
 
@@ -3146,9 +3161,9 @@ app.post('/api/picks/v2', async (req, res) => {
 
     // Week lockout check
     const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
+      'SELECT current_playoff_week, playoff_start_week, is_week_active, active_teams FROM game_settings LIMIT 1'
     );
-    const { is_week_active } = gameStateResult.rows[0] || {};
+    const { is_week_active, active_teams } = gameStateResult.rows[0] || {};
     if (!is_week_active) {
       return res.status(403).json({
         error: 'Picks are locked for this week. The submission window has closed.'
@@ -3171,11 +3186,26 @@ app.post('/api/picks/v2', async (req, res) => {
     const proposedOps = [];
     for (const op of ops) {
       if (op.action === 'add') {
-        // Get player position
-        const playerResult = await pool.query('SELECT position FROM players WHERE id = $1', [op.playerId]);
+        // Get player info including team
+        const playerResult = await pool.query('SELECT position, team FROM players WHERE id = $1', [op.playerId]);
         if (playerResult.rows.length === 0) {
           return res.status(400).json({ error: `Player ${op.playerId} not found` });
         }
+
+        // Validate player belongs to a playoff team
+        if (!PLAYOFF_TEAMS.includes(playerResult.rows[0].team)) {
+          return res.status(400).json({
+            error: `Player ${op.playerId} is not on a playoff team. Only playoff team players are selectable.`
+          });
+        }
+
+        // Validate player's team is still active this week (if active_teams is set)
+        if (active_teams && active_teams.length > 0 && !active_teams.includes(playerResult.rows[0].team)) {
+          return res.status(400).json({
+            error: `Player ${op.playerId}'s team (${playerResult.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
+          });
+        }
+
         proposedOps.push({ action: 'add', position: playerResult.rows[0].position, playerId: op.playerId });
       } else if (op.action === 'remove') {
         // Get pick position
@@ -3367,9 +3397,9 @@ app.post('/api/picks', async (req, res) => {
     // During playoffs, ignore client weekNumber and derive from game state
     // This prevents misconfiguration bugs where picks land on wrong week
     const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
+      'SELECT current_playoff_week, playoff_start_week, is_week_active, active_teams FROM game_settings LIMIT 1'
     );
-    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0] || {};
+    const { current_playoff_week, playoff_start_week, is_week_active, active_teams } = gameStateResult.rows[0] || {};
 
     // Week lockout check - block picks when week is locked
     if (!is_week_active) {
@@ -3410,6 +3440,13 @@ app.post('/api/picks', async (req, res) => {
         if (!PLAYOFF_TEAMS.includes(playerTeamCheck.rows[0].team)) {
           return res.status(400).json({
             error: `Player ${pick.playerId} is not on a playoff team. Only playoff team players are selectable.`
+          });
+        }
+
+        // Validate player's team is still active this week (if active_teams is set)
+        if (active_teams && active_teams.length > 0 && !active_teams.includes(playerTeamCheck.rows[0].team)) {
+          return res.status(400).json({
+            error: `Player ${pick.playerId}'s team (${playerTeamCheck.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
           });
         }
 
@@ -3475,6 +3512,13 @@ app.post('/api/picks', async (req, res) => {
     if (!PLAYOFF_TEAMS.includes(playerTeamCheck.rows[0].team)) {
       return res.status(400).json({
         error: `Player ${playerId} is not on a playoff team. Only playoff team players are selectable.`
+      });
+    }
+
+    // Validate player's team is still active this week (if active_teams is set)
+    if (active_teams && active_teams.length > 0 && !active_teams.includes(playerTeamCheck.rows[0].team)) {
+      return res.status(400).json({
+        error: `Player ${playerId}'s team (${playerTeamCheck.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
       });
     }
 
