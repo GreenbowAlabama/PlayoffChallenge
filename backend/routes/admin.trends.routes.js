@@ -54,15 +54,11 @@ router.get('/players', async (req, res) => {
 
     const trends = await trendsService.getPlayerTrends(pool, weekRange);
 
-    res.json({
-      timestamp: new Date().toISOString(),
-      weekRange,
-      count: trends.length,
-      trends
-    });
+    // Return array directly - frontend expects raw array
+    res.json(trends);
   } catch (err) {
     console.error('[Admin Trends] Error fetching player trends:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json([]);
   }
 });
 
@@ -88,15 +84,11 @@ router.get('/teams', async (req, res) => {
 
     const trends = await trendsService.getTeamTrends(pool, weekRange);
 
-    res.json({
-      timestamp: new Date().toISOString(),
-      weekRange,
-      count: trends.length,
-      trends
-    });
+    // Return array directly - frontend expects raw array
+    res.json(trends);
   } catch (err) {
     console.error('[Admin Trends] Error fetching team trends:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json([]);
   }
 });
 
@@ -122,15 +114,11 @@ router.get('/conferences', async (req, res) => {
 
     const trends = await trendsService.getConferenceTrends(pool, weekRange);
 
-    res.json({
-      timestamp: new Date().toISOString(),
-      weekRange,
-      count: trends.length,
-      trends
-    });
+    // Return array directly - frontend expects raw array
+    res.json(trends);
   } catch (err) {
     console.error('[Admin Trends] Error fetching conference trends:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json([]);
   }
 });
 
