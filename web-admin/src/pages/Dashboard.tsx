@@ -25,9 +25,19 @@ import {
 // This only affects the Dashboard page; other admin pages (Users, Picks, etc.) are unchanged.
 const IS_PROD_DASHBOARD_READONLY = import.meta.env.PROD;
 
+// Admin Edit Mode: confirmation phrase must be typed exactly to enable edit mode.
+// This gate applies in ALL environments, independent of IS_PROD_DASHBOARD_READONLY.
+const ADMIN_EDIT_MODE_PHRASE = 'ENABLE ADMIN EDIT MODE';
+
 export function Dashboard() {
   const queryClient = useQueryClient();
   const [weekTransitionModalOpen, setWeekTransitionModalOpen] = useState(false);
+
+  // Admin Edit Mode state: intentionally in-memory only.
+  // This state resets on page refresh by design - no persistence to localStorage,
+  // sessionStorage, cookies, or URL params.
+  const [editModeEnabled, setEditModeEnabled] = useState(false);
+  const [editModeInput, setEditModeInput] = useState('');
 
   // Week transition state
   const [transitionResult, setTransitionResult] = useState<WeekTransitionResponse | null>(null);
@@ -183,6 +193,73 @@ export function Dashboard() {
         </div>
       )}
 
+      {/* Admin Edit Mode Control */}
+      <div className={`rounded-lg border p-4 ${
+        editModeEnabled
+          ? 'border-red-300 bg-red-50'
+          : 'border-amber-200 bg-amber-50'
+      }`}>
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              Admin Edit Mode
+              {editModeEnabled && (
+                <span className="inline-flex items-center rounded-full bg-red-600 px-2.5 py-0.5 text-xs font-medium text-white">
+                  ACTIVE
+                </span>
+              )}
+            </h2>
+
+            {editModeEnabled ? (
+              <p className="mt-1 text-sm text-red-800">
+                Edit mode is active. Week management controls are enabled.
+              </p>
+            ) : (
+              <div className="mt-1 space-y-2">
+                <p className="text-sm text-amber-800">
+                  <strong>Warning:</strong> Week management actions affect all users in production.
+                  Edit mode resets on page refresh.
+                </p>
+                <p className="text-xs text-amber-700">
+                  Type <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">ENABLE ADMIN EDIT MODE</code> to enable.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {editModeEnabled && (
+            <button
+              onClick={() => {
+                setEditModeEnabled(false);
+                setEditModeInput('');
+              }}
+              className="rounded-md bg-gray-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700"
+            >
+              Disable Edit Mode
+            </button>
+          )}
+        </div>
+
+        {!editModeEnabled && (
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="text"
+              value={editModeInput}
+              onChange={(e) => setEditModeInput(e.target.value)}
+              placeholder="Type confirmation phrase"
+              className="flex-1 rounded-md border border-amber-300 px-3 py-1.5 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            />
+            <button
+              onClick={() => setEditModeEnabled(true)}
+              disabled={editModeInput !== ADMIN_EDIT_MODE_PHRASE}
+              className="rounded-md bg-amber-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Enable
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Panel 1: Game State (Read-Only) */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
@@ -269,14 +346,14 @@ export function Dashboard() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setLockModalOpen(true)}
-                  disabled={IS_PROD_DASHBOARD_READONLY || isWeekLocked}
+                  disabled={!editModeEnabled || IS_PROD_DASHBOARD_READONLY || isWeekLocked}
                   className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Lock Week
                 </button>
                 <button
                   onClick={() => setUnlockModalOpen(true)}
-                  disabled={IS_PROD_DASHBOARD_READONLY || !isWeekLocked}
+                  disabled={!editModeEnabled || IS_PROD_DASHBOARD_READONLY || !isWeekLocked}
                   className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Unlock Week
@@ -288,6 +365,15 @@ export function Dashboard() {
                 ? 'Week is locked. Users cannot modify picks. Unlock before advancing.'
                 : 'Week is unlocked. Users can modify picks.'}
             </p>
+            {/* Inline disable reason for Lock/Unlock buttons */}
+            {!editModeEnabled && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-red-600">
+                <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>Admin Edit Mode is OFF</span>
+              </div>
+            )}
           </div>
 
           <div className="h-px bg-gray-200" />
@@ -330,7 +416,7 @@ export function Dashboard() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setWeekTransitionModalOpen(true)}
-                disabled={isTransitionDisabled}
+                disabled={!editModeEnabled || isTransitionDisabled}
                 className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Advance to Next Week
@@ -342,12 +428,12 @@ export function Dashboard() {
               </span>
             </div>
             {/* Inline disable reason */}
-            {transitionDisableReason && (
+            {(!editModeEnabled || transitionDisableReason) && (
               <div className="flex items-center gap-2 text-sm text-red-600">
                 <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
-                <span>{transitionDisableReason}</span>
+                <span>{!editModeEnabled ? 'Admin Edit Mode is OFF' : transitionDisableReason}</span>
               </div>
             )}
           </div>
