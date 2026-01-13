@@ -1739,6 +1739,101 @@ app.get('/api/admin/cache-status', (req, res) => {
   });
 });
 
+// ============================================
+// VERIFICATION ENDPOINTS FOR WEEK TRANSITIONS
+// ============================================
+// These endpoints support post-transition verification in web-admin.
+// They are read-only and return counts/distributions for a given week.
+
+// Admin: Get pick count for a specific week
+app.get('/api/admin/picks/count', async (req, res) => {
+  try {
+    const { week } = req.query;
+
+    if (!week) {
+      return res.status(400).json({ error: 'week query parameter required' });
+    }
+
+    const weekNumber = parseInt(week, 10);
+    if (isNaN(weekNumber)) {
+      return res.status(400).json({ error: 'week must be a valid number' });
+    }
+
+    const result = await pool.query(
+      'SELECT COUNT(*) as count FROM picks WHERE week_number = $1',
+      [weekNumber]
+    );
+
+    res.json({ count: parseInt(result.rows[0].count, 10) });
+  } catch (err) {
+    console.error('Error fetching pick count:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Get score count for a specific week
+app.get('/api/admin/scores/count', async (req, res) => {
+  try {
+    const { week } = req.query;
+
+    if (!week) {
+      return res.status(400).json({ error: 'week query parameter required' });
+    }
+
+    const weekNumber = parseInt(week, 10);
+    if (isNaN(weekNumber)) {
+      return res.status(400).json({ error: 'week must be a valid number' });
+    }
+
+    const result = await pool.query(
+      'SELECT COUNT(*) as count FROM scores WHERE week_number = $1',
+      [weekNumber]
+    );
+
+    res.json({ count: parseInt(result.rows[0].count, 10) });
+  } catch (err) {
+    console.error('Error fetching score count:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Get multiplier distribution for picks in a specific week
+app.get('/api/admin/picks/multiplier-distribution', async (req, res) => {
+  try {
+    const { week } = req.query;
+
+    if (!week) {
+      return res.status(400).json({ error: 'week query parameter required' });
+    }
+
+    const weekNumber = parseInt(week, 10);
+    if (isNaN(weekNumber)) {
+      return res.status(400).json({ error: 'week must be a valid number' });
+    }
+
+    const result = await pool.query(
+      `SELECT multiplier, COUNT(*) as count
+       FROM picks
+       WHERE week_number = $1
+       GROUP BY multiplier
+       ORDER BY multiplier`,
+      [weekNumber]
+    );
+
+    // Convert to object format: { "1": 10, "2": 5, "3": 2 }
+    const distribution = {};
+    result.rows.forEach(row => {
+      const multiplierKey = parseFloat(row.multiplier).toString();
+      distribution[multiplierKey] = parseInt(row.count, 10);
+    });
+
+    res.json(distribution);
+  } catch (err) {
+    console.error('Error fetching multiplier distribution:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Admin: Manually update a player's ESPN ID
 app.put('/api/admin/players/:playerId/espn-id', async (req, res) => {
   try {

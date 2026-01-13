@@ -170,43 +170,34 @@ export async function getNonAdminPickCount(): Promise<number> {
 // ============================================
 // PRE-FLIGHT & VERIFICATION ENDPOINTS
 // ============================================
-// DEPENDENCY: These require backend endpoints to be implemented.
-// Expected endpoints:
-//   GET /api/admin/picks/count?week={weekNumber}
-//   GET /api/admin/scores/count?week={weekNumber}
-//   GET /api/admin/picks/multiplier-distribution?week={weekNumber}
+// These endpoints support post-transition verification in web-admin.
+// Backend endpoints implemented in server.js lines 1748-1835.
 
 export async function getPickCountForWeek(weekNumber: number): Promise<number> {
-  // STUB: Replace with actual endpoint when available
-  // Expected: GET /api/admin/picks/count?week={weekNumber}
   try {
     const result = await apiRequest<{ count: number }>(`/api/admin/picks/count?week=${weekNumber}`);
     return result.count;
   } catch {
-    // Return -1 to indicate endpoint not available
+    // Return -1 to indicate endpoint error
     return -1;
   }
 }
 
 export async function getScoreCountForWeek(weekNumber: number): Promise<number> {
-  // STUB: Replace with actual endpoint when available
-  // Expected: GET /api/admin/scores/count?week={weekNumber}
   try {
     const result = await apiRequest<{ count: number }>(`/api/admin/scores/count?week=${weekNumber}`);
     return result.count;
   } catch {
-    // Return -1 to indicate endpoint not available
+    // Return -1 to indicate endpoint error
     return -1;
   }
 }
 
 export async function getMultiplierDistribution(weekNumber: number): Promise<Record<string, number>> {
-  // STUB: Replace with actual endpoint when available
-  // Expected: GET /api/admin/picks/multiplier-distribution?week={weekNumber}
   try {
     return await apiRequest<Record<string, number>>(`/api/admin/picks/multiplier-distribution?week=${weekNumber}`);
   } catch {
-    // Return empty object to indicate endpoint not available
+    // Return empty object to indicate endpoint error
     return {};
   }
 }
