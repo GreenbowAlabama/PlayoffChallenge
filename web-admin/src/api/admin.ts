@@ -25,6 +25,38 @@ export interface WeekTransitionResponse {
   success: boolean;
   message: string;
   newWeek?: number;
+  // Extended fields returned by process-week-transition
+  advancedCount?: number;
+  eliminatedCount?: number;
+  activeTeams?: Array<{ userId: string; username: string | null }>;
+}
+
+// Pre-flight and verification types
+export interface WeekPreflightStatus {
+  pickCountForNextWeek: number;
+  scoreCountForNextWeek: number;
+  multiplierDistribution: Record<string, number>; // e.g., {"1x": 5, "2x": 3}
+}
+
+export interface VerificationStatus {
+  pickCount: number;
+  scoreCount: number;
+  multiplierDistribution: Record<string, number>;
+  anomalies: string[];
+}
+
+export interface WeekTransitionParams {
+  userId: string;
+  fromWeek: number;
+  toWeek: number;
+}
+
+export interface GameConfig {
+  id: string;
+  playoff_start_week: number;
+  current_playoff_week: number;
+  is_week_active: boolean;
+  season_year: string;
 }
 
 // ============================================
@@ -49,10 +81,31 @@ export async function setActiveWeek(weekNumber: number): Promise<WeekTransitionR
   });
 }
 
-export async function processWeekTransition(): Promise<WeekTransitionResponse> {
+export async function processWeekTransition(params: WeekTransitionParams): Promise<WeekTransitionResponse> {
   return apiRequest<WeekTransitionResponse>('/api/admin/process-week-transition', {
     method: 'POST',
+    body: JSON.stringify(params),
   });
+}
+
+// Fetch game configuration (public endpoint)
+export async function getGameConfig(): Promise<GameConfig> {
+  return apiRequest<GameConfig>('/api/game-config');
+}
+
+// Extract admin user ID from stored JWT token
+export function getAdminUserId(): string | null {
+  const token = localStorage.getItem('admin_token');
+  if (!token) return null;
+
+  try {
+    // Decode JWT payload (base64url encoded, no verification needed - already validated by backend)
+    const payloadPart = token.split('.')[1];
+    const decoded = JSON.parse(atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/')));
+    return decoded.sub || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function updateWeekStatus(isActive: boolean): Promise<WeekTransitionResponse> {
@@ -86,4 +139,71 @@ export async function getNonAdminPickCount(): Promise<number> {
   // This requires reading users first to identify non-admin user IDs
   // For now, we'll return -1 to indicate "unknown" and the cleanup will return actual count
   return -1;
+}
+
+// ============================================
+// PRE-FLIGHT & VERIFICATION ENDPOINTS
+// ============================================
+// DEPENDENCY: These require backend endpoints to be implemented.
+// Expected endpoints:
+//   GET /api/admin/picks/count?week={weekNumber}
+//   GET /api/admin/scores/count?week={weekNumber}
+//   GET /api/admin/picks/multiplier-distribution?week={weekNumber}
+
+export async function getPickCountForWeek(weekNumber: number): Promise<number> {
+  // STUB: Replace with actual endpoint when available
+  // Expected: GET /api/admin/picks/count?week={weekNumber}
+  try {
+    const result = await apiRequest<{ count: number }>(`/api/admin/picks/count?week=${weekNumber}`);
+    return result.count;
+  } catch {
+    // Return -1 to indicate endpoint not available
+    return -1;
+  }
+}
+
+export async function getScoreCountForWeek(weekNumber: number): Promise<number> {
+  // STUB: Replace with actual endpoint when available
+  // Expected: GET /api/admin/scores/count?week={weekNumber}
+  try {
+    const result = await apiRequest<{ count: number }>(`/api/admin/scores/count?week=${weekNumber}`);
+    return result.count;
+  } catch {
+    // Return -1 to indicate endpoint not available
+    return -1;
+  }
+}
+
+export async function getMultiplierDistribution(weekNumber: number): Promise<Record<string, number>> {
+  // STUB: Replace with actual endpoint when available
+  // Expected: GET /api/admin/picks/multiplier-distribution?week={weekNumber}
+  try {
+    return await apiRequest<Record<string, number>>(`/api/admin/picks/multiplier-distribution?week=${weekNumber}`);
+  } catch {
+    // Return empty object to indicate endpoint not available
+    return {};
+  }
+}
+
+export async function getWeekVerificationStatus(weekNumber: number): Promise<VerificationStatus> {
+  // Aggregates multiple checks into a single verification status
+  const [pickCount, scoreCount, multiplierDist] = await Promise.all([
+    getPickCountForWeek(weekNumber),
+    getScoreCountForWeek(weekNumber),
+    getMultiplierDistribution(weekNumber),
+  ]);
+
+  const anomalies: string[] = [];
+
+  // Anomaly detection
+  if (scoreCount > 0) {
+    anomalies.push(`Unexpected: ${scoreCount} scores already exist for week ${weekNumber}`);
+  }
+
+  return {
+    pickCount,
+    scoreCount,
+    multiplierDistribution: multiplierDist,
+    anomalies,
+  };
 }

@@ -10,6 +10,14 @@ import {
   cleanupNonAdminUsers,
   cleanupNonAdminPicks,
   getNonAdminUserCount,
+  getGameConfig,
+  getAdminUserId,
+  updateWeekStatus,
+  getPickCountForWeek,
+  getWeekVerificationStatus,
+  type WeekTransitionParams,
+  type WeekTransitionResponse,
+  type VerificationStatus,
 } from '../api/admin';
 
 // Production safety: Disable destructive dashboard actions to prevent accidental
@@ -26,6 +34,17 @@ export function Dashboard() {
   const [setWeekModalOpen, setSetWeekModalOpen] = useState(false);
   const [nonAdminUserCount, setNonAdminUserCount] = useState<number>(-1);
 
+  // Week transition state
+  const [transitionResult, setTransitionResult] = useState<WeekTransitionResponse | null>(null);
+  const [transitionTimestamp, setTransitionTimestamp] = useState<string | null>(null);
+  const [transitionAdminId, setTransitionAdminId] = useState<string | null>(null);
+  const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
+  const [activeTeamsExpanded, setActiveTeamsExpanded] = useState(false);
+
+  // Lock/Unlock modal state
+  const [lockModalOpen, setLockModalOpen] = useState(false);
+  const [unlockModalOpen, setUnlockModalOpen] = useState(false);
+
   // Read-only queries with auto-refresh
   const { data: cacheStatus, isLoading: cacheLoading } = useQuery({
     queryKey: ['cacheStatus'],
@@ -36,6 +55,29 @@ export function Dashboard() {
   const { data: userStats, isLoading: usersLoading } = useQuery({
     queryKey: ['userStats'],
     queryFn: getUsers,
+    refetchInterval: 30000,
+  });
+
+  // Fetch game config for week transition
+  const { data: gameConfig } = useQuery({
+    queryKey: ['gameConfig'],
+    queryFn: getGameConfig,
+    refetchInterval: 30000,
+  });
+
+  // Calculate current NFL week from game settings
+  const currentNflWeek = gameConfig
+    ? gameConfig.playoff_start_week + gameConfig.current_playoff_week - 1
+    : null;
+  const nextNflWeek = currentNflWeek ? currentNflWeek + 1 : null;
+  const currentPlayoffWeek = gameConfig?.current_playoff_week ?? null;
+  const isWeekLocked = gameConfig?.is_week_active ?? false;
+
+  // Pre-flight: fetch pick count for next week
+  const { data: nextWeekPickCount } = useQuery({
+    queryKey: ['pickCountNextWeek', nextNflWeek],
+    queryFn: () => (nextNflWeek ? getPickCountForWeek(nextNflWeek) : Promise.resolve(-1)),
+    enabled: !!nextNflWeek,
     refetchInterval: 30000,
   });
 
@@ -57,12 +99,56 @@ export function Dashboard() {
   });
 
   const weekTransitionMutation = useMutation({
-    mutationFn: processWeekTransition,
-    onSuccess: () => {
+    mutationFn: (params: WeekTransitionParams) => processWeekTransition(params),
+    onSuccess: async (result) => {
       queryClient.invalidateQueries({ queryKey: ['cacheStatus'] });
+      queryClient.invalidateQueries({ queryKey: ['gameConfig'] });
+      queryClient.invalidateQueries({ queryKey: ['pickCountNextWeek'] });
       setWeekTransitionModalOpen(false);
+
+      // Capture transition result for display
+      setTransitionResult(result);
+      setTransitionTimestamp(new Date().toISOString());
+      setTransitionAdminId(getAdminUserId());
+
+      // Run post-transition verification
+      if (nextNflWeek) {
+        const verification = await getWeekVerificationStatus(nextNflWeek);
+        setVerificationStatus(verification);
+      }
     },
   });
+
+  // Lock/Unlock week mutations
+  const lockWeekMutation = useMutation({
+    mutationFn: () => updateWeekStatus(true),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gameConfig'] });
+      setLockModalOpen(false);
+    },
+  });
+
+  const unlockWeekMutation = useMutation({
+    mutationFn: () => updateWeekStatus(false),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gameConfig'] });
+      setUnlockModalOpen(false);
+    },
+  });
+
+  // Button disable logic with reasons
+  const getTransitionDisableReason = (): string | null => {
+    if (IS_PROD_DASHBOARD_READONLY) return 'Disabled in production mode';
+    if (!currentNflWeek || !nextNflWeek) return 'Week configuration not loaded';
+    if (isWeekLocked) return 'Week is currently locked (is_week_active = true)';
+    if (nextWeekPickCount !== undefined && nextWeekPickCount > 0) {
+      return `${nextWeekPickCount} picks already exist for Week ${nextNflWeek}`;
+    }
+    return null;
+  };
+
+  const transitionDisableReason = getTransitionDisableReason();
+  const isTransitionDisabled = transitionDisableReason !== null;
 
   // Cleanup mutations
   const userCleanupMutation = useMutation({
@@ -210,18 +296,101 @@ export function Dashboard() {
 
           <div className="h-px bg-gray-200" />
 
+          {/* Lock/Unlock Week Controls */}
+          <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm font-medium text-gray-700">Week Lock State: </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                  isWeekLocked ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                }`}>
+                  {isWeekLocked ? 'LOCKED' : 'UNLOCKED'}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setLockModalOpen(true)}
+                  disabled={IS_PROD_DASHBOARD_READONLY || isWeekLocked}
+                  className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Lock Week
+                </button>
+                <button
+                  onClick={() => setUnlockModalOpen(true)}
+                  disabled={IS_PROD_DASHBOARD_READONLY || !isWeekLocked}
+                  className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Unlock Week
+                </button>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              {isWeekLocked
+                ? 'Week is locked. Users cannot modify picks. Unlock before advancing.'
+                : 'Week is unlocked. Users can modify picks.'}
+            </p>
+          </div>
+
+          <div className="h-px bg-gray-200" />
+
+          {/* Pre-flight Status Panel */}
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+            <h3 className="text-sm font-medium text-blue-900 mb-2">Pre-flight Status</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+              <div>
+                <span className="text-blue-700">Current NFL Week:</span>
+                <span className="ml-1 font-medium text-blue-900">{currentNflWeek ?? '—'}</span>
+              </div>
+              <div>
+                <span className="text-blue-700">Playoff Week:</span>
+                <span className="ml-1 font-medium text-blue-900">{currentPlayoffWeek ?? '—'}</span>
+              </div>
+              <div>
+                <span className="text-blue-700">Lock State:</span>
+                <span className={`ml-1 font-medium ${isWeekLocked ? 'text-red-700' : 'text-green-700'}`}>
+                  {isWeekLocked ? 'Locked' : 'Unlocked'}
+                </span>
+              </div>
+              <div>
+                <span className="text-blue-700">Picks for Week {nextNflWeek ?? '?'}:</span>
+                <span className={`ml-1 font-medium ${
+                  nextWeekPickCount === undefined || nextWeekPickCount === -1
+                    ? 'text-gray-500'
+                    : nextWeekPickCount > 0
+                    ? 'text-red-700'
+                    : 'text-green-700'
+                }`}>
+                  {nextWeekPickCount === undefined || nextWeekPickCount === -1 ? '—' : nextWeekPickCount}
+                </span>
+              </div>
+            </div>
+          </div>
+
           {/* Advance to Next Week */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setWeekTransitionModalOpen(true)}
-              disabled={IS_PROD_DASHBOARD_READONLY}
-              className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Advance to Next Week
-            </button>
-            <span className="text-sm text-gray-500">
-              Progress the contest to the next NFL week
-            </span>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setWeekTransitionModalOpen(true)}
+                disabled={isTransitionDisabled}
+                className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Advance to Next Week
+              </button>
+              <span className="text-sm text-gray-500">
+                {currentNflWeek && nextNflWeek
+                  ? `NFL Week ${currentNflWeek} → Week ${nextNflWeek}`
+                  : 'Progress the contest to the next NFL week'}
+              </span>
+            </div>
+            {/* Inline disable reason */}
+            {transitionDisableReason && (
+              <div className="flex items-center gap-2 text-sm text-red-600">
+                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>{transitionDisableReason}</span>
+              </div>
+            )}
           </div>
 
           <div className="rounded-md bg-amber-50 border border-amber-200 p-3">
@@ -229,6 +398,121 @@ export function Dashboard() {
               <strong>Warning:</strong> These actions affect all users in the contest.
             </p>
           </div>
+
+          {/* Transition Results Panel */}
+          {transitionResult && (
+            <div className="rounded-md border border-green-200 bg-green-50 p-4">
+              <h3 className="text-sm font-medium text-green-900 mb-3 flex items-center gap-2">
+                <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                Transition Complete
+              </h3>
+              <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+                <div>
+                  <span className="text-green-700">Advanced:</span>
+                  <span className="ml-1 font-medium text-green-900">{transitionResult.advancedCount ?? '—'}</span>
+                </div>
+                <div>
+                  <span className="text-green-700">Eliminated:</span>
+                  <span className="ml-1 font-medium text-green-900">{transitionResult.eliminatedCount ?? '—'}</span>
+                </div>
+                <div>
+                  <span className="text-green-700">Timestamp:</span>
+                  <span className="ml-1 font-medium text-green-900">
+                    {transitionTimestamp ? new Date(transitionTimestamp).toLocaleString() : '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-green-700">Admin:</span>
+                  <span className="ml-1 font-medium text-green-900 text-xs font-mono">
+                    {transitionAdminId ? `${transitionAdminId.slice(0, 8)}...` : '—'}
+                  </span>
+                </div>
+              </div>
+              {/* Collapsible Active Teams */}
+              {transitionResult.activeTeams && transitionResult.activeTeams.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => setActiveTeamsExpanded(!activeTeamsExpanded)}
+                    className="flex items-center gap-1 text-sm text-green-700 hover:text-green-800"
+                  >
+                    <svg
+                      className={`h-4 w-4 transform transition-transform ${activeTeamsExpanded ? 'rotate-90' : ''}`}
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Active Teams ({transitionResult.activeTeams.length})
+                  </button>
+                  {activeTeamsExpanded && (
+                    <ul className="mt-2 pl-5 text-xs text-green-800 max-h-32 overflow-y-auto">
+                      {transitionResult.activeTeams.map((team) => (
+                        <li key={team.userId} className="py-0.5">
+                          {team.username || team.userId.slice(0, 8)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              <button
+                onClick={() => {
+                  setTransitionResult(null);
+                  setVerificationStatus(null);
+                }}
+                className="mt-3 text-xs text-green-600 hover:text-green-700"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {/* Post-Transition Verification Panel */}
+          {verificationStatus && (
+            <div className={`rounded-md border p-4 ${
+              verificationStatus.anomalies.length > 0
+                ? 'border-yellow-200 bg-yellow-50'
+                : 'border-gray-200 bg-gray-50'
+            }`}>
+              <h3 className="text-sm font-medium text-gray-900 mb-3">Post-Transition Verification</h3>
+              <div className="grid grid-cols-3 gap-3 text-sm mb-2">
+                <div>
+                  <span className="text-gray-600">Pick Count:</span>
+                  <span className="ml-1 font-medium">{verificationStatus.pickCount === -1 ? '—' : verificationStatus.pickCount}</span>
+                </div>
+                <div>
+                  <span className="text-gray-600">Score Count:</span>
+                  <span className={`ml-1 font-medium ${verificationStatus.scoreCount > 0 ? 'text-yellow-700' : ''}`}>
+                    {verificationStatus.scoreCount === -1 ? '—' : verificationStatus.scoreCount}
+                  </span>
+                  {verificationStatus.scoreCount === 0 && <span className="text-green-600 text-xs ml-1">(expected)</span>}
+                </div>
+                <div>
+                  <span className="text-gray-600">Multipliers:</span>
+                  <span className="ml-1 font-medium text-xs">
+                    {Object.keys(verificationStatus.multiplierDistribution).length === 0
+                      ? '—'
+                      : Object.entries(verificationStatus.multiplierDistribution)
+                          .map(([k, v]) => `${k}:${v}`)
+                          .join(', ')}
+                  </span>
+                </div>
+              </div>
+              {/* Anomalies only shown if present */}
+              {verificationStatus.anomalies.length > 0 && (
+                <div className="mt-2 p-2 bg-yellow-100 rounded text-xs text-yellow-800">
+                  <strong>Anomalies:</strong>
+                  <ul className="mt-1 list-disc list-inside">
+                    {verificationStatus.anomalies.map((a, i) => (
+                      <li key={i}>{a}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -306,9 +590,22 @@ export function Dashboard() {
       <ConfirmationModal
         isOpen={weekTransitionModalOpen}
         onClose={() => setWeekTransitionModalOpen(false)}
-        onConfirm={() => weekTransitionMutation.mutate()}
+        onConfirm={() => {
+          const adminUserId = getAdminUserId();
+          if (!adminUserId || !currentNflWeek || !nextNflWeek) {
+            console.error('Missing required data for week transition');
+            return;
+          }
+          weekTransitionMutation.mutate({
+            userId: adminUserId,
+            fromWeek: currentNflWeek,
+            toWeek: nextNflWeek,
+          });
+        }}
         title="Advance to Next Week"
-        description="This will advance the contest to the next NFL week. Ensure all scores are finalized before proceeding. This action affects all users."
+        description={currentNflWeek && nextNflWeek
+          ? `This will advance the contest from NFL Week ${currentNflWeek} to Week ${nextNflWeek}. Ensure all scores are finalized before proceeding. This action affects all users.`
+          : "This will advance the contest to the next NFL week. Ensure all scores are finalized before proceeding. This action affects all users."}
         confirmText="Advance Week"
         confirmationPhrase="ADVANCE WEEK"
         isLoading={weekTransitionMutation.isPending}
@@ -323,6 +620,28 @@ export function Dashboard() {
         confirmText="Set Week"
         confirmationPhrase="SET WEEK"
         isLoading={setWeekMutation.isPending}
+      />
+
+      <ConfirmationModal
+        isOpen={lockModalOpen}
+        onClose={() => setLockModalOpen(false)}
+        onConfirm={() => lockWeekMutation.mutate()}
+        title="Lock Week"
+        description="This will lock the current week. Users will NOT be able to modify their picks while locked. Lock the week before games start."
+        confirmText="Lock Week"
+        confirmationPhrase="LOCK WEEK"
+        isLoading={lockWeekMutation.isPending}
+      />
+
+      <ConfirmationModal
+        isOpen={unlockModalOpen}
+        onClose={() => setUnlockModalOpen(false)}
+        onConfirm={() => unlockWeekMutation.mutate()}
+        title="Unlock Week"
+        description="This will unlock the current week. Users WILL be able to modify their picks. Only unlock if you need to allow pick changes before advancing."
+        confirmText="Unlock Week"
+        confirmationPhrase="UNLOCK WEEK"
+        isLoading={unlockWeekMutation.isPending}
       />
     </div>
   );
