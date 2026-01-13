@@ -150,8 +150,9 @@ export function Dashboard() {
   });
 
   // Button disable logic with reasons
+  // Note: IS_PROD_DASHBOARD_READONLY is the default posture only.
+  // Admin Edit Mode overrides production read-only when enabled.
   const getTransitionDisableReason = (): string | null => {
-    if (IS_PROD_DASHBOARD_READONLY) return 'Disabled in production mode';
     if (!currentNflWeek || !nextNflWeek) return 'Week configuration not loaded';
     if (!isWeekLocked) return 'Week must be locked before advancing (is_week_active = true)';
     if (nextWeekPickCount !== undefined && nextWeekPickCount > 0) {
@@ -175,18 +176,18 @@ export function Dashboard() {
         </p>
       </div>
 
-      {/* Production read-only banner - Dashboard specific */}
-      {IS_PROD_DASHBOARD_READONLY && (
+      {/* Production read-only banner - only shown when edit mode is OFF */}
+      {IS_PROD_DASHBOARD_READONLY && !editModeEnabled && (
         <div className="rounded-md bg-blue-50 border border-blue-200 p-4">
           <div className="flex">
             <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
             </svg>
             <div className="ml-3">
-              <h3 className="text-sm font-medium text-blue-800">Production Mode - Read Only</h3>
+              <h3 className="text-sm font-medium text-blue-800">Production Mode - Controls Disabled by Default</h3>
               <p className="mt-1 text-sm text-blue-700">
-                Week management controls are disabled on this page to prevent accidental changes.
-                Use a non-production environment to access week management controls.
+                Week management controls are disabled by default to prevent accidental changes.
+                Enable Admin Edit Mode below to access week management controls.
               </p>
             </div>
           </div>
@@ -324,11 +325,14 @@ export function Dashboard() {
       </div>
 
       {/* Panel 2: Week Management */}
-      <div className={`rounded-lg border bg-white shadow-sm ${IS_PROD_DASHBOARD_READONLY ? 'border-gray-100 opacity-60' : 'border-gray-200'}`}>
+      {/* Panel is visually muted only when in production AND edit mode is OFF */}
+      <div className={`rounded-lg border bg-white shadow-sm ${IS_PROD_DASHBOARD_READONLY && !editModeEnabled ? 'border-gray-100 opacity-60' : 'border-gray-200'}`}>
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
           <h2 className="text-lg font-medium text-gray-900">Week Management</h2>
           <p className="text-sm text-gray-500">
-            {IS_PROD_DASHBOARD_READONLY ? 'Disabled in production' : 'Control contest week state'}
+            {IS_PROD_DASHBOARD_READONLY && !editModeEnabled
+              ? 'Enable Admin Edit Mode to access controls'
+              : 'Control contest week state'}
           </p>
         </div>
         <div className="p-4 space-y-4">
@@ -346,14 +350,14 @@ export function Dashboard() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setLockModalOpen(true)}
-                  disabled={!editModeEnabled || IS_PROD_DASHBOARD_READONLY || isWeekLocked}
+                  disabled={!editModeEnabled || isWeekLocked}
                   className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Lock Week
                 </button>
                 <button
                   onClick={() => setUnlockModalOpen(true)}
-                  disabled={!editModeEnabled || IS_PROD_DASHBOARD_READONLY || !isWeekLocked}
+                  disabled={!editModeEnabled || !isWeekLocked}
                   className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Unlock Week
