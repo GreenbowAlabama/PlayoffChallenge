@@ -71,7 +71,7 @@ export function Dashboard() {
     : null;
   const nextNflWeek = currentNflWeek ? currentNflWeek + 1 : null;
   const currentPlayoffWeek = gameConfig?.current_playoff_week ?? null;
-  const isWeekLocked = gameConfig?.is_week_active ?? false;
+  const isWeekLocked = gameConfig ? !gameConfig.is_week_active : false;
 
   // Pre-flight: fetch pick count for next week
   const { data: nextWeekPickCount } = useQuery({
@@ -140,7 +140,7 @@ export function Dashboard() {
   const getTransitionDisableReason = (): string | null => {
     if (IS_PROD_DASHBOARD_READONLY) return 'Disabled in production mode';
     if (!currentNflWeek || !nextNflWeek) return 'Week configuration not loaded';
-    if (isWeekLocked) return 'Week is currently locked (is_week_active = true)';
+    if (!isWeekLocked) return 'Week must be locked before advancing (is_week_active = true)';
     if (nextWeekPickCount !== undefined && nextWeekPickCount > 0) {
       return `${nextWeekPickCount} picks already exist for Week ${nextNflWeek}`;
     }
