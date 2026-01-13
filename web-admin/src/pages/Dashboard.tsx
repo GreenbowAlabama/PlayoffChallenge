@@ -1,15 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import {
   getCacheStatus,
   getUsers,
-  setActiveWeek,
   processWeekTransition,
-  cleanupNonAdminUsers,
-  cleanupNonAdminPicks,
-  getNonAdminUserCount,
   getGameConfig,
   getAdminUserId,
   updateWeekStatus,
@@ -24,19 +20,14 @@ import {
   type TrendWeekRange,
 } from '../api/admin';
 
-// Production safety: Disable destructive dashboard actions to prevent accidental
+// Production safety: Disable week management controls to prevent accidental
 // clicks on production-impacting controls. Informational panels remain visible.
 // This only affects the Dashboard page; other admin pages (Users, Picks, etc.) are unchanged.
 const IS_PROD_DASHBOARD_READONLY = import.meta.env.PROD;
 
 export function Dashboard() {
   const queryClient = useQueryClient();
-  const [startingWeekInput, setStartingWeekInput] = useState<string>('');
-  const [userCleanupModalOpen, setUserCleanupModalOpen] = useState(false);
-  const [pickCleanupModalOpen, setPickCleanupModalOpen] = useState(false);
   const [weekTransitionModalOpen, setWeekTransitionModalOpen] = useState(false);
-  const [setWeekModalOpen, setSetWeekModalOpen] = useState(false);
-  const [nonAdminUserCount, setNonAdminUserCount] = useState<number>(-1);
 
   // Week transition state
   const [transitionResult, setTransitionResult] = useState<WeekTransitionResponse | null>(null);
@@ -109,23 +100,7 @@ export function Dashboard() {
     refetchInterval: 60000,
   });
 
-  // Fetch non-admin user count when cleanup modal opens
-  useEffect(() => {
-    if (userCleanupModalOpen) {
-      getNonAdminUserCount().then(setNonAdminUserCount).catch(() => setNonAdminUserCount(-1));
-    }
-  }, [userCleanupModalOpen]);
-
   // Week management mutations
-  const setWeekMutation = useMutation({
-    mutationFn: (week: number) => setActiveWeek(week),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cacheStatus'] });
-      setSetWeekModalOpen(false);
-      setStartingWeekInput('');
-    },
-  });
-
   const weekTransitionMutation = useMutation({
     mutationFn: (params: WeekTransitionParams) => processWeekTransition(params),
     onSuccess: async (result) => {
@@ -178,23 +153,6 @@ export function Dashboard() {
   const transitionDisableReason = getTransitionDisableReason();
   const isTransitionDisabled = transitionDisableReason !== null;
 
-  // Cleanup mutations
-  const userCleanupMutation = useMutation({
-    mutationFn: cleanupNonAdminUsers,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['userStats'] });
-      setUserCleanupModalOpen(false);
-    },
-  });
-
-  const pickCleanupMutation = useMutation({
-    mutationFn: cleanupNonAdminPicks,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['userStats'] });
-      setPickCleanupModalOpen(false);
-    },
-  });
-
   const isLoading = cacheLoading || usersLoading;
   const cacheHealthy = cacheStatus?.lastScoreboardUpdate !== null;
 
@@ -217,8 +175,8 @@ export function Dashboard() {
             <div className="ml-3">
               <h3 className="text-sm font-medium text-blue-800">Production Mode - Read Only</h3>
               <p className="mt-1 text-sm text-blue-700">
-                Destructive actions are disabled on this page to prevent accidental changes.
-                Use a non-production environment to access week management and cleanup controls.
+                Week management controls are disabled on this page to prevent accidental changes.
+                Use a non-production environment to access week management controls.
               </p>
             </div>
           </div>
@@ -297,33 +255,6 @@ export function Dashboard() {
           </p>
         </div>
         <div className="p-4 space-y-4">
-          {/* Set Starting NFL Week */}
-          <div className="flex flex-wrap items-center gap-3">
-            <label htmlFor="startingWeek" className="text-sm font-medium text-gray-700">
-              Set Starting NFL Week:
-            </label>
-            <input
-              id="startingWeek"
-              type="number"
-              min="1"
-              max="22"
-              value={startingWeekInput}
-              onChange={(e) => setStartingWeekInput(e.target.value)}
-              placeholder="e.g. 19"
-              disabled={IS_PROD_DASHBOARD_READONLY}
-              className="w-24 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-            />
-            <button
-              onClick={() => setSetWeekModalOpen(true)}
-              disabled={IS_PROD_DASHBOARD_READONLY || !startingWeekInput || isNaN(Number(startingWeekInput))}
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Set Week
-            </button>
-          </div>
-
-          <div className="h-px bg-gray-200" />
-
           {/* Lock/Unlock Week Controls */}
           <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
             <div className="flex items-center justify-between">
@@ -727,77 +658,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Panel 4: Destructive Actions */}
-      <div className={`rounded-lg border-2 bg-white shadow-sm ${IS_PROD_DASHBOARD_READONLY ? 'border-gray-200 opacity-60' : 'border-red-200'}`}>
-        <div className={`border-b px-4 py-3 ${IS_PROD_DASHBOARD_READONLY ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50'}`}>
-          <div className="flex items-center gap-2">
-            <svg
-              className={`h-5 w-5 ${IS_PROD_DASHBOARD_READONLY ? 'text-gray-400' : 'text-red-600'}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.5"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
-              />
-            </svg>
-            <h2 className={`text-lg font-medium ${IS_PROD_DASHBOARD_READONLY ? 'text-gray-700' : 'text-red-900'}`}>Destructive Actions</h2>
-          </div>
-          <p className={`mt-1 text-sm ${IS_PROD_DASHBOARD_READONLY ? 'text-gray-500' : 'text-red-700'}`}>
-            {IS_PROD_DASHBOARD_READONLY
-              ? 'Disabled in production to prevent accidental data loss.'
-              : 'All actions below permanently delete data. Admin users and admin picks are always preserved.'}
-          </p>
-        </div>
-        <div className="p-4">
-          <div className="flex flex-wrap gap-4">
-            <button
-              onClick={() => setUserCleanupModalOpen(true)}
-              disabled={IS_PROD_DASHBOARD_READONLY}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Clear Non-Admin Users
-            </button>
-            <button
-              onClick={() => setPickCleanupModalOpen(true)}
-              disabled={IS_PROD_DASHBOARD_READONLY}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Clear Non-Admin Picks
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Confirmation Modals */}
-      <ConfirmationModal
-        isOpen={userCleanupModalOpen}
-        onClose={() => setUserCleanupModalOpen(false)}
-        onConfirm={() => userCleanupMutation.mutate()}
-        title="Delete All Non-Admin Users"
-        description="This action will permanently delete all users who are not administrators. This cannot be undone."
-        confirmText="Delete Users"
-        confirmationPhrase="DELETE USERS"
-        itemCount={nonAdminUserCount}
-        preserveMessage="Admin users will NOT be deleted"
-        isLoading={userCleanupMutation.isPending}
-      />
-
-      <ConfirmationModal
-        isOpen={pickCleanupModalOpen}
-        onClose={() => setPickCleanupModalOpen(false)}
-        onConfirm={() => pickCleanupMutation.mutate()}
-        title="Delete All Non-Admin Picks"
-        description="This action will permanently delete all picks belonging to non-admin users. This cannot be undone."
-        confirmText="Delete Picks"
-        confirmationPhrase="DELETE PICKS"
-        preserveMessage="Admin picks will NOT be deleted"
-        isLoading={pickCleanupMutation.isPending}
-      />
-
       <ConfirmationModal
         isOpen={weekTransitionModalOpen}
         onClose={() => setWeekTransitionModalOpen(false)}
@@ -820,17 +681,6 @@ export function Dashboard() {
         confirmText="Advance Week"
         confirmationPhrase="ADVANCE WEEK"
         isLoading={weekTransitionMutation.isPending}
-      />
-
-      <ConfirmationModal
-        isOpen={setWeekModalOpen}
-        onClose={() => setSetWeekModalOpen(false)}
-        onConfirm={() => setWeekMutation.mutate(Number(startingWeekInput))}
-        title="Set Starting NFL Week"
-        description={`This will set the active NFL week to Week ${startingWeekInput}. The API will fetch stats for this week. This action affects all users.`}
-        confirmText="Set Week"
-        confirmationPhrase="SET WEEK"
-        isLoading={setWeekMutation.isPending}
       />
 
       <ConfirmationModal
