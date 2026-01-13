@@ -366,8 +366,8 @@ export function Dashboard() {
             </div>
             <p className="mt-2 text-xs text-gray-500">
               {isWeekLocked
-                ? 'Week is locked. Users cannot modify picks. Unlock before advancing.'
-                : 'Week is unlocked. Users can modify picks.'}
+                ? 'Week is locked. Users cannot modify picks. Ready to advance.'
+                : 'Week is unlocked. Users can modify picks. Lock week before advancing.'}
             </p>
             {/* Inline disable reason for Lock/Unlock buttons */}
             {!editModeEnabled && (
