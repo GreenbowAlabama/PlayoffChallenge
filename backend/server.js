@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const requireAdmin = require('./middleware/adminAuth');
 const adminAuthRoutes = require('./routes/adminAuth');
 const adminDiagnosticsRoutes = require('./routes/admin.diagnostics.routes');
+const adminTrendsRoutes = require('./routes/admin.trends.routes');
 const jobsService = require('./services/adminJobs.service');
 
 const app = express();
@@ -1372,6 +1373,9 @@ app.use('/api/admin', requireAdmin);
 
 // Admin diagnostics routes (protected by requireAdmin above)
 app.use('/api/admin/diagnostics', adminDiagnosticsRoutes);
+
+// Admin trends routes (protected by requireAdmin above)
+app.use('/api/admin/trends', adminTrendsRoutes);
 
 // Update week active status (lock/unlock)
 app.post('/api/admin/update-week-status', async (req, res) => {
