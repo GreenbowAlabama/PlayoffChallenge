@@ -3350,12 +3350,12 @@ app.post('/api/picks/v2', async (req, res) => {
 
         proposedOps.push({ action: 'add', position: playerResult.rows[0].position, playerId: op.playerId });
       } else if (op.action === 'remove') {
-        // Get pick position
-        const pickResult = await pool.query('SELECT position FROM picks WHERE id = $1', [op.pickId]);
+        // Get pick position AND player_id (needed for swap detection)
+        const pickResult = await pool.query('SELECT position, player_id FROM picks WHERE id = $1', [op.pickId]);
         if (pickResult.rows.length === 0) {
           return res.status(400).json({ error: `Pick ${op.pickId} not found` });
         }
-        proposedOps.push({ action: 'remove', position: pickResult.rows[0].position, pickId: op.pickId });
+        proposedOps.push({ action: 'remove', position: pickResult.rows[0].position, pickId: op.pickId, playerId: pickResult.rows[0].player_id });
       }
     }
 
@@ -3368,37 +3368,67 @@ app.post('/api/picks/v2', async (req, res) => {
       });
     }
 
-    // Execute operations
+    // Execute operations within a transaction (for atomicity and swap logging)
+    const dbClient = await pool.connect();
     const results = [];
-    for (const op of proposedOps) {
-      if (op.action === 'add') {
-        // Check for multiplier/consecutive_weeks carry from immediately previous playoff week
-        let preservedMultiplier = 1;
-        let preservedConsecutiveWeeks = 1;
-        if (current_playoff_week > 1) {
-          const previousWeekNumber = effectiveWeek - 1;
-          const prevPickResult = await pool.query(
-            'SELECT multiplier, consecutive_weeks FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
-            [userId, op.playerId, previousWeekNumber]
-          );
-          if (prevPickResult.rows.length > 0) {
-            // Carry forward: current week = previous week + 1
-            preservedMultiplier = (prevPickResult.rows[0].multiplier || 1) + 1;
-            preservedConsecutiveWeeks = (prevPickResult.rows[0].consecutive_weeks || 1) + 1;
-            console.log(`[picks/v2] Carrying multiplier ${preservedMultiplier} (prev ${prevPickResult.rows[0].multiplier}) and consecutive_weeks ${preservedConsecutiveWeeks} for player ${op.playerId}`);
-          }
-        }
 
-        const insertResult = await pool.query(`
-          INSERT INTO picks (user_id, player_id, position, week_number, multiplier, consecutive_weeks, locked)
-          VALUES ($1, $2, $3, $4, $5, $6, false)
-          RETURNING *
-        `, [userId, op.playerId, op.position, effectiveWeek, preservedMultiplier, preservedConsecutiveWeeks]);
-        results.push({ action: 'add', success: true, pick: insertResult.rows[0] });
-      } else if (op.action === 'remove') {
-        await pool.query('DELETE FROM picks WHERE id = $1 AND user_id = $2', [op.pickId, userId]);
-        results.push({ action: 'remove', success: true, pickId: op.pickId });
+    try {
+      await dbClient.query('BEGIN');
+
+      // Track removals by position for swap detection
+      const removalsByPosition = new Map(); // position → { playerId, pickId }
+
+      for (const op of proposedOps) {
+        if (op.action === 'add') {
+          // Check for multiplier/consecutive_weeks carry from immediately previous playoff week
+          let preservedMultiplier = 1;
+          let preservedConsecutiveWeeks = 1;
+          if (current_playoff_week > 1) {
+            const previousWeekNumber = effectiveWeek - 1;
+            const prevPickResult = await dbClient.query(
+              'SELECT multiplier, consecutive_weeks FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
+              [userId, op.playerId, previousWeekNumber]
+            );
+            if (prevPickResult.rows.length > 0) {
+              // Carry forward: current week = previous week + 1
+              preservedMultiplier = (prevPickResult.rows[0].multiplier || 1) + 1;
+              preservedConsecutiveWeeks = (prevPickResult.rows[0].consecutive_weeks || 1) + 1;
+              console.log(`[picks/v2] Carrying multiplier ${preservedMultiplier} (prev ${prevPickResult.rows[0].multiplier}) and consecutive_weeks ${preservedConsecutiveWeeks} for player ${op.playerId}`);
+            }
+          }
+
+          const insertResult = await dbClient.query(`
+            INSERT INTO picks (user_id, player_id, position, week_number, multiplier, consecutive_weeks, locked)
+            VALUES ($1, $2, $3, $4, $5, $6, false)
+            RETURNING *
+          `, [userId, op.playerId, op.position, effectiveWeek, preservedMultiplier, preservedConsecutiveWeeks]);
+          results.push({ action: 'add', success: true, pick: insertResult.rows[0] });
+
+          // Check if this add corresponds to a removal at the same position (swap detection)
+          const removal = removalsByPosition.get(op.position);
+          if (removal && removal.playerId !== op.playerId) {
+            // This is a swap: log to player_swaps
+            await dbClient.query(`
+              INSERT INTO player_swaps (user_id, old_player_id, new_player_id, position, week_number, swapped_at)
+              VALUES ($1, $2, $3, $4, $5, NOW())
+            `, [userId, removal.playerId, op.playerId, op.position, effectiveWeek]);
+            console.log(`[picks/v2] Logged swap: user ${userId} replaced ${removal.playerId} with ${op.playerId} at ${op.position} for week ${effectiveWeek}`);
+          }
+        } else if (op.action === 'remove') {
+          await dbClient.query('DELETE FROM picks WHERE id = $1 AND user_id = $2', [op.pickId, userId]);
+          results.push({ action: 'remove', success: true, pickId: op.pickId });
+
+          // Track this removal for swap detection
+          removalsByPosition.set(op.position, { playerId: op.playerId, pickId: op.pickId });
+        }
       }
+
+      await dbClient.query('COMMIT');
+    } catch (txErr) {
+      await dbClient.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      dbClient.release();
     }
 
     // Return updated position counts
