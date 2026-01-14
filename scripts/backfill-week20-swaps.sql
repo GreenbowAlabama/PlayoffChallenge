@@ -46,7 +46,7 @@ ORDER BY w19.user_id, w19.position;
 -- ACTUAL BACKFILL: Insert detected swaps into player_swaps
 -- Uncomment and run this after verifying the dry run output above
 
-/*
+
 INSERT INTO player_swaps (user_id, old_player_id, new_player_id, position, week_number, swapped_at)
 SELECT
     w19.user_id,
@@ -79,7 +79,7 @@ WHERE w19.week_number = 19
         AND ps.week_number = 20
     )
 ON CONFLICT DO NOTHING;
-*/
+
 
 -- Verification: Count swaps after backfill
 -- SELECT COUNT(*) AS week_20_swap_count FROM player_swaps WHERE week_number = 20;

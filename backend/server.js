@@ -1607,9 +1607,9 @@ app.post('/api/admin/update-current-week', async (req, res) => {
   try {
     const { current_playoff_week, is_week_active } = req.body;
 
-    // Accept both playoff weeks (1-4) and NFL weeks (1-22) for testing flexibility
-    if (!current_playoff_week || current_playoff_week < 1 || current_playoff_week > 22) {
-      return res.status(400).json({ success: false, error: 'current_playoff_week must be between 1 and 22' });
+    // Validate playoff week is within valid range (0 = not started, 1-4 = playoff rounds)
+    if (current_playoff_week === undefined || current_playoff_week === null || current_playoff_week < 0 || current_playoff_week > 4) {
+      return res.status(400).json({ success: false, error: 'current_playoff_week must be between 0 and 4 (0=not started, 1=Wild Card, 2=Divisional, 3=Conference, 4=Super Bowl)' });
     }
 
     let query = 'UPDATE game_settings SET current_playoff_week = $1';
@@ -4584,8 +4584,12 @@ app.get('/api/leaderboard', async (req, res) => {
       `;
       params = [actualWeekNumber];
     } else {
-      // All weeks (cumulative) - sum all playoff weeks (19-22) - email removed from SELECT
+      // All weeks (cumulative) - sum all playoff weeks dynamically based on playoff_start_week
       // NOTE: 'points' and 'score' aliases added for iOS app compatibility
+      const cumulativeSettingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
+      const cumulativeStartWeek = cumulativeSettingsResult.rows[0]?.playoff_start_week || 19;
+      const cumulativeEndWeek = cumulativeStartWeek + 3; // 4 playoff rounds
+
       query = `
         SELECT
           u.id,
@@ -4597,11 +4601,12 @@ app.get('/api/leaderboard', async (req, res) => {
           COALESCE(SUM(s.final_points), 0) as points,
           COALESCE(SUM(s.final_points), 0) as score
         FROM users u
-        LEFT JOIN scores s ON u.id = s.user_id AND s.week_number IN (19, 20, 21, 22)
+        LEFT JOIN scores s ON u.id = s.user_id AND s.week_number BETWEEN $1 AND $2
         WHERE u.paid = true
         GROUP BY u.id, u.username, u.name, u.team_name, u.paid
         ORDER BY total_points DESC
       `;
+      params = [cumulativeStartWeek, cumulativeEndWeek];
     }
 
     const result = await pool.query(query, params);
