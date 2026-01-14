@@ -2198,8 +2198,22 @@ app.post('/api/picks/replace-player', async (req, res) => {
       });
     }
 
-    // Validate new player's team is still active this week (if active_teams is set)
-    if (storedActiveTeams && storedActiveTeams.length > 0 && !storedActiveTeams.includes(newPlayerResult.rows[0].team)) {
+    // Validate new player's team is still active this week
+    // After Wild Card (current_playoff_week > 1), active_teams enforcement is mandatory
+    if (current_playoff_week > 1) {
+      if (!storedActiveTeams || !Array.isArray(storedActiveTeams) || storedActiveTeams.length === 0) {
+        console.error(`[swap] Configuration error: active_teams not set for playoff week ${current_playoff_week}`);
+        return res.status(500).json({
+          error: 'Server configuration error. Please contact support.'
+        });
+      }
+      if (!storedActiveTeams.includes(newPlayerResult.rows[0].team)) {
+        return res.status(400).json({
+          error: `${newPlayerResult.rows[0].full_name}'s team (${newPlayerResult.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
+        });
+      }
+    } else if (storedActiveTeams && storedActiveTeams.length > 0 && !storedActiveTeams.includes(newPlayerResult.rows[0].team)) {
+      // Wild Card week: enforce if active_teams is set
       return res.status(400).json({
         error: `${newPlayerResult.rows[0].full_name}'s team (${newPlayerResult.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
       });
@@ -2235,16 +2249,30 @@ app.post('/api/picks/replace-player', async (req, res) => {
       [userId, oldPlayerId, effectiveWeekNumber]
     );
 
-    // Create new pick with multiplier = 1 (fresh start)
+    // Check for multiplier preservation from immediately previous playoff week only
+    let preservedMultiplier = 1.0;
+    if (current_playoff_week > 1) {
+      const previousWeekNumber = effectiveWeekNumber - 1;
+      const prevPickResult = await pool.query(
+        'SELECT multiplier FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
+        [userId, newPlayerId, previousWeekNumber]
+      );
+      if (prevPickResult.rows.length > 0 && prevPickResult.rows[0].multiplier > 1) {
+        preservedMultiplier = prevPickResult.rows[0].multiplier;
+        console.log(`[swap] Preserving multiplier ${preservedMultiplier} for player ${newPlayerId} from week ${previousWeekNumber}`);
+      }
+    }
+
+    // Create new pick with preserved multiplier (or 1.0 if not found in previous week)
     const newPickResult = await pool.query(`
       INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-      VALUES (gen_random_uuid(), $1, $2, $3, $4, 1.0, 1, false, NOW())
+      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 1, false, NOW())
       ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
         position = $4,
-        multiplier = 1.0,
+        multiplier = $5,
         consecutive_weeks = 1
       RETURNING *
-    `, [userId, newPlayerId, effectiveWeekNumber, position]);
+    `, [userId, newPlayerId, effectiveWeekNumber, position, preservedMultiplier]);
 
     // Log the swap to player_swaps table
     await pool.query(`
@@ -3163,7 +3191,7 @@ app.post('/api/picks/v2', async (req, res) => {
     const gameStateResult = await pool.query(
       'SELECT current_playoff_week, playoff_start_week, is_week_active, active_teams FROM game_settings LIMIT 1'
     );
-    const { is_week_active, active_teams } = gameStateResult.rows[0] || {};
+    const { current_playoff_week, is_week_active, active_teams } = gameStateResult.rows[0] || {};
     if (!is_week_active) {
       return res.status(403).json({
         error: 'Picks are locked for this week. The submission window has closed.'
@@ -3199,8 +3227,22 @@ app.post('/api/picks/v2', async (req, res) => {
           });
         }
 
-        // Validate player's team is still active this week (if active_teams is set)
-        if (active_teams && active_teams.length > 0 && !active_teams.includes(playerResult.rows[0].team)) {
+        // Validate player's team is still active this week
+        // After Wild Card (current_playoff_week > 1), active_teams enforcement is mandatory
+        if (current_playoff_week > 1) {
+          if (!active_teams || !Array.isArray(active_teams) || active_teams.length === 0) {
+            console.error(`[picks/v2] Configuration error: active_teams not set for playoff week ${current_playoff_week}`);
+            return res.status(500).json({
+              error: 'Server configuration error. Please contact support.'
+            });
+          }
+          if (!active_teams.includes(playerResult.rows[0].team)) {
+            return res.status(400).json({
+              error: `Player ${op.playerId}'s team (${playerResult.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
+            });
+          }
+        } else if (active_teams && active_teams.length > 0 && !active_teams.includes(playerResult.rows[0].team)) {
+          // Wild Card week: enforce if active_teams is set
           return res.status(400).json({
             error: `Player ${op.playerId}'s team (${playerResult.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
           });
@@ -3230,11 +3272,25 @@ app.post('/api/picks/v2', async (req, res) => {
     const results = [];
     for (const op of proposedOps) {
       if (op.action === 'add') {
+        // Check for multiplier preservation from immediately previous playoff week only
+        let preservedMultiplier = 1.0;
+        if (current_playoff_week > 1) {
+          const previousWeekNumber = effectiveWeek - 1;
+          const prevPickResult = await pool.query(
+            'SELECT multiplier FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
+            [userId, op.playerId, previousWeekNumber]
+          );
+          if (prevPickResult.rows.length > 0 && prevPickResult.rows[0].multiplier > 1) {
+            preservedMultiplier = prevPickResult.rows[0].multiplier;
+            console.log(`[picks/v2] Preserving multiplier ${preservedMultiplier} for player ${op.playerId} from week ${previousWeekNumber}`);
+          }
+        }
+
         const insertResult = await pool.query(`
           INSERT INTO picks (user_id, player_id, position, week_number, multiplier, locked)
-          VALUES ($1, $2, $3, $4, 1, false)
+          VALUES ($1, $2, $3, $4, $5, false)
           RETURNING *
-        `, [userId, op.playerId, op.position, effectiveWeek]);
+        `, [userId, op.playerId, op.position, effectiveWeek, preservedMultiplier]);
         results.push({ action: 'add', success: true, pick: insertResult.rows[0] });
       } else if (op.action === 'remove') {
         await pool.query('DELETE FROM picks WHERE id = $1 AND user_id = $2', [op.pickId, userId]);
@@ -3443,8 +3499,22 @@ app.post('/api/picks', async (req, res) => {
           });
         }
 
-        // Validate player's team is still active this week (if active_teams is set)
-        if (active_teams && active_teams.length > 0 && !active_teams.includes(playerTeamCheck.rows[0].team)) {
+        // Validate player's team is still active this week
+        // After Wild Card (current_playoff_week > 1), active_teams enforcement is mandatory
+        if (current_playoff_week > 1) {
+          if (!active_teams || !Array.isArray(active_teams) || active_teams.length === 0) {
+            console.error(`[picks] Configuration error: active_teams not set for playoff week ${current_playoff_week}`);
+            return res.status(500).json({
+              error: 'Server configuration error. Please contact support.'
+            });
+          }
+          if (!active_teams.includes(playerTeamCheck.rows[0].team)) {
+            return res.status(400).json({
+              error: `Player ${pick.playerId}'s team (${playerTeamCheck.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
+            });
+          }
+        } else if (active_teams && active_teams.length > 0 && !active_teams.includes(playerTeamCheck.rows[0].team)) {
+          // Wild Card week: enforce if active_teams is set
           return res.status(400).json({
             error: `Player ${pick.playerId}'s team (${playerTeamCheck.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
           });
@@ -3483,16 +3553,30 @@ app.post('/api/picks', async (req, res) => {
           });
         }
 
+        // Check for multiplier preservation from immediately previous playoff week only
+        let preservedMultiplier = 1.0;
+        if (current_playoff_week > 1) {
+          const previousWeekNumber = effectiveWeekNumber - 1;
+          const prevPickResult = await pool.query(
+            'SELECT multiplier FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
+            [userId, pick.playerId, previousWeekNumber]
+          );
+          if (prevPickResult.rows.length > 0 && prevPickResult.rows[0].multiplier > 1) {
+            preservedMultiplier = prevPickResult.rows[0].multiplier;
+            console.log(`[picks] Preserving multiplier ${preservedMultiplier} for player ${pick.playerId} from week ${previousWeekNumber}`);
+          }
+        }
+
         const result = await pool.query(`
           INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-          VALUES (gen_random_uuid(), $1, $2, $3, $4, COALESCE($5, 1.0), 1, false, NOW())
+          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 1, false, NOW())
           ON CONFLICT (user_id, player_id, week_number)
           DO UPDATE SET
             position = $4,
-            multiplier = COALESCE($5, picks.multiplier),
+            multiplier = $5,
             created_at = NOW()
           RETURNING *
-        `, [userId, pick.playerId, effectiveWeekNumber, pick.position, pick.multiplier || null]);
+        `, [userId, pick.playerId, effectiveWeekNumber, pick.position, preservedMultiplier]);
 
         results.push(result.rows[0]);
       }
@@ -3515,8 +3599,22 @@ app.post('/api/picks', async (req, res) => {
       });
     }
 
-    // Validate player's team is still active this week (if active_teams is set)
-    if (active_teams && active_teams.length > 0 && !active_teams.includes(playerTeamCheck.rows[0].team)) {
+    // Validate player's team is still active this week
+    // After Wild Card (current_playoff_week > 1), active_teams enforcement is mandatory
+    if (current_playoff_week > 1) {
+      if (!active_teams || !Array.isArray(active_teams) || active_teams.length === 0) {
+        console.error(`[picks] Configuration error: active_teams not set for playoff week ${current_playoff_week}`);
+        return res.status(500).json({
+          error: 'Server configuration error. Please contact support.'
+        });
+      }
+      if (!active_teams.includes(playerTeamCheck.rows[0].team)) {
+        return res.status(400).json({
+          error: `Player ${playerId}'s team (${playerTeamCheck.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
+        });
+      }
+    } else if (active_teams && active_teams.length > 0 && !active_teams.includes(playerTeamCheck.rows[0].team)) {
+      // Wild Card week: enforce if active_teams is set
       return res.status(400).json({
         error: `Player ${playerId}'s team (${playerTeamCheck.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
       });
@@ -3555,16 +3653,30 @@ app.post('/api/picks', async (req, res) => {
       });
     }
 
+    // Check for multiplier preservation from immediately previous playoff week only
+    let preservedMultiplier = 1.0;
+    if (current_playoff_week > 1) {
+      const previousWeekNumber = effectiveWeekNumber - 1;
+      const prevPickResult = await pool.query(
+        'SELECT multiplier FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
+        [userId, playerId, previousWeekNumber]
+      );
+      if (prevPickResult.rows.length > 0 && prevPickResult.rows[0].multiplier > 1) {
+        preservedMultiplier = prevPickResult.rows[0].multiplier;
+        console.log(`[picks] Preserving multiplier ${preservedMultiplier} for player ${playerId} from week ${previousWeekNumber}`);
+      }
+    }
+
     const result = await pool.query(`
       INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-      VALUES (gen_random_uuid(), $1, $2, $3, $4, COALESCE($5, 1.0), 1, false, NOW())
+      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 1, false, NOW())
       ON CONFLICT (user_id, player_id, week_number)
       DO UPDATE SET
         position = $4,
-        multiplier = COALESCE($5, picks.multiplier),
+        multiplier = $5,
         created_at = NOW()
       RETURNING *
-    `, [userId, playerId, effectiveWeekNumber, position, multiplier || null]);
+    `, [userId, playerId, effectiveWeekNumber, position, preservedMultiplier]);
 
     res.json(result.rows[0]);
   } catch (err) {
