@@ -4439,7 +4439,7 @@ app.get('/api/leaderboard', async (req, res) => {
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
 
-    const { weekNumber, round, includePicks } = req.query;
+    const { weekNumber, round, includePicks, mode: explicitMode } = req.query;
 
     // === DUAL-SUPPORT: Client capability detection ===
     const client = getClientCapabilities(req);
@@ -4487,18 +4487,34 @@ app.get('/api/leaderboard', async (req, res) => {
       }
     }
 
+    // === EXPLICIT MODE SUPPORT (Phase 1) ===
+    // New iOS clients can send explicit mode parameter to bypass implicit heuristic:
+    //   - mode=cumulative: Force cumulative view regardless of weekNumber
+    //   - mode=week: Force week-specific view, skip implicit cumulative detection
+    // Old clients without mode parameter fall through to existing implicit heuristic.
+    let explicitModeUsed = false;
+    if (explicitMode === 'cumulative') {
+      console.log(`[Leaderboard] Explicit mode=cumulative requested, forcing cumulative view`);
+      actualWeekNumber = null;
+      explicitModeUsed = true;
+    } else if (explicitMode === 'week' && actualWeekNumber) {
+      console.log(`[Leaderboard] Explicit mode=week requested for week ${actualWeekNumber}, skipping implicit heuristic`);
+      explicitModeUsed = true;
+    }
+
     // Determine if this is a week-specific or cumulative request
     let isWeekSpecific = !!actualWeekNumber;
     let isCumulative = !actualWeekNumber;
     let mode = isWeekSpecific ? 'week' : 'cumulative';
 
     // === IMPLICIT CUMULATIVE MODE DETECTION ===
+    // Only applies when client has NOT sent explicit mode parameter.
     // iOS sends currentWeek for "All Weeks" tab (due to filterWeek ?? currentWeek fallback).
     // Detect this case: if resolved week equals current NFL playoff week AND prior weeks have scores,
     // treat as cumulative request instead of single-week.
     // This preserves single-week gating for explicit week selections while fixing "All Weeks" behavior.
     let implicitCumulative = false;
-    if (isWeekSpecific && supportsGating) {
+    if (!explicitModeUsed && isWeekSpecific && supportsGating) {
       // Fetch current playoff state from game_settings
       const playoffStateResult = await pool.query('SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1');
       const currentPlayoffRound = playoffStateResult.rows[0]?.current_playoff_week || 1;
