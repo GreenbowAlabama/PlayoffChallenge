@@ -3062,7 +3062,7 @@ app.get('/api/picks/v2', async (req, res) => {
     // For reads: allow viewing historical weeks, default to server week when omitted
     // Remap playoff week index (1-4) to NFL week (19-22)
     let effectiveWeek;
-    if (weekNumber) {
+    if (weekNumber !== undefined) {
       effectiveWeek = await resolveActualWeekNumber(weekNumber, pool, 'PicksV2');
       if (!effectiveWeek) {
         return res.status(400).json({ error: 'Invalid weekNumber' });
