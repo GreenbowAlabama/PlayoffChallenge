@@ -208,16 +208,16 @@ async function resolveActualWeekNumber(inputWeek, pool, logPrefix = 'WeekRemap')
     const resolved = playoffStartWeek + (weekNum - 1);
     console.log(`[${logPrefix}] Week remap: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${resolved}`);
     return resolved;
-  } else if (weekNum >= 16 && weekNum <= 19) {
-    // iOS LeaderboardView/MyPicksView picker uses 16-19 for playoff rounds
-    // Remap: 16→19 (Wild Card), 17→20 (Divisional), 18→21 (Conference), 19→22 (Super Bowl)
+  } else if (weekNum >= 19) {
+    // NFL week number (19-22), use as-is
+    console.log(`[${logPrefix}] Week passthrough: received=${weekNum}, resolved=${weekNum} (literal NFL week)`);
+    return weekNum;
+  } else if (weekNum >= 16 && weekNum <= 18) {
+    // Legacy iOS picker format (16-18 only, not 19)
+    // Remap: 16→19 (Wild Card), 17→20 (Divisional), 18→21 (Conference)
     const resolved = weekNum + 3;
     console.log(`[${logPrefix}] Week remap (iOS picker): received=${weekNum}, resolved=${resolved}`);
     return resolved;
-  } else if (weekNum >= 20) {
-    // Already an NFL week number (20-22), use as-is
-    console.log(`[${logPrefix}] Week passthrough: received=${weekNum}, resolved=${weekNum} (literal NFL week)`);
-    return weekNum;
   } else {
     // Week number outside expected range (5-15) - use as-is but log warning
     console.log(`[${logPrefix}] Week WARNING: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${weekNum} (unexpected range)`);
