@@ -3212,7 +3212,7 @@ app.get('/api/picks/v2', async (req, res) => {
       effectiveWeek = await getEffectiveWeekNumber();
     }
 
-    // Get picks with player info
+    // Get picks with player info (excludes swapped-out players)
     const picksResult = await pool.query(`
       SELECT
         pk.id AS pick_id,
@@ -3235,6 +3235,12 @@ app.get('/api/picks/v2', async (req, res) => {
       AND s.week_number = pk.week_number
       WHERE pk.user_id = $1
         AND pk.week_number = $2
+        AND NOT EXISTS (
+          SELECT 1 FROM player_swaps ps
+          WHERE ps.user_id = pk.user_id
+            AND ps.old_player_id = pk.player_id
+            AND ps.week_number = pk.week_number
+        )
       ORDER BY
         CASE pk.position
           WHEN 'QB' THEN 1
@@ -3434,6 +3440,12 @@ app.get('/api/picks/:userId', async (req, res) => {
       FROM picks pk
       JOIN players p ON pk.player_id = p.id
       WHERE pk.user_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM player_swaps ps
+          WHERE ps.user_id = pk.user_id
+            AND ps.old_player_id = pk.player_id
+            AND ps.week_number = pk.week_number
+        )
       ORDER BY pk.week_number, pk.position
     `, [userId]);
 
@@ -3472,6 +3484,12 @@ app.get('/api/picks/user/:userId', async (req, res) => {
       FROM picks pk
       JOIN players p ON pk.player_id = p.id
       WHERE pk.user_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM player_swaps ps
+          WHERE ps.user_id = pk.user_id
+            AND ps.old_player_id = pk.player_id
+            AND ps.week_number = pk.week_number
+        )
       ORDER BY pk.week_number, pk.position
     `, [userId]);
 
@@ -3813,6 +3831,12 @@ app.get('/api/users/:userId/picks/:weekNumber', async (req, res) => {
         AND s.player_id = pk.player_id
         AND s.week_number = pk.week_number
       WHERE pk.user_id = $1 AND pk.week_number = $2
+        AND NOT EXISTS (
+          SELECT 1 FROM player_swaps ps
+          WHERE ps.user_id = pk.user_id
+            AND ps.old_player_id = pk.player_id
+            AND ps.week_number = pk.week_number
+        )
       ORDER BY
         CASE pk.position
           WHEN 'QB' THEN 1
@@ -4595,6 +4619,12 @@ app.get('/api/leaderboard', async (req, res) => {
               AND s.player_id = pk.player_id
               AND s.week_number = pk.week_number
             WHERE pk.user_id = $1 AND pk.week_number = $2
+              AND NOT EXISTS (
+                SELECT 1 FROM player_swaps ps
+                WHERE ps.user_id = pk.user_id
+                  AND ps.old_player_id = pk.player_id
+                  AND ps.week_number = pk.week_number
+              )
             ORDER BY
               CASE pk.position
                 WHEN 'QB' THEN 1
