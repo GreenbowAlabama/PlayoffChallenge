@@ -3843,12 +3843,6 @@ app.get('/api/users/:userId/picks/:weekNumber', async (req, res) => {
         AND s.player_id = pk.player_id
         AND s.week_number = pk.week_number
       WHERE pk.user_id = $1 AND pk.week_number = $2
-        AND NOT EXISTS (
-          SELECT 1 FROM player_swaps ps
-          WHERE ps.user_id = pk.user_id
-            AND ps.new_player_id = pk.player_id
-            AND ps.week_number = pk.week_number
-        )
       ORDER BY
         CASE pk.position
           WHEN 'QB' THEN 1
@@ -4593,12 +4587,6 @@ app.get('/api/leaderboard', async (req, res) => {
               AND s.player_id = pk.player_id
               AND s.week_number = pk.week_number
             WHERE pk.user_id = $1 AND pk.week_number = $2
-              AND NOT EXISTS (
-                SELECT 1 FROM player_swaps ps
-                WHERE ps.user_id = pk.user_id
-                  AND ps.new_player_id = pk.player_id
-                  AND ps.week_number = pk.week_number
-              )
             ORDER BY
               CASE pk.position
                 WHEN 'QB' THEN 1
