@@ -4507,72 +4507,13 @@ app.get('/api/leaderboard', async (req, res) => {
     let isCumulative = !actualWeekNumber;
     let mode = isWeekSpecific ? 'week' : 'cumulative';
 
-    // === IMPLICIT CUMULATIVE MODE DETECTION ===
-    // Only applies when client has NOT sent explicit mode parameter.
-    // iOS sends currentWeek for "All Weeks" tab (due to filterWeek ?? currentWeek fallback).
-    // Detect this case: if resolved week equals current NFL playoff week AND prior weeks have scores,
-    // treat as cumulative request instead of single-week.
-    // This preserves single-week gating for explicit week selections while fixing "All Weeks" behavior.
-    let implicitCumulative = false;
-    if (!explicitModeUsed && isWeekSpecific && supportsGating) {
-      // Fetch current playoff state from game_settings
-      const playoffStateResult = await pool.query('SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1');
-      const currentPlayoffRound = playoffStateResult.rows[0]?.current_playoff_week || 1;
-      const playoffStartWeekForCheck = playoffStateResult.rows[0]?.playoff_start_week || 19;
-      const currentNFLWeek = playoffStartWeekForCheck + currentPlayoffRound - 1;
-
-      // Check if requested week matches current NFL week AND games haven't started
-      if (parseInt(actualWeekNumber, 10) === currentNFLWeek && currentPlayoffRound > 1) {
-        // Check if games have started for the current week
-        const gamesHaveStartedForCurrentWeek = await hasAnyGameStartedForWeek(currentNFLWeek);
-
-        // Only trigger implicit cumulative if games haven't started yet
-        // Once games start, normal single-week behavior resumes
-        if (!gamesHaveStartedForCurrentWeek) {
-          // Check if prior weeks have completed scores
-          const priorWeeksResult = await pool.query(
-            'SELECT COUNT(*) as score_count FROM scores WHERE week_number < $1 AND week_number >= $2',
-            [currentNFLWeek, playoffStartWeekForCheck]
-          );
-          const hasPriorScores = parseInt(priorWeeksResult.rows[0]?.score_count || 0, 10) > 0;
-
-          if (hasPriorScores) {
-            // Implicit "All Weeks" mode: switch to cumulative
-            console.log(`[Leaderboard] Implicit cumulative mode: requested week ${actualWeekNumber} matches current NFL week ${currentNFLWeek}, games not started, prior scores exist`);
-            implicitCumulative = true;
-            isWeekSpecific = false;
-            isCumulative = true;
-            actualWeekNumber = null;
-            mode = 'cumulative';
-          }
-        }
-      }
-    }
-
-    // === DUAL-SUPPORT: Gating logic (opt-in only, week-specific only) ===
-    // Gating is NEVER applied for:
-    // - Legacy clients (no capability headers)
-    // - Cumulative view (no weekNumber specified)
-    // - Implicit cumulative mode (detected above)
-    let gamesStarted = true; // Default: assume started (no gating)
-    if (supportsGating && isWeekSpecific) {
-      gamesStarted = await hasAnyGameStartedForWeek(parseInt(actualWeekNumber, 10));
-    }
-
-    // === DUAL-SUPPORT: Set metadata headers for opt-in clients ===
+    // === METADATA HEADERS ===
+    // Set metadata headers for opt-in clients (no game-time filtering)
     if (supportsMetadata) {
       res.set('X-Leaderboard-Meta', '1');
-      res.set('X-Leaderboard-Games-Started', gamesStarted ? 'true' : 'false');
+      res.set('X-Leaderboard-Games-Started', 'true');
       res.set('X-Leaderboard-Active-Week', actualWeekNumber || '');
       res.set('X-Leaderboard-Mode', mode);
-    }
-
-    // === DUAL-SUPPORT: Apply gating (empty array) for opt-in clients only ===
-    // If games haven't started AND client supports gating AND week-specific request
-    // Note: implicitCumulative requests bypass this check (isWeekSpecific is false)
-    if (supportsGating && isWeekSpecific && !gamesStarted) {
-      // Return empty array with headers - client knows to show "games haven't started"
-      return res.json([]);
     }
 
     // === LEGACY BEHAVIOR: Query and return data (unchanged) ===
