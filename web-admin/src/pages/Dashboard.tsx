@@ -21,7 +21,6 @@ import {
   type VerificationStatus,
   type TrendWeekRange,
   type LockVerificationResponse,
-  type IncompletLineupsResponse,
 } from '../api/admin';
 
 // Production safety: Disable week management controls to prevent accidental
