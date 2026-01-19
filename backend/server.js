@@ -1621,7 +1621,7 @@ app.get('/api/admin/incomplete-lineups', async (req, res) => {
         COUNT(CASE WHEN p.position = 'DEF' THEN 1 END) as def_count
       FROM users u
       LEFT JOIN picks p ON u.id = p.user_id AND p.week_number = $1
-      WHERE u.is_payment_verified = true
+      WHERE u.paid = true
       GROUP BY u.id, u.email, u.username, u.is_admin
       ORDER BY u.username, u.email
     `, [effectiveWeek]);
