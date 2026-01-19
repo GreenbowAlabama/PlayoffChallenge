@@ -60,6 +60,65 @@ export interface GameConfig {
 }
 
 // ============================================
+// LOCK VERIFICATION TYPES
+// ============================================
+
+export interface LockVerification {
+  isLocked: boolean;
+  isWeekActive: boolean;
+  currentPlayoffWeek: number;
+  effectiveNflWeek: number | null;
+  lastUpdated: string;
+  message: string;
+}
+
+export interface LockVerificationResponse {
+  success: boolean;
+  verification: LockVerification;
+}
+
+// ============================================
+// INCOMPLETE LINEUPS TYPES
+// ============================================
+
+export interface IncompleteLineupUser {
+  userId: string;
+  email: string;
+  username: string | null;
+  isAdmin: boolean;
+  totalPicks: number;
+  missingPositions: string[];
+  positionCounts: {
+    QB: number;
+    RB: number;
+    WR: number;
+    TE: number;
+    K: number;
+    DEF: number;
+  };
+}
+
+export interface IncompletLineupsResponse {
+  success: boolean;
+  weekNumber: number | null;
+  playoffWeek: number;
+  isWeekActive: boolean;
+  totalRequired: number;
+  requiredByPosition: {
+    QB: number;
+    RB: number;
+    WR: number;
+    TE: number;
+    K: number;
+    DEF: number;
+  };
+  incompleteCount: number;
+  totalPaidUsers: number;
+  users: IncompleteLineupUser[];
+  message?: string;
+}
+
+// ============================================
 // READ-ONLY TREND ANALYTICS TYPES
 // ============================================
 // These types are for informational display only.
@@ -139,6 +198,16 @@ export async function updateWeekStatus(isActive: boolean): Promise<WeekTransitio
     method: 'POST',
     body: JSON.stringify({ is_week_active: isActive }),
   });
+}
+
+// Verify lock status - authoritative confirmation for admin verification
+export async function verifyLockStatus(): Promise<LockVerificationResponse> {
+  return apiRequest<LockVerificationResponse>('/api/admin/verify-lock-status');
+}
+
+// Get users with incomplete lineups for the active week
+export async function getIncompleteLineups(): Promise<IncompletLineupsResponse> {
+  return apiRequest<IncompletLineupsResponse>('/api/admin/incomplete-lineups');
 }
 
 // Capability 2: Non-Admin User Cleanup

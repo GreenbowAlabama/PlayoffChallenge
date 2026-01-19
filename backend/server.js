@@ -1515,6 +1515,173 @@ app.post('/api/admin/update-week-status', async (req, res) => {
   }
 });
 
+// Verify week lock status - provides authoritative confirmation for admin verification
+app.get('/api/admin/verify-lock-status', async (req, res) => {
+  try {
+    const gameStateResult = await pool.query(
+      `SELECT
+        is_week_active,
+        current_playoff_week,
+        playoff_start_week,
+        updated_at
+       FROM game_settings LIMIT 1`
+    );
+
+    if (gameStateResult.rows.length === 0) {
+      return res.status(500).json({
+        success: false,
+        error: 'Game settings not found'
+      });
+    }
+
+    const { is_week_active, current_playoff_week, playoff_start_week, updated_at } = gameStateResult.rows[0];
+    const effectiveNflWeek = current_playoff_week > 0
+      ? playoff_start_week + current_playoff_week - 1
+      : null;
+
+    // Test that a picks write would actually be blocked
+    const lockEnforced = !is_week_active;
+
+    res.json({
+      success: true,
+      verification: {
+        isLocked: lockEnforced,
+        isWeekActive: is_week_active,
+        currentPlayoffWeek: current_playoff_week,
+        effectiveNflWeek: effectiveNflWeek,
+        lastUpdated: updated_at,
+        message: lockEnforced
+          ? 'Week is LOCKED. All pick modifications will be rejected by the API.'
+          : 'Week is UNLOCKED. Users can currently modify picks.'
+      }
+    });
+  } catch (err) {
+    console.error('Error verifying lock status:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get users with incomplete lineups for the active week
+app.get('/api/admin/incomplete-lineups', async (req, res) => {
+  try {
+    // Get current game state and position requirements
+    const gameStateResult = await pool.query(
+      `SELECT
+        current_playoff_week,
+        playoff_start_week,
+        is_week_active,
+        qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit
+       FROM game_settings LIMIT 1`
+    );
+
+    if (gameStateResult.rows.length === 0) {
+      return res.status(500).json({ success: false, error: 'Game settings not found' });
+    }
+
+    const settings = gameStateResult.rows[0];
+    const effectiveWeek = settings.current_playoff_week > 0
+      ? settings.playoff_start_week + settings.current_playoff_week - 1
+      : null;
+
+    if (!effectiveWeek) {
+      return res.json({
+        success: true,
+        weekNumber: null,
+        playoffWeek: settings.current_playoff_week,
+        isWeekActive: settings.is_week_active,
+        users: [],
+        message: 'Playoffs have not started (current_playoff_week = 0)'
+      });
+    }
+
+    // Required picks per position
+    const required = {
+      QB: settings.qb_limit || 1,
+      RB: settings.rb_limit || 2,
+      WR: settings.wr_limit || 3,
+      TE: settings.te_limit || 1,
+      K: settings.k_limit || 1,
+      DEF: settings.def_limit || 1
+    };
+    const totalRequired = Object.values(required).reduce((a, b) => a + b, 0);
+
+    // Get all paid users and their pick counts by position for the current week
+    const usersResult = await pool.query(`
+      SELECT
+        u.id,
+        u.email,
+        u.username,
+        u.is_admin,
+        COUNT(p.id) as total_picks,
+        COUNT(CASE WHEN p.position = 'QB' THEN 1 END) as qb_count,
+        COUNT(CASE WHEN p.position = 'RB' THEN 1 END) as rb_count,
+        COUNT(CASE WHEN p.position = 'WR' THEN 1 END) as wr_count,
+        COUNT(CASE WHEN p.position = 'TE' THEN 1 END) as te_count,
+        COUNT(CASE WHEN p.position = 'K' THEN 1 END) as k_count,
+        COUNT(CASE WHEN p.position = 'DEF' THEN 1 END) as def_count
+      FROM users u
+      LEFT JOIN picks p ON u.id = p.user_id AND p.week_number = $1
+      WHERE u.is_payment_verified = true
+      GROUP BY u.id, u.email, u.username, u.is_admin
+      ORDER BY u.username, u.email
+    `, [effectiveWeek]);
+
+    // Identify incomplete lineups
+    const incompleteUsers = [];
+    for (const user of usersResult.rows) {
+      const missing = [];
+
+      const qbCount = parseInt(user.qb_count);
+      const rbCount = parseInt(user.rb_count);
+      const wrCount = parseInt(user.wr_count);
+      const teCount = parseInt(user.te_count);
+      const kCount = parseInt(user.k_count);
+      const defCount = parseInt(user.def_count);
+
+      if (qbCount < required.QB) missing.push(`QB (${qbCount}/${required.QB})`);
+      if (rbCount < required.RB) missing.push(`RB (${rbCount}/${required.RB})`);
+      if (wrCount < required.WR) missing.push(`WR (${wrCount}/${required.WR})`);
+      if (teCount < required.TE) missing.push(`TE (${teCount}/${required.TE})`);
+      if (kCount < required.K) missing.push(`K (${kCount}/${required.K})`);
+      if (defCount < required.DEF) missing.push(`DEF (${defCount}/${required.DEF})`);
+
+      if (missing.length > 0) {
+        incompleteUsers.push({
+          userId: user.id,
+          email: user.email,
+          username: user.username || null,
+          isAdmin: user.is_admin,
+          totalPicks: parseInt(user.total_picks),
+          missingPositions: missing,
+          positionCounts: {
+            QB: qbCount,
+            RB: rbCount,
+            WR: wrCount,
+            TE: teCount,
+            K: kCount,
+            DEF: defCount
+          }
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      weekNumber: effectiveWeek,
+      playoffWeek: settings.current_playoff_week,
+      isWeekActive: settings.is_week_active,
+      totalRequired: totalRequired,
+      requiredByPosition: required,
+      incompleteCount: incompleteUsers.length,
+      totalPaidUsers: usersResult.rows.length,
+      users: incompleteUsers
+    });
+  } catch (err) {
+    console.error('Error fetching incomplete lineups:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Sync ESPN IDs from Sleeper API
 app.post('/api/admin/sync-espn-ids', async (req, res) => {
   try {
@@ -3798,6 +3965,17 @@ app.post('/api/picks', async (req, res) => {
 app.delete('/api/picks/:pickId', async (req, res) => {
   try {
     const { pickId } = req.params;
+
+    // Week lockout check - block deletions when week is locked
+    const gameStateResult = await pool.query(
+      'SELECT is_week_active FROM game_settings LIMIT 1'
+    );
+    const { is_week_active } = gameStateResult.rows[0] || {};
+    if (!is_week_active) {
+      return res.status(403).json({
+        error: 'Picks are locked for this week. The submission window has closed.'
+      });
+    }
 
     const result = await pool.query(
       'DELETE FROM picks WHERE id = $1 RETURNING *',

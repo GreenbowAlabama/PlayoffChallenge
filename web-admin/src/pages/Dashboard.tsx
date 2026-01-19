@@ -14,10 +14,14 @@ import {
   getPlayerPickTrends,
   getTeamPickTrends,
   getConferencePickTrends,
+  verifyLockStatus,
+  getIncompleteLineups,
   type WeekTransitionParams,
   type WeekTransitionResponse,
   type VerificationStatus,
   type TrendWeekRange,
+  type LockVerificationResponse,
+  type IncompletLineupsResponse,
 } from '../api/admin';
 
 // Production safety: Disable week management controls to prevent accidental
@@ -110,6 +114,29 @@ export function Dashboard() {
     refetchInterval: 60000,
   });
 
+  // Incomplete lineups query (read-only visibility)
+  const { data: incompleteLineups, isLoading: incompleteLineupsLoading, refetch: refetchIncompleteLineups } = useQuery({
+    queryKey: ['incompleteLineups'],
+    queryFn: getIncompleteLineups,
+    refetchInterval: 30000,
+  });
+
+  // Lock verification state (manual verification only)
+  const [lockVerification, setLockVerification] = useState<LockVerificationResponse | null>(null);
+  const [lockVerificationLoading, setLockVerificationLoading] = useState(false);
+
+  const handleVerifyLock = async () => {
+    setLockVerificationLoading(true);
+    try {
+      const result = await verifyLockStatus();
+      setLockVerification(result);
+    } catch (err) {
+      console.error('Error verifying lock status:', err);
+    } finally {
+      setLockVerificationLoading(false);
+    }
+  };
+
   // Week management mutations
   const weekTransitionMutation = useMutation({
     mutationFn: (params: WeekTransitionParams) => processWeekTransition(params),
@@ -174,6 +201,60 @@ export function Dashboard() {
         <p className="mt-1 text-sm text-gray-600">
           Manage contest state and perform administrative actions
         </p>
+      </div>
+
+      {/* Current Week Status Banner - Always visible at-a-glance status */}
+      <div className={`rounded-lg border-2 p-4 ${
+        isWeekLocked
+          ? 'border-red-300 bg-red-50'
+          : 'border-green-300 bg-green-50'
+      }`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            {/* Lock Status Icon */}
+            <div className="flex-shrink-0">
+              {isWeekLocked ? (
+                <div className="flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                  <svg className="h-6 w-6 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
+                  <svg className="h-6 w-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 015.905-.75 1 1 0 001.937-.5A5.002 5.002 0 0010 2z" />
+                  </svg>
+                </div>
+              )}
+            </div>
+
+            {/* Week Info */}
+            <div>
+              <div className="flex items-center gap-3">
+                <span className="text-lg font-semibold text-gray-900">
+                  Playoff Week {currentPlayoffWeek ?? '—'}
+                </span>
+                <span className="text-gray-400">|</span>
+                <span className="text-lg text-gray-700">
+                  NFL Week {currentNflWeek ?? '—'}
+                </span>
+              </div>
+              <div className={`text-sm font-medium ${isWeekLocked ? 'text-red-700' : 'text-green-700'}`}>
+                {isWeekLocked
+                  ? 'Week is LOCKED — Users cannot modify picks'
+                  : 'Week is UNLOCKED — Users can modify picks'}
+              </div>
+            </div>
+          </div>
+
+          {/* Next Week Info */}
+          <div className="text-right">
+            <div className="text-sm text-gray-500">Next Week</div>
+            <div className="text-sm font-medium text-gray-700">
+              Playoff Week {currentPlayoffWeek !== null ? currentPlayoffWeek + 1 : '—'} / NFL Week {nextNflWeek ?? '—'}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Production read-only banner - only shown when edit mode is OFF */}
@@ -415,6 +496,52 @@ export function Dashboard() {
             </div>
           </div>
 
+          {/* Lock Verification Panel - Admin verification step */}
+          <div className={`rounded-md border p-3 ${
+            lockVerification?.verification?.isLocked
+              ? 'border-green-200 bg-green-50'
+              : lockVerification?.verification?.isLocked === false
+              ? 'border-yellow-200 bg-yellow-50'
+              : 'border-gray-200 bg-gray-50'
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-gray-900">Lock Verification</h3>
+              <button
+                onClick={handleVerifyLock}
+                disabled={lockVerificationLoading}
+                className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {lockVerificationLoading ? 'Verifying...' : 'Verify Lock Status'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-600 mb-2">
+              Click "Verify Lock Status" to confirm the lock is truly active at the API layer.
+            </p>
+            {lockVerification && (
+              <div className="mt-2 space-y-1">
+                <div className={`flex items-center gap-2 text-sm font-medium ${
+                  lockVerification.verification.isLocked ? 'text-green-700' : 'text-yellow-700'
+                }`}>
+                  {lockVerification.verification.isLocked ? (
+                    <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                  {lockVerification.verification.message}
+                </div>
+                <div className="text-xs text-gray-500">
+                  Last verified: {lockVerification.verification.lastUpdated
+                    ? new Date(lockVerification.verification.lastUpdated).toLocaleString()
+                    : '—'}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Advance to Next Week */}
           <div className="space-y-2">
             <div className="flex items-center gap-3">
@@ -565,7 +692,117 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Panel 3: Read-only Analytics */}
+      {/* Panel 3: Incomplete Lineups (Read-Only Visibility) */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-medium text-gray-900">Incomplete Lineups</h2>
+              <p className="text-sm text-gray-500">
+                Users with incomplete lineups for Week {incompleteLineups?.weekNumber ?? '—'}
+                {incompleteLineups?.isWeekActive === false && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                    Week Locked
+                  </span>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={() => refetchIncompleteLineups()}
+              className="text-sm text-indigo-600 hover:text-indigo-500"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+        <div className="p-4">
+          {incompleteLineupsLoading ? (
+            <div className="animate-pulse space-y-2">
+              <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+              <div className="h-8 bg-gray-200 rounded"></div>
+            </div>
+          ) : incompleteLineups?.message ? (
+            <div className="text-sm text-gray-500 italic">{incompleteLineups.message}</div>
+          ) : (
+            <>
+              {/* Summary stats */}
+              <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
+                <div className="bg-gray-50 rounded-md p-2">
+                  <span className="text-gray-600">Incomplete:</span>
+                  <span className={`ml-1 font-medium ${
+                    (incompleteLineups?.incompleteCount ?? 0) > 0 ? 'text-yellow-700' : 'text-green-700'
+                  }`}>
+                    {incompleteLineups?.incompleteCount ?? 0}
+                  </span>
+                </div>
+                <div className="bg-gray-50 rounded-md p-2">
+                  <span className="text-gray-600">Total Paid Users:</span>
+                  <span className="ml-1 font-medium text-gray-900">{incompleteLineups?.totalPaidUsers ?? 0}</span>
+                </div>
+                <div className="bg-gray-50 rounded-md p-2">
+                  <span className="text-gray-600">Required Picks:</span>
+                  <span className="ml-1 font-medium text-gray-900">{incompleteLineups?.totalRequired ?? 0}</span>
+                </div>
+              </div>
+
+              {/* Incomplete users table */}
+              {(incompleteLineups?.users?.length ?? 0) === 0 ? (
+                <div className="text-center py-4">
+                  <svg className="mx-auto h-8 w-8 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  <p className="mt-2 text-sm text-green-700 font-medium">All paid users have complete lineups</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-2 pr-4 font-medium text-gray-600">User</th>
+                        <th className="text-left py-2 px-2 font-medium text-gray-600">Picks</th>
+                        <th className="text-left py-2 px-2 font-medium text-gray-600">Missing Positions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {incompleteLineups?.users?.map((user) => (
+                        <tr key={user.userId} className="border-b border-gray-100">
+                          <td className="py-2 pr-4">
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-900">{user.username || user.email}</span>
+                              {user.isAdmin && (
+                                <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800">
+                                  Admin
+                                </span>
+                              )}
+                            </div>
+                            {user.username && (
+                              <div className="text-xs text-gray-500">{user.email}</div>
+                            )}
+                          </td>
+                          <td className="py-2 px-2 text-gray-600">
+                            {user.totalPicks}/{incompleteLineups?.totalRequired ?? 0}
+                          </td>
+                          <td className="py-2 px-2">
+                            <div className="flex flex-wrap gap-1">
+                              {user.missingPositions.map((pos, i) => (
+                                <span key={i} className="inline-flex items-center rounded bg-yellow-100 px-1.5 py-0.5 text-xs font-medium text-yellow-800">
+                                  {pos}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Panel 4: Read-only Analytics */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
           <div className="flex items-center justify-between">
