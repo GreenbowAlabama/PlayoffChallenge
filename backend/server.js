@@ -3484,7 +3484,7 @@ app.get('/api/players', async (req, res) => {
       return res.json({
         players: playersCache.data,
         total: playersCache.data.length,
-        limit: null,
+        limit: playersCache.data.length,
         offset: 0
       });
     }
@@ -3555,7 +3555,7 @@ app.get('/api/players', async (req, res) => {
     res.json({
       players: result.rows,
       total: total,
-      limit: limit,
+      limit: limit !== null ? limit : result.rows.length,
       offset: offset
     });
   } catch (err) {
