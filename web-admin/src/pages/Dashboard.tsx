@@ -167,8 +167,10 @@ export function Dashboard() {
   });
 
   // Lock/Unlock week mutations
+  // is_week_active = false means LOCKED (users cannot modify picks)
+  // is_week_active = true means UNLOCKED (users can modify picks)
   const lockWeekMutation = useMutation({
-    mutationFn: () => updateWeekStatus(true),
+    mutationFn: () => updateWeekStatus(false),  // Lock = is_week_active: false
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['gameConfig'] });
       setLockModalOpen(false);
@@ -176,7 +178,7 @@ export function Dashboard() {
   });
 
   const unlockWeekMutation = useMutation({
-    mutationFn: () => updateWeekStatus(false),
+    mutationFn: () => updateWeekStatus(true),  // Unlock = is_week_active: true
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['gameConfig'] });
       setUnlockModalOpen(false);
