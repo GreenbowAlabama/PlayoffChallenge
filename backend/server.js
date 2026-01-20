@@ -2653,7 +2653,7 @@ app.post('/api/picks/replace-player', async (req, res) => {
 
     // Check old player's team
     const oldPlayerResult = await pool.query(
-      'SELECT team, full_name FROM players WHERE id = $1',
+      'SELECT team, COALESCE(full_name, first_name || \' \' || last_name) AS full_name FROM players WHERE id = $1',
       [oldPlayerId]
     );
 
@@ -2670,7 +2670,7 @@ app.post('/api/picks/replace-player', async (req, res) => {
 
     // Get new player info
     const newPlayerResult = await pool.query(
-      'SELECT team, full_name, position, injury_status FROM players WHERE id = $1',
+      'SELECT team, COALESCE(full_name, first_name || \' \' || last_name) AS full_name, position, injury_status FROM players WHERE id = $1',
       [newPlayerId]
     );
 
@@ -3618,7 +3618,7 @@ app.get('/api/picks/v2', async (req, res) => {
         pk.multiplier,
         pk.locked,
         pk.consecutive_weeks,
-        p.full_name,
+        COALESCE(p.full_name, p.first_name || ' ' || p.last_name) AS full_name,
         p.team,
         p.sleeper_id,
         p.image_url,
@@ -3732,7 +3732,7 @@ app.post('/api/picks/v2', async (req, res) => {
     for (const op of ops) {
       if (op.action === 'add') {
         // Get player info including team and injury status
-        const playerResult = await pool.query('SELECT position, team, injury_status, full_name FROM players WHERE id = $1', [op.playerId]);
+        const playerResult = await pool.query('SELECT position, team, injury_status, COALESCE(full_name, first_name || \' \' || last_name) AS full_name FROM players WHERE id = $1', [op.playerId]);
         if (playerResult.rows.length === 0) {
           return res.status(400).json({ error: `Player ${op.playerId} not found` });
         }
@@ -4036,7 +4036,7 @@ app.post('/api/picks', async (req, res) => {
       for (const pick of picks) {
         // Validate player's team is selectable and player is not on IR
         const playerCheck = await pool.query(
-          'SELECT team, injury_status, full_name FROM players WHERE id = $1',
+          'SELECT team, injury_status, COALESCE(full_name, first_name || \' \' || last_name) AS full_name FROM players WHERE id = $1',
           [pick.playerId]
         );
         if (playerCheck.rows.length === 0) {
