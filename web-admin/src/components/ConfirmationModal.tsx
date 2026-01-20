@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, ReactNode } from 'react';
 import { Dialog } from '@headlessui/react';
 
 interface ConfirmationModalProps {
@@ -12,6 +12,8 @@ interface ConfirmationModalProps {
   itemCount?: number;
   preserveMessage?: string;
   isLoading?: boolean;
+  children?: ReactNode;
+  extraConfirmCheck?: boolean; // Additional check required for confirm button
 }
 
 export function ConfirmationModal({
@@ -25,6 +27,8 @@ export function ConfirmationModal({
   itemCount,
   preserveMessage,
   isLoading = false,
+  children,
+  extraConfirmCheck = true, // Defaults to true (no extra check required)
 }: ConfirmationModalProps) {
   const [inputValue, setInputValue] = useState('');
   const [countdown, setCountdown] = useState(3);
@@ -50,7 +54,7 @@ export function ConfirmationModal({
   }, [isOpen]);
 
   const isButtonDisabled = countdown > 0;
-  const isConfirmEnabled = inputValue === confirmationPhrase && !isButtonDisabled && !isLoading;
+  const isConfirmEnabled = inputValue === confirmationPhrase && !isButtonDisabled && !isLoading && extraConfirmCheck;
 
   const handleConfirm = () => {
     console.log('handleConfirm called', { isConfirmEnabled, inputValue, confirmationPhrase, countdown, isLoading });
@@ -119,6 +123,8 @@ export function ConfirmationModal({
               <p className="text-sm text-green-800">{preserveMessage}</p>
             </div>
           )}
+
+          {children && <div className="mb-4">{children}</div>}
 
           <div className="mb-4">
             <label

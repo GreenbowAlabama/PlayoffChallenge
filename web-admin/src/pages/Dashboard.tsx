@@ -5,6 +5,7 @@ import { ConfirmationModal } from '../components/ConfirmationModal';
 import {
   getCacheStatus,
   getUsers,
+  previewWeekTransition,
   processWeekTransition,
   getGameConfig,
   getAdminUserId,
@@ -18,6 +19,7 @@ import {
   getIncompleteLineups,
   type WeekTransitionParams,
   type WeekTransitionResponse,
+  type WeekTransitionPreview,
   type VerificationStatus,
   type TrendWeekRange,
   type LockVerificationResponse,
@@ -48,6 +50,12 @@ export function Dashboard() {
   const [transitionAdminId, setTransitionAdminId] = useState<string | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
   const [activeTeamsExpanded, setActiveTeamsExpanded] = useState(false);
+
+  // Preview state for week transition (two-step confirmation)
+  const [previewData, setPreviewData] = useState<WeekTransitionPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewTeamsConfirmed, setPreviewTeamsConfirmed] = useState(false);
 
   // Lock/Unlock modal state
   const [lockModalOpen, setLockModalOpen] = useState(false);
@@ -545,11 +553,30 @@ export function Dashboard() {
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setWeekTransitionModalOpen(true)}
-                disabled={!editModeEnabled || isTransitionDisabled}
+                onClick={async () => {
+                  // Step 1: Fetch preview data before showing confirmation modal
+                  setPreviewLoading(true);
+                  setPreviewError(null);
+                  setPreviewData(null);
+                  setPreviewTeamsConfirmed(false);
+                  try {
+                    const response = await previewWeekTransition();
+                    if (response.success && response.preview) {
+                      setPreviewData(response.preview);
+                      setWeekTransitionModalOpen(true);
+                    } else {
+                      setPreviewError('Preview failed: unexpected response');
+                    }
+                  } catch (err) {
+                    setPreviewError(err instanceof Error ? err.message : 'Failed to fetch preview');
+                  } finally {
+                    setPreviewLoading(false);
+                  }
+                }}
+                disabled={!editModeEnabled || isTransitionDisabled || previewLoading}
                 className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Advance to Next Week
+                {previewLoading ? 'Loading Preview...' : 'Advance to Next Week'}
               </button>
               <span className="text-sm text-gray-500">
                 {currentNflWeek && nextNflWeek
@@ -564,6 +591,15 @@ export function Dashboard() {
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
                 <span>{!editModeEnabled ? 'Admin Edit Mode is OFF' : transitionDisableReason}</span>
+              </div>
+            )}
+            {/* Preview error */}
+            {previewError && (
+              <div className="flex items-center gap-2 text-sm text-red-600">
+                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>Preview failed: {previewError}</span>
               </div>
             )}
           </div>
@@ -987,26 +1023,66 @@ export function Dashboard() {
       {/* Confirmation Modals */}
       <ConfirmationModal
         isOpen={weekTransitionModalOpen}
-        onClose={() => setWeekTransitionModalOpen(false)}
+        onClose={() => {
+          setWeekTransitionModalOpen(false);
+          setPreviewData(null);
+          setPreviewTeamsConfirmed(false);
+        }}
         onConfirm={() => {
           const adminUserId = getAdminUserId();
           if (!adminUserId) {
             console.error('Missing admin user ID for week transition');
             return;
           }
-          // Backend derives fromWeek/toWeek from game_settings - we only send userId
+          // Backend requires previewConfirmed: true
           weekTransitionMutation.mutate({
             userId: adminUserId,
+            previewConfirmed: true,
           });
         }}
         title="Advance to Next Week"
-        description={currentNflWeek && nextNflWeek
-          ? `This will advance the contest from Playoff Week ${currentPlayoffWeek} to Week ${(currentPlayoffWeek ?? 0) + 1} (NFL Week ${currentNflWeek} → ${nextNflWeek}). The backend will verify the week is locked and derive all state from the database. This action affects all users.`
-          : "This will advance the contest to the next playoff week. The backend will verify the week is locked before proceeding. This action affects all users."}
+        description={previewData
+          ? `ESPN returned ${previewData.teamCount} teams for NFL Week ${previewData.nflWeek} (Playoff Week ${previewData.toPlayoffWeek}). Review the teams below and confirm they are correct.`
+          : "This will advance the contest to the next playoff week."}
         confirmText="Advance Week"
         confirmationPhrase="ADVANCE WEEK"
         isLoading={weekTransitionMutation.isPending}
-      />
+        extraConfirmCheck={previewTeamsConfirmed}
+      >
+        {previewData && (
+          <div className="space-y-3">
+            {/* ESPN Teams List */}
+            <div className="rounded-md bg-blue-50 border border-blue-200 p-3">
+              <p className="text-sm font-medium text-blue-800 mb-2">
+                Active Teams from ESPN ({previewData.teamCount} teams, {previewData.eventCount} games):
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {previewData.activeTeams.map((team) => (
+                  <span
+                    key={team}
+                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                  >
+                    {team}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Confirmation Checkbox */}
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={previewTeamsConfirmed}
+                onChange={(e) => setPreviewTeamsConfirmed(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span className="text-sm text-gray-700">
+                I confirm these teams are correct for NFL Week {previewData.nflWeek}
+              </span>
+            </label>
+          </div>
+        )}
+      </ConfirmationModal>
 
       <ConfirmationModal
         isOpen={lockModalOpen}

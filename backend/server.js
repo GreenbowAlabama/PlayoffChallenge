@@ -2225,17 +2225,110 @@ app.post('/api/admin/set-active-week', async (req, res) => {
 // MULTIPLIER & PLAYER REPLACEMENT ENDPOINTS
 // ==============================================
 
+// Admin: Preview week transition - READ-ONLY, returns ESPN data for confirmation
+// This endpoint does NOT mutate any state. It only fetches and returns preview data.
+app.get('/api/admin/preview-week-transition', async (req, res) => {
+  try {
+    // Get current game state
+    const gameStateResult = await pool.query(
+      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
+    );
+
+    if (gameStateResult.rows.length === 0) {
+      return res.status(500).json({ error: 'Game settings not found' });
+    }
+
+    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0];
+
+    // Validate preconditions (same as transition endpoint)
+    if (is_week_active) {
+      return res.status(400).json({
+        error: 'Week must be locked before previewing transition. Set is_week_active = false first.',
+        currentState: { is_week_active, current_playoff_week }
+      });
+    }
+
+    if (current_playoff_week >= 4) {
+      return res.status(400).json({
+        error: 'Cannot advance beyond Super Bowl (playoff week 4)',
+        currentState: { current_playoff_week }
+      });
+    }
+
+    // Derive target week
+    const fromPlayoffWeek = current_playoff_week;
+    const toPlayoffWeek = current_playoff_week + 1;
+    const toWeek = playoff_start_week + toPlayoffWeek - 1;  // NFL week number
+
+    // Fetch ESPN data (read-only external call)
+    let scoreboardResponse;
+    try {
+      scoreboardResponse = await axios.get(getESPNScoreboardUrl(toWeek));
+    } catch (espnErr) {
+      console.error('[admin] Preview: ESPN API call failed:', espnErr.message);
+      return res.status(502).json({
+        error: 'Failed to fetch ESPN scoreboard data',
+        details: espnErr.message
+      });
+    }
+
+    const activeTeams = new Set();
+    let eventCount = 0;
+
+    if (scoreboardResponse.data && scoreboardResponse.data.events) {
+      eventCount = scoreboardResponse.data.events.length;
+      for (const event of scoreboardResponse.data.events) {
+        const competitors = event.competitions?.[0]?.competitors || [];
+        for (const competitor of competitors) {
+          const teamAbbr = competitor.team?.abbreviation;
+          if (teamAbbr) {
+            activeTeams.add(teamAbbr);
+          }
+        }
+      }
+    }
+
+    const activeTeamsArray = Array.from(activeTeams).sort();
+
+    // Return preview data (no mutations)
+    res.json({
+      success: true,
+      preview: {
+        fromPlayoffWeek,
+        toPlayoffWeek,
+        nflWeek: toWeek,
+        eventCount,
+        activeTeams: activeTeamsArray,
+        teamCount: activeTeamsArray.length
+      }
+    });
+
+  } catch (err) {
+    console.error('Error generating week transition preview:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Admin: Process week transition - update multipliers for advancing players
 // CONTRACT: This endpoint is atomic. It either completes fully or leaves no partial state.
+// PRECONDITION: Caller must have confirmed preview (previewConfirmed: true)
 app.post('/api/admin/process-week-transition', async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const { userId } = req.body;
+    const { userId, previewConfirmed } = req.body;
     // NOTE: fromWeek and toWeek are now IGNORED from client - derived from DB state
 
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
+    }
+
+    // PRECONDITION 0: Preview must be confirmed
+    if (previewConfirmed !== true) {
+      return res.status(400).json({
+        error: 'Preview confirmation required. Call GET /api/admin/preview-week-transition first and confirm the teams.',
+        hint: 'Include previewConfirmed: true in request body after confirming preview.'
+      });
     }
 
     // ========================================

@@ -63,10 +63,29 @@ export interface VerificationStatus {
 
 export interface WeekTransitionParams {
   userId: string;
+  previewConfirmed: boolean;
   // NOTE: fromWeek and toWeek are now derived server-side from game_settings
   // These fields are ignored by the backend but kept for type compatibility
   fromWeek?: number;
   toWeek?: number;
+}
+
+// ============================================
+// WEEK TRANSITION PREVIEW TYPES
+// ============================================
+
+export interface WeekTransitionPreview {
+  fromPlayoffWeek: number;
+  toPlayoffWeek: number;
+  nflWeek: number;
+  eventCount: number;
+  activeTeams: string[];
+  teamCount: number;
+}
+
+export interface WeekTransitionPreviewResponse {
+  success: boolean;
+  preview: WeekTransitionPreview;
 }
 
 export interface GameConfig {
@@ -182,6 +201,11 @@ export async function setActiveWeek(weekNumber: number): Promise<WeekTransitionR
     method: 'POST',
     body: JSON.stringify({ weekNumber }),
   });
+}
+
+// Preview week transition - READ-ONLY, returns ESPN data for confirmation
+export async function previewWeekTransition(): Promise<WeekTransitionPreviewResponse> {
+  return apiRequest<WeekTransitionPreviewResponse>('/api/admin/preview-week-transition');
 }
 
 export async function processWeekTransition(params: WeekTransitionParams): Promise<WeekTransitionResponse> {
