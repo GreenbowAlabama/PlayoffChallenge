@@ -2654,12 +2654,23 @@ app.post('/api/picks/replace-player', async (req, res) => {
 
     // Get new player info
     const newPlayerResult = await pool.query(
-      'SELECT team, full_name, position FROM players WHERE id = $1',
+      'SELECT team, full_name, position, injury_status FROM players WHERE id = $1',
       [newPlayerId]
     );
 
     if (newPlayerResult.rows.length === 0) {
       return res.status(404).json({ error: 'New player not found' });
+    }
+
+    const newPlayer = newPlayerResult.rows[0];
+
+    // Validate new player is not on IR or otherwise unavailable
+    const ineligibleStatuses = ['IR', 'PUP', 'SUSP'];
+    const normalizedStatus = newPlayer.injury_status ? newPlayer.injury_status.toUpperCase().trim() : null;
+    if (normalizedStatus && ineligibleStatuses.includes(normalizedStatus)) {
+      return res.status(400).json({
+        error: `${newPlayer.full_name} is on ${newPlayer.injury_status} and cannot be selected.`
+      });
     }
 
     // Validate new player's team is selectable (uses DB-backed active_teams with caching)
@@ -2668,10 +2679,10 @@ app.post('/api/picks/replace-player', async (req, res) => {
       console.error(`[swap] ${selectableResult.error}: active_teams not set for playoff week ${selectableResult.currentPlayoffWeek}`);
       return res.status(500).json({ error: 'Server configuration error. Please contact support.' });
     }
-    const normalizedNewTeam = normalizeTeamAbbr(newPlayerResult.rows[0].team);
+    const normalizedNewTeam = normalizeTeamAbbr(newPlayer.team);
     if (!selectableResult.teams.includes(normalizedNewTeam)) {
       return res.status(400).json({
-        error: `${newPlayerResult.rows[0].full_name}'s team (${newPlayerResult.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
+        error: `${newPlayer.full_name}'s team (${newPlayer.team}) has been eliminated. Only players from active teams are selectable.`
       });
     }
 
@@ -3472,7 +3483,7 @@ app.get('/api/players', async (req, res) => {
     // Fetch fresh data - only available and active players from selectable teams
     console.log(`[players] Fetching from database (selectable teams: ${selectableTeams.join(', ')})...`);
 
-    // Filter to only selectable teams
+    // Filter to only selectable teams and exclude IR players
     let query = `
       SELECT id, sleeper_id, full_name, first_name, last_name, position, team,
               number, status, injury_status, is_active, available, image_url
@@ -3481,7 +3492,8 @@ app.get('/api/players', async (req, res) => {
         AND available = true
         AND team = ANY($1)
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
-        AND (position = 'DEF' OR (espn_id IS NOT NULL AND espn_id != ''))`;
+        AND (position = 'DEF' OR (espn_id IS NOT NULL AND espn_id != ''))
+        AND (injury_status IS NULL OR UPPER(TRIM(injury_status)) NOT IN ('IR', 'PUP', 'SUSP'))`;
 
     const params = [selectableTeams];
 
@@ -3495,7 +3507,7 @@ app.get('/api/players', async (req, res) => {
 
     const result = await pool.query(query, params);
 
-    // Get total count (filtered to selectable teams)
+    // Get total count (filtered to selectable teams and excluding IR players)
     const countQuery = `
       SELECT COUNT(*) as total
       FROM players
@@ -3504,6 +3516,7 @@ app.get('/api/players', async (req, res) => {
         AND team = ANY($1)
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
         AND (position = 'DEF' OR (espn_id IS NOT NULL AND espn_id != ''))
+        AND (injury_status IS NULL OR UPPER(TRIM(injury_status)) NOT IN ('IR', 'PUP', 'SUSP'))
       ${position ? `AND position = $2` : ''}
     `;
     const countParams = position ? [selectableTeams, position] : [selectableTeams];
@@ -3690,21 +3703,32 @@ app.post('/api/picks/v2', async (req, res) => {
     const proposedOps = [];
     for (const op of ops) {
       if (op.action === 'add') {
-        // Get player info including team
-        const playerResult = await pool.query('SELECT position, team FROM players WHERE id = $1', [op.playerId]);
+        // Get player info including team and injury status
+        const playerResult = await pool.query('SELECT position, team, injury_status, full_name FROM players WHERE id = $1', [op.playerId]);
         if (playerResult.rows.length === 0) {
           return res.status(400).json({ error: `Player ${op.playerId} not found` });
         }
 
-        // Validate player's team is selectable
-        const normalizedTeam = normalizeTeamAbbr(playerResult.rows[0].team);
-        if (!selectableTeams.includes(normalizedTeam)) {
+        const player = playerResult.rows[0];
+
+        // Validate player is not on IR or otherwise unavailable
+        const ineligibleStatuses = ['IR', 'PUP', 'SUSP'];
+        const normalizedStatus = player.injury_status ? player.injury_status.toUpperCase().trim() : null;
+        if (normalizedStatus && ineligibleStatuses.includes(normalizedStatus)) {
           return res.status(400).json({
-            error: `Player ${op.playerId}'s team (${playerResult.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
+            error: `${player.full_name || op.playerId} is on ${player.injury_status} and cannot be selected.`
           });
         }
 
-        proposedOps.push({ action: 'add', position: playerResult.rows[0].position, playerId: op.playerId });
+        // Validate player's team is selectable
+        const normalizedTeam = normalizeTeamAbbr(player.team);
+        if (!selectableTeams.includes(normalizedTeam)) {
+          return res.status(400).json({
+            error: `Player ${op.playerId}'s team (${player.team}) has been eliminated. Only players from active teams are selectable.`
+          });
+        }
+
+        proposedOps.push({ action: 'add', position: player.position, playerId: op.playerId });
       } else if (op.action === 'remove') {
         // Get pick position AND player_id (needed for swap detection)
         const pickResult = await pool.query('SELECT position, player_id FROM picks WHERE id = $1', [op.pickId]);
@@ -3982,18 +4006,29 @@ app.post('/api/picks', async (req, res) => {
       const results = [];
 
       for (const pick of picks) {
-        // Validate player's team is selectable
-        const playerTeamCheck = await pool.query(
-          'SELECT team FROM players WHERE id = $1',
+        // Validate player's team is selectable and player is not on IR
+        const playerCheck = await pool.query(
+          'SELECT team, injury_status, full_name FROM players WHERE id = $1',
           [pick.playerId]
         );
-        if (playerTeamCheck.rows.length === 0) {
+        if (playerCheck.rows.length === 0) {
           return res.status(404).json({ error: `Player not found: ${pick.playerId}` });
         }
-        const normalizedTeam = normalizeTeamAbbr(playerTeamCheck.rows[0].team);
+        const player = playerCheck.rows[0];
+
+        // Validate player is not on IR or otherwise unavailable
+        const ineligibleStatuses = ['IR', 'PUP', 'SUSP'];
+        const normalizedStatus = player.injury_status ? player.injury_status.toUpperCase().trim() : null;
+        if (normalizedStatus && ineligibleStatuses.includes(normalizedStatus)) {
+          return res.status(400).json({
+            error: `${player.full_name || pick.playerId} is on ${player.injury_status} and cannot be selected.`
+          });
+        }
+
+        const normalizedTeam = normalizeTeamAbbr(player.team);
         if (!selectableTeams.includes(normalizedTeam)) {
           return res.status(400).json({
-            error: `Player ${pick.playerId}'s team (${playerTeamCheck.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
+            error: `Player ${pick.playerId}'s team (${player.team}) has been eliminated. Only players from active teams are selectable.`
           });
         }
 
