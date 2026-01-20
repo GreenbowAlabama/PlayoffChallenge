@@ -990,20 +990,19 @@ export function Dashboard() {
         onClose={() => setWeekTransitionModalOpen(false)}
         onConfirm={() => {
           const adminUserId = getAdminUserId();
-          if (!adminUserId || !currentNflWeek || !nextNflWeek) {
-            console.error('Missing required data for week transition');
+          if (!adminUserId) {
+            console.error('Missing admin user ID for week transition');
             return;
           }
+          // Backend derives fromWeek/toWeek from game_settings - we only send userId
           weekTransitionMutation.mutate({
             userId: adminUserId,
-            fromWeek: currentNflWeek,
-            toWeek: nextNflWeek,
           });
         }}
         title="Advance to Next Week"
         description={currentNflWeek && nextNflWeek
-          ? `This will advance the contest from NFL Week ${currentNflWeek} to Week ${nextNflWeek}. Ensure all scores are finalized before proceeding. This action affects all users.`
-          : "This will advance the contest to the next NFL week. Ensure all scores are finalized before proceeding. This action affects all users."}
+          ? `This will advance the contest from Playoff Week ${currentPlayoffWeek} to Week ${(currentPlayoffWeek ?? 0) + 1} (NFL Week ${currentNflWeek} → ${nextNflWeek}). The backend will verify the week is locked and derive all state from the database. This action affects all users.`
+          : "This will advance the contest to the next playoff week. The backend will verify the week is locked before proceeding. This action affects all users."}
         confirmText="Advance Week"
         confirmationPhrase="ADVANCE WEEK"
         isLoading={weekTransitionMutation.isPending}

@@ -2226,16 +2226,24 @@ app.post('/api/admin/set-active-week', async (req, res) => {
 // ==============================================
 
 // Admin: Process week transition - update multipliers for advancing players
+// CONTRACT: This endpoint is atomic. It either completes fully or leaves no partial state.
 app.post('/api/admin/process-week-transition', async (req, res) => {
-  try {
-    const { userId, fromWeek, toWeek } = req.body;
+  const client = await pool.connect();
 
-    if (!userId || !fromWeek || !toWeek) {
-      return res.status(400).json({ error: 'userId, fromWeek, and toWeek required' });
+  try {
+    const { userId } = req.body;
+    // NOTE: fromWeek and toWeek are now IGNORED from client - derived from DB state
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId required' });
     }
 
+    // ========================================
+    // STEP 1: Validate preconditions (no transaction yet)
+    // ========================================
+
     // Verify user is admin
-    const userCheck = await pool.query(
+    const userCheck = await client.query(
       'SELECT is_admin FROM users WHERE id = $1',
       [userId]
     );
@@ -2244,10 +2252,55 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    console.log(`[admin] Processing week transition: ${fromWeek} -> ${toWeek}`);
+    // Get current game state - this is the SINGLE SOURCE OF TRUTH
+    const gameStateResult = await client.query(
+      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
+    );
 
-    // Fetch scoreboard for the NEW week to see which teams are still playing
-    const scoreboardResponse = await axios.get(getESPNScoreboardUrl(toWeek));
+    if (gameStateResult.rows.length === 0) {
+      return res.status(500).json({ error: 'Game settings not found' });
+    }
+
+    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0];
+
+    // PRECONDITION 1: Week must be locked
+    if (is_week_active) {
+      return res.status(400).json({
+        error: 'Week must be locked before advancing. Set is_week_active = false first.',
+        currentState: { is_week_active, current_playoff_week }
+      });
+    }
+
+    // PRECONDITION 2: Cannot advance beyond Super Bowl (playoff week 4)
+    if (current_playoff_week >= 4) {
+      return res.status(400).json({
+        error: 'Cannot advance beyond Super Bowl (playoff week 4)',
+        currentState: { current_playoff_week }
+      });
+    }
+
+    // Derive weeks deterministically from DB state
+    const fromPlayoffWeek = current_playoff_week;
+    const toPlayoffWeek = current_playoff_week + 1;
+    const fromWeek = playoff_start_week + fromPlayoffWeek - 1;  // NFL week number
+    const toWeek = playoff_start_week + toPlayoffWeek - 1;      // NFL week number
+
+    console.log(`[admin] Processing week transition: Playoff ${fromPlayoffWeek} -> ${toPlayoffWeek} (NFL ${fromWeek} -> ${toWeek})`);
+
+    // ========================================
+    // STEP 2: Fetch ESPN data BEFORE transaction (external call)
+    // ========================================
+
+    let scoreboardResponse;
+    try {
+      scoreboardResponse = await axios.get(getESPNScoreboardUrl(toWeek));
+    } catch (espnErr) {
+      console.error('[admin] ESPN API call failed:', espnErr.message);
+      return res.status(502).json({
+        error: 'Failed to fetch ESPN scoreboard data',
+        details: espnErr.message
+      });
+    }
 
     const activeTeams = new Set();
 
@@ -2263,75 +2316,118 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
       }
     }
 
-    console.log(`[admin] Active teams in week ${toWeek}:`, Array.from(activeTeams));
+    // PRECONDITION 3: ESPN must return valid game data
+    // Expected team counts: Wild Card=12, Divisional=8, Conference=4, Super Bowl=2
+    const expectedTeamCounts = { 1: 12, 2: 8, 3: 4, 4: 2 };
+    const expectedCount = expectedTeamCounts[toPlayoffWeek];
 
-    // Get all picks from the previous week
-    const picksResult = await pool.query(`
-      SELECT pk.id, pk.user_id, pk.player_id, pk.position, pk.multiplier, pk.consecutive_weeks, p.team, p.full_name
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id
-      WHERE pk.week_number = $1
-    `, [fromWeek]);
-
-    let advancedCount = 0;
-    let eliminatedCount = 0;
-    const eliminated = [];
-
-    for (const pick of picksResult.rows) {
-      const playerTeam = pick.team;
-      const isActive = activeTeams.has(playerTeam);
-
-      if (isActive) {
-        // Player's team is still active - increment multiplier
-        const newMultiplier = (pick.multiplier || 1) + 1;
-        const newConsecutiveWeeks = (pick.consecutive_weeks || 1) + 1;
-
-        // Create new pick for next week with incremented multiplier
-        await pool.query(`
-          INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, false, NOW())
-          ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
-            multiplier = $5,
-            consecutive_weeks = $6
-        `, [pick.user_id, pick.player_id, toWeek, pick.position, newMultiplier, newConsecutiveWeeks]);
-
-        advancedCount++;
-      } else {
-        // Player's team is eliminated
-        eliminated.push({
-          userId: pick.user_id,
-          playerId: pick.player_id,
-          playerName: pick.full_name,
-          position: pick.position,
-          team: playerTeam
-        });
-        eliminatedCount++;
-      }
+    if (activeTeams.size === 0) {
+      return res.status(400).json({
+        error: `ESPN returned no active teams for NFL week ${toWeek}. Cannot proceed with empty data.`,
+        espnUrl: getESPNScoreboardUrl(toWeek)
+      });
     }
 
-    console.log(`[admin] Week transition complete: ${advancedCount} advanced, ${eliminatedCount} eliminated`);
+    if (expectedCount && activeTeams.size !== expectedCount) {
+      console.warn(`[admin] WARNING: Expected ${expectedCount} teams for playoff week ${toPlayoffWeek}, got ${activeTeams.size}`);
+      // Log warning but don't block - playoff schedule can vary
+    }
 
-    // Persist active_teams to game_settings for pick eligibility enforcement
-    const activeTeamsArray = Array.from(activeTeams);
-    await pool.query(
-      'UPDATE game_settings SET active_teams = $1',
-      [activeTeamsArray]
-    );
-    console.log(`[admin] Active teams persisted to game_settings: ${activeTeamsArray.join(', ')}`);
+    console.log(`[admin] Active teams for NFL week ${toWeek}:`, Array.from(activeTeams));
 
-    res.json({
-      success: true,
-      fromWeek,
-      toWeek,
-      activeTeams: activeTeamsArray,
-      advancedCount,
-      eliminatedCount,
-      eliminated
-    });
+    // ========================================
+    // STEP 3: Begin transaction for all mutations
+    // ========================================
+
+    await client.query('BEGIN');
+
+    try {
+      // Get all picks from the current week
+      const picksResult = await client.query(`
+        SELECT pk.id, pk.user_id, pk.player_id, pk.position, pk.multiplier, pk.consecutive_weeks, p.team, p.full_name
+        FROM picks pk
+        JOIN players p ON pk.player_id = p.id
+        WHERE pk.week_number = $1
+      `, [fromWeek]);
+
+      let advancedCount = 0;
+      let eliminatedCount = 0;
+      const eliminated = [];
+      const activeTeamsArray = Array.from(activeTeams);
+
+      // Process each pick
+      for (const pick of picksResult.rows) {
+        const playerTeam = pick.team;
+        const isActive = activeTeams.has(playerTeam);
+
+        if (isActive) {
+          // Player's team is still active - increment multiplier
+          const newMultiplier = (pick.multiplier || 1) + 1;
+          const newConsecutiveWeeks = (pick.consecutive_weeks || 1) + 1;
+
+          // Create new pick for next week with incremented multiplier
+          await client.query(`
+            INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
+            VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, false, NOW())
+            ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
+              multiplier = $5,
+              consecutive_weeks = $6
+          `, [pick.user_id, pick.player_id, toWeek, pick.position, newMultiplier, newConsecutiveWeeks]);
+
+          advancedCount++;
+        } else {
+          // Player's team is eliminated
+          eliminated.push({
+            userId: pick.user_id,
+            playerId: pick.player_id,
+            playerName: pick.full_name,
+            position: pick.position,
+            team: playerTeam
+          });
+          eliminatedCount++;
+        }
+      }
+
+      // Update game_settings atomically: active_teams AND current_playoff_week
+      await client.query(
+        'UPDATE game_settings SET active_teams = $1, current_playoff_week = $2',
+        [activeTeamsArray, toPlayoffWeek]
+      );
+
+      // Commit transaction
+      await client.query('COMMIT');
+
+      console.log(`[admin] Week transition COMMITTED: ${advancedCount} advanced, ${eliminatedCount} eliminated`);
+      console.log(`[admin] game_settings updated: current_playoff_week = ${toPlayoffWeek}, active_teams = [${activeTeamsArray.join(', ')}]`);
+
+      res.json({
+        success: true,
+        fromPlayoffWeek,
+        toPlayoffWeek,
+        fromWeek,
+        toWeek,
+        activeTeams: activeTeamsArray,
+        advancedCount,
+        eliminatedCount,
+        eliminated,
+        newState: {
+          current_playoff_week: toPlayoffWeek,
+          effective_nfl_week: toWeek
+        }
+      });
+
+    } catch (txErr) {
+      // Rollback on ANY error within transaction
+      await client.query('ROLLBACK');
+      console.error('[admin] Week transition ROLLED BACK:', txErr.message);
+      throw txErr;
+    }
 
   } catch (err) {
     console.error('Error processing week transition:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

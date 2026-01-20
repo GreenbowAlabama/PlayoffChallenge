@@ -23,12 +23,28 @@ export interface CleanupResponse {
 
 export interface WeekTransitionResponse {
   success: boolean;
-  message: string;
-  newWeek?: number;
-  // Extended fields returned by process-week-transition
+  message?: string;
+  error?: string;
+  // Transition details
+  fromPlayoffWeek?: number;
+  toPlayoffWeek?: number;
+  fromWeek?: number;  // NFL week
+  toWeek?: number;    // NFL week
   advancedCount?: number;
   eliminatedCount?: number;
-  activeTeams?: Array<{ userId: string; username: string | null }>;
+  activeTeams?: string[];
+  eliminated?: Array<{
+    userId: string;
+    playerId: string;
+    playerName: string;
+    position: string;
+    team: string;
+  }>;
+  // New state after transition
+  newState?: {
+    current_playoff_week: number;
+    effective_nfl_week: number;
+  };
 }
 
 // Pre-flight and verification types
@@ -47,8 +63,10 @@ export interface VerificationStatus {
 
 export interface WeekTransitionParams {
   userId: string;
-  fromWeek: number;
-  toWeek: number;
+  // NOTE: fromWeek and toWeek are now derived server-side from game_settings
+  // These fields are ignored by the backend but kept for type compatibility
+  fromWeek?: number;
+  toWeek?: number;
 }
 
 export interface GameConfig {
