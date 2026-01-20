@@ -3467,6 +3467,10 @@ app.post('/api/admin/sync-players', async (req, res) => {
 
 // Get all players (with caching)
 app.get('/api/players', async (req, res) => {
+  // Prevent HTTP 304 responses - always send fresh data
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   try {
     // Only apply limit/offset if explicitly requested (for pagination)
     const limit = req.query.limit ? parseInt(req.query.limit) : null;
