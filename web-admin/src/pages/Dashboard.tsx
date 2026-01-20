@@ -624,8 +624,8 @@ export function Dashboard() {
                   {activeTeamsExpanded && (
                     <ul className="mt-2 pl-5 text-xs text-green-800 max-h-32 overflow-y-auto">
                       {transitionResult.activeTeams.map((team) => (
-                        <li key={team.userId} className="py-0.5">
-                          {team.username || team.userId.slice(0, 8)}
+                        <li key={team} className="py-0.5">
+                          {team}
                         </li>
                       ))}
                     </ul>
