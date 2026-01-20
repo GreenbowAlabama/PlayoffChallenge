@@ -1703,17 +1703,32 @@ app.post('/api/admin/sync-espn-ids', async (req, res) => {
 
     let updated = 0;
     let notFound = 0;
+    let skippedDuplicate = 0;
 
     for (const player of playersResult.rows) {
       const sleeperData = sleeperPlayers[player.sleeper_id];
 
       if (sleeperData && sleeperData.espn_id) {
+        const espnIdStr = sleeperData.espn_id.toString();
+
+        // Check if this ESPN ID is already assigned to another player
+        const existingCheck = await pool.query(
+          'SELECT id, full_name FROM players WHERE espn_id = $1 AND id != $2',
+          [espnIdStr, player.id]
+        );
+
+        if (existingCheck.rows.length > 0) {
+          console.log(`Skipping ${player.full_name}: ESPN ID ${espnIdStr} already assigned to ${existingCheck.rows[0].full_name}`);
+          skippedDuplicate++;
+          continue;
+        }
+
         const imageUrl = getPlayerImageUrl(player.sleeper_id, player.position);
         await pool.query(
           'UPDATE players SET espn_id = $1, image_url = $2 WHERE id = $3',
-          [sleeperData.espn_id.toString(), imageUrl, player.id]
+          [espnIdStr, imageUrl, player.id]
         );
-        console.log(`Updated ${player.full_name}: ESPN ID = ${sleeperData.espn_id}`);
+        console.log(`Updated ${player.full_name}: ESPN ID = ${espnIdStr}`);
         updated++;
       } else {
         console.log(`No ESPN ID found for ${player.full_name} (${player.sleeper_id})`);
@@ -1721,13 +1736,14 @@ app.post('/api/admin/sync-espn-ids', async (req, res) => {
       }
     }
 
-    console.log(`ESPN ID sync complete: ${updated} updated, ${notFound} not found`);
+    console.log(`ESPN ID sync complete: ${updated} updated, ${notFound} not found, ${skippedDuplicate} skipped (duplicate)`);
 
     res.json({
       success: true,
-      message: `Synced ESPN IDs: ${updated} updated, ${notFound} not found`,
+      message: `Synced ESPN IDs: ${updated} updated, ${notFound} not found, ${skippedDuplicate} skipped (duplicate)`,
       updated,
-      notFound
+      notFound,
+      skippedDuplicate
     });
   } catch (err) {
     console.error('Error syncing ESPN IDs:', err);
