@@ -3506,7 +3506,9 @@ app.get('/api/players', async (req, res) => {
 
     // Filter to only selectable teams and exclude IR players
     let query = `
-      SELECT id, sleeper_id, full_name, first_name, last_name, position, team,
+      SELECT id, sleeper_id,
+              COALESCE(full_name, first_name || ' ' || last_name) as full_name,
+              first_name, last_name, position, team,
               number, status, injury_status, is_active, available, image_url
       FROM players
       WHERE is_active = true
