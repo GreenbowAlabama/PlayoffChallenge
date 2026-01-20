@@ -3452,22 +3452,23 @@ app.post('/api/admin/sync-players', async (req, res) => {
 // Get all players (with caching)
 app.get('/api/players', async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 200;
+    // Only apply limit/offset if explicitly requested (for pagination)
+    const limit = req.query.limit ? parseInt(req.query.limit) : null;
     const offset = parseInt(req.query.offset) || 0;
     const position = req.query.position;
 
     const now = Date.now();
 
-    // Return cached data if fresh and no specific filters
-    if (!position && offset === 0 &&
+    // Return cached data if fresh and no specific filters or pagination
+    if (!position && offset === 0 && !limit &&
         playersCache.lastUpdate &&
         (now - playersCache.lastUpdate) < PLAYERS_CACHE_MS &&
         playersCache.data.length > 0) {
       console.log(`Returning ${playersCache.data.length} cached players`);
       return res.json({
-        players: playersCache.data.slice(0, limit),
+        players: playersCache.data,
         total: playersCache.data.length,
-        limit: limit,
+        limit: null,
         offset: 0
       });
     }
@@ -3502,8 +3503,13 @@ app.get('/api/players', async (req, res) => {
       params.push(position);
     }
 
-    query += ` ORDER BY position, team, full_name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
+    query += ` ORDER BY position, team, full_name`;
+
+    // Only apply LIMIT/OFFSET if explicitly requested (for pagination)
+    if (limit !== null) {
+      query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      params.push(limit, offset);
+    }
 
     const result = await pool.query(query, params);
 
@@ -3523,8 +3529,8 @@ app.get('/api/players', async (req, res) => {
     const countResult = await pool.query(countQuery, countParams);
     const total = parseInt(countResult.rows[0].total);
 
-    // Update cache if fetching all
-    if (!position && offset === 0) {
+    // Update cache if fetching all (no position filter, no pagination)
+    if (!position && offset === 0 && limit === null) {
       playersCache.data = result.rows;
       playersCache.lastUpdate = now;
       console.log(`Cached ${result.rows.length} players`);
