@@ -4930,7 +4930,20 @@ app.get('/api/leaderboard', async (req, res) => {
     const result = await pool.query(query, params);
 
     // If includePicks is requested, fetch picks for each user
+    // SECURITY: Only expose picks if week is locked OR games have started
     if (includePicks === 'true' && actualWeekNumber) {
+      // Check if picks should be visible (week locked or games started)
+      const lockStatusResult = await pool.query('SELECT is_week_active FROM game_settings LIMIT 1');
+      const isWeekLocked = lockStatusResult.rows[0]?.is_week_active === false;
+      const gamesStarted = await hasAnyGameStartedForWeek(actualWeekNumber);
+
+      // If week is unlocked AND no games have started, don't expose picks
+      if (!isWeekLocked && !gamesStarted) {
+        console.log(`[Leaderboard] Picks gated: week ${actualWeekNumber} is unlocked and no games started`);
+        // Return leaderboard without picks
+        return res.json(result.rows);
+      }
+
       // Fetch matchup map once for this week
       const matchupMap = await getWeekMatchupMap(actualWeekNumber);
 
