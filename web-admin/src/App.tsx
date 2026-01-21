@@ -7,6 +7,7 @@ import { DiagnosticsDashboard } from './pages/DiagnosticsDashboard';
 import { DiagnosticsUsers } from './pages/DiagnosticsUsers';
 import { DiagnosticsUserDetail } from './pages/DiagnosticsUserDetail';
 import { PicksExplorer } from './pages/PicksExplorer';
+import { Trends } from './pages/Trends';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -40,6 +41,7 @@ function App() {
             <Route path="diagnostics/users" element={<DiagnosticsUsers />} />
             <Route path="diagnostics/users/:userId" element={<DiagnosticsUserDetail />} />
             <Route path="picks" element={<PicksExplorer />} />
+            <Route path="trends" element={<Trends />} />
           </Route>
         </Routes>
       </BrowserRouter>
