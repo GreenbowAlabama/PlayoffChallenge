@@ -995,23 +995,29 @@ async function savePlayerScoresToDatabase(weekNumber) {
           }
         }
 
-        // Name-based cache lookup
+        // Name-based cache lookup with team matching for safe hydration
         if (!playerStats) {
           const normalized = normalizePlayerName(playerName);
+          const normalizedDbTeam = normalizeTeamAbbr(dbTeam);
 
           for (const [athleteId, cached] of liveStatsCache.playerStats) {
             const cachedNormalized = normalizePlayerName(cached.athleteName);
+            const normalizedCachedTeam = normalizeTeamAbbr(cached.team);
 
-            if (
-              normalized.firstName === cachedNormalized.firstName &&
-              normalized.lastName === cachedNormalized.lastName
-            ) {
+            // Match by name AND team for safe ESPN ID hydration
+            const nameMatches = normalized.firstName === cachedNormalized.firstName &&
+                                normalized.lastName === cachedNormalized.lastName;
+            const teamMatches = normalizedDbTeam && normalizedCachedTeam &&
+                                normalizedDbTeam === normalizedCachedTeam;
+
+            if (nameMatches && teamMatches) {
               if (!espnId) {
                 await pool.query(
                   'UPDATE players SET espn_id = $1 WHERE id::text = $2',
                   [athleteId, pick.player_id]
                 );
                 resolvedEspnId = athleteId;
+                console.log(`[lazy-hydration] Assigned ESPN ID ${athleteId} to player ${playerName} (${dbTeam})`);
               }
 
               playerStats = convertESPNStatsToScoring(cached.stats);
@@ -3515,7 +3521,6 @@ app.get('/api/players', async (req, res) => {
         AND available = true
         AND team = ANY($1)
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
-        AND (position = 'DEF' OR (espn_id IS NOT NULL AND espn_id != ''))
         AND (injury_status IS NULL OR UPPER(TRIM(injury_status)) NOT IN ('IR', 'PUP', 'SUSP'))`;
 
     const params = [selectableTeams];
@@ -3543,7 +3548,6 @@ app.get('/api/players', async (req, res) => {
         AND available = true
         AND team = ANY($1)
         AND position IN ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
-        AND (position = 'DEF' OR (espn_id IS NOT NULL AND espn_id != ''))
         AND (injury_status IS NULL OR UPPER(TRIM(injury_status)) NOT IN ('IR', 'PUP', 'SUSP'))
       ${position ? `AND position = $2` : ''}
     `;
