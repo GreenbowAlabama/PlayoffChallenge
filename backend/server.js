@@ -1688,6 +1688,136 @@ app.get('/api/admin/incomplete-lineups', async (req, res) => {
   }
 });
 
+// Get all users with their lineup status (complete and incomplete)
+app.get('/api/admin/all-lineups', async (req, res) => {
+  try {
+    // Get current game state and position requirements
+    const gameStateResult = await pool.query(
+      `SELECT
+        current_playoff_week,
+        playoff_start_week,
+        is_week_active,
+        qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit
+       FROM game_settings LIMIT 1`
+    );
+
+    if (gameStateResult.rows.length === 0) {
+      return res.status(500).json({ success: false, error: 'Game settings not found' });
+    }
+
+    const settings = gameStateResult.rows[0];
+    const effectiveWeek = settings.current_playoff_week > 0
+      ? settings.playoff_start_week + settings.current_playoff_week - 1
+      : null;
+
+    if (!effectiveWeek) {
+      return res.json({
+        success: true,
+        weekNumber: null,
+        playoffWeek: settings.current_playoff_week,
+        isWeekActive: settings.is_week_active,
+        users: [],
+        message: 'Playoffs have not started (current_playoff_week = 0)'
+      });
+    }
+
+    // Required picks per position
+    const required = {
+      QB: settings.qb_limit || 1,
+      RB: settings.rb_limit || 2,
+      WR: settings.wr_limit || 3,
+      TE: settings.te_limit || 1,
+      K: settings.k_limit || 1,
+      DEF: settings.def_limit || 1
+    };
+    const totalRequired = Object.values(required).reduce((a, b) => a + b, 0);
+
+    // Get all paid users and their pick counts by position for the current week
+    const usersResult = await pool.query(`
+      SELECT
+        u.id,
+        u.email,
+        u.username,
+        u.is_admin,
+        COUNT(p.id) as total_picks,
+        COUNT(CASE WHEN p.position = 'QB' THEN 1 END) as qb_count,
+        COUNT(CASE WHEN p.position = 'RB' THEN 1 END) as rb_count,
+        COUNT(CASE WHEN p.position = 'WR' THEN 1 END) as wr_count,
+        COUNT(CASE WHEN p.position = 'TE' THEN 1 END) as te_count,
+        COUNT(CASE WHEN p.position = 'K' THEN 1 END) as k_count,
+        COUNT(CASE WHEN p.position = 'DEF' THEN 1 END) as def_count
+      FROM users u
+      LEFT JOIN picks p ON u.id = p.user_id AND p.week_number = $1
+      WHERE u.paid = true
+      GROUP BY u.id, u.email, u.username, u.is_admin
+      ORDER BY u.username, u.email
+    `, [effectiveWeek]);
+
+    // Build user list with complete/incomplete status
+    const allUsers = [];
+    let completeCount = 0;
+    let incompleteCount = 0;
+
+    for (const user of usersResult.rows) {
+      const qbCount = parseInt(user.qb_count);
+      const rbCount = parseInt(user.rb_count);
+      const wrCount = parseInt(user.wr_count);
+      const teCount = parseInt(user.te_count);
+      const kCount = parseInt(user.k_count);
+      const defCount = parseInt(user.def_count);
+
+      const missing = [];
+      if (qbCount < required.QB) missing.push(`QB (${qbCount}/${required.QB})`);
+      if (rbCount < required.RB) missing.push(`RB (${rbCount}/${required.RB})`);
+      if (wrCount < required.WR) missing.push(`WR (${wrCount}/${required.WR})`);
+      if (teCount < required.TE) missing.push(`TE (${teCount}/${required.TE})`);
+      if (kCount < required.K) missing.push(`K (${kCount}/${required.K})`);
+      if (defCount < required.DEF) missing.push(`DEF (${defCount}/${required.DEF})`);
+
+      const isComplete = missing.length === 0;
+      if (isComplete) {
+        completeCount++;
+      } else {
+        incompleteCount++;
+      }
+
+      allUsers.push({
+        userId: user.id,
+        email: user.email,
+        username: user.username || null,
+        isAdmin: user.is_admin,
+        totalPicks: parseInt(user.total_picks),
+        isComplete: isComplete,
+        missingPositions: missing,
+        positionCounts: {
+          QB: qbCount,
+          RB: rbCount,
+          WR: wrCount,
+          TE: teCount,
+          K: kCount,
+          DEF: defCount
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      weekNumber: effectiveWeek,
+      playoffWeek: settings.current_playoff_week,
+      isWeekActive: settings.is_week_active,
+      totalRequired: totalRequired,
+      requiredByPosition: required,
+      completeCount: completeCount,
+      incompleteCount: incompleteCount,
+      totalPaidUsers: usersResult.rows.length,
+      users: allUsers
+    });
+  } catch (err) {
+    console.error('Error fetching all lineups:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Sync ESPN IDs from Sleeper API
 app.post('/api/admin/sync-espn-ids', async (req, res) => {
   try {

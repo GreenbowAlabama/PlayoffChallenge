@@ -155,6 +155,46 @@ export interface IncompletLineupsResponse {
   message?: string;
 }
 
+// All lineups response (includes both complete and incomplete)
+export interface AllLineupUser {
+  userId: string;
+  email: string;
+  username: string | null;
+  isAdmin: boolean;
+  totalPicks: number;
+  isComplete: boolean;
+  missingPositions: string[];
+  positionCounts: {
+    QB: number;
+    RB: number;
+    WR: number;
+    TE: number;
+    K: number;
+    DEF: number;
+  };
+}
+
+export interface AllLineupsResponse {
+  success: boolean;
+  weekNumber: number | null;
+  playoffWeek: number;
+  isWeekActive: boolean;
+  totalRequired: number;
+  requiredByPosition: {
+    QB: number;
+    RB: number;
+    WR: number;
+    TE: number;
+    K: number;
+    DEF: number;
+  };
+  completeCount: number;
+  incompleteCount: number;
+  totalPaidUsers: number;
+  users: AllLineupUser[];
+  message?: string;
+}
+
 // ============================================
 // READ-ONLY TREND ANALYTICS TYPES
 // ============================================
@@ -250,6 +290,11 @@ export async function verifyLockStatus(): Promise<LockVerificationResponse> {
 // Get users with incomplete lineups for the active week
 export async function getIncompleteLineups(): Promise<IncompletLineupsResponse> {
   return apiRequest<IncompletLineupsResponse>('/api/admin/incomplete-lineups');
+}
+
+// Get all users with their lineup status (complete and incomplete)
+export async function getAllLineups(): Promise<AllLineupsResponse> {
+  return apiRequest<AllLineupsResponse>('/api/admin/all-lineups');
 }
 
 // Capability 2: Non-Admin User Cleanup

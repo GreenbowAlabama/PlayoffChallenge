@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -5,19 +6,23 @@ import {
   getUsers,
   getGameConfig,
   getIncompleteLineups,
+  getAllLineups,
 } from '../api/admin';
+
+type LineupView = 'incomplete' | 'complete' | 'all';
 
 export function Dashboard() {
   const queryClient = useQueryClient();
+  const [lineupView, setLineupView] = useState<LineupView>('incomplete');
 
   // Read-only queries with auto-refresh
-  const { data: cacheStatus, isLoading: cacheLoading } = useQuery({
+  const { data: cacheStatus, isLoading: cacheLoading, isFetching: cacheRefetching } = useQuery({
     queryKey: ['cacheStatus'],
     queryFn: getCacheStatus,
     refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
 
-  const { data: userStats, isLoading: usersLoading } = useQuery({
+  const { data: userStats, isLoading: usersLoading, isFetching: usersRefetching } = useQuery({
     queryKey: ['userStats'],
     queryFn: getUsers,
     refetchInterval: 30000,
@@ -31,10 +36,18 @@ export function Dashboard() {
   });
 
   // Incomplete lineups query (read-only visibility)
-  const { data: incompleteLineups, isLoading: incompleteLineupsLoading, refetch: refetchIncompleteLineups } = useQuery({
+  const { data: incompleteLineups, isLoading: incompleteLineupsLoading, isFetching: incompleteRefetching, refetch: refetchIncompleteLineups } = useQuery({
     queryKey: ['incompleteLineups'],
     queryFn: getIncompleteLineups,
     refetchInterval: 30000,
+  });
+
+  // All lineups query (for complete/all views)
+  const { data: allLineups, isLoading: allLineupsLoading, isFetching: allLineupsRefetching, refetch: refetchAllLineups } = useQuery({
+    queryKey: ['allLineups'],
+    queryFn: getAllLineups,
+    refetchInterval: 30000,
+    enabled: lineupView !== 'incomplete', // Only fetch when needed
   });
 
   // Calculate current NFL week from game settings
@@ -46,7 +59,41 @@ export function Dashboard() {
   const isWeekLocked = gameConfig ? !gameConfig.is_week_active : false;
 
   const isLoading = cacheLoading || usersLoading;
+  const isSystemHealthRefetching = cacheRefetching || usersRefetching;
   const cacheHealthy = cacheStatus?.lastScoreboardUpdate !== null;
+
+  // Determine which lineups data to show based on view
+  const getLineupsData = () => {
+    if (lineupView === 'incomplete') {
+      return incompleteLineups?.users ?? [];
+    }
+    if (!allLineups) return [];
+
+    if (lineupView === 'complete') {
+      return allLineups.users.filter(u => u.isComplete);
+    }
+    return allLineups.users; // 'all' view
+  };
+
+  const lineupsToShow = getLineupsData();
+  const isLineupsLoading = lineupView === 'incomplete' ? incompleteLineupsLoading : allLineupsLoading;
+  const isLineupsRefetching = lineupView === 'incomplete' ? incompleteRefetching : allLineupsRefetching;
+
+  const handleLineupsRefresh = () => {
+    if (lineupView === 'incomplete') {
+      refetchIncompleteLineups();
+    } else {
+      refetchAllLineups();
+    }
+  };
+
+  // Spinner component for refresh buttons
+  const RefreshSpinner = () => (
+    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+    </svg>
+  );
 
   return (
     <div className="space-y-6">
@@ -231,22 +278,30 @@ export function Dashboard() {
                 queryClient.invalidateQueries({ queryKey: ['cacheStatus'] });
                 queryClient.invalidateQueries({ queryKey: ['userStats'] });
               }}
-              className="text-sm text-indigo-600 hover:text-indigo-500"
+              disabled={isSystemHealthRefetching}
+              className="inline-flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Refresh
+              {isSystemHealthRefetching ? (
+                <>
+                  <RefreshSpinner />
+                  Refreshing...
+                </>
+              ) : (
+                'Refresh'
+              )}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Incomplete Lineups Panel (Read-Only Visibility) */}
+      {/* Lineups Panel */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-medium text-gray-900">Incomplete Lineups</h2>
+              <h2 className="text-lg font-medium text-gray-900">User Lineups</h2>
               <p className="text-sm text-gray-500">
-                Users with incomplete lineups for Week {incompleteLineups?.weekNumber ?? '—'}
+                Week {incompleteLineups?.weekNumber ?? '—'}
                 {incompleteLineups?.isWeekActive === false && (
                   <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
                     Week Locked
@@ -254,16 +309,59 @@ export function Dashboard() {
                 )}
               </p>
             </div>
-            <button
-              onClick={() => refetchIncompleteLineups()}
-              className="text-sm text-indigo-600 hover:text-indigo-500"
-            >
-              Refresh
-            </button>
+            <div className="flex items-center gap-3">
+              {/* View Toggle */}
+              <div className="inline-flex rounded-md shadow-sm">
+                <button
+                  onClick={() => setLineupView('incomplete')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-l-md border ${
+                    lineupView === 'incomplete'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Incomplete
+                </button>
+                <button
+                  onClick={() => setLineupView('complete')}
+                  className={`px-3 py-1.5 text-xs font-medium border-t border-b ${
+                    lineupView === 'complete'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Complete
+                </button>
+                <button
+                  onClick={() => setLineupView('all')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-r-md border ${
+                    lineupView === 'all'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  All
+                </button>
+              </div>
+              <button
+                onClick={handleLineupsRefresh}
+                disabled={isLineupsRefetching}
+                className="inline-flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLineupsRefetching ? (
+                  <>
+                    <RefreshSpinner />
+                    Refreshing...
+                  </>
+                ) : (
+                  'Refresh'
+                )}
+              </button>
+            </div>
           </div>
         </div>
         <div className="p-4">
-          {incompleteLineupsLoading ? (
+          {isLineupsLoading ? (
             <div className="animate-pulse space-y-2">
               <div className="h-4 bg-gray-200 rounded w-1/4"></div>
               <div className="h-8 bg-gray-200 rounded"></div>
@@ -274,7 +372,7 @@ export function Dashboard() {
             <>
               {/* Summary stats */}
               <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
-                <div className="bg-gray-50 rounded-md p-2">
+                <div className={`rounded-md p-2 ${lineupView === 'incomplete' ? 'bg-yellow-50 ring-1 ring-yellow-200' : 'bg-gray-50'}`}>
                   <span className="text-gray-600">Incomplete:</span>
                   <span className={`ml-1 font-medium ${
                     (incompleteLineups?.incompleteCount ?? 0) > 0 ? 'text-yellow-700' : 'text-green-700'
@@ -282,23 +380,33 @@ export function Dashboard() {
                     {incompleteLineups?.incompleteCount ?? 0}
                   </span>
                 </div>
-                <div className="bg-gray-50 rounded-md p-2">
+                <div className={`rounded-md p-2 ${lineupView === 'complete' ? 'bg-green-50 ring-1 ring-green-200' : 'bg-gray-50'}`}>
+                  <span className="text-gray-600">Complete:</span>
+                  <span className="ml-1 font-medium text-green-700">
+                    {(incompleteLineups?.totalPaidUsers ?? 0) - (incompleteLineups?.incompleteCount ?? 0)}
+                  </span>
+                </div>
+                <div className={`rounded-md p-2 ${lineupView === 'all' ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'bg-gray-50'}`}>
                   <span className="text-gray-600">Total Paid Users:</span>
                   <span className="ml-1 font-medium text-gray-900">{incompleteLineups?.totalPaidUsers ?? 0}</span>
                 </div>
-                <div className="bg-gray-50 rounded-md p-2">
-                  <span className="text-gray-600">Required Picks:</span>
-                  <span className="ml-1 font-medium text-gray-900">{incompleteLineups?.totalRequired ?? 0}</span>
-                </div>
               </div>
 
-              {/* Incomplete users table */}
-              {(incompleteLineups?.users?.length ?? 0) === 0 ? (
+              {/* Users table */}
+              {lineupsToShow.length === 0 ? (
                 <div className="text-center py-4">
-                  <svg className="mx-auto h-8 w-8 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  <p className="mt-2 text-sm text-green-700 font-medium">All paid users have complete lineups</p>
+                  {lineupView === 'incomplete' ? (
+                    <>
+                      <svg className="mx-auto h-8 w-8 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      <p className="mt-2 text-sm text-green-700 font-medium">All paid users have complete lineups</p>
+                    </>
+                  ) : lineupView === 'complete' ? (
+                    <p className="text-sm text-gray-500">No users with complete lineups yet</p>
+                  ) : (
+                    <p className="text-sm text-gray-500">No users found</p>
+                  )}
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -307,39 +415,54 @@ export function Dashboard() {
                       <tr className="border-b border-gray-200">
                         <th className="text-left py-2 pr-4 font-medium text-gray-600">User</th>
                         <th className="text-left py-2 px-2 font-medium text-gray-600">Picks</th>
-                        <th className="text-left py-2 px-2 font-medium text-gray-600">Missing Positions</th>
+                        <th className="text-left py-2 px-2 font-medium text-gray-600">
+                          {lineupView === 'incomplete' ? 'Missing Positions' : 'Status'}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {incompleteLineups?.users?.map((user) => (
-                        <tr key={user.userId} className="border-b border-gray-100">
-                          <td className="py-2 pr-4">
-                            <div className="flex items-center gap-2">
-                              <span className="text-gray-900">{user.username || user.email}</span>
-                              {user.isAdmin && (
-                                <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800">
-                                  Admin
+                      {lineupsToShow.map((user) => {
+                        const isComplete = 'isComplete' in user ? user.isComplete : false;
+                        return (
+                          <tr key={user.userId} className="border-b border-gray-100">
+                            <td className="py-2 pr-4">
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-900">{user.username || user.email}</span>
+                                {user.isAdmin && (
+                                  <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800">
+                                    Admin
+                                  </span>
+                                )}
+                              </div>
+                              {user.username && (
+                                <div className="text-xs text-gray-500">{user.email}</div>
+                              )}
+                            </td>
+                            <td className="py-2 px-2 text-gray-600">
+                              {user.totalPicks}/{incompleteLineups?.totalRequired ?? allLineups?.totalRequired ?? 0}
+                            </td>
+                            <td className="py-2 px-2">
+                              {lineupView === 'incomplete' && 'missingPositions' in user ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {user.missingPositions.map((pos, i) => (
+                                    <span key={i} className="inline-flex items-center rounded bg-yellow-100 px-1.5 py-0.5 text-xs font-medium text-yellow-800">
+                                      {pos}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                  isComplete
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {isComplete ? 'Complete' : 'Incomplete'}
                                 </span>
                               )}
-                            </div>
-                            {user.username && (
-                              <div className="text-xs text-gray-500">{user.email}</div>
-                            )}
-                          </td>
-                          <td className="py-2 px-2 text-gray-600">
-                            {user.totalPicks}/{incompleteLineups?.totalRequired ?? 0}
-                          </td>
-                          <td className="py-2 px-2">
-                            <div className="flex flex-wrap gap-1">
-                              {user.missingPositions.map((pos, i) => (
-                                <span key={i} className="inline-flex items-center rounded bg-yellow-100 px-1.5 py-0.5 text-xs font-medium text-yellow-800">
-                                  {pos}
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
