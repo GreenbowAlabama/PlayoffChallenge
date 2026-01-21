@@ -75,6 +75,16 @@ export function Layout() {
                 >
                   Trends
                 </Link>
+                <Link
+                  to="/admin"
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
+                    isActive('/admin')
+                      ? 'border-amber-500 text-amber-900'
+                      : 'border-transparent text-amber-600 hover:border-amber-300 hover:text-amber-700'
+                  }`}
+                >
+                  Admin
+                </Link>
               </div>
             </div>
             <div className="flex items-center">
