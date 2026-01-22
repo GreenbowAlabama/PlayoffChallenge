@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { SystemHealthPanel } from '../components/SystemHealthPanel';
+// Planned Admin Panels (read-only, coming next)
+// import { ComplianceOverviewPanel } from '../components/ComplianceOverviewPanel';
+// import { WeekVerificationPanel } from '../components/WeekVerificationPanel';
 import {
   previewWeekTransition,
   processWeekTransition,
@@ -285,6 +288,13 @@ export function Admin() {
           </div>
         )}
       </div>
+
+      {/* System Health Panel - Read-only operational monitoring */}
+      <SystemHealthPanel />
+
+      {/* Planned Admin Panels (read-only, coming next) */}
+      {/* <ComplianceOverviewPanel /> */}
+      {/* <WeekVerificationPanel /> */}
 
       {/* Week Management Panel */}
       <div className={`rounded-lg border bg-white shadow-sm ${!editModeEnabled ? 'border-gray-100 opacity-60' : 'border-gray-200'}`}>
@@ -594,8 +604,6 @@ export function Admin() {
         </div>
       )}
 
-      {/* System Health Panel - Read-only operational monitoring */}
-      <SystemHealthPanel />
 
       {/* Confirmation Modals */}
       <ConfirmationModal
