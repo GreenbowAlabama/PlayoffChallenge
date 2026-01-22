@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmationModal } from '../components/ConfirmationModal';
+import { SystemHealthPanel } from '../components/SystemHealthPanel';
 import {
   previewWeekTransition,
   processWeekTransition,
@@ -592,6 +593,9 @@ export function Admin() {
           )}
         </div>
       )}
+
+      {/* System Health Panel - Read-only operational monitoring */}
+      <SystemHealthPanel />
 
       {/* Confirmation Modals */}
       <ConfirmationModal

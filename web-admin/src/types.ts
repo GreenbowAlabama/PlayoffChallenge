@@ -137,6 +137,18 @@ export interface JobsStatusResponse {
   jobs: JobStatus[];
 }
 
+export interface GameUpdateTime {
+  gameId: string;
+  lastUpdate: string;
+}
+
+export interface CacheStatusResponse {
+  activeGames: unknown[];
+  cachedPlayerCount: number;
+  lastScoreboardUpdate: string | null;
+  gameUpdateTimes: GameUpdateTime[];
+}
+
 // ============================================
 // PICKS EXPLORER TYPES
 // ============================================

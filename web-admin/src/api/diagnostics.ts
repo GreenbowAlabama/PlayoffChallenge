@@ -13,6 +13,7 @@ import type {
   UserStatsResponse,
   UserTimelineResponse,
   JobsStatusResponse,
+  CacheStatusResponse,
 } from '../types';
 
 // ============================================
@@ -53,4 +54,12 @@ export async function getUserTimeline(userId: string): Promise<UserTimelineRespo
 
 export async function getJobsStatus(): Promise<JobsStatusResponse> {
   return apiRequest<JobsStatusResponse>('/api/admin/diagnostics/jobs');
+}
+
+// ============================================
+// CACHE STATUS
+// ============================================
+
+export async function getCacheStatus(): Promise<CacheStatusResponse> {
+  return apiRequest<CacheStatusResponse>('/api/admin/cache-status');
 }
