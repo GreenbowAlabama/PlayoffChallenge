@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -11,9 +11,40 @@ import {
 
 type LineupView = 'incomplete' | 'complete' | 'all';
 
+// Game phase derived from ESPN game state
+type GamePhase = 'pre-kickoff' | 'live' | 'post-games';
+
+// First live score confirmation (persisted in localStorage)
+interface FirstLiveScoreInfo {
+  timestamp: string;
+  gameId: string;
+  description: string;
+  weekNumber: number;
+}
+
+const FIRST_LIVE_SCORE_KEY = 'playoff_challenge_first_live_score';
+
+function getStoredFirstLiveScore(): FirstLiveScoreInfo | null {
+  try {
+    const stored = localStorage.getItem(FIRST_LIVE_SCORE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeFirstLiveScore(info: FirstLiveScoreInfo): void {
+  try {
+    localStorage.setItem(FIRST_LIVE_SCORE_KEY, JSON.stringify(info));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function Dashboard() {
   const queryClient = useQueryClient();
   const [lineupView, setLineupView] = useState<LineupView>('incomplete');
+  const [firstLiveScore, setFirstLiveScore] = useState<FirstLiveScoreInfo | null>(getStoredFirstLiveScore);
 
   // Read-only queries with auto-refresh
   const { data: cacheStatus, isLoading: cacheLoading, isFetching: cacheRefetching } = useQuery({
@@ -61,6 +92,57 @@ export function Dashboard() {
   const isLoading = cacheLoading || usersLoading;
   const isSystemHealthRefetching = cacheRefetching || usersRefetching;
   const cacheHealthy = cacheStatus?.lastScoreboardUpdate !== null;
+
+  // Derive game phase from ESPN game state data
+  const deriveGamePhase = (): GamePhase => {
+    if (!cacheStatus) return 'pre-kickoff';
+
+    const hasActiveGames = (cacheStatus.activeGames?.length ?? 0) > 0;
+    const hasScoreboardUpdate = cacheStatus.lastScoreboardUpdate !== null;
+
+    // If we have active games, we're live
+    if (hasActiveGames) return 'live';
+
+    // If we have had updates but no active games, games have concluded
+    if (hasScoreboardUpdate && !hasActiveGames) return 'post-games';
+
+    // No updates yet, awaiting first kickoff
+    return 'pre-kickoff';
+  };
+
+  const gamePhase = deriveGamePhase();
+
+  // Track first live score confirmation
+  useEffect(() => {
+    // Only track if we're transitioning to live phase and haven't recorded yet
+    if (gamePhase === 'live' && cacheStatus && !firstLiveScore) {
+      const currentWeek = currentPlayoffWeek ?? 0;
+      const storedScore = getStoredFirstLiveScore();
+
+      // Check if we already have a score for this week
+      if (storedScore && storedScore.weekNumber === currentWeek) {
+        setFirstLiveScore(storedScore);
+        return;
+      }
+
+      // Record first live score
+      const activeGame = cacheStatus.activeGames?.[0];
+      const gameInfo: FirstLiveScoreInfo = {
+        timestamp: new Date().toISOString(),
+        gameId: typeof activeGame === 'object' && activeGame !== null && 'gameId' in activeGame
+          ? String((activeGame as { gameId: unknown }).gameId)
+          : 'Unknown',
+        description: `First active game detected at ${new Date().toLocaleString()}`,
+        weekNumber: currentWeek,
+      };
+
+      storeFirstLiveScore(gameInfo);
+      setFirstLiveScore(gameInfo);
+    }
+  }, [gamePhase, cacheStatus, firstLiveScore, currentPlayoffWeek]);
+
+  // Check if stored first live score is for current week
+  const isFirstLiveScoreForCurrentWeek = firstLiveScore && firstLiveScore.weekNumber === (currentPlayoffWeek ?? 0);
 
   // Determine which lineups data to show based on view
   const getLineupsData = () => {
@@ -167,6 +249,76 @@ export function Dashboard() {
         </div>
       </div>
 
+      {/* Game Phase Indicator Banner */}
+      <div className={`rounded-lg border-2 p-4 ${
+        gamePhase === 'pre-kickoff'
+          ? 'border-blue-300 bg-blue-50'
+          : gamePhase === 'live'
+            ? 'border-green-300 bg-green-50'
+            : 'border-gray-300 bg-gray-50'
+      }`}>
+        <div className="flex items-center gap-4">
+          {/* Phase Icon */}
+          <div className={`flex-shrink-0 flex items-center justify-center h-10 w-10 rounded-full ${
+            gamePhase === 'pre-kickoff'
+              ? 'bg-blue-100'
+              : gamePhase === 'live'
+                ? 'bg-green-100'
+                : 'bg-gray-100'
+          }`}>
+            {gamePhase === 'pre-kickoff' ? (
+              <svg className="h-5 w-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+              </svg>
+            ) : gamePhase === 'live' ? (
+              <svg className="h-5 w-5 text-green-600 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+              </svg>
+            ) : (
+              <svg className="h-5 w-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+            )}
+          </div>
+
+          {/* Phase Info */}
+          <div className="flex-1">
+            <div className={`text-lg font-semibold ${
+              gamePhase === 'pre-kickoff'
+                ? 'text-blue-900'
+                : gamePhase === 'live'
+                  ? 'text-green-900'
+                  : 'text-gray-900'
+            }`}>
+              {gamePhase === 'pre-kickoff' && 'Pre-Kickoff'}
+              {gamePhase === 'live' && 'Live Scoring Active'}
+              {gamePhase === 'post-games' && 'Games Complete'}
+            </div>
+            <div className={`text-sm ${
+              gamePhase === 'pre-kickoff'
+                ? 'text-blue-700'
+                : gamePhase === 'live'
+                  ? 'text-green-700'
+                  : 'text-gray-700'
+            }`}>
+              {gamePhase === 'pre-kickoff' && 'Awaiting first live game — System ready, scores will update automatically'}
+              {gamePhase === 'live' && `${cacheStatus?.activeGames?.length ?? 0} active game(s) — Scores updating in real-time`}
+              {gamePhase === 'post-games' && 'All scheduled games have concluded — Finalizing results'}
+            </div>
+          </div>
+
+          {/* Last Update Time */}
+          {cacheStatus?.lastScoreboardUpdate && (
+            <div className="text-right text-sm text-gray-500">
+              <div className="text-xs">Last Update</div>
+              <div className="font-medium">
+                {new Date(cacheStatus.lastScoreboardUpdate).toLocaleTimeString()}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Quick Links Panel */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
@@ -249,25 +401,37 @@ export function Dashboard() {
                 <dd className="mt-1 text-2xl font-semibold text-gray-900">
                   {cacheStatus?.cachedPlayerCount ?? '—'}
                 </dd>
+                {gamePhase === 'pre-kickoff' && cacheStatus?.cachedPlayerCount === 0 && (
+                  <span className="text-xs text-blue-600">Will populate at first kickoff</span>
+                )}
               </div>
               <div className="bg-gray-50 rounded-md p-3">
                 <dt className="text-sm font-medium text-gray-500">Active Games</dt>
                 <dd className="mt-1 text-2xl font-semibold text-gray-900">
                   {cacheStatus?.activeGames?.length ?? '—'}
                 </dd>
+                {gamePhase === 'pre-kickoff' && (cacheStatus?.activeGames?.length ?? 0) === 0 && (
+                  <span className="text-xs text-blue-600">Pre-kickoff</span>
+                )}
               </div>
               <div className="bg-gray-50 rounded-md p-3">
                 <dt className="text-sm font-medium text-gray-500">Cache Status</dt>
                 <dd className="mt-1">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-sm font-medium ${
-                      cacheHealthy
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}
-                  >
-                    {cacheHealthy ? 'Healthy' : 'Stale'}
-                  </span>
+                  {gamePhase === 'pre-kickoff' && !cacheHealthy ? (
+                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-sm font-medium bg-blue-100 text-blue-800">
+                      Awaiting first game
+                    </span>
+                  ) : (
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-sm font-medium ${
+                        cacheHealthy
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}
+                    >
+                      {cacheHealthy ? 'Healthy' : 'Stale'}
+                    </span>
+                  )}
                 </dd>
               </div>
             </div>
@@ -293,6 +457,143 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Leaderboard Readiness Status */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+          <h2 className="text-lg font-medium text-gray-900">Leaderboard Readiness</h2>
+          <p className="text-sm text-gray-500">Pre-flight checks for live scoring</p>
+        </div>
+        <div className="p-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Leaderboard Queries */}
+            <div className="flex items-center gap-3 bg-gray-50 rounded-md p-3">
+              <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${
+                userStats ? 'bg-green-100' : 'bg-gray-100'
+              }`}>
+                {userStats ? (
+                  <svg className="h-4 w-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg className="h-4 w-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">Leaderboard Queries</div>
+                <div className="text-xs text-gray-500">
+                  {userStats ? 'Healthy' : 'Checking...'}
+                </div>
+              </div>
+            </div>
+
+            {/* Cache Ready */}
+            <div className="flex items-center gap-3 bg-gray-50 rounded-md p-3">
+              <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${
+                cacheStatus ? 'bg-green-100' : 'bg-gray-100'
+              }`}>
+                {cacheStatus ? (
+                  <svg className="h-4 w-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg className="h-4 w-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">Cache Ready</div>
+                <div className="text-xs text-gray-500">
+                  {cacheStatus ? 'Connected' : 'Checking...'}
+                </div>
+              </div>
+            </div>
+
+            {/* Ready for Live Scoring */}
+            <div className="flex items-center gap-3 bg-gray-50 rounded-md p-3">
+              <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${
+                userStats && cacheStatus && gameConfig ? 'bg-green-100' : 'bg-yellow-100'
+              }`}>
+                {userStats && cacheStatus && gameConfig ? (
+                  <svg className="h-4 w-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg className="h-4 w-4 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">Ready for Live Scoring</div>
+                <div className="text-xs text-gray-500">
+                  {userStats && cacheStatus && gameConfig
+                    ? 'All systems ready'
+                    : 'Initializing...'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Summary message */}
+          <div className={`mt-4 p-3 rounded-md text-sm ${
+            userStats && cacheStatus && gameConfig
+              ? 'bg-green-50 text-green-800'
+              : 'bg-yellow-50 text-yellow-800'
+          }`}>
+            {userStats && cacheStatus && gameConfig ? (
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                <span>Leaderboards will populate automatically once live scores arrive</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 text-yellow-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span>Verifying system readiness...</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* First Live Score Confirmation - Only shown when first score has been received */}
+      {isFirstLiveScoreForCurrentWeek && firstLiveScore && (
+        <div className="rounded-lg border-2 border-green-300 bg-green-50 shadow-sm">
+          <div className="border-b border-green-200 bg-green-100 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              <h2 className="text-lg font-medium text-green-900">First Live Score Received</h2>
+            </div>
+            <p className="text-sm text-green-700 mt-1">Scoring system confirmed operational for Playoff Week {firstLiveScore.weekNumber}</p>
+          </div>
+          <div className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div>
+                <div className="text-green-600 font-medium">Timestamp</div>
+                <div className="text-green-900">{new Date(firstLiveScore.timestamp).toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-green-600 font-medium">Game ID</div>
+                <div className="text-green-900">{firstLiveScore.gameId}</div>
+              </div>
+              <div>
+                <div className="text-green-600 font-medium">Description</div>
+                <div className="text-green-900">{firstLiveScore.description}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lineups Panel */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
