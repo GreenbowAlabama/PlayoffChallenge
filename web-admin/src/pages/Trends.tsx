@@ -10,6 +10,7 @@ import {
   computeTeamTrends,
   computePlayerTrends,
 } from '../lib/trendHelpers';
+import { generateInsights } from '../lib/trendInsights';
 
 const BATCH_SIZE = 10;
 
@@ -116,6 +117,12 @@ export function Trends() {
   const teamTrends = useMemo(() => computeTeamTrends(scopedPicks), [scopedPicks]);
   const playerTrends = useMemo(() => computePlayerTrends(scopedPicks), [scopedPicks]);
 
+  // Compute insights from trends
+  const insights = useMemo(
+    () => generateInsights({ scopedPicks, teamTrends, playerTrends }),
+    [scopedPicks, teamTrends, playerTrends]
+  );
+
   // Loading state
   const isLoading = usersLoading || picksState.loading;
   const hasError = usersError || picksState.error;
@@ -187,6 +194,26 @@ export function Trends() {
               ? usersError.message
               : picksState.error || 'Unknown error'}
           </p>
+        </div>
+      )}
+
+      {/* Trend Observations */}
+      {!isLoading && insights.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+            <h2 className="text-lg font-medium text-gray-900">Trend Observations</h2>
+            <p className="text-sm text-gray-500">Notable patterns in current pick data</p>
+          </div>
+          <div className="p-4">
+            <ul className="space-y-2 text-sm text-gray-700">
+              {insights.map((insight) => (
+                <li key={insight.id} className="flex items-start gap-2">
+                  <span className="text-gray-400 mt-0.5">•</span>
+                  <span>{insight.message}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 
