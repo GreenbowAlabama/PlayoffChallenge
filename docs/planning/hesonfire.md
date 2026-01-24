@@ -370,6 +370,238 @@ Each contract must have tests verifying:
 
 ---
 
+### Contest Onboarding Strategy
+
+New contests must be onboardable through configuration, not code. The goal is zero deployments for standard contest additions.
+
+#### Onboarding Tiers
+
+| Tier | Effort | What's Required | Example |
+|------|--------|-----------------|---------|
+| **Tier 1: Config Only** | Minutes | Admin UI or config file | New March Madness pool with standard rules |
+| **Tier 2: Data Only** | Hours | Database seed + config | New NFL season with updated teams/schedule |
+| **Tier 3: Code Required** | Days | New scoring engine | Entirely new sport or rule system |
+
+> **Target:** 90% of new contests should be Tier 1 or Tier 2.
+
+---
+
+#### Configuration-Driven Contest Templates
+
+Contest templates are stored in the database, not in code. New game types that use existing scoring logic require no deployment.
+
+**Template Schema (Extensible):**
+
+```
+contest_templates
+├── id (UUID)
+├── name (string)
+├── game_type (string) → references game_types table
+├── scoring_engine_id (string) → references scoring_engines table
+├── rules_config (JSONB) → flexible rule parameters
+├── entry_fee_options (JSONB) → array of allowed entry fees
+├── max_players_options (JSONB) → array of allowed sizes
+├── payout_structure_id → references payout_structures table
+├── is_active (boolean)
+├── created_at (timestamp)
+└── updated_at (timestamp)
+```
+
+**Key Design Decisions:**
+
+| Decision | Rationale |
+|----------|-----------|
+| `rules_config` is JSONB | New rule parameters don't require schema migration |
+| `scoring_engine_id` is a reference | Engines are reusable across templates |
+| `entry_fee_options` is an array | Multiple fee tiers without code changes |
+| `payout_structure_id` is a reference | Payout logic is shared and versioned |
+
+---
+
+#### Scoring Engine Registry
+
+Scoring engines are registered in the database and loaded dynamically. Adding a new engine requires code, but using an existing engine does not.
+
+**Scoring Engine Schema:**
+
+```
+scoring_engines
+├── id (string) → e.g., "nfl_playoff_2024", "ncaa_bracket_2024"
+├── name (string)
+├── description (string)
+├── handler_class (string) → maps to code implementation
+├── config_schema (JSONB) → defines valid config parameters
+├── is_active (boolean)
+└── created_at (timestamp)
+```
+
+**Pre-Built Engines (No Code Required to Use):**
+
+| Engine ID | Supports |
+|-----------|----------|
+| `nfl_playoff_standard` | NFL Playoff bracket picks |
+| `ncaa_bracket_standard` | March Madness bracket picks |
+| `weekly_picks` | Weekly game picks (any sport) |
+| `survivor_pool` | Elimination-style picks |
+
+> New contest using existing engine = Tier 1 (config only)
+
+---
+
+#### Payout Structure Registry
+
+Payout structures are data, not code.
+
+**Payout Structure Schema:**
+
+```
+payout_structures
+├── id (UUID)
+├── name (string) → e.g., "Winner Take All", "Top 3 Split"
+├── distribution (JSONB) → e.g., [{"place": 1, "percentage": 100}]
+├── min_players (integer)
+├── max_players (integer)
+└── is_active (boolean)
+```
+
+**Example Distributions:**
+
+```json
+// Winner Take All
+[{"place": 1, "percentage": 100}]
+
+// Top 3 (50/30/20)
+[
+  {"place": 1, "percentage": 50},
+  {"place": 2, "percentage": 30},
+  {"place": 3, "percentage": 20}
+]
+
+// Top 10% Split
+[{"place_percentile": 10, "percentage": 100, "split": "equal"}]
+```
+
+---
+
+#### Game Data Management
+
+Teams, players, schedules, and matchups are data, not code.
+
+**Game Data Tables:**
+
+```
+game_types
+├── id (string) → e.g., "nfl", "ncaa_basketball"
+├── name (string)
+├── sport (string)
+└── is_active (boolean)
+
+seasons
+├── id (UUID)
+├── game_type_id → references game_types
+├── year (integer)
+├── name (string) → e.g., "2024-2025 NFL Season"
+├── start_date (date)
+├── end_date (date)
+└── is_active (boolean)
+
+teams
+├── id (UUID)
+├── game_type_id → references game_types
+├── name (string)
+├── abbreviation (string)
+├── metadata (JSONB) → conference, division, etc.
+└── is_active (boolean)
+
+matchups
+├── id (UUID)
+├── season_id → references seasons
+├── home_team_id → references teams
+├── away_team_id → references teams
+├── scheduled_at (timestamp)
+├── round (string) → e.g., "Wild Card", "Sweet 16"
+├── status (string) → scheduled, in_progress, final
+├── result (JSONB) → scores, winner, etc.
+└── lock_at (timestamp) → when picks lock
+```
+
+> **New season onboarding:** Import teams + matchups via admin UI or data pipeline. No code changes.
+
+---
+
+#### Onboarding Runbook: New Contest Type
+
+**Tier 1: New Contest Using Existing Template Pattern**
+
+| Step | Action | Who | Time |
+|------|--------|-----|------|
+| 1 | Create contest instance via Admin UI | Ops | 2 min |
+| 2 | Set entry fee, max players, payout structure | Ops | 2 min |
+| 3 | Generate join code | System | Automatic |
+| 4 | Test in staging | QA | 10 min |
+| 5 | Enable in production | Ops | 1 min |
+
+**Tier 2: New Season/Tournament**
+
+| Step | Action | Who | Time |
+|------|--------|-----|------|
+| 1 | Create season record | Ops/Data | 5 min |
+| 2 | Import teams (if new) | Data Pipeline | 15 min |
+| 3 | Import matchups/schedule | Data Pipeline | 15 min |
+| 4 | Create contest template (if new combination) | Ops | 10 min |
+| 5 | Verify scoring engine compatibility | Dev | 30 min |
+| 6 | Test full flow in staging | QA | 1 hour |
+| 7 | Enable in production | Ops | 5 min |
+
+**Tier 3: New Scoring Engine (Code Required)**
+
+| Step | Action | Who | Time |
+|------|--------|-----|------|
+| 1 | Define scoring rules specification | Product | — |
+| 2 | Write scoring engine class | Dev | — |
+| 3 | Write unit tests for engine | Dev | — |
+| 4 | Register engine in database | Dev | 5 min |
+| 5 | Create template using new engine | Ops | 10 min |
+| 6 | Full regression test | QA | — |
+| 7 | Deploy | Dev | — |
+
+---
+
+#### What Requires Code vs Config vs Data
+
+| Change Type | Code | Config/DB | Example |
+|-------------|------|-----------|---------|
+| New pool with existing rules | No | Yes | Another March Madness bracket pool |
+| New entry fee tier | No | Yes | Add $50 option to existing template |
+| New payout structure | No | Yes | Create "Top 5 Split" distribution |
+| New team | No | Yes | Expansion team joins league |
+| New season schedule | No | Yes | Import next year's matchups |
+| New scoring algorithm | **Yes** | Yes | Golf tournament scoring |
+| New sport entirely | **Yes** | Yes | Add NHL support |
+| UI for new game type | **Yes** | No | Custom bracket visualization |
+
+---
+
+#### Admin UI Requirements for Contest Onboarding
+
+The admin interface must support Tier 1 and Tier 2 onboarding without developer involvement.
+
+**Required Admin Capabilities:**
+
+- [ ] Create/edit contest templates
+- [ ] Create/edit payout structures
+- [ ] Create/edit seasons
+- [ ] Import teams (CSV/JSON upload)
+- [ ] Import matchups (CSV/JSON upload)
+- [ ] Create contest instances from templates
+- [ ] View/manage active contests
+- [ ] Override contest state (emergency)
+- [ ] Preview scoring calculations
+
+> **Rule:** If Ops needs to file a ticket for a Tier 1 or Tier 2 contest, the system has failed.
+
+---
+
 ## Phased Delivery Plan
 
 ### Phase 0: Environment Safety Net (Immediate)
