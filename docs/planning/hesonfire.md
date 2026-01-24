@@ -694,7 +694,18 @@ matchups
 ├── status (string) → scheduled, in_progress, final
 ├── result (JSONB) → scores, winner, etc.
 └── lock_at (timestamp) → when picks lock
+
+players (NIL-safe schema)
+├── id (UUID)
+├── team_id → references teams
+├── jersey_number (integer) → displayed to users
+├── position (string) → e.g., "G", "F", "C"
+├── internal_reference (string) → internal tracking only, NOT displayed
+├── is_active (boolean)
+└── metadata (JSONB) → non-identifying stats if needed
 ```
+
+> **Player Display Rule:** The `players` table intentionally excludes name fields. Players are displayed to end users as "Team - Position #Number" (e.g., "Duke - G #11"). The `internal_reference` field exists for admin/data pipeline use only and is never exposed to the client.
 
 > **New season onboarding:** Import teams + matchups via admin UI or data pipeline. No code changes.
 
@@ -1856,23 +1867,24 @@ Using college athlete names and photos is fundamentally different from using NFL
 
 ---
 
-#### 2. Player Names - MODERATE RISK
+#### 2. Player Names - ELIMINATED RISK
 
-Generally acceptable if positioned correctly.
+**We do not display player names.**
 
-**Key Distinction:** Facts vs endorsement. Names used as factual identifiers in a game are treated differently than marketing assets.
+To eliminate NIL risk entirely, the app identifies players by team, position, and jersey number only. Player names are not stored, displayed, or referenced in any user-facing context.
 
-**Industry Precedent:** ESPN, Yahoo, CBS use names under fantasy sports informational use.
+**Display Format:** "Team - Position #Number" (e.g., "Duke - G #11")
 
-**Litigation risk increases if:**
-- Names are highlighted in marketing
-- Players are used in ads
-- NIL value is implied
+**Why this works:**
+- Jersey numbers are public, factual identifiers
+- No individual athlete is named or singled out
+- NIL concerns do not apply to anonymous position/number combinations
+- Users familiar with teams can identify players; casual users see gameplay without legal exposure
 
 **Mitigation Steps:**
-- Use names only inside gameplay
-- No player-centric marketing
-- Clear fantasy sports disclaimers
+- Names are architecturally blocked from display
+- No player-centric marketing possible
+- Schema enforces number-only identification
 
 ---
 
@@ -1892,17 +1904,21 @@ Generally acceptable if positioned correctly.
 ### Compliance-Safe Architecture Decision
 
 **Ship with:**
-- Player names only
-- Team text identifiers
+- Team names (text only)
+- Player positions
+- Jersey numbers
 - No player photos
+- No player names
 - No NIL language
 - No athlete-focused promotions
 
 **Do NOT ship:**
+- Player names (first or last)
 - Headshots
 - Action photos
 - Player profile pages
 - Jersey likenesses
+- Any individually identifiable athlete content
 
 ---
 
@@ -1912,7 +1928,7 @@ Add in Terms and footer:
 
 > "This game is not affiliated with or endorsed by the NCAA or any university."
 
-> "Player names are used for informational and gameplay purposes only."
+> "Players are identified by team, position, and jersey number only. No athlete names are displayed."
 
 > "No rights are claimed in athlete names or likenesses."
 
@@ -1921,29 +1937,44 @@ Add in Terms and footer:
 ### Architectural Implication
 
 In the Game Domain, define Player Representation as:
-- `display_name`
-- `team`
-- `position`
+- `team` (team name)
+- `position` (player position)
+- `jersey_number` (player number only)
 - `no_image_url` enforced at schema or API layer
+- `no_display_name` - player names are NOT displayed to end users
 
-> Do not let the client decide this. Make it impossible to accidentally add photos later without intentional change.
+**User-Facing Display Format:**
+The app displays players as: **Team Name - Position #Number**
+
+Examples:
+- "Duke - G #11"
+- "Kansas - F #22"
+- "UConn - C #5"
+
+> **Critical Rule:** Player names are never shown in the user-facing app. Only team, position, and jersey number are displayed. This eliminates NIL risk entirely while maintaining gameplay clarity.
+
+> Do not let the client decide this. Make it impossible to accidentally add names or photos later without intentional architectural change.
 
 ---
 
 ### Long-Term Path (Post-March Madness)
 
-If March Madness proves traction:
-- Explore NIL group licensing
+If March Madness proves traction and player names become desirable:
+- Explore NIL group licensing for name display rights
 - Explore third-party data providers with bundled rights
-- Consider playerless formats (team-based scoring)
+- Current jersey-number format can remain as fallback or default
 
-> None of this is required to ship safely now.
+**Current approach (jersey numbers only) is sustainable indefinitely.** Player names are a future enhancement, not a requirement.
+
+> None of this is required to ship safely now. The jersey-number approach eliminates NIL concerns entirely.
 
 ---
 
 ### Bottom Line
 
-**Ship with names only, no photos, conservative branding** = lowest-risk lane available without delaying launch.
+**Ship with jersey numbers only, no names, no photos, conservative branding** = zero NIL risk, safest possible lane.
+
+**Ship with names** = moderate risk requiring legal review.
 
 **Ship with photos** = gambling the entire product window.
 
@@ -2210,7 +2241,7 @@ AdminAuth --> APICore
 - Stress-test this plan for failure modes
 - Annotate architecture diagram with compliance boundaries
 - Draft exact disclaimer language
-- Define a "safe data contract" for college player objects
+- ~~Define a "safe data contract" for college player objects~~ (Completed: jersey-number-only format)
 - Redline March Madness UI for risk exposure
 - Define wallet table schemas (Phase 3)
 - Draft exact webhook handling rules (Phase 3)
