@@ -10,9 +10,38 @@ This document outlines the enterprise delivery plan for March Madness with a tar
 
 ---
 
+## App Store Compliance Strategy
+
+This plan is designed to support iterative App Store submissions. Each phase represents a fully functional release candidate that can pass Apple review without exposing incomplete or placeholder features.
+
+### Core Compliance Principles
+
+1. **Feature completeness per submission** - Any App Store submission only exposes fully functional features. No disabled buttons, grayed-out options, or "coming soon" placeholders.
+
+2. **Feature flags remove UI entirely** - When a feature is flagged off, its UI elements are completely absent from the app, not merely disabled or hidden behind interactions.
+
+3. **Free contests until payment phase** - Phase 1 and Phase 2 are free-contest-only releases from the user's perspective. Users will not see, interact with, or be blocked by any payment-related flows.
+
+4. **Backend scaffolding is invisible** - Payment-related fields, interfaces, and services may exist in the backend as architectural scaffolding, but they are not user-visible until Phase 3.
+
+5. **No implied monetization** - No UI flow suggests payments, fees, balances, or wallets until the payment phase is explicitly enabled.
+
+### Phase-to-Release Mapping
+
+| Phase | App Store Posture | User Experience |
+|-------|-------------------|-----------------|
+| Phase 0 | Internal only (TestFlight) | Staging environment, no public release |
+| Phase 1 | Submittable | Free contests with shareable links |
+| Phase 2 | Submittable | Free bracket contests (March Madness) |
+| Phase 3 | Submittable | Paid contests with wallet and payouts |
+
+> **Rule:** A phase is not App Store ready until all exposed features are complete and no payment-related UI is visible (prior to Phase 3).
+
+---
+
 ## Guiding Principles
 
-1. **Revenue path before polish** - If users cannot fund, join, and pay out contests reliably, everything else is noise.
+1. **Functional completeness before monetization** - Users must be able to create, join, and complete contests reliably. Payment automation is an enhancement built on a working foundation.
 
 2. **Isolation beats completeness** - New systems must be isolated behind feature flags or environment boundaries. No shared risk with existing live flows.
 
@@ -384,6 +413,12 @@ Every new capability must be behind a feature flag that can be disabled instantl
 | Payments | `PAYMENTS_ENABLED` | false | true |
 | Wallet UI | `WALLET_ENABLED` | false | true |
 
+**App Store Compliance Note:** When `PAYMENTS_ENABLED` is false:
+- Wallet UI is completely absent from the app (not hidden, not disabled—absent)
+- All contests behave as free contests regardless of backend `entry_fee` values
+- No user flow references fees, balances, or payments
+- The `entry_fee` field exists in the backend but is ignored until Phase 3
+
 ---
 
 ### Dependency Contracts
@@ -421,7 +456,7 @@ interface IContestService {
 
 interface ContestSettings {
   name: string;
-  entryFee: number;
+  entryFee: number;        // Backend scaffolding only; treated as 0 until Phase 3
   maxPlayers: number | null;
   gameTypeId: string;
 }
@@ -430,7 +465,7 @@ interface ContestInstance {
   id: string;
   ownerId: string;
   name: string;
-  entryFee: number;
+  entryFee: number;        // Backend scaffolding only; not displayed until Phase 3
   maxPlayers: number | null;
   currentPlayers: number;
   joinCode: string;
@@ -460,7 +495,10 @@ interface IScoringEngine {
 }
 ```
 
-**Phase 1 → Phase 3 Contract (Payment Integration):**
+**Phase 1 → Phase 3 Contract (Payment Integration - Future):**
+
+> **Note:** This contract defines the integration point for Phase 3. These interfaces exist as architectural scaffolding but are not user-facing until `PAYMENTS_ENABLED` is true.
+
 ```typescript
 interface IWalletService {
   getBalance(userId: string): Promise<WalletBalance>;
@@ -474,7 +512,7 @@ interface WalletBalance {
   total: number;
 }
 
-// Phase 1 exposes hook for payment integration
+// Phase 1 exposes hook for payment integration (Phase 3 only)
 interface IContestJoinGate {
   canJoin(contestId: string, userId: string): Promise<JoinEligibility>;
 }
@@ -482,6 +520,7 @@ interface IContestJoinGate {
 interface JoinEligibility {
   eligible: boolean;
   reason?: 'not_authenticated' | 'contest_full' | 'already_joined' | 'insufficient_funds';
+  // Note: 'insufficient_funds' is only returned when PAYMENTS_ENABLED is true (Phase 3)
   requiredAmount?: number;
 }
 ```
@@ -527,9 +566,9 @@ contest_templates
 ├── game_type (string) → references game_types table
 ├── scoring_engine_id (string) → references scoring_engines table
 ├── rules_config (JSONB) → flexible rule parameters
-├── entry_fee_options (JSONB) → array of allowed entry fees
+├── entry_fee_options (JSONB) → array of allowed entry fees (Phase 3 only; ignored until payments enabled)
 ├── max_players_options (JSONB) → array of allowed sizes
-├── payout_structure_id → references payout_structures table
+├── payout_structure_id → references payout_structures table (Phase 3 only)
 ├── is_active (boolean)
 ├── created_at (timestamp)
 └── updated_at (timestamp)
@@ -541,8 +580,10 @@ contest_templates
 |----------|-----------|
 | `rules_config` is JSONB | New rule parameters don't require schema migration |
 | `scoring_engine_id` is a reference | Engines are reusable across templates |
-| `entry_fee_options` is an array | Multiple fee tiers without code changes |
-| `payout_structure_id` is a reference | Payout logic is shared and versioned |
+| `entry_fee_options` is an array | Multiple fee tiers without code changes (Phase 3 scaffolding) |
+| `payout_structure_id` is a reference | Payout logic is shared and versioned (Phase 3 scaffolding) |
+
+> **App Store Note:** `entry_fee_options` and `payout_structure_id` exist for future payment support but are not read or displayed until Phase 3.
 
 ---
 
@@ -576,9 +617,11 @@ scoring_engines
 
 ---
 
-#### Payout Structure Registry
+#### Payout Structure Registry (Phase 3 Scaffolding)
 
-Payout structures are data, not code.
+Payout structures are data, not code. This schema exists for future payment support.
+
+> **App Store Note:** Payout structures are backend scaffolding only. They are not user-visible until Phase 3 when `PAYMENTS_ENABLED` is true.
 
 **Payout Structure Schema:**
 
@@ -664,10 +707,12 @@ matchups
 | Step | Action | Who | Time |
 |------|--------|-----|------|
 | 1 | Create contest instance via Admin UI | Ops | 2 min |
-| 2 | Set entry fee, max players, payout structure | Ops | 2 min |
+| 2 | Set contest settings (max players, game type) | Ops | 2 min |
 | 3 | Generate join code | System | Automatic |
 | 4 | Test in staging | QA | 10 min |
 | 5 | Enable in production | Ops | 1 min |
+
+> **App Store Note:** Entry fee configuration is only relevant when `PAYMENTS_ENABLED` is true (Phase 3). Until then, all contests are free.
 
 **Tier 2: New Season/Tournament**
 
@@ -700,8 +745,8 @@ matchups
 | Change Type | Code | Config/DB | Example |
 |-------------|------|-----------|---------|
 | New pool with existing rules | No | Yes | Another March Madness bracket pool |
-| New entry fee tier | No | Yes | Add $50 option to existing template |
-| New payout structure | No | Yes | Create "Top 5 Split" distribution |
+| New contest size option | No | Yes | Add 50-player cap option |
+| New payout structure | No | Yes | Create "Top 5 Split" distribution (Phase 3) |
 | New team | No | Yes | Expansion team joins league |
 | New season schedule | No | Yes | Import next year's matchups |
 | New scoring algorithm | **Yes** | Yes | Golf tournament scoring |
@@ -717,7 +762,7 @@ The admin interface must support Tier 1 and Tier 2 onboarding without developer 
 **Required Admin Capabilities:**
 
 - [ ] Create/edit contest templates
-- [ ] Create/edit payout structures
+- [ ] Create/edit payout structures (Phase 3)
 - [ ] Create/edit seasons
 - [ ] Import teams (CSV/JSON upload)
 - [ ] Import matchups (CSV/JSON upload)
@@ -749,6 +794,8 @@ The admin interface must support Tier 1 and Tier 2 onboarding without developer 
 - Deep link routing testable in isolation
 - Admin-only access acceptable
 
+**App Store Status:** Not submitted. Internal testing only.
+
 **Duration:** 1-2 days max. Anything longer means overengineering.
 
 ---
@@ -759,16 +806,21 @@ The admin interface must support Tier 1 and Tier 2 onboarding without developer 
 
 > This is the foundation that all future contests build upon. Build it right once.
 
+**App Store Status:** Submittable as free-contest-only release.
+
+**User Experience:** All contests are free. Users create contests, share links, and invite friends at no cost.
+
 #### Owner Capabilities
 
 The contest owner controls:
 
 | Setting | Description | Required |
 |---------|-------------|----------|
-| **Entry Price** | Amount to join (can be $0 for free contests) | Yes |
+| **Contest Name** | Display name for the contest | Yes |
 | **Player Cap** | Maximum participants (null = unlimited) | No |
 | **Game Type** | Which game/sport this contest is for | Yes |
-| **Contest Name** | Display name for the contest | Yes |
+
+> **App Store Note:** Entry fee configuration is intentionally omitted from Phase 1 user-facing UI. The `entry_fee` field exists in the backend schema as scaffolding for Phase 3, but it is not displayed, editable, or enforced until payments are enabled.
 
 #### Architectural Foundation
 
@@ -780,7 +832,7 @@ contest_instances
 ├── owner_id → references users
 ├── template_id → references contest_templates
 ├── name (string)
-├── entry_fee (decimal) → owner-defined price
+├── entry_fee (decimal) → backend scaffolding; always treated as 0 until Phase 3
 ├── max_players (integer, nullable) → null = unlimited
 ├── current_players (integer)
 ├── join_code (string) → short human-readable code
@@ -795,7 +847,7 @@ contest_instances
 
 | Decision | Rationale |
 |----------|-----------|
-| `entry_fee` on instance, not template | Owner controls pricing per contest |
+| `entry_fee` exists but is ignored | Backend scaffolding for Phase 3; client does not display or use this field until payments enabled |
 | `max_players` nullable | Supports both capped and unlimited contests |
 | Separate `join_code` and `join_url_token` | Code for manual entry, token for deep links |
 | `settings` as JSONB | Future owner options without schema changes |
@@ -844,8 +896,8 @@ https://app.playoffchallenge.com/join/abc123xyz
               ┌─────────────────────────────────────────┐
               │           ONBOARDING FLOW               │
               │  1. Auth check (login/register if new)  │
-              │  2. Display contest details             │
-              │  3. Confirm join                        │
+              │  2. Display contest preview             │
+              │  3. Confirm join (free contest)         │
               │  4. Route to contest view               │
               └─────────────────────────────────────────┘
 ```
@@ -878,10 +930,12 @@ When a user opens a join link:
 1. **Parse Token** → Extract `join_url_token` from URL
 2. **Fetch Contest** → GET `/api/contests/join/{token}` returns contest preview
 3. **Auth Gate** → If not logged in, present login/register (preserve context)
-4. **Contest Preview** → Show: name, game type, entry fee, current players, cap status
-5. **Join Confirmation** → User confirms entry (fee displayed prominently)
+4. **Contest Preview** → Show: name, game type, current players, spots remaining
+5. **Join Confirmation** → User confirms entry ("Join Free Contest" button)
 6. **Process Join** → POST `/api/contests/{id}/join`
 7. **Route to Contest** → Navigate to contest detail view
+
+> **App Store Note:** The join confirmation displays "Free Contest" or equivalent neutral language. No fee, balance, or payment references appear in the UI until Phase 3.
 
 **API Endpoints:**
 
@@ -907,16 +961,17 @@ Join my {game_type} contest "{contest_name}" on Playoff Challenge!
 
 {join_url}
 
-Entry: {entry_fee == 0 ? "Free" : "$" + entry_fee}
 {max_players ? "Spots: " + spots_remaining + " left" : ""}
 ```
+
+> **App Store Note:** Share message does not reference entry fees or payments. All contests are presented as free until Phase 3.
 
 ---
 
 #### Phase 1 Scope Boundaries
 
 **In Scope:**
-- Contest creation with owner settings
+- Contest creation with owner settings (name, player cap, game type)
 - Join link generation and deep linking
 - Join code manual entry
 - Basic contest listing (my contests)
@@ -937,6 +992,10 @@ Entry: {entry_fee == 0 ? "Free" : "$" + entry_fee}
 **Deliverable:** March Madness bracket game using custom contest infrastructure
 
 > This is the first game type built on the Phase 1 foundation.
+
+**App Store Status:** Submittable as free bracket contest.
+
+**User Experience:** Users join free bracket contests, make picks, and compete on leaderboards.
 
 #### Game Type Configuration
 
@@ -981,21 +1040,27 @@ Entry: {entry_fee == 0 ? "Free" : "$" + entry_fee}
 March Madness contests are created through the custom contest system:
 
 1. Owner selects game type: "March Madness"
-2. Owner sets: price, player cap, name
+2. Owner sets: player cap, name
 3. System generates join link
-4. Participants join via link → bracket UI opens
+4. Participants join via link (free) → bracket UI opens
 5. Deadline locks all brackets
 6. Scoring updates as games complete
+
+> **App Store Note:** No entry fee configuration appears in the creation flow. All March Madness contests are free in Phase 2.
 
 **No special code paths.** March Madness is just a contest instance with `template_id` pointing to the March Madness template.
 
 ---
 
-### Phase 3: Payment Automation (Optional)
+### Phase 3: Payment Automation
 
 **Deliverable:** Wallet and payment processing for paid contests
 
-> This phase is optional for launch. Free contests work without it.
+> This is the first phase where payment features are user-facing.
+
+**App Store Status:** Submittable with full payment functionality.
+
+**User Experience:** Users can fund wallets, join paid contests, and receive payouts.
 
 #### When This Phase is Required
 
@@ -1019,16 +1084,18 @@ March Madness contests are created through the custom contest system:
 - Pending vs available funds
 - Contest entry reservations
 
-#### UI Scope
+#### UI Scope (Phase 3 Only)
 
 - View balance
 - Add funds
 - See recent transactions
 - Use wallet when joining paid contest
 
+> **App Store Note:** All wallet UI elements are completely absent from the app until Phase 3. They are not hidden or disabled—they do not exist in the UI hierarchy until `PAYMENTS_ENABLED` is true.
+
 #### Integration with Phase 1
 
-When payment is enabled:
+When payment is enabled (`PAYMENTS_ENABLED` = true):
 
 1. Join flow checks `entry_fee > 0`
 2. If paid → verify wallet balance before join
@@ -1036,8 +1103,8 @@ When payment is enabled:
 4. Settle on contest completion
 
 **Feature Flag:** `PAYMENTS_ENABLED`
-- When false: All contests are free (entry_fee ignored)
-- When true: Entry fee enforced, wallet required
+- When false: All contests are free (`entry_fee` ignored), wallet UI absent, no payment references anywhere in app
+- When true: Entry fee enforced, wallet required for paid contests, full payment flow active
 
 #### Explicit Non-Goals
 
@@ -1045,7 +1112,7 @@ When payment is enabled:
 - No refunds automation beyond admin override
 - No partial payouts
 
-> Payment is an enhancement, not a blocker. Ship free contests first if needed.
+> Payment is an enhancement, not a blocker. Ship free contests first.
 
 ---
 
@@ -1060,19 +1127,19 @@ When payment is enabled:
 | 8-10 | Owner creation UI + share flow |
 | 11-15 | March Madness bracket UI + scoring engine |
 | 16-18 | Integration testing + polish |
-| Optional | Payment automation (Phase 3) |
+| Post-Launch | Payment automation (Phase 3) |
 
-> Phases 0-2 are required for launch. Phase 3 can follow based on business needs.
+> Phases 0-2 are required for March Madness launch. Phase 3 follows based on business needs and App Store approval timeline.
 
 ---
 
 ## Tradeoffs
 
 ### Acceptable Compromises
-- Free contests only at launch (if Phase 3 deferred)
-- Admin-assisted refunds
+- Free contests only at launch (Phase 3 deferred)
+- Admin-assisted refunds (Phase 3)
 - Manual contest cancellation
-- Limited transaction history
+- Limited transaction history (Phase 3)
 - No analytics
 - No notifications beyond basics
 
@@ -1090,12 +1157,12 @@ When payment is enabled:
 **To make March Madness succeed:**
 
 1. Build staging first
-2. Ship custom contest foundation with shareable join links
-3. Implement March Madness bracket game on that foundation
-4. Add payment automation when ready (optional for launch)
+2. Ship custom contest foundation with shareable join links (free)
+3. Implement March Madness bracket game on that foundation (free)
+4. Add payment automation when ready (Phase 3, post-launch)
 5. Ignore everything else
 
-> Free contests can launch without Phase 3. Payment is an enhancement, not a blocker.
+> Free contests launch without Phase 3. Payment is intentionally deferred, not missing.
 
 ---
 
@@ -1134,7 +1201,7 @@ When payment is enabled:
 ┌───────────────────┐   ┌───────────────────┐   ┌───────────────────────┐
 │   CONTEST DOMAIN  │   │   WALLET DOMAIN   │   │    GAME SERVICE       │
 │   (Pure Models)   │   │   (Pure Models)   │   │ (Isolated + Own DB)   │
-│                   │   │                   │   │                       │
+│                   │   │   (Phase 3)       │   │                       │
 │ - ContestTemplate │   │ - Wallet          │   │ - Rules Engine        │
 │ - ContestInstance │   │ - Ledger          │   │ - Scoring Calculator  │
 │ - ContestEntry    │   │ - Reservation     │   │ - Team/Matchup Data   │
@@ -1148,9 +1215,11 @@ When payment is enabled:
 
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        INTEGRATION LAYER                                 │
-│              (External SaaS: Stripe, Relay, Push Services)              │
+│         (External SaaS: Stripe, Relay, Push Services - Phase 3)         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **App Store Note:** Wallet Domain, Wallet DB, and Integration Layer (Stripe/Relay) are Phase 3 components. They exist as architectural scaffolding but are not active until payments are enabled.
 
 ---
 
@@ -1236,8 +1305,8 @@ interface IAuthMiddleware {
 | `GET /api/contests/join/{token}` | No | Public | - |
 | `POST /api/contests/{id}/join` | Yes | User | - |
 | `POST /api/contests` | Yes | User | - |
-| `GET /api/wallet` | Yes | User | - |
-| `POST /admin/wallet/adjust` | Yes | Admin | `wallet.adjust` |
+| `GET /api/wallet` | Yes | User | - (Phase 3) |
+| `POST /admin/wallet/adjust` | Yes | Admin | `wallet.adjust` (Phase 3) |
 | `POST /admin/contest/cancel` | Yes | Admin | `contest.cancel` |
 
 > **Key Rule:** Auth layer is independent. API layer consumes auth context, never implements it.
@@ -1266,7 +1335,7 @@ interface IAuthMiddleware {
 ```
 /api/v1/contests         → ContestService
 /api/v1/brackets         → BracketService
-/api/v1/wallet           → WalletService
+/api/v1/wallet           → WalletService (Phase 3 only)
 /api/v1/games            → GameService (proxy to Game Service)
 /admin/v1/*              → Admin-specific services
 ```
@@ -1304,12 +1373,12 @@ interface IContestService {
   // Coordinates with GameService for rules
   validateContestSettings(settings: ContestSettings): Promise<ValidationResult>;
 
-  // Coordinates with WalletService for paid contests (Phase 3)
+  // Coordinates with WalletService for paid contests (Phase 3 only)
   processJoinWithPayment(contestId: string, userId: string): Promise<JoinResult>;
 }
 ```
 
-**WalletService (Orchestrator - Phase 3)**
+**WalletService (Orchestrator - Phase 3 Only)**
 ```typescript
 interface IWalletService {
   // Entry point for all wallet operations
@@ -1322,6 +1391,8 @@ interface IWalletService {
   processPayout(userId: string, amount: number): Promise<PayoutResult>;
 }
 ```
+
+> **App Store Note:** WalletService is Phase 3 scaffolding. It is not called by any user-facing flow until `PAYMENTS_ENABLED` is true.
 
 **BracketService (Orchestrator - Phase 2)**
 ```typescript
@@ -1352,7 +1423,7 @@ interface ContestTemplate {
   id: string;
   gameTypeId: string;        // Reference only, no cross-domain call
   name: string;
-  defaultEntryFee: number;
+  defaultEntryFee: number;   // Backend scaffolding; not used until Phase 3
   scoringEngineId: string;   // Reference only, no cross-domain call
   isActive: boolean;
 }
@@ -1362,7 +1433,7 @@ interface ContestInstance {
   templateId: string;
   ownerId: string;
   name: string;
-  entryFee: number;
+  entryFee: number;          // Backend scaffolding; always treated as 0 until Phase 3
   maxPlayers: number | null;
   currentPlayers: number;
   joinCode: string;
@@ -1375,7 +1446,9 @@ interface ContestInstance {
 type ContestState = 'draft' | 'open' | 'locked' | 'completed' | 'cancelled';
 ```
 
-#### Wallet Domain (Phase 3)
+> **App Store Note:** `defaultEntryFee` and `entryFee` fields exist in domain models but are not displayed or enforced until Phase 3.
+
+#### Wallet Domain (Phase 3 Only)
 
 ```typescript
 interface Wallet {
@@ -1403,6 +1476,8 @@ interface Reservation {
   status: 'pending' | 'settled' | 'released';
 }
 ```
+
+> **App Store Note:** Wallet Domain models are Phase 3 scaffolding. Tables may exist but are not populated or queried until payments are enabled.
 
 > **Key Rule:** Domain models are data structures. They don't call services, databases, or other domains.
 
@@ -1512,11 +1587,13 @@ Current architecture uses a single database. For scale (1k+ users), consider dom
 │  - contest_templates                │
 │  - contest_instances                │
 │  - contest_entries                  │
-│  - wallets (Phase 3)                │
-│  - ledger_entries (Phase 3)         │
+│  - wallets (Phase 3 scaffolding)    │
+│  - ledger_entries (Phase 3 scaffolding) │
 │  - game_* tables                    │
 └─────────────────────────────────────┘
 ```
+
+> **App Store Note:** Wallet and ledger tables may exist as empty schema scaffolding but contain no user data until Phase 3.
 
 #### Scale Architecture (1k+ Users)
 
@@ -1529,7 +1606,7 @@ Current architecture uses a single database. For scale (1k+ users), consider dom
           ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
 │   Contest DB    │  │   Wallet DB     │  │    Game DB      │
-│                 │  │                 │  │                 │
+│                 │  │   (Phase 3)     │  │                 │
 │ - templates     │  │ - wallets       │  │ - teams         │
 │ - instances     │  │ - ledger        │  │ - matchups      │
 │ - entries       │  │ - reservations  │  │ - results       │
@@ -1547,7 +1624,7 @@ Current architecture uses a single database. For scale (1k+ users), consider dom
 ```typescript
 interface IDBConnectionManager {
   getContestConnection(): DatabaseConnection;
-  getWalletConnection(): DatabaseConnection;
+  getWalletConnection(): DatabaseConnection;  // Phase 3 only
   getGameConnection(): DatabaseConnection;
 
   // Transaction coordination across DBs (use sparingly)
@@ -1567,14 +1644,16 @@ interface IDBConnectionManager {
 
 ---
 
-### 8. Integration Layer
+### 8. Integration Layer (Phase 3 Only)
 
 External SaaS connections only. These services connect to true outside platforms.
 
+> **App Store Note:** Integration Layer is Phase 3 only. No Stripe or Relay integrations are active until payments are enabled.
+
 | System | Role | Notes |
 |--------|------|-------|
-| Stripe | Funding rail only | Handles card payments, deposits. Communicates via webhooks. Never queried for balance. |
-| Relay | Payout rail only | Executes disbursements post-contest. Triggered by backend settlement logic. |
+| Stripe | Funding rail only | Handles card payments, deposits. Communicates via webhooks. Never queried for balance. (Phase 3) |
+| Relay | Payout rail only | Executes disbursements post-contest. Triggered by backend settlement logic. (Phase 3) |
 | Apple Push | Notifications | Contest updates, deadline reminders |
 | Firebase | Analytics | Usage tracking (optional) |
 
@@ -1598,9 +1677,9 @@ interface IRelayIntegration {
 ### 9. Admin and Safety Controls
 
 **Admin Capabilities:**
-- Manual refunds (requires `wallet.adjust` permission)
+- Manual refunds (requires `wallet.adjust` permission) - Phase 3
 - Contest cancellation (requires `contest.cancel` permission)
-- Wallet adjustment (audited, requires `wallet.adjust` permission)
+- Wallet adjustment (audited, requires `wallet.adjust` permission) - Phase 3
 - User management (requires `user.manage` permission)
 - Environment locks
 
@@ -1611,8 +1690,8 @@ interface IRelayIntegration {
 - All actions logged with admin ID, timestamp, and affected resources
 
 **Operational Safeguards:**
-- Idempotent payment handling
-- Webhook replay protection
+- Idempotent payment handling (Phase 3)
+- Webhook replay protection (Phase 3)
 - Feature flags for incomplete UI
 - Rate limiting per user and per IP
 - Request signing for admin operations
@@ -1621,32 +1700,34 @@ interface IRelayIntegration {
 
 ### 7. Flow Summary (Happy Path)
 
-**Contest Creation Flow:**
-1. Owner creates contest (sets price, cap, game type)
+**Contest Creation Flow (Phase 1+):**
+1. Owner creates contest (sets name, cap, game type)
 2. System generates join code and shareable URL
 3. Owner shares link with participants
 
-**Join via Link Flow:**
+**Join via Link Flow (Phase 1+):**
 1. User clicks join link
 2. App opens (or installs, then opens with deferred link)
 3. User authenticates if needed
-4. Contest preview displayed
+4. Contest preview displayed (free contest)
 5. User confirms join
 6. User routed to contest/bracket view
 
-**Game Flow (March Madness):**
+**Game Flow - March Madness (Phase 2+):**
 1. User makes bracket picks before deadline
 2. Tournament games complete
 3. Scoring engine calculates points
 4. Leaderboard updates
 
-**Payment Flow (Phase 3 - Optional):**
+**Payment Flow (Phase 3 Only):**
 1. User funds wallet via Stripe
 2. Stripe webhook credits wallet ledger
 3. Entry fee reserved on contest join
 4. Contest completes
 5. Backend settles ledger
 6. Relay executes payouts
+
+> **App Store Note:** Payment Flow is Phase 3 only. In Phase 1 and Phase 2, all contests are free and no payment flow exists.
 
 ---
 
@@ -1709,7 +1790,6 @@ This creates cascading failures:
 
 **Query Hotspots to Watch:**
 - Leaderboard calculations (heavy reads during tournament)
-- Wallet balance checks (every join attempt)
 - Contest listing (home screen loads)
 
 **Indexing Requirements:**
@@ -1719,8 +1799,9 @@ CREATE INDEX idx_contest_instances_state ON contest_instances(state);
 CREATE INDEX idx_contest_instances_owner ON contest_instances(owner_id);
 CREATE INDEX idx_contest_entries_contest ON contest_entries(contest_id);
 CREATE INDEX idx_contest_entries_user ON contest_entries(user_id);
-CREATE INDEX idx_wallets_user ON wallets(user_id);
-CREATE INDEX idx_ledger_wallet ON ledger_entries(wallet_id);
+-- Phase 3 indexes (create when payments enabled)
+-- CREATE INDEX idx_wallets_user ON wallets(user_id);
+-- CREATE INDEX idx_ledger_wallet ON ledger_entries(wallet_id);
 ```
 
 #### Game Service Isolation Benefits
@@ -1736,7 +1817,7 @@ Because Game Service is isolated:
 | Component | Degraded State | User Experience |
 |-----------|---------------|-----------------|
 | Game Service down | Scoring unavailable | "Scores updating, check back soon" |
-| Wallet Service down | Payments disabled | Free contests still work |
+| Wallet Service down | Payments disabled | Free contests still work (Phase 3) |
 | Leaderboard slow | Cached results | "Last updated X minutes ago" |
 | Deep links broken | Manual join code | Fallback to code entry screen |
 
@@ -1868,7 +1949,9 @@ If March Madness proves traction:
 
 ---
 
-## Payment Automation Details
+## Payment Automation Details (Phase 3)
+
+> **App Store Note:** This entire section documents Phase 3 functionality. None of these flows are user-facing until `PAYMENTS_ENABLED` is true.
 
 ### Complete Payment Flow
 
@@ -2029,7 +2112,7 @@ end
 %% SERVICE LAYER
 subgraph Services["Service / Domain Services Layer"]
   ContestSvc[ContestService<br/>Orchestrator]
-  WalletSvc[WalletService<br/>Orchestrator]
+  WalletSvc[WalletService<br/>Orchestrator<br/>Phase 3]
   BracketSvc[BracketService<br/>Orchestrator]
 end
 
@@ -2040,7 +2123,7 @@ subgraph ContestDomain["Contest Domain (Pure Models)"]
   Entry[Contest Entry]
 end
 
-subgraph WalletDomain["Wallet Domain (Pure Models)"]
+subgraph WalletDomain["Wallet Domain (Phase 3)"]
   Wallet[Wallet]
   Ledger[Ledger]
   Reservation[Reservation]
@@ -2057,11 +2140,11 @@ end
 %% DATA LAYER
 subgraph Data["Data Layer"]
   ContestDB[(Contest DB)]
-  WalletDB[(Wallet DB)]
+  WalletDB[(Wallet DB<br/>Phase 3)]
 end
 
 %% INTEGRATIONS
-subgraph Integrations["Integration Layer"]
+subgraph Integrations["Integration Layer (Phase 3)"]
   Stripe[Stripe<br/>Funding Rail]
   Relay[Relay<br/>Payout Rail]
   Push[Push Service]
@@ -2115,6 +2198,7 @@ AdminAuth --> APICore
 4. **Game Service** - Fully isolated with own DB, communicates via API calls only
 5. **No Function Chaining** - ContestService calls GameService via API, not direct domain access
 6. **Domain-Centric DBs** - Separate databases per domain (can start as single DB, split later)
+7. **Phase 3 Components** - WalletService, Wallet Domain, Wallet DB, and Integration Layer are Phase 3 only
 
 ---
 
@@ -2128,7 +2212,7 @@ AdminAuth --> APICore
 - Draft exact disclaimer language
 - Define a "safe data contract" for college player objects
 - Redline March Madness UI for risk exposure
-- Define wallet table schemas
-- Draft exact webhook handling rules
-- Create sequence diagrams for funding and payout
-- Flag regulatory thresholds
+- Define wallet table schemas (Phase 3)
+- Draft exact webhook handling rules (Phase 3)
+- Create sequence diagrams for funding and payout (Phase 3)
+- Flag regulatory thresholds (Phase 3)
