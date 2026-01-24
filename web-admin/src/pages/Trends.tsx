@@ -11,6 +11,7 @@ import {
   computePlayerTrends,
 } from '../lib/trendHelpers';
 import { generateInsights } from '../lib/trendInsights';
+import { computeMultiplierInsights } from '../lib/multiplierInsights';
 
 const BATCH_SIZE = 10;
 
@@ -121,6 +122,12 @@ export function Trends() {
   const insights = useMemo(
     () => generateInsights({ scopedPicks, teamTrends, playerTrends }),
     [scopedPicks, teamTrends, playerTrends]
+  );
+
+  // Compute multiplier utilization insights
+  const multiplierInsights = useMemo(
+    () => computeMultiplierInsights(scopedPicks),
+    [scopedPicks]
   );
 
   // Loading state
@@ -302,6 +309,47 @@ export function Trends() {
           )}
         </div>
       </div>
+
+      {/* Multiplier Utilization */}
+      {!isLoading && multiplierInsights.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+            <h2 className="text-lg font-medium text-gray-900">Multiplier Utilization</h2>
+            <p className="text-sm text-gray-500">Distribution of user multipliers by player</p>
+          </div>
+          <div className="p-4">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 pr-4 font-medium text-gray-600">Player</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600">Team</th>
+                    <th className="text-right py-2 px-2 font-medium text-gray-600">1x Users</th>
+                    <th className="text-right py-2 px-2 font-medium text-gray-600">2x Users</th>
+                    <th className="text-right py-2 px-2 font-medium text-gray-600">3x+ Users</th>
+                    <th className="text-right py-2 pl-2 font-medium text-gray-600">Total Users</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {multiplierInsights.map((insight) => (
+                    <tr
+                      key={insight.playerId}
+                      className="border-b border-gray-100 hover:bg-gray-50"
+                    >
+                      <td className="py-2 pr-4 text-gray-900 font-medium">{insight.playerName}</td>
+                      <td className="py-2 px-2 text-gray-600">{insight.team}</td>
+                      <td className="py-2 px-2 text-right text-gray-700">{insight.oneX}</td>
+                      <td className="py-2 px-2 text-right text-gray-700">{insight.twoX}</td>
+                      <td className="py-2 px-2 text-right text-gray-700">{insight.threeXPlus}</td>
+                      <td className="py-2 pl-2 text-right font-semibold text-gray-900">{insight.totalUsers}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Player Pick Trends */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
