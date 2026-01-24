@@ -1840,14 +1840,25 @@ Because Game Service is isolated:
 
 ### Executive Summary
 
-Using college athlete names and photos is fundamentally different from using NFL players.
+**Decision: We display jersey numbers only. No player names. No photos.**
 
-| League | Licensing |
-|--------|-----------|
+This eliminates NIL (Name, Image, Likeness) risk entirely. Players are identified as "Team - Position #Number" (e.g., "Duke - G #11").
+
+| Asset Type | Our Approach | Risk Level |
+|------------|--------------|------------|
+| Player Photos | Not used | Eliminated |
+| Player Names | Not used | Eliminated |
+| Jersey Numbers | Used | None |
+| Team Names | Used (text only) | Manageable |
+
+**Background: Why this matters**
+
+| League | Licensing Context |
+|--------|-------------------|
 | NFL | Names and likenesses are collectively licensed through the NFLPA. Fantasy sports has decades of precedent. |
 | College | No collective licensing body. NIL rights belong to individual athletes. Images are highest-risk. Names are lower risk but not risk-free. |
 
-> You must make an explicit architectural and product decision now or risk having to pull March Madness mid-tournament.
+> **Decision made:** By using jersey numbers only, we avoid all NIL concerns. This is the safest possible approach for college sports.
 
 ---
 
@@ -1936,24 +1947,50 @@ Add in Terms and footer:
 
 ### Architectural Implication
 
-In the Game Domain, define Player Representation as:
-- `team` (team name)
-- `position` (player position)
-- `jersey_number` (player number only)
-- `no_image_url` enforced at schema or API layer
-- `no_display_name` - player names are NOT displayed to end users
+**Player Schema (NIL-Safe):**
+
+```
+players
+├── id (UUID)
+├── team_id → references teams
+├── jersey_number (integer) → DISPLAYED to users
+├── position (string) → DISPLAYED to users (e.g., "G", "F", "C")
+├── internal_reference (string) → admin/data pipeline only, NEVER exposed to client
+├── is_active (boolean)
+└── metadata (JSONB) → non-identifying stats only
+```
+
+**Explicitly Excluded Fields:**
+- `first_name` - does not exist
+- `last_name` - does not exist
+- `display_name` - does not exist
+- `image_url` - does not exist
+- `photo` - does not exist
 
 **User-Facing Display Format:**
+
 The app displays players as: **Team Name - Position #Number**
 
-Examples:
-- "Duke - G #11"
-- "Kansas - F #22"
-- "UConn - C #5"
+| Example | Displayed As |
+|---------|--------------|
+| Duke point guard wearing #11 | "Duke - G #11" |
+| Kansas power forward wearing #22 | "Kansas - F #22" |
+| UConn center wearing #5 | "UConn - C #5" |
+
+**API Response Format:**
+```json
+{
+  "player_id": "uuid",
+  "team_name": "Duke",
+  "position": "G",
+  "jersey_number": 11,
+  "display_label": "Duke - G #11"
+}
+```
 
 > **Critical Rule:** Player names are never shown in the user-facing app. Only team, position, and jersey number are displayed. This eliminates NIL risk entirely while maintaining gameplay clarity.
 
-> Do not let the client decide this. Make it impossible to accidentally add names or photos later without intentional architectural change.
+> **Enforcement:** The schema makes it architecturally impossible to display names or photos. There are no fields to populate. This is by design, not by policy.
 
 ---
 
