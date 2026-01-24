@@ -22,6 +22,354 @@ This document outlines the enterprise delivery plan for March Madness with a tar
 
 ---
 
+## Engineering Standards
+
+All development work across all phases must adhere to these engineering standards. These are non-negotiable requirements that protect the codebase and ensure maintainability.
+
+---
+
+### Test-First Development (TDD)
+
+**Write unit tests before writing implementation code.**
+
+Tests serve as executable requirements. They define the boundaries of what the feature must do and must not do. All tests must fail initially with descriptive error messages.
+
+#### Test Writing Requirements
+
+1. **Tests are written first** - No implementation code is written until tests exist
+2. **Tests must fail initially** - A passing test before implementation indicates a bad test
+3. **Error messages must be diagnostic** - Failures must clearly indicate:
+   - What was expected
+   - What was received
+   - Which requirement was violated
+   - Exact location (file, function, line)
+
+#### Error Message Standards
+
+Every test failure must include:
+
+| Component | Description | Example |
+|-----------|-------------|---------|
+| Requirement ID | Links to specific requirement | `[WALLET-001]` |
+| Expected behavior | What should have happened | `Expected balance to be 50.00` |
+| Actual behavior | What actually happened | `Received balance of 0.00` |
+| Context | Relevant state information | `User: test-user-123, Transaction: deposit` |
+| Location | File and function | `wallet.service.ts:creditBalance()` |
+
+#### Example Test Pattern
+
+```typescript
+describe('WalletService.creditBalance', () => {
+  it('[WALLET-001] should increase available balance when funds are deposited', async () => {
+    // Arrange
+    const userId = 'test-user-123';
+    const depositAmount = 50.00;
+    const initialBalance = await walletService.getBalance(userId);
+
+    // Act
+    const result = await walletService.creditBalance(userId, depositAmount);
+
+    // Assert
+    expect(result.availableBalance).toBe(
+      initialBalance.availableBalance + depositAmount,
+      `[WALLET-001] Balance increment failed.
+       Expected: ${initialBalance.availableBalance + depositAmount}
+       Received: ${result.availableBalance}
+       Context: userId=${userId}, depositAmount=${depositAmount}
+       Location: wallet.service.ts:creditBalance()`
+    );
+  });
+});
+```
+
+#### Test Categories by Phase
+
+| Phase | Test Suites Required |
+|-------|---------------------|
+| Phase 0 | Environment detection, feature flag evaluation, config isolation |
+| Phase 1 | Wallet CRUD, ledger immutability, balance calculations, reservation lifecycle |
+| Phase 2 | Template validation, instance creation, join code generation, state transitions |
+| Phase 3 | Contest listing, context switching, UI state management |
+
+#### Pre-Implementation Checklist
+
+Before writing any implementation code:
+
+- [ ] All acceptance criteria converted to test cases
+- [ ] All test cases written and failing
+- [ ] Error messages reviewed for diagnostic clarity
+- [ ] Edge cases identified and tested
+- [ ] Integration points mocked appropriately
+
+> Tests are the specification. If it's not tested, it's not a requirement.
+
+---
+
+### SOLID Principles Compliance
+
+All new code and modifications must adhere to SOLID principles. These are mandatory, not aspirational.
+
+#### Single Responsibility Principle (SRP)
+
+Each class/module has one reason to change.
+
+**Enforcement:**
+- Services handle business logic only
+- Controllers handle HTTP concerns only
+- Repositories handle data access only
+- No god classes or utility dumping grounds
+
+**Example - Wallet Domain:**
+| Class | Single Responsibility |
+|-------|----------------------|
+| `WalletService` | Balance business logic |
+| `WalletRepository` | Wallet data persistence |
+| `WalletController` | HTTP request/response handling |
+| `LedgerService` | Transaction recording |
+
+---
+
+#### Open/Closed Principle (OCP)
+
+Classes are open for extension, closed for modification.
+
+**Enforcement:**
+- Use interfaces for all service dependencies
+- New game types extend base abstractions
+- Scoring engines are pluggable, not hardcoded
+- Feature additions should not modify existing working code
+
+**Example - Contest Domain:**
+```
+ContestTemplate (abstract)
+  ├── PlayoffChallengeTemplate
+  ├── MarchMadnessTemplate
+  └── [Future game types extend, never modify base]
+```
+
+---
+
+#### Liskov Substitution Principle (LSP)
+
+Subtypes must be substitutable for their base types.
+
+**Enforcement:**
+- All contest types work through the `ContestTemplate` interface
+- All scoring engines work through the `ScoringEngine` interface
+- No type checking or casting in business logic
+- Tests verify substitutability
+
+---
+
+#### Interface Segregation Principle (ISP)
+
+Clients should not depend on interfaces they don't use.
+
+**Enforcement:**
+- Small, focused interfaces
+- No "fat" interfaces with optional methods
+- Separate read and write interfaces where appropriate
+
+**Example:**
+```
+IWalletReader    → getBalance(), getTransactions()
+IWalletWriter    → creditBalance(), debitBalance()
+IWalletReserver  → createReservation(), releaseReservation()
+```
+
+---
+
+#### Dependency Inversion Principle (DIP)
+
+High-level modules don't depend on low-level modules. Both depend on abstractions.
+
+**Enforcement:**
+- All services receive dependencies via constructor injection
+- No direct instantiation of dependencies
+- External services (Stripe, Relay) accessed through interfaces
+- Database access through repository interfaces
+
+**Example:**
+```typescript
+// Correct
+class WalletService {
+  constructor(
+    private readonly walletRepo: IWalletRepository,
+    private readonly ledgerService: ILedgerService
+  ) {}
+}
+
+// Incorrect - violates DIP
+class WalletService {
+  private walletRepo = new WalletRepository();
+}
+```
+
+---
+
+### Phase Impact Analysis
+
+Each phase must document its impact on existing components before implementation begins.
+
+#### Protected Components (Must Not Break)
+
+| Component | Owner | Phase Contact Points |
+|-----------|-------|---------------------|
+| Authentication routes | Core | Phase 1 (wallet requires auth) |
+| User registration | Core | Phase 1 (wallet creation on signup) |
+| Existing contest flow | Core | Phase 2 (template abstraction) |
+| Current API contracts | Core | All phases (versioning required) |
+| Database schema | Core | Phase 1, 2 (migrations) |
+
+#### Phase 0 Impact Assessment
+
+| Existing Component | Impact | Mitigation |
+|--------------------|--------|------------|
+| Authentication | None | Staging uses same auth system |
+| User data | None | Separate database/schema |
+| API routes | None | Environment-based routing |
+| Stripe integration | Low | Separate API keys, same code paths |
+
+#### Phase 1 Impact Assessment
+
+| Existing Component | Impact | Mitigation |
+|--------------------|--------|------------|
+| Authentication | Low | Wallet endpoints use existing auth middleware |
+| User model | Medium | Add wallet relationship, migration required |
+| API routes | Low | New `/wallet` routes, no changes to existing |
+| Database | Medium | New tables, no modifications to existing |
+
+#### Phase 2 Impact Assessment
+
+| Existing Component | Impact | Mitigation |
+|--------------------|--------|------------|
+| Existing contests | High | Must migrate to template/instance model |
+| Contest creation | High | New abstraction layer |
+| Scoring logic | Medium | Extract to pluggable engines |
+| API routes | Medium | New `/contests` structure, deprecate old |
+
+#### Phase 3 Impact Assessment
+
+| Existing Component | Impact | Mitigation |
+|--------------------|--------|------------|
+| Navigation | Medium | New contest context switching |
+| UI state | Medium | Multi-contest state management |
+| API routes | Low | Consumes Phase 2 endpoints |
+
+---
+
+### Regression Safeguards
+
+No phase ships without passing regression requirements.
+
+#### Regression Test Suite Requirements
+
+**Core Regression Suite (Must Pass Every Phase):**
+- [ ] User can register
+- [ ] User can login
+- [ ] User can logout
+- [ ] Auth tokens validate correctly
+- [ ] Auth tokens expire correctly
+- [ ] Protected routes reject unauthenticated requests
+- [ ] Existing API contracts return expected shapes
+- [ ] Database connections work
+- [ ] Error responses follow standard format
+
+**Phase-Specific Regression (Cumulative):**
+
+| After Phase | Additional Regression Tests |
+|-------------|----------------------------|
+| Phase 0 | Environment switching, feature flags, config isolation |
+| Phase 1 | + Wallet balance accuracy, ledger integrity, Stripe webhook handling |
+| Phase 2 | + Contest creation, join codes, template/instance relationship |
+| Phase 3 | + Multi-contest navigation, context switching, UI state |
+
+#### Rollback Strategy
+
+Every phase must have a documented rollback procedure.
+
+| Phase | Rollback Trigger | Rollback Procedure |
+|-------|------------------|-------------------|
+| Phase 0 | Staging breaks prod | Revert environment config, disable feature flags |
+| Phase 1 | Balance errors, payment failures | Feature flag disable, manual wallet freeze, revert migrations |
+| Phase 2 | Contest state corruption | Feature flag disable, restore contest table from backup |
+| Phase 3 | UI breaks existing flows | Feature flag disable, deploy previous UI build |
+
+#### Feature Flag Kill Switches
+
+Every new capability must be behind a feature flag that can be disabled instantly.
+
+| Feature | Flag Name | Default (Prod) | Default (Staging) |
+|---------|-----------|----------------|-------------------|
+| Wallet UI | `WALLET_ENABLED` | false | true |
+| Add Funds | `WALLET_FUNDING_ENABLED` | false | true |
+| Custom Contests | `CUSTOM_CONTESTS_ENABLED` | false | true |
+| Contest Join Codes | `JOIN_CODES_ENABLED` | false | true |
+| Multi-Contest View | `MULTI_CONTEST_ENABLED` | false | true |
+
+---
+
+### Dependency Contracts
+
+Phases must not break each other through explicit interface contracts.
+
+#### Contract Definition Requirements
+
+Before Phase N can use output from Phase N-1:
+1. Interface must be defined and documented
+2. Contract tests must exist
+3. Both phases must pass contract tests
+4. No phase can modify another phase's contract without version bump
+
+#### Phase Contracts
+
+**Phase 0 → Phase 1 Contract:**
+```typescript
+interface IEnvironmentConfig {
+  isStaging(): boolean;
+  getStripeKey(): string;
+  getDatabaseUrl(): string;
+  getFeatureFlag(name: string): boolean;
+}
+```
+
+**Phase 1 → Phase 2 Contract:**
+```typescript
+interface IWalletService {
+  getBalance(userId: string): Promise<WalletBalance>;
+  createReservation(userId: string, amount: number, contestId: string): Promise<Reservation>;
+  settleReservation(reservationId: string, outcome: 'win' | 'loss'): Promise<void>;
+}
+
+interface WalletBalance {
+  available: number;
+  reserved: number;
+  total: number;
+}
+```
+
+**Phase 2 → Phase 3 Contract:**
+```typescript
+interface IContestService {
+  createInstance(templateId: string, ownerId: string): Promise<ContestInstance>;
+  joinByCode(code: string, userId: string): Promise<JoinResult>;
+  getUserContests(userId: string): Promise<ContestInstance[]>;
+  getContestState(contestId: string): Promise<ContestState>;
+}
+```
+
+#### Contract Test Requirements
+
+Each contract must have tests verifying:
+- All interface methods exist
+- Return types match specification
+- Error cases return expected error types
+- No breaking changes to existing methods
+
+> A phase is not complete until its contract tests pass and downstream phases can consume its interfaces.
+
+---
+
 ## Phased Delivery Plan
 
 ### Phase 0: Environment Safety Net (Immediate)
