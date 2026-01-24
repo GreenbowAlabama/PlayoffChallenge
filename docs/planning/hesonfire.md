@@ -87,9 +87,9 @@ describe('WalletService.creditBalance', () => {
 | Phase | Test Suites Required |
 |-------|---------------------|
 | Phase 0 | Environment detection, feature flag evaluation, config isolation |
-| Phase 1 | Wallet CRUD, ledger immutability, balance calculations, reservation lifecycle |
-| Phase 2 | Template validation, instance creation, join code generation, state transitions |
-| Phase 3 | Contest listing, context switching, UI state management |
+| Phase 1 | Contest instance CRUD, join code/token generation, deep link parsing, owner settings validation, player cap enforcement, onboarding flow state |
+| Phase 2 | Bracket validation, team/matchup data integrity, scoring calculations, leaderboard ranking, deadline enforcement |
+| Phase 3 | Wallet CRUD, ledger immutability, balance calculations, reservation lifecycle, payment gating |
 
 #### Pre-Implementation Checklist
 
@@ -114,18 +114,41 @@ All new code and modifications must adhere to SOLID principles. These are mandat
 Each class/module has one reason to change.
 
 **Enforcement:**
-- Services handle business logic only
-- Controllers handle HTTP concerns only
-- Repositories handle data access only
+- API Layer: Route handling and request validation only
+- Service Layer: Business logic orchestration only
+- Domain Layer: Pure data models only (no logic)
+- Repository Layer: Data access only
 - No god classes or utility dumping grounds
 
-**Example - Wallet Domain:**
-| Class | Single Responsibility |
-|-------|----------------------|
-| `WalletService` | Balance business logic |
-| `WalletRepository` | Wallet data persistence |
-| `WalletController` | HTTP request/response handling |
-| `LedgerService` | Transaction recording |
+**Example - Layered Architecture:**
+| Layer | Class | Single Responsibility |
+|-------|-------|----------------------|
+| API | `ContestController` | HTTP request/response handling |
+| Service | `ContestService` | Contest business logic orchestration |
+| Service | `WalletService` | Wallet/payment orchestration |
+| Domain | `ContestInstance` | Pure data model (no methods) |
+| Repository | `ContestRepository` | Contest data persistence |
+| Integration | `StripeIntegration` | Stripe API communication |
+
+**Anti-Pattern to Avoid:**
+```typescript
+// BAD - Service doing too much
+class ContestService {
+  async createContest() { /* business logic */ }
+  async formatResponse() { /* HTTP concern - belongs in controller */ }
+  async saveToDb() { /* data access - belongs in repository */ }
+  async callStripe() { /* integration - belongs in integration layer */ }
+}
+
+// GOOD - Single responsibility
+class ContestService {
+  constructor(
+    private contestRepo: IContestRepository,
+    private gameService: IGameService
+  ) {}
+  async createContest() { /* orchestration only */ }
+}
+```
 
 ---
 
@@ -135,16 +158,17 @@ Classes are open for extension, closed for modification.
 
 **Enforcement:**
 - Use interfaces for all service dependencies
-- New game types extend base abstractions
-- Scoring engines are pluggable, not hardcoded
+- New game types plug into Game Service without modifying it
+- Scoring engines are registered, not hardcoded
 - Feature additions should not modify existing working code
 
-**Example - Contest Domain:**
+**Example - Game Service Extensibility:**
 ```
-ContestTemplate (abstract)
-  ├── PlayoffChallengeTemplate
-  ├── MarchMadnessTemplate
-  └── [Future game types extend, never modify base]
+GameService
+  └── ScoringEngineRegistry
+        ├── NCAABracketScorer (registered)
+        ├── NFLPlayoffScorer (registered)
+        └── [New scorers register, never modify GameService]
 ```
 
 ---
@@ -154,10 +178,23 @@ ContestTemplate (abstract)
 Subtypes must be substitutable for their base types.
 
 **Enforcement:**
-- All contest types work through the `ContestTemplate` interface
-- All scoring engines work through the `ScoringEngine` interface
+- All scoring engines work through the `IScoringEngine` interface
+- Game types are interchangeable in Contest creation
 - No type checking or casting in business logic
 - Tests verify substitutability
+
+**Example - Scoring Engines:**
+```typescript
+// Any scorer can be used wherever IScoringEngine is expected
+interface IScoringEngine {
+  calculateScore(picks: unknown, results: MatchResult[]): number;
+  getRoundMultiplier(round: string): number;
+}
+
+// Both implement the same interface, fully substitutable
+class NCAABracketScorer implements IScoringEngine { }
+class NFLPlayoffScorer implements IScoringEngine { }
+```
 
 ---
 
@@ -169,12 +206,25 @@ Clients should not depend on interfaces they don't use.
 - Small, focused interfaces
 - No "fat" interfaces with optional methods
 - Separate read and write interfaces where appropriate
+- Service layer consumes only the interfaces it needs
 
-**Example:**
-```
+**Example - Segregated Interfaces:**
+```typescript
+// Wallet interfaces segregated by consumer needs
 IWalletReader    → getBalance(), getTransactions()
 IWalletWriter    → creditBalance(), debitBalance()
 IWalletReserver  → createReservation(), releaseReservation()
+
+// ContestService only needs reservation capability
+class ContestService {
+  constructor(private walletReserver: IWalletReserver) {}
+  // Doesn't depend on getBalance() or creditBalance()
+}
+
+// Game Service interface segregated
+IGameReader      → getGameTypes(), getTeams(), getMatchups()
+IGameValidator   → validatePicks(), checkDeadline()
+IGameScorer      → calculateScore(), getLeaderboard()
 ```
 
 ---
@@ -186,23 +236,45 @@ High-level modules don't depend on low-level modules. Both depend on abstraction
 **Enforcement:**
 - All services receive dependencies via constructor injection
 - No direct instantiation of dependencies
-- External services (Stripe, Relay) accessed through interfaces
+- Game Service accessed through interface, not direct import
 - Database access through repository interfaces
+- Integration layer accessed through interfaces
 
-**Example:**
+**Example - Service Layer Dependencies:**
 ```typescript
-// Correct
-class WalletService {
+// CORRECT - All dependencies are interfaces
+class ContestService {
   constructor(
-    private readonly walletRepo: IWalletRepository,
-    private readonly ledgerService: ILedgerService
+    private readonly contestRepo: IContestRepository,
+    private readonly gameService: IGameService,      // Interface to isolated service
+    private readonly walletService: IWalletReserver  // Segregated interface
   ) {}
+
+  async createContest(settings: ContestSettings) {
+    // Validate with Game Service (no direct coupling)
+    const validation = await this.gameService.validateGameType(settings.gameTypeId);
+    // ...
+  }
 }
 
-// Incorrect - violates DIP
-class WalletService {
-  private walletRepo = new WalletRepository();
+// INCORRECT - Direct dependencies
+class ContestService {
+  private contestRepo = new ContestRepository();    // Direct instantiation
+  private gameService = new GameService();          // Tight coupling
 }
+```
+
+**Cross-Service Communication:**
+```typescript
+// Game Service is isolated - accessed only through interface
+interface IGameService {
+  getAvailableGameTypes(): Promise<GameType[]>;
+  validatePicks(gameTypeId: string, picks: unknown): Promise<ValidationResult>;
+  calculateScore(gameTypeId: string, picks: unknown): Promise<number>;
+}
+
+// ContestService doesn't know Game Service implementation details
+// Could be same process, separate service, or external API
 ```
 
 ---
@@ -215,11 +287,11 @@ Each phase must document its impact on existing components before implementation
 
 | Component | Owner | Phase Contact Points |
 |-----------|-------|---------------------|
-| Authentication routes | Core | Phase 1 (wallet requires auth) |
-| User registration | Core | Phase 1 (wallet creation on signup) |
-| Existing contest flow | Core | Phase 2 (template abstraction) |
+| Authentication routes | Core | Phase 1 (contest join requires auth) |
+| User registration | Core | Phase 1 (onboarding flow) |
 | Current API contracts | Core | All phases (versioning required) |
 | Database schema | Core | Phase 1, 2 (migrations) |
+| App routing | Core | Phase 1 (deep link handling) |
 
 #### Phase 0 Impact Assessment
 
@@ -228,33 +300,36 @@ Each phase must document its impact on existing components before implementation
 | Authentication | None | Staging uses same auth system |
 | User data | None | Separate database/schema |
 | API routes | None | Environment-based routing |
-| Stripe integration | Low | Separate API keys, same code paths |
+| App navigation | None | Feature flag isolation |
 
 #### Phase 1 Impact Assessment
 
 | Existing Component | Impact | Mitigation |
 |--------------------|--------|------------|
-| Authentication | Low | Wallet endpoints use existing auth middleware |
-| User model | Medium | Add wallet relationship, migration required |
-| API routes | Low | New `/wallet` routes, no changes to existing |
-| Database | Medium | New tables, no modifications to existing |
+| Authentication | Low | Contest endpoints use existing auth middleware |
+| User model | Low | Add contest ownership relationship |
+| API routes | Medium | New `/contests` routes, deep link handlers |
+| Database | Medium | New tables (contest_instances, templates) |
+| App routing | High | Universal/App Links integration |
+| Onboarding flow | Medium | Insert contest context into existing flow |
 
 #### Phase 2 Impact Assessment
 
 | Existing Component | Impact | Mitigation |
 |--------------------|--------|------------|
-| Existing contests | High | Must migrate to template/instance model |
-| Contest creation | High | New abstraction layer |
-| Scoring logic | Medium | Extract to pluggable engines |
-| API routes | Medium | New `/contests` structure, deprecate old |
+| Contest system | Low | Adds game type, uses Phase 1 infrastructure |
+| Database | Medium | Game data tables (teams, matchups, brackets) |
+| Scoring logic | Medium | New scoring engine, pluggable architecture |
+| API routes | Low | New `/brackets` endpoints |
 
 #### Phase 3 Impact Assessment
 
 | Existing Component | Impact | Mitigation |
 |--------------------|--------|------------|
-| Navigation | Medium | New contest context switching |
-| UI state | Medium | Multi-contest state management |
-| API routes | Low | Consumes Phase 2 endpoints |
+| Contest join flow | Medium | Add payment gate before join |
+| User model | Medium | Add wallet relationship |
+| API routes | Low | New `/wallet` routes |
+| Database | Medium | New tables (wallets, ledger) |
 
 ---
 
@@ -280,9 +355,9 @@ No phase ships without passing regression requirements.
 | After Phase | Additional Regression Tests |
 |-------------|----------------------------|
 | Phase 0 | Environment switching, feature flags, config isolation |
-| Phase 1 | + Wallet balance accuracy, ledger integrity, Stripe webhook handling |
-| Phase 2 | + Contest creation, join codes, template/instance relationship |
-| Phase 3 | + Multi-contest navigation, context switching, UI state |
+| Phase 1 | + Contest creation, join link generation, deep link parsing, onboarding flow, player cap enforcement |
+| Phase 2 | + Bracket submission, scoring accuracy, leaderboard ranking, deadline locking |
+| Phase 3 | + Wallet balance accuracy, ledger integrity, payment gating, Stripe webhook handling |
 
 #### Rollback Strategy
 
@@ -291,9 +366,9 @@ Every phase must have a documented rollback procedure.
 | Phase | Rollback Trigger | Rollback Procedure |
 |-------|------------------|-------------------|
 | Phase 0 | Staging breaks prod | Revert environment config, disable feature flags |
-| Phase 1 | Balance errors, payment failures | Feature flag disable, manual wallet freeze, revert migrations |
-| Phase 2 | Contest state corruption | Feature flag disable, restore contest table from backup |
-| Phase 3 | UI breaks existing flows | Feature flag disable, deploy previous UI build |
+| Phase 1 | Join links broken, onboarding fails | Feature flag disable, revert deep link config, restore contest tables |
+| Phase 2 | Scoring errors, bracket corruption | Feature flag disable, restore bracket data from backup |
+| Phase 3 | Balance errors, payment failures | Feature flag disable, manual wallet freeze, revert migrations |
 
 #### Feature Flag Kill Switches
 
@@ -301,11 +376,13 @@ Every new capability must be behind a feature flag that can be disabled instantl
 
 | Feature | Flag Name | Default (Prod) | Default (Staging) |
 |---------|-----------|----------------|-------------------|
-| Wallet UI | `WALLET_ENABLED` | false | true |
-| Add Funds | `WALLET_FUNDING_ENABLED` | false | true |
 | Custom Contests | `CUSTOM_CONTESTS_ENABLED` | false | true |
-| Contest Join Codes | `JOIN_CODES_ENABLED` | false | true |
-| Multi-Contest View | `MULTI_CONTEST_ENABLED` | false | true |
+| Deep Link Join | `DEEP_LINK_JOIN_ENABLED` | false | true |
+| Contest Creation UI | `CONTEST_CREATION_ENABLED` | false | true |
+| March Madness | `MARCH_MADNESS_ENABLED` | false | true |
+| Bracket UI | `BRACKET_UI_ENABLED` | false | true |
+| Payments | `PAYMENTS_ENABLED` | false | true |
+| Wallet UI | `WALLET_ENABLED` | false | true |
 
 ---
 
@@ -327,13 +404,63 @@ Before Phase N can use output from Phase N-1:
 ```typescript
 interface IEnvironmentConfig {
   isStaging(): boolean;
-  getStripeKey(): string;
   getDatabaseUrl(): string;
   getFeatureFlag(name: string): boolean;
 }
 ```
 
 **Phase 1 → Phase 2 Contract:**
+```typescript
+interface IContestService {
+  createInstance(templateId: string, ownerId: string, settings: ContestSettings): Promise<ContestInstance>;
+  getByJoinToken(token: string): Promise<ContestPreview>;
+  joinContest(contestId: string, userId: string): Promise<JoinResult>;
+  getUserContests(userId: string): Promise<ContestInstance[]>;
+  getContestState(contestId: string): Promise<ContestState>;
+}
+
+interface ContestSettings {
+  name: string;
+  entryFee: number;
+  maxPlayers: number | null;
+  gameTypeId: string;
+}
+
+interface ContestInstance {
+  id: string;
+  ownerId: string;
+  name: string;
+  entryFee: number;
+  maxPlayers: number | null;
+  currentPlayers: number;
+  joinCode: string;
+  joinUrlToken: string;
+  state: 'draft' | 'open' | 'locked' | 'completed' | 'cancelled';
+}
+
+interface IDeepLinkService {
+  parseJoinUrl(url: string): string | null; // returns token
+  generateJoinUrl(token: string): string;
+  handleDeferredLink(userId: string): Promise<ContestPreview | null>;
+}
+```
+
+**Phase 2 → Phase 3 Contract:**
+```typescript
+interface IBracketService {
+  createBracket(contestId: string, userId: string): Promise<Bracket>;
+  submitPicks(bracketId: string, picks: BracketPick[]): Promise<void>;
+  calculateScore(bracketId: string): Promise<number>;
+  getLeaderboard(contestId: string): Promise<LeaderboardEntry[]>;
+}
+
+interface IScoringEngine {
+  calculatePoints(pick: BracketPick, result: MatchResult): number;
+  getRoundMultiplier(round: string): number;
+}
+```
+
+**Phase 1 → Phase 3 Contract (Payment Integration):**
 ```typescript
 interface IWalletService {
   getBalance(userId: string): Promise<WalletBalance>;
@@ -346,15 +473,16 @@ interface WalletBalance {
   reserved: number;
   total: number;
 }
-```
 
-**Phase 2 → Phase 3 Contract:**
-```typescript
-interface IContestService {
-  createInstance(templateId: string, ownerId: string): Promise<ContestInstance>;
-  joinByCode(code: string, userId: string): Promise<JoinResult>;
-  getUserContests(userId: string): Promise<ContestInstance[]>;
-  getContestState(contestId: string): Promise<ContestState>;
+// Phase 1 exposes hook for payment integration
+interface IContestJoinGate {
+  canJoin(contestId: string, userId: string): Promise<JoinEligibility>;
+}
+
+interface JoinEligibility {
+  eligible: boolean;
+  reason?: 'not_authenticated' | 'contest_full' | 'already_joined' | 'insufficient_funds';
+  requiredAmount?: number;
 }
 ```
 
@@ -611,111 +739,313 @@ The admin interface must support Tier 1 and Tier 2 onboarding without developer 
 > This is not optional. It is the first move.
 
 **Why:**
-- Payment logic without staging is unacceptable
 - Custom contests introduce combinatorial risk
-- Need a place to test Stripe webhooks, wallet balance changes, and contest joins safely
+- Deep link routing needs safe testing
+- Need a place to test contest creation, join flows, and onboarding safely
 
 **Scope:**
-- Separate Stripe keys and webhook endpoints
 - Separate database or schema
 - Feature flag support at app boot
+- Deep link routing testable in isolation
 - Admin-only access acceptable
 
 **Duration:** 1-2 days max. Anything longer means overengineering.
 
 ---
 
-### Phase 1: Money Foundation (Core Revenue Path)
+### Phase 1: Custom Contest Foundation (Core Platform)
 
-**Deliverables:** Payment automation + UI enhancements for internal wallet
+**Deliverable:** Custom contest creation with shareable join links
 
-> These are inseparable. Treat them as one epic.
+> This is the foundation that all future contests build upon. Build it right once.
 
-**Architectural Stance:**
+#### Owner Capabilities
+
+The contest owner controls:
+
+| Setting | Description | Required |
+|---------|-------------|----------|
+| **Entry Price** | Amount to join (can be $0 for free contests) | Yes |
+| **Player Cap** | Maximum participants (null = unlimited) | No |
+| **Game Type** | Which game/sport this contest is for | Yes |
+| **Contest Name** | Display name for the contest | Yes |
+
+#### Architectural Foundation
+
+**Contest Instance Schema:**
+
+```
+contest_instances
+├── id (UUID)
+├── owner_id → references users
+├── template_id → references contest_templates
+├── name (string)
+├── entry_fee (decimal) → owner-defined price
+├── max_players (integer, nullable) → null = unlimited
+├── current_players (integer)
+├── join_code (string) → short human-readable code
+├── join_url_token (string) → URL-safe unique token
+├── state (enum) → draft, open, locked, completed, cancelled
+├── settings (JSONB) → extensible owner preferences
+├── created_at (timestamp)
+└── updated_at (timestamp)
+```
+
+**Key Design Decisions:**
+
+| Decision | Rationale |
+|----------|-----------|
+| `entry_fee` on instance, not template | Owner controls pricing per contest |
+| `max_players` nullable | Supports both capped and unlimited contests |
+| Separate `join_code` and `join_url_token` | Code for manual entry, token for deep links |
+| `settings` as JSONB | Future owner options without schema changes |
+
+---
+
+#### Shareable Join Link System
+
+When owner creates a contest, the app generates a shareable link that routes directly to the contest join flow.
+
+**Link Format:**
+```
+https://app.playoffchallenge.com/join/{join_url_token}
+
+Example:
+https://app.playoffchallenge.com/join/abc123xyz
+```
+
+**Deep Link Flow:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        JOIN LINK CLICKED                         │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+                    ┌───────────────────────┐
+                    │   App Installed?      │
+                    └───────────────────────┘
+                         │            │
+                        Yes           No
+                         │            │
+                         ▼            ▼
+              ┌─────────────────┐  ┌─────────────────┐
+              │  Open App with  │  │  App Store /    │
+              │  Contest Context│  │  Play Store     │
+              └─────────────────┘  └─────────────────┘
+                         │                  │
+                         │                  ▼
+                         │         ┌─────────────────┐
+                         │         │ Install App     │
+                         │         │ (deferred link) │
+                         │         └─────────────────┘
+                         │                  │
+                         ▼                  ▼
+              ┌─────────────────────────────────────────┐
+              │           ONBOARDING FLOW               │
+              │  1. Auth check (login/register if new)  │
+              │  2. Display contest details             │
+              │  3. Confirm join                        │
+              │  4. Route to contest view               │
+              └─────────────────────────────────────────┘
+```
+
+**Deep Link Requirements:**
+
+| Requirement | Implementation |
+|-------------|----------------|
+| iOS Universal Links | Apple App Site Association file |
+| Android App Links | Digital Asset Links file |
+| Deferred Deep Links | Store join token for post-install |
+| Fallback Web Page | Contest preview for non-app users |
+
+**Join URL Token Specification:**
+
+| Property | Value |
+|----------|-------|
+| Length | 12 characters |
+| Character set | Alphanumeric (a-z, A-Z, 0-9) |
+| Case sensitive | No (stored lowercase) |
+| Collision check | Required on generation |
+| Expiration | Optional, per contest setting |
+
+---
+
+#### Onboarding Flow (Link-Driven)
+
+When a user opens a join link:
+
+1. **Parse Token** → Extract `join_url_token` from URL
+2. **Fetch Contest** → GET `/api/contests/join/{token}` returns contest preview
+3. **Auth Gate** → If not logged in, present login/register (preserve context)
+4. **Contest Preview** → Show: name, game type, entry fee, current players, cap status
+5. **Join Confirmation** → User confirms entry (fee displayed prominently)
+6. **Process Join** → POST `/api/contests/{id}/join`
+7. **Route to Contest** → Navigate to contest detail view
+
+**API Endpoints:**
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/contests/join/{token}` | Public contest preview (no auth required) |
+| POST | `/api/contests/{id}/join` | Join contest (auth required) |
+| GET | `/api/contests/{id}` | Full contest details (participants only) |
+
+---
+
+#### Owner Share Flow
+
+After contest creation, owner receives:
+
+1. **Join Code** → Short code for manual sharing (e.g., "MARCH24")
+2. **Join Link** → Full URL for one-tap sharing
+3. **Share Sheet** → Native share with pre-filled message
+
+**Share Message Template:**
+```
+Join my {game_type} contest "{contest_name}" on Playoff Challenge!
+
+{join_url}
+
+Entry: {entry_fee == 0 ? "Free" : "$" + entry_fee}
+{max_players ? "Spots: " + spots_remaining + " left" : ""}
+```
+
+---
+
+#### Phase 1 Scope Boundaries
+
+**In Scope:**
+- Contest creation with owner settings
+- Join link generation and deep linking
+- Join code manual entry
+- Basic contest listing (my contests)
+- Onboarding flow from link
+
+**Out of Scope (Future Phases):**
+- Payment processing (Phase 3)
+- Specific game implementations (Phase 2)
+- Contest discovery/marketplace
+- Social features
+
+> Custom contests are the platform. Everything else is a game on top of it.
+
+---
+
+### Phase 2: March Madness Contest
+
+**Deliverable:** March Madness bracket game using custom contest infrastructure
+
+> This is the first game type built on the Phase 1 foundation.
+
+#### Game Type Configuration
+
+**March Madness Template:**
+
+| Setting | Value |
+|---------|-------|
+| Game Type ID | `ncaa_bracket` |
+| Scoring Engine | `ncaa_bracket_standard` |
+| Pick Deadline | Tournament start |
+| Pick Type | Full bracket (all rounds) |
+
+**Bracket-Specific Settings (in contest `settings` JSONB):**
+
+```json
+{
+  "bracket_type": "standard_64",
+  "scoring": {
+    "round_1": 1,
+    "round_2": 2,
+    "sweet_16": 4,
+    "elite_8": 8,
+    "final_4": 16,
+    "championship": 32
+  },
+  "tiebreaker": "championship_total_points"
+}
+```
+
+#### Required Components
+
+| Component | Description |
+|-----------|-------------|
+| Bracket UI | Visual bracket picker for user selections |
+| Team Data | 68 teams seeded and placed in regions |
+| Matchup Data | Tournament schedule and results |
+| Scoring Engine | Calculate points based on correct picks |
+| Leaderboard | Rank participants by score |
+
+#### Integration with Phase 1
+
+March Madness contests are created through the custom contest system:
+
+1. Owner selects game type: "March Madness"
+2. Owner sets: price, player cap, name
+3. System generates join link
+4. Participants join via link → bracket UI opens
+5. Deadline locks all brackets
+6. Scoring updates as games complete
+
+**No special code paths.** March Madness is just a contest instance with `template_id` pointing to the March Madness template.
+
+---
+
+### Phase 3: Payment Automation (Optional)
+
+**Deliverable:** Wallet and payment processing for paid contests
+
+> This phase is optional for launch. Free contests work without it.
+
+#### When This Phase is Required
+
+| Scenario | Payment Required? |
+|----------|------------------|
+| Free contests only | No |
+| Entry fees collected | Yes |
+| Prize payouts | Yes |
+| Mixed free/paid | Yes (for paid contests) |
+
+#### Architectural Stance
+
 - Wallet is the system of record
 - Stripe is a funding rail, not a balance authority
 - Relay is a payout rail, not a ledger
 
-**Minimum Viable Wallet:**
+#### Minimum Viable Wallet
+
 - Balance table
 - Ledger table with immutable entries
 - Pending vs available funds
 - Contest entry reservations
 
-**UI Scope:**
+#### UI Scope
+
 - View balance
 - Add funds
 - See recent transactions
-- Use wallet when joining contest
+- Use wallet when joining paid contest
 
-**Explicit Non-Goals for March 10:**
+#### Integration with Phase 1
+
+When payment is enabled:
+
+1. Join flow checks `entry_fee > 0`
+2. If paid → verify wallet balance before join
+3. Reserve entry fee on join confirmation
+4. Settle on contest completion
+
+**Feature Flag:** `PAYMENTS_ENABLED`
+- When false: All contests are free (entry_fee ignored)
+- When true: Entry fee enforced, wallet required
+
+#### Explicit Non-Goals
+
 - No peer-to-peer transfers
 - No refunds automation beyond admin override
 - No partial payouts
 
-> If wallet is not ready, March Madness onboarding fails. Period.
-
----
-
-### Phase 2: Contest Model Expansion (Critical Enabler)
-
-**Deliverable:** Custom contest support
-
-> This is the hardest architectural decision and must be done cleanly once.
-
-**Correct Abstraction:**
-
-| Contest Template | Contest Instance |
-|------------------|------------------|
-| Game type | Owner |
-| Rules | Join code |
-| Entry fee | Player list |
-| Max players | State |
-| Scoring logic reference | Prize pool |
-
-**Key Rule:** Custom contests are instances, not forks. Never clone rules or scoring logic. Reference them.
-
-**Join Code Requirements:**
-- Short
-- Human-readable
-- Unique per instance
-- Expirable (optional)
-
-**Unlocks:**
-- Private March Madness pools
-- Office pools
-- Friends and family use cases
-
-> Without this, growth is capped.
-
----
-
-### Phase 3: User Entry and Navigation (UX Critical)
-
-**Deliverables:**
-- UI to create or join custom games
-- UI to view and switch between games
-
-> These are tightly coupled and should be designed together.
-
-**Navigation Model:**
-- User belongs to many contests
-- Contest is the primary context
-- Game type is secondary
-
-**UI Requirements:**
-- Create contest flow
-- Join via code
-- List active contests
-- Clear indicator of current contest
-- Wallet balance visible in context
-
-**Defer:**
-- Contest discovery marketplace
-- Search
-- Recommendations
-
-> You only need intentional joins right now.
+> Payment is an enhancement, not a blocker. Ship free contests first if needed.
 
 ---
 
@@ -725,19 +1055,21 @@ The admin interface must support Tier 1 and Tier 2 onboarding without developer 
 
 | Days | Deliverable |
 |------|-------------|
-| 1-2 | Staging + Stripe isolation |
-| 3-5 | Wallet backend + UI |
-| 6-8 | Custom contest backend |
-| 9-10 | Contest join/create UI |
-| Buffer | Bug fixes and rollout |
+| 1-2 | Staging environment + feature flags |
+| 3-7 | Custom contest backend + deep linking + onboarding flow |
+| 8-10 | Owner creation UI + share flow |
+| 11-15 | March Madness bracket UI + scoring engine |
+| 16-18 | Integration testing + polish |
+| Optional | Payment automation (Phase 3) |
 
-> This is aggressive but realistic only if scope discipline is enforced.
+> Phases 0-2 are required for launch. Phase 3 can follow based on business needs.
 
 ---
 
 ## Tradeoffs
 
 ### Acceptable Compromises
+- Free contests only at launch (if Phase 3 deferred)
 - Admin-assisted refunds
 - Manual contest cancellation
 - Limited transaction history
@@ -745,9 +1077,10 @@ The admin interface must support Tier 1 and Tier 2 onboarding without developer 
 - No notifications beyond basics
 
 ### Unacceptable Compromises
-- Incorrect balances
-- Contest entry without funds
-- Double charges
+- Broken join links
+- Lost contest context after install
+- Incorrect player counts
+- Join allowing over cap
 - Inconsistent contest state
 
 ---
@@ -757,131 +1090,657 @@ The admin interface must support Tier 1 and Tier 2 onboarding without developer 
 **To make March Madness succeed:**
 
 1. Build staging first
-2. Finish wallet and payment flow
-3. Implement contest instances cleanly
-4. Enable users to create, join, and switch contests
+2. Ship custom contest foundation with shareable join links
+3. Implement March Madness bracket game on that foundation
+4. Add payment automation when ready (optional for launch)
 5. Ignore everything else
+
+> Free contests can launch without Phase 3. Payment is an enhancement, not a blocker.
 
 ---
 
 ## Platform Architecture
 
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           CLIENT LAYER                                   │
+│                     (iOS App + Web Fallback)                            │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         AUTHENTICATION LAYER                             │
+│              (User Auth + Admin Auth + Token Management)                 │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            API LAYER                                     │
+│         (Route Handling, Request Validation, Response Formatting)        │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     SERVICE / DOMAIN SERVICES LAYER                      │
+│    (Orchestration, Business Logic, Cross-Domain Coordination)           │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐         │
+│  │ ContestService  │  │  WalletService  │  │  BracketService │         │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘         │
+└─────────────────────────────────────────────────────────────────────────┘
+          │                       │                       │
+          ▼                       ▼                       ▼
+┌───────────────────┐   ┌───────────────────┐   ┌───────────────────────┐
+│   CONTEST DOMAIN  │   │   WALLET DOMAIN   │   │    GAME SERVICE       │
+│   (Pure Models)   │   │   (Pure Models)   │   │ (Isolated + Own DB)   │
+│                   │   │                   │   │                       │
+│ - ContestTemplate │   │ - Wallet          │   │ - Rules Engine        │
+│ - ContestInstance │   │ - Ledger          │   │ - Scoring Calculator  │
+│ - ContestEntry    │   │ - Reservation     │   │ - Team/Matchup Data   │
+└─────────┬─────────┘   └─────────┬─────────┘   └───────────┬───────────┘
+          │                       │                         │
+          ▼                       ▼                         ▼
+┌───────────────────┐   ┌───────────────────┐   ┌───────────────────────┐
+│   Contest DB      │   │    Wallet DB      │   │      Game DB          │
+│                   │   │   (Phase 3)       │   │   (Isolated Store)    │
+└───────────────────┘   └───────────────────┘   └───────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        INTEGRATION LAYER                                 │
+│              (External SaaS: Stripe, Relay, Push Services)              │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ### 1. Client Layer
 
 **iOS App**
 - Primary user interface
-- Handles: Authentication, contest discovery/join/create, wallet balance display, contest context switching
+- Handles: Authentication UI, contest creation, join via deep link, bracket UI
+- Deep link integration: Universal Links for join URLs
 - Feature-flag aware (prod vs staging)
 - No business logic beyond validation and presentation
 
-> **Key Rule:** Client is stateless with respect to money and contest rules.
+**Deep Link Handling:**
+- Registers for `app.playoffchallenge.com/join/*` URLs
+- Parses join token from URL
+- Preserves context through onboarding flow
+- Handles deferred deep links (post-install)
+
+> **Key Rule:** Client is stateless with respect to contest rules and eligibility.
 
 ---
 
-### 2. API Layer
+### 2. Authentication Layer
 
-**Backend API (Node/Express)**
-- Single source of truth for: Wallet balances, contest state, game rules
-- Versioned endpoints: `/wallet`, `/contests`, `/entries`, `/games`
-- Enforces: Authorization, contest eligibility, funds availability
-- Environment-aware (prod vs staging config)
+Authentication is a dedicated layer, not embedded in the API layer. This enables consistent auth across all entry points and supports both user and admin flows.
 
-> **Key Rule:** All state transitions are server-authoritative.
-
----
-
-### 3. Domain Layer
-
-#### Wallet Domain
+#### User Authentication
 
 | Component | Description |
 |-----------|-------------|
-| Wallet | User-scoped, available balance, pending balance |
-| Ledger | Immutable transaction records, credits, debits, holds |
-| Reservation | Temporary hold for contest entry, settled or released |
+| Registration | Email/password or OAuth (Apple, Google) |
+| Login | Returns JWT access token + refresh token |
+| Token Refresh | Refresh token extends session without re-login |
+| Session Management | Token blacklist for logout, device tracking |
 
-> Stripe and Relay never mutate wallet state directly.
+**JWT Token Structure:**
+```json
+{
+  "sub": "user_id",
+  "type": "user",
+  "email": "user@example.com",
+  "iat": 1234567890,
+  "exp": 1234571490
+}
+```
 
-#### Contest Domain
+#### Admin Authentication
 
-| Contest Template | Contest Instance |
-|------------------|------------------|
-| Game type (Playoff Challenge, March Madness) | Owner |
-| Ruleset reference | Join code |
-| Entry fee | Participants |
-| Scoring engine reference | Prize pool |
-| | State (open, locked, completed) |
+| Component | Description |
+|-----------|-------------|
+| Admin Login | Separate auth flow, stricter requirements |
+| Role-Based Access | Roles: `super_admin`, `support`, `ops` |
+| MFA Required | TOTP or hardware key for admin access |
+| Audit Logging | All admin actions logged with user ID and timestamp |
 
-> Custom contests are instances referencing templates, never copies.
+**Admin JWT Token Structure:**
+```json
+{
+  "sub": "admin_id",
+  "type": "admin",
+  "role": "super_admin",
+  "permissions": ["wallet.adjust", "contest.cancel", "user.ban"],
+  "iat": 1234567890,
+  "exp": 1234568790
+}
+```
 
-#### Game Domain
-- Encapsulates sport-specific logic
-- Scoring engines are modular and referenced
-- Contest instances bind to a game engine at creation
+#### Auth Middleware
+
+```typescript
+interface IAuthMiddleware {
+  authenticateUser(req: Request): Promise<UserContext | null>;
+  authenticateAdmin(req: Request): Promise<AdminContext | null>;
+  requireAuth(type: 'user' | 'admin' | 'any'): MiddlewareFunction;
+  requirePermission(permission: string): MiddlewareFunction;
+}
+```
+
+**Route Protection Matrix:**
+
+| Route Pattern | Auth Required | Type | Permissions |
+|---------------|---------------|------|-------------|
+| `GET /api/contests/join/{token}` | No | Public | - |
+| `POST /api/contests/{id}/join` | Yes | User | - |
+| `POST /api/contests` | Yes | User | - |
+| `GET /api/wallet` | Yes | User | - |
+| `POST /admin/wallet/adjust` | Yes | Admin | `wallet.adjust` |
+| `POST /admin/contest/cancel` | Yes | Admin | `contest.cancel` |
+
+> **Key Rule:** Auth layer is independent. API layer consumes auth context, never implements it.
 
 ---
 
-### 4. Integration Layer
+### 3. API Layer
+
+**Backend API (Node/Express)**
+- Route handling and request validation only
+- Receives authenticated context from Auth Layer
+- Delegates all business logic to Service Layer
+- Response formatting and error handling
+- Environment-aware (prod vs staging config)
+
+**API Layer Responsibilities:**
+
+| Do | Don't |
+|----|-------|
+| Validate request shape | Execute business logic |
+| Parse and sanitize input | Access database directly |
+| Format responses | Orchestrate cross-domain operations |
+| Handle HTTP concerns | Contain domain knowledge |
+
+**Endpoint Structure:**
+```
+/api/v1/contests         → ContestService
+/api/v1/brackets         → BracketService
+/api/v1/wallet           → WalletService
+/api/v1/games            → GameService (proxy to Game Service)
+/admin/v1/*              → Admin-specific services
+```
+
+> **Key Rule:** API layer is thin. It routes, validates, and formats. Nothing more.
+
+---
+
+### 4. Service / Domain Services Layer
+
+This layer sits between API and Domain. It provides:
+- **Failure isolation** - Service failures don't cascade
+- **Scale independence** - Services can be scaled individually
+- **Threat containment** - Compromised service has limited blast radius
+
+#### Service Layer Responsibilities
+
+| Do | Don't |
+|----|-------|
+| Orchestrate multi-step operations | Contain domain model definitions |
+| Coordinate across domains | Access database directly |
+| Enforce business rules | Handle HTTP concerns |
+| Call Integration Layer | Expose internal domain details |
+
+#### Core Services
+
+**ContestService (Orchestrator)**
+```typescript
+interface IContestService {
+  // Orchestrates contest lifecycle
+  createContest(ownerId: string, settings: ContestSettings): Promise<ContestInstance>;
+  joinContest(contestId: string, userId: string): Promise<JoinResult>;
+  getContestPreview(token: string): Promise<ContestPreview>;
+
+  // Coordinates with GameService for rules
+  validateContestSettings(settings: ContestSettings): Promise<ValidationResult>;
+
+  // Coordinates with WalletService for paid contests (Phase 3)
+  processJoinWithPayment(contestId: string, userId: string): Promise<JoinResult>;
+}
+```
+
+**WalletService (Orchestrator - Phase 3)**
+```typescript
+interface IWalletService {
+  // Entry point for all wallet operations
+  getBalance(userId: string): Promise<WalletBalance>;
+  reserveFunds(userId: string, amount: number, contestId: string): Promise<Reservation>;
+  settleFunds(reservationId: string, outcome: SettlementOutcome): Promise<void>;
+
+  // Coordinates with Integration Layer
+  processDeposit(userId: string, stripePaymentId: string): Promise<DepositResult>;
+  processPayout(userId: string, amount: number): Promise<PayoutResult>;
+}
+```
+
+**BracketService (Orchestrator - Phase 2)**
+```typescript
+interface IBracketService {
+  // Orchestrates bracket operations
+  createBracket(contestId: string, userId: string): Promise<Bracket>;
+  submitPicks(bracketId: string, picks: BracketPick[]): Promise<void>;
+
+  // Coordinates with GameService for scoring
+  calculateScore(bracketId: string): Promise<ScoreResult>;
+  getLeaderboard(contestId: string): Promise<LeaderboardEntry[]>;
+}
+```
+
+> **Key Rule:** Services orchestrate. They don't contain domain models or database access.
+
+---
+
+### 5. Domain Layer (Pure Models)
+
+Domain layer contains **pure models only** - no services, no business logic, no database access.
+
+#### Contest Domain
+
+```typescript
+// Pure domain models - no methods, no logic
+interface ContestTemplate {
+  id: string;
+  gameTypeId: string;        // Reference only, no cross-domain call
+  name: string;
+  defaultEntryFee: number;
+  scoringEngineId: string;   // Reference only, no cross-domain call
+  isActive: boolean;
+}
+
+interface ContestInstance {
+  id: string;
+  templateId: string;
+  ownerId: string;
+  name: string;
+  entryFee: number;
+  maxPlayers: number | null;
+  currentPlayers: number;
+  joinCode: string;
+  joinUrlToken: string;
+  state: ContestState;
+  settings: Record<string, unknown>;
+  createdAt: Date;
+}
+
+type ContestState = 'draft' | 'open' | 'locked' | 'completed' | 'cancelled';
+```
+
+#### Wallet Domain (Phase 3)
+
+```typescript
+interface Wallet {
+  id: string;
+  userId: string;
+  availableBalance: number;
+  reservedBalance: number;
+}
+
+interface LedgerEntry {
+  id: string;
+  walletId: string;
+  type: 'credit' | 'debit' | 'hold' | 'release';
+  amount: number;
+  reference: string;
+  createdAt: Date;
+  // Immutable - no update allowed
+}
+
+interface Reservation {
+  id: string;
+  walletId: string;
+  contestId: string;
+  amount: number;
+  status: 'pending' | 'settled' | 'released';
+}
+```
+
+> **Key Rule:** Domain models are data structures. They don't call services, databases, or other domains.
+
+---
+
+### 6. Game Service (Isolated)
+
+**Game is a separate service with its own data store.** It operates like a SaaS platform - comms in, comms out, no cross-domain coupling.
+
+#### Why Isolated?
+
+| Problem | Solution |
+|---------|----------|
+| Contest Template was crossing into Game Domain | Game Service receives requests, returns responses |
+| Function chaining created tight coupling | Clean API boundary eliminates chaining |
+| Scaling games independently of contests | Separate service can scale on its own |
+| Different game types have different data needs | Localized data store per game type |
+
+#### Game Service Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        GAME SERVICE                              │
+│         (Pseudo Rules Engine - SaaS Model)                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────────┐    ┌──────────────────┐                   │
+│  │   Rules Engine   │    │ Scoring Engine   │                   │
+│  │                  │    │                  │                   │
+│  │ - Validate picks │    │ - Calculate pts  │                   │
+│  │ - Check deadlines│    │ - Round weights  │                   │
+│  │ - Enforce rules  │    │ - Tiebreakers    │                   │
+│  └──────────────────┘    └──────────────────┘                   │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                   Game Data Store                         │   │
+│  │  - Teams, Matchups, Schedules, Results                   │   │
+│  │  - Isolated from Contest DB                               │   │
+│  │  - Can be refreshed/replaced without affecting contests   │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Game Service API (Internal)
+
+```typescript
+interface IGameService {
+  // Game type metadata - what Contest needs to display options
+  getAvailableGameTypes(): Promise<GameType[]>;
+  getGameTypeConfig(gameTypeId: string): Promise<GameTypeConfig>;
+
+  // Rules validation - Contest sends params, Game validates
+  validatePicks(gameTypeId: string, picks: unknown): Promise<ValidationResult>;
+  getPickDeadline(gameTypeId: string): Promise<Date>;
+
+  // Scoring - Contest sends picks + results reference, Game returns score
+  calculateScore(gameTypeId: string, picks: unknown): Promise<number>;
+  getRoundMultiplier(gameTypeId: string, round: string): Promise<number>;
+
+  // Data retrieval - Game owns this data, exposes via API
+  getTeams(gameTypeId: string, seasonId: string): Promise<Team[]>;
+  getMatchups(gameTypeId: string, seasonId: string): Promise<Matchup[]>;
+  getResults(gameTypeId: string, matchupIds: string[]): Promise<MatchResult[]>;
+}
+```
+
+#### Communication Pattern
+
+```
+ContestService                    GameService
+     │                                 │
+     │  "What game types available?"   │
+     │────────────────────────────────▶│
+     │                                 │
+     │   [GameType[], configs]         │
+     │◀────────────────────────────────│
+     │                                 │
+     │  "Validate these picks"         │
+     │────────────────────────────────▶│
+     │                                 │
+     │   {valid: true/false, errors}   │
+     │◀────────────────────────────────│
+     │                                 │
+     │  "Calculate score for picks"    │
+     │────────────────────────────────▶│
+     │                                 │
+     │   {score: 45, breakdown: [...]} │
+     │◀────────────────────────────────│
+```
+
+> **Key Rule:** Game Service is a black box. Contest sends parameters, receives results. No shared models, no direct DB access.
+
+---
+
+### 7. Data Layer (Domain-Centric)
+
+Current architecture uses a single database. For scale (1k+ users), consider domain-centric databases controlled by a master connection manager.
+
+#### Current (MVP)
+
+```
+┌─────────────────────────────────────┐
+│         Primary Database            │
+│                                     │
+│  - users                            │
+│  - contest_templates                │
+│  - contest_instances                │
+│  - contest_entries                  │
+│  - wallets (Phase 3)                │
+│  - ledger_entries (Phase 3)         │
+│  - game_* tables                    │
+└─────────────────────────────────────┘
+```
+
+#### Scale Architecture (1k+ Users)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DB Connection Manager                         │
+│              (Routes queries to appropriate DB)                  │
+└─────────────────────────────────────────────────────────────────┘
+          │                    │                    │
+          ▼                    ▼                    ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│   Contest DB    │  │   Wallet DB     │  │    Game DB      │
+│                 │  │                 │  │                 │
+│ - templates     │  │ - wallets       │  │ - teams         │
+│ - instances     │  │ - ledger        │  │ - matchups      │
+│ - entries       │  │ - reservations  │  │ - results       │
+│                 │  │                 │  │ - brackets      │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+```
+
+**Benefits:**
+- **Performance** - Queries don't compete across domains
+- **Organization** - Clear ownership and boundaries
+- **Scaling** - Heavy domains (Game during tournament) scale independently
+- **Backup/Recovery** - Domain-specific backup strategies
+
+**Connection Manager Interface:**
+```typescript
+interface IDBConnectionManager {
+  getContestConnection(): DatabaseConnection;
+  getWalletConnection(): DatabaseConnection;
+  getGameConnection(): DatabaseConnection;
+
+  // Transaction coordination across DBs (use sparingly)
+  beginDistributedTransaction(): DistributedTransaction;
+}
+```
+
+#### Migration Path
+
+| Stage | Configuration |
+|-------|---------------|
+| MVP | Single DB, all tables |
+| Growth | Single DB, read replicas for Game data |
+| Scale | Separate DBs per domain |
+
+> **Key Rule:** Design for single DB, architect for separation. Domain boundaries in code enable DB separation later.
+
+---
+
+### 8. Integration Layer
+
+External SaaS connections only. These services connect to true outside platforms.
 
 | System | Role | Notes |
 |--------|------|-------|
 | Stripe | Funding rail only | Handles card payments, deposits. Communicates via webhooks. Never queried for balance. |
 | Relay | Payout rail only | Executes disbursements post-contest. Triggered by backend settlement logic. |
+| Apple Push | Notifications | Contest updates, deadline reminders |
+| Firebase | Analytics | Usage tracking (optional) |
 
-> **Key Rule:** External systems are asynchronous and non-authoritative.
+**Integration Service Pattern:**
+```typescript
+interface IStripeIntegration {
+  createPaymentIntent(amount: number, userId: string): Promise<PaymentIntent>;
+  handleWebhook(payload: unknown, signature: string): Promise<WebhookResult>;
+}
 
----
+interface IRelayIntegration {
+  initiatePayout(userId: string, amount: number, bankAccountId: string): Promise<PayoutResult>;
+  getPayoutStatus(payoutId: string): Promise<PayoutStatus>;
+}
+```
 
-### 5. Data Layer
-
-**Primary Database Tables:**
-- Users
-- Wallets
-- Ledger entries
-- Contest templates
-- Contest instances
-- Contest entries
-
-**Environment Isolation:**
-- Separate staging and production databases
-- No shared Stripe keys
-- No cross-environment data access
+> **Key Rule:** Integration layer wraps external APIs. Internal services never call Stripe/Relay directly.
 
 ---
 
-### 6. Admin and Safety Controls
+### 9. Admin and Safety Controls
 
 **Admin Capabilities:**
-- Manual refunds
-- Contest cancellation
-- Wallet adjustment (audited)
+- Manual refunds (requires `wallet.adjust` permission)
+- Contest cancellation (requires `contest.cancel` permission)
+- Wallet adjustment (audited, requires `wallet.adjust` permission)
+- User management (requires `user.manage` permission)
 - Environment locks
+
+**Admin Authentication:**
+- Separate login endpoint (`/admin/auth/login`)
+- MFA required for all admin accounts
+- Session timeout: 30 minutes idle
+- All actions logged with admin ID, timestamp, and affected resources
 
 **Operational Safeguards:**
 - Idempotent payment handling
 - Webhook replay protection
 - Feature flags for incomplete UI
+- Rate limiting per user and per IP
+- Request signing for admin operations
 
 ---
 
 ### 7. Flow Summary (Happy Path)
 
+**Contest Creation Flow:**
+1. Owner creates contest (sets price, cap, game type)
+2. System generates join code and shareable URL
+3. Owner shares link with participants
+
+**Join via Link Flow:**
+1. User clicks join link
+2. App opens (or installs, then opens with deferred link)
+3. User authenticates if needed
+4. Contest preview displayed
+5. User confirms join
+6. User routed to contest/bracket view
+
+**Game Flow (March Madness):**
+1. User makes bracket picks before deadline
+2. Tournament games complete
+3. Scoring engine calculates points
+4. Leaderboard updates
+
+**Payment Flow (Phase 3 - Optional):**
 1. User funds wallet via Stripe
 2. Stripe webhook credits wallet ledger
-3. User creates or joins contest
-4. Entry fee reserved from wallet
-5. Contest completes
-6. Backend settles ledger
-7. Relay executes payouts
+3. Entry fee reserved on contest join
+4. Contest completes
+5. Backend settles ledger
+6. Relay executes payouts
 
 ---
 
 ### Architectural North Star
 
-- Wallet is the system of record
+- Custom contests are the platform foundation
+- Deep links drive frictionless onboarding
 - Contest instances are isolated, not forked
-- External services are rails, not brains
+- Games are pluggable on the contest infrastructure
+- Payment is an optional layer, not a prerequisite
 - Staging exists to break things safely
+
+---
+
+### Scale Considerations & Pressure Points
+
+This section addresses the "oh shit we just hit 1k users" scenario.
+
+#### Red Flags to Monitor
+
+| Area | Risk | Symptom | Mitigation |
+|------|------|---------|------------|
+| **API Layer Bottleneck** | All pressure funnels through single API | Response times spike during tournament | Rate limiting, request queuing, horizontal scaling |
+| **Function Chaining** | Service A → Service B → Service C cascades | Timeout errors, partial failures | Service layer isolation, async where possible |
+| **Database Performance** | Single DB under heavy read/write | Query timeouts, connection pool exhaustion | Read replicas, domain-centric DB split |
+| **Game Service Overload** | Scoring calculations during tournament | Leaderboard lag, stale scores | Batch scoring, caching, dedicated Game DB |
+
+#### API Layer Pressure
+
+The API layer is the single entry point - all pressure concentrates here.
+
+**Mitigations:**
+- Keep API layer thin (route + validate only)
+- Push business logic to Service layer
+- Implement request rate limiting per user
+- Add request queuing for spikes (tournament deadline)
+- Monitor: requests/sec, p99 latency, error rate
+
+**If API breaks, everything breaks.** The Service layer provides a buffer - if logic is solid and tight in services, API failures are easier to isolate and recover.
+
+#### Function Chaining Risk
+
+Old architecture had: `Contest Template → Game Engine → Rules`
+
+This creates cascading failures:
+- Template fails → Engine unreachable → Rules unavailable → Contest creation fails
+
+**New architecture eliminates chaining:**
+- ContestService calls GameService via API
+- GameService handles its own failures
+- Contest can degrade gracefully (show "scoring unavailable" vs crash)
+
+#### Database Performance at Scale
+
+| User Count | DB Strategy |
+|------------|-------------|
+| < 500 | Single DB, monitor queries |
+| 500-2000 | Read replicas for Game data |
+| 2000+ | Domain-centric DB split |
+
+**Query Hotspots to Watch:**
+- Leaderboard calculations (heavy reads during tournament)
+- Wallet balance checks (every join attempt)
+- Contest listing (home screen loads)
+
+**Indexing Requirements:**
+```sql
+-- Critical indexes for scale
+CREATE INDEX idx_contest_instances_state ON contest_instances(state);
+CREATE INDEX idx_contest_instances_owner ON contest_instances(owner_id);
+CREATE INDEX idx_contest_entries_contest ON contest_entries(contest_id);
+CREATE INDEX idx_contest_entries_user ON contest_entries(user_id);
+CREATE INDEX idx_wallets_user ON wallets(user_id);
+CREATE INDEX idx_ledger_wallet ON ledger_entries(wallet_id);
+```
+
+#### Game Service Isolation Benefits
+
+Because Game Service is isolated:
+- Heavy scoring calculations don't block contest operations
+- Game DB can have aggressive caching (team/matchup data changes rarely)
+- Tournament data refresh doesn't affect live contests
+- Can scale Game Service independently during peak (tournament time)
+
+#### Graceful Degradation Strategy
+
+| Component | Degraded State | User Experience |
+|-----------|---------------|-----------------|
+| Game Service down | Scoring unavailable | "Scores updating, check back soon" |
+| Wallet Service down | Payments disabled | Free contests still work |
+| Leaderboard slow | Cached results | "Last updated X minutes ago" |
+| Deep links broken | Manual join code | Fallback to code entry screen |
+
+> **Key Rule:** If logic/functions are solid and tight, pressure is manageable. Failures should be isolated, not cascading.
 
 ---
 
@@ -1153,76 +2012,109 @@ flowchart TB
 %% CLIENT LAYER
 subgraph Client["Client Layer"]
   IOS[iOS App]
+  WebFallback[Web Fallback]
+end
+
+%% AUTH LAYER
+subgraph Auth["Authentication Layer"]
+  UserAuth[User Auth<br/>JWT + Refresh]
+  AdminAuth[Admin Auth<br/>JWT + MFA]
 end
 
 %% API LAYER
 subgraph API["API Layer"]
-  APICore[Backend API<br/>Node / Express]
+  APICore[Backend API<br/>Routes + Validation]
 end
 
-%% DOMAIN LAYER
-subgraph Domain["Domain Layer"]
+%% SERVICE LAYER
+subgraph Services["Service / Domain Services Layer"]
+  ContestSvc[ContestService<br/>Orchestrator]
+  WalletSvc[WalletService<br/>Orchestrator]
+  BracketSvc[BracketService<br/>Orchestrator]
+end
 
-  subgraph Wallet["Wallet Domain"]
-    WalletSvc[Wallet Service]
-    Ledger[Ledger<br/>Immutable Transactions]
-    Reservation[Entry Reservations]
-  end
+%% DOMAIN LAYER - Pure Models
+subgraph ContestDomain["Contest Domain (Pure Models)"]
+  Template[Contest Template]
+  Instance[Contest Instance]
+  Entry[Contest Entry]
+end
 
-  subgraph Contest["Contest Domain"]
-    Template[Contest Template]
-    Instance[Contest Instance]
-  end
+subgraph WalletDomain["Wallet Domain (Pure Models)"]
+  Wallet[Wallet]
+  Ledger[Ledger]
+  Reservation[Reservation]
+end
 
-  subgraph Game["Game Domain"]
-    Engine[Scoring Engine]
-    Rules[Game Rules]
-  end
+%% GAME SERVICE - Isolated
+subgraph GameService["Game Service (Isolated)"]
+  RulesEngine[Rules Engine]
+  ScoringEngine[Scoring Engine]
+  GameData[Teams / Matchups]
+  GameDB[(Game DB)]
 end
 
 %% DATA LAYER
 subgraph Data["Data Layer"]
-  DB[(Primary Database)]
+  ContestDB[(Contest DB)]
+  WalletDB[(Wallet DB)]
 end
 
 %% INTEGRATIONS
 subgraph Integrations["Integration Layer"]
   Stripe[Stripe<br/>Funding Rail]
   Relay[Relay<br/>Payout Rail]
+  Push[Push Service]
 end
 
 %% ADMIN
-subgraph Admin["Admin and Ops"]
-  AdminUI[Admin Controls]
+subgraph Admin["Admin Controls"]
+  AdminUI[Admin Dashboard]
 end
 
-%% FLOWS
-IOS --> APICore
+%% CLIENT FLOWS
+IOS --> Auth
+WebFallback --> Auth
+Auth --> APICore
 
+%% API TO SERVICES
+APICore --> ContestSvc
 APICore --> WalletSvc
-APICore --> Instance
-APICore --> Template
-APICore --> Engine
+APICore --> BracketSvc
 
-WalletSvc --> Ledger
-WalletSvc --> Reservation
+%% SERVICES TO DOMAINS (no cross-domain)
+ContestSvc --> ContestDomain
+WalletSvc --> WalletDomain
+BracketSvc --> GameService
 
-Template --> Engine
-Engine --> Rules
+%% CONTEST SERVICE CALLS GAME SERVICE (API boundary, no coupling)
+ContestSvc -.->|"API Call"| GameService
 
-WalletSvc --> DB
-Ledger --> DB
-Reservation --> DB
-Template --> DB
-Instance --> DB
+%% DOMAINS TO DATA
+ContestDomain --> ContestDB
+WalletDomain --> WalletDB
+GameData --> GameDB
+RulesEngine --> GameDB
+ScoringEngine --> GameDB
 
-APICore --> Stripe
+%% SERVICES TO INTEGRATIONS
+WalletSvc --> Stripe
+WalletSvc --> Relay
 Stripe -->|Webhooks| APICore
 
-APICore --> Relay
-
-AdminUI --> APICore
+%% ADMIN FLOWS
+AdminUI --> AdminAuth
+AdminAuth --> APICore
 ```
+
+### Diagram Key Points
+
+1. **Authentication Layer** - Dedicated layer for user and admin auth, not embedded in API
+2. **Service Layer** - Orchestrates business logic, calls domains and Game Service
+3. **Domain Layer** - Pure models only, no services, no DB access
+4. **Game Service** - Fully isolated with own DB, communicates via API calls only
+5. **No Function Chaining** - ContestService calls GameService via API, not direct domain access
+6. **Domain-Centric DBs** - Separate databases per domain (can start as single DB, split later)
 
 ---
 
