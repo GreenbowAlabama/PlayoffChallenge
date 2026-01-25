@@ -5130,11 +5130,9 @@ app.get('/api/leaderboard', async (req, res) => {
     // SECURITY: Only expose picks if week is locked OR games have started
     if (includePicks === 'true' && actualWeekNumber) {
       // Check if picks should be visible (week locked or games started)
-      const lockStatusResult = await pool.query('SELECT is_week_active, current_playoff_week, playoff_start_week FROM game_settings LIMIT 1');
-      const settings = lockStatusResult.rows[0] || {};
-      const isWeekLocked = settings.is_week_active === false;
+      const lockStatusResult = await pool.query('SELECT is_week_active FROM game_settings LIMIT 1');
+      const isWeekLocked = lockStatusResult.rows[0]?.is_week_active === false;
       const gamesStarted = await hasAnyGameStartedForWeek(actualWeekNumber);
-      const playoffStartWeek = settings.playoff_start_week || 19;
 
       // If week is unlocked AND no games have started, don't expose picks
       if (!isWeekLocked && !gamesStarted) {
@@ -5179,7 +5177,7 @@ app.get('/api/leaderboard', async (req, res) => {
           `, [user.id, actualWeekNumber]);
 
           // Add opponent matchup data to each pick
-          let picksWithMatchups = picksResult.rows.map((pick) => {
+          const picksWithMatchups = picksResult.rows.map((pick) => {
             const matchup = getTeamMatchup(pick.team, matchupMap);
             return {
               ...pick,
@@ -5187,51 +5185,6 @@ app.get('/api/leaderboard', async (req, res) => {
               is_home: matchup?.isHome ?? null
             };
           });
-
-          // === ENHANCEMENT 1: Carry forward previous week's picks if user forgot to submit ===
-          // This is a READ-ONLY fallback to provide UI context when a user missed a week.
-          // Safe because: (1) no database writes, (2) no scoring data returned, (3) explicit flag marks it as placeholder.
-          if (picksWithMatchups.length === 0) {
-            const previousWeek = actualWeekNumber - 1;
-            // Only fallback if we're within playoff weeks (prevents pre-playoff fallback)
-            if (previousWeek >= playoffStartWeek) {
-              console.log(`[Leaderboard] User ${user.id} has no picks for week ${actualWeekNumber}, fetching carried-forward picks from week ${previousWeek}`);
-              const fallbackResult = await pool.query(`
-                SELECT
-                  pk.position,
-                  p.full_name,
-                  p.team,
-                  p.sleeper_id,
-                  p.image_url
-                FROM picks pk
-                JOIN players p ON pk.player_id = p.id
-                WHERE pk.user_id = $1 AND pk.week_number = $2
-                ORDER BY
-                  CASE pk.position
-                    WHEN 'QB' THEN 1
-                    WHEN 'RB' THEN 2
-                    WHEN 'WR' THEN 3
-                    WHEN 'TE' THEN 4
-                    WHEN 'K' THEN 5
-                    WHEN 'DEF' THEN 6
-                    ELSE 7
-                  END
-              `, [user.id, previousWeek]);
-
-              // Return as read-only placeholders WITHOUT scoring data (no base_points, multiplier, points)
-              // The carried_forward flag tells iOS this is NOT a real pick for this week
-              picksWithMatchups = fallbackResult.rows.map((pick) => ({
-                ...pick,
-                carried_forward: true,  // Additive flag for iOS to render appropriately
-                opponent: null,         // No matchup data for carried-forward picks
-                is_home: null
-              }));
-
-              if (picksWithMatchups.length > 0) {
-                console.log(`[Leaderboard] Returning ${picksWithMatchups.length} carried-forward picks for user ${user.id}`);
-              }
-            }
-          }
 
           return {
             ...user,
@@ -5241,67 +5194,6 @@ app.get('/api/leaderboard', async (req, res) => {
       );
 
       res.json(leaderboardWithPicks);
-    } else if (includePicks === 'true' && !actualWeekNumber) {
-      // === ENHANCEMENT 2: All Weeks (cumulative) mode with roster context ===
-      // When viewing cumulative leaderboard, return current roster for expanded rows.
-      // This is READ-ONLY context showing the user's most recent playoff week picks.
-      // Safe because: (1) no database writes, (2) no scoring data, (3) explicit flag marks it as context only.
-      const contextSettingsResult = await pool.query('SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1');
-      const contextSettings = contextSettingsResult.rows[0] || {};
-      const currentPlayoffWeek = contextSettings.current_playoff_week || 0;
-      const contextPlayoffStartWeek = contextSettings.playoff_start_week || 19;
-
-      // Only provide roster context if playoffs have started
-      if (currentPlayoffWeek > 0) {
-        // Derive actual NFL week from current playoff week
-        const contextWeekNumber = contextPlayoffStartWeek + (currentPlayoffWeek - 1);
-        console.log(`[Leaderboard] Cumulative mode: fetching roster context from week ${contextWeekNumber} (playoff week ${currentPlayoffWeek})`);
-
-        const leaderboardWithRosterContext = await Promise.all(
-          result.rows.map(async (user) => {
-            // Fetch current week's picks as roster context (no scoring data)
-            const rosterResult = await pool.query(`
-              SELECT
-                pk.position,
-                p.full_name,
-                p.team,
-                p.sleeper_id,
-                p.image_url
-              FROM picks pk
-              JOIN players p ON pk.player_id = p.id
-              WHERE pk.user_id = $1 AND pk.week_number = $2
-              ORDER BY
-                CASE pk.position
-                  WHEN 'QB' THEN 1
-                  WHEN 'RB' THEN 2
-                  WHEN 'WR' THEN 3
-                  WHEN 'TE' THEN 4
-                  WHEN 'K' THEN 5
-                  WHEN 'DEF' THEN 6
-                  ELSE 7
-                END
-            `, [user.id, contextWeekNumber]);
-
-            // Return as roster context WITHOUT scoring data (no base_points, multiplier, points)
-            // The roster_context flag tells iOS this is for display purposes only
-            const picksAsContext = rosterResult.rows.map((pick) => ({
-              ...pick,
-              roster_context: 'current'  // Additive flag indicating this is current roster, not historical scores
-            }));
-
-            return {
-              ...user,
-              picks: picksAsContext  // Always return picks array (may be empty if user has no picks)
-            };
-          })
-        );
-
-        res.json(leaderboardWithRosterContext);
-      } else {
-        // Playoffs haven't started, return leaderboard without picks
-        console.log(`[Leaderboard] Cumulative mode: playoffs not started, no roster context available`);
-        res.json(result.rows);
-      }
     } else {
       res.json(result.rows);
     }
