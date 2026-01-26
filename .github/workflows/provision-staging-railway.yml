@@ -1,0 +1,40 @@
+name: Provision Railway Staging Environment
+
+on:
+  workflow_dispatch:
+
+jobs:
+  provision-staging:
+    runs-on: ubuntu-latest
+
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.app/install.sh | sh
+          echo "$HOME/.railway/bin" >> $GITHUB_PATH
+
+      - name: Create Railway project
+        run: |
+          PROJECT_ID=$(railway init -n playoff-challenge-staging --json | jq -r '.id')
+          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
+          echo "Created project: $PROJECT_ID"
+
+      - name: Link to project
+        run: |
+          railway link -p "$PROJECT_ID"
+
+      - name: Add Postgres database
+        run: |
+          railway add -d postgres
+          echo "Postgres database added to project"
+
+      # Phase 2 (service attachment) is handled separately
+      # Services require explicit branch pinning which is not currently
+      # supported by the Railway CLI. Services must be added manually
+      # or via a future CLI update that supports branch selection.
