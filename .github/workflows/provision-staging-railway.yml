@@ -7,6 +7,9 @@ jobs:
   provision-staging:
     runs-on: ubuntu-latest
 
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -17,62 +20,34 @@ jobs:
           echo "$HOME/.railway/bin" >> $GITHUB_PATH
 
       - name: Create Railway project
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          PROJECT_ID=$(railway project create \
-            --name playoff-challenge-staging \
-            --json | jq -r '.id')
-
+          PROJECT_ID=$(railway init -n playoff-challenge-staging --json | jq -r '.id')
           echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
 
-      - name: Create backend service (PlayoffChallenge)
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - name: Link to project
         run: |
-          railway service create \
-            --project "$PROJECT_ID" \
-            --name PlayoffChallenge \
-            --source github \
-            --repo "$GITHUB_REPOSITORY" \
-            --branch staging
+          railway link -p "$PROJECT_ID"
 
-      - name: Create web-admin service (upbeat-analysis)
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - name: Add Postgres database
         run: |
-          railway service create \
-            --project "$PROJECT_ID" \
-            --name upbeat-analysis \
-            --source github \
-            --repo "$GITHUB_REPOSITORY" \
-            --branch staging
+          railway add -d postgres
 
-      - name: Add Postgres
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - name: Add backend service (PlayoffChallenge)
         run: |
-          railway add postgresql --project "$PROJECT_ID"
+          railway add -s PlayoffChallenge -r "$GITHUB_REPOSITORY"
+
+      - name: Add web-admin service (upbeat-analysis)
+        run: |
+          railway add -s upbeat-analysis -r "$GITHUB_REPOSITORY"
 
       - name: Generate ADMIN_JWT_SECRET
         run: |
           echo "ADMIN_JWT_SECRET=$(openssl rand -hex 32)" >> $GITHUB_ENV
 
       - name: Set backend environment variables
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway variables set \
-            NODE_ENV=staging \
-            ADMIN_JWT_SECRET="$ADMIN_JWT_SECRET" \
-            --service PlayoffChallenge \
-            --project "$PROJECT_ID"
+          railway variables --set "NODE_ENV=staging" --set "ADMIN_JWT_SECRET=$ADMIN_JWT_SECRET" -s PlayoffChallenge
 
       - name: Set web-admin environment variables
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway variables set \
-            VITE_API_BASE_URL=https://playoffchallenge-staging.up.railway.app \
-            --service upbeat-analysis \
-            --project "$PROJECT_ID"
+          railway variables --set "VITE_API_BASE_URL=https://playoffchallenge-staging.up.railway.app" -s upbeat-analysis
