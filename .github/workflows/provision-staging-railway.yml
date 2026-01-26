@@ -23,6 +23,7 @@ jobs:
         run: |
           PROJECT_ID=$(railway init -n playoff-challenge-staging --json | jq -r '.id')
           echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
+          echo "Created project: $PROJECT_ID"
 
       - name: Link to project
         run: |
@@ -31,23 +32,9 @@ jobs:
       - name: Add Postgres database
         run: |
           railway add -d postgres
+          echo "Postgres database added to project"
 
-      - name: Add backend service (PlayoffChallenge)
-        run: |
-          railway add -s PlayoffChallenge -r "$GITHUB_REPOSITORY"
-
-      - name: Add web-admin service (upbeat-analysis)
-        run: |
-          railway add -s upbeat-analysis -r "$GITHUB_REPOSITORY"
-
-      - name: Generate ADMIN_JWT_SECRET
-        run: |
-          echo "ADMIN_JWT_SECRET=$(openssl rand -hex 32)" >> $GITHUB_ENV
-
-      - name: Set backend environment variables
-        run: |
-          railway variables --set "NODE_ENV=staging" --set "ADMIN_JWT_SECRET=$ADMIN_JWT_SECRET" -s PlayoffChallenge
-
-      - name: Set web-admin environment variables
-        run: |
-          railway variables --set "VITE_API_BASE_URL=https://playoffchallenge-staging.up.railway.app" -s upbeat-analysis
+      # Phase 2 (service attachment) is handled separately
+      # Services require explicit branch pinning which is not currently
+      # supported by the Railway CLI. Services must be added manually
+      # or via a future CLI update that supports branch selection.
