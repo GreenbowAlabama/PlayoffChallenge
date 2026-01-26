@@ -1423,29 +1423,11 @@ async function calculateFantasyPoints(stats) {
     // Fumbles
     points += (stats.fum_lost || 0) * (rules.fum_lost || 0);
 
-    // Kicker stats
-    if (
-      stats.fg_made !== undefined ||
-      stats.xp_made !== undefined ||
-      stats.xp_missed !== undefined
-    ) {
-      const fgMade = stats.fg_made || 0;
-      const fgLongest = Number(stats.fg_longest) || 0;
-
-      if (fgLongest >= 50 && fgMade > 0) {
-        points += 5;
-        points += (fgMade - 1) * 3;
-      } else if (fgLongest >= 40 && fgMade > 0) {
-        points += 4;
-        points += (fgMade - 1) * 3;
-      } else {
-        points += fgMade * 3;
-      }
-
-      points += (stats.xp_made || 0) * (rules.pat_made || 1);
-      points += (stats.fg_missed || 0) * (rules.fg_missed || -2);
-      points += (stats.xp_missed || 0) * (rules.pat_missed || -1);
-    }
+    // Kicker stats - flat scoring
+    points += (stats.fg_made || 0) * 3;
+    points += (stats.xp_made || 0) * 1;
+    points += (stats.fg_missed || 0) * -1;
+    points += (stats.xp_missed || 0) * -1;
 
     // Defense stats
     if (stats.def_sack !== undefined) {
