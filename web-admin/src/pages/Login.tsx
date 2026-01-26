@@ -46,7 +46,7 @@ export function Login() {
       window.AppleID.auth.init({
         clientId: import.meta.env.VITE_APPLE_CLIENT_ID,
         scope: 'name email',
-        redirectURI: 'https://playoffchallenge-production.up.railway.app/api/admin/auth/apple',
+        redirectURI: import.meta.env.VITE_APPLE_REDIRECT_URI,
         responseType: 'code',
         state: 'web-admin',
       });
