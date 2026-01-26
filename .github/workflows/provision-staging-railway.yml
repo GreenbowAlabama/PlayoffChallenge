@@ -35,6 +35,24 @@ jobs:
             echo "Token format: contains non-hex characters"
           fi
 
+      - name: Check Railway CLI version
+        run: |
+          railway --version
+
+      - name: Test token via Railway API directly
+        run: |
+          echo "Testing token against Railway GraphQL API..."
+          RESPONSE=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"query": "{ me { name email } }"}')
+          echo "API Response: $RESPONSE"
+          if echo "$RESPONSE" | grep -q "error"; then
+            echo "API authentication failed"
+          else
+            echo "API authentication succeeded"
+          fi
+
       - name: Verify Railway authentication
         run: |
           railway whoami
