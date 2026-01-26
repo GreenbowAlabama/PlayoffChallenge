@@ -2,3 +2,12 @@
 *.log
 .env
 .env.local
+# Database dumps
+*.sql
+*.dump
+*.bak
+*.backup
+
+# Railway / Postgres exports
+railway_backup_*
+backup_all_tables_*
