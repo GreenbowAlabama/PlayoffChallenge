@@ -1,0 +1,72 @@
+name: Provision Railway Staging Environment
+
+on:
+  workflow_dispatch:
+
+jobs:
+  provision-staging:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.app/install.sh | sh
+          echo "$HOME/.railway/bin" >> $GITHUB_PATH
+
+      - name: Authenticate Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway login --token "$RAILWAY_TOKEN"
+
+      - name: Create Railway project
+        run: |
+          PROJECT_ID=$(railway project create \
+            --name playoff-challenge-staging \
+            --json | jq -r '.id')
+
+          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
+
+      - name: Create backend service (PlayoffChallenge)
+        run: |
+          railway service create \
+            --project "$PROJECT_ID" \
+            --name PlayoffChallenge \
+            --source github \
+            --repo "$GITHUB_REPOSITORY" \
+            --branch staging
+
+      - name: Create web-admin service (upbeat-analysis)
+        run: |
+          railway service create \
+            --project "$PROJECT_ID" \
+            --name upbeat-analysis \
+            --source github \
+            --repo "$GITHUB_REPOSITORY" \
+            --branch staging
+
+      - name: Add Postgres
+        run: |
+          railway add postgresql --project "$PROJECT_ID"
+
+      - name: Generate ADMIN_JWT_SECRET
+        run: |
+          echo "ADMIN_JWT_SECRET=$(openssl rand -hex 32)" >> $GITHUB_ENV
+
+      - name: Set backend environment variables
+        run: |
+          railway variables set \
+            NODE_ENV=staging \
+            ADMIN_JWT_SECRET="$ADMIN_JWT_SECRET" \
+            --service PlayoffChallenge \
+            --project "$PROJECT_ID"
+
+      - name: Set web-admin environment variables
+        run: |
+          railway variables set \
+            VITE_API_BASE_URL=https://playoffchallenge-staging.up.railway.app \
+            --service upbeat-analysis \
+            --project "$PROJECT_ID"
