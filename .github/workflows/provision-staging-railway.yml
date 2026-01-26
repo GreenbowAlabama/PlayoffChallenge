@@ -42,7 +42,7 @@ jobs:
       - name: Test token via Railway API directly
         run: |
           echo "Testing token against Railway GraphQL API..."
-          RESPONSE=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+          RESPONSE=$(curl -s -X POST https://backboard.railway.com/graphql/v2 \
             -H "Authorization: Bearer $RAILWAY_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{"query": "{ me { name email } }"}')
