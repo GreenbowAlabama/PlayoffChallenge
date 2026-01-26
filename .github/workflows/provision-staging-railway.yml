@@ -16,13 +16,9 @@ jobs:
           curl -fsSL https://railway.app/install.sh | sh
           echo "$HOME/.railway/bin" >> $GITHUB_PATH
 
-      - name: Authenticate Railway
+      - name: Create Railway project
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          railway login --token "$RAILWAY_TOKEN"
-
-      - name: Create Railway project
         run: |
           PROJECT_ID=$(railway project create \
             --name playoff-challenge-staging \
@@ -31,6 +27,8 @@ jobs:
           echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
 
       - name: Create backend service (PlayoffChallenge)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           railway service create \
             --project "$PROJECT_ID" \
@@ -40,6 +38,8 @@ jobs:
             --branch staging
 
       - name: Create web-admin service (upbeat-analysis)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           railway service create \
             --project "$PROJECT_ID" \
@@ -49,6 +49,8 @@ jobs:
             --branch staging
 
       - name: Add Postgres
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           railway add postgresql --project "$PROJECT_ID"
 
@@ -57,6 +59,8 @@ jobs:
           echo "ADMIN_JWT_SECRET=$(openssl rand -hex 32)" >> $GITHUB_ENV
 
       - name: Set backend environment variables
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           railway variables set \
             NODE_ENV=staging \
@@ -65,6 +69,8 @@ jobs:
             --project "$PROJECT_ID"
 
       - name: Set web-admin environment variables
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           railway variables set \
             VITE_API_BASE_URL=https://playoffchallenge-staging.up.railway.app \
