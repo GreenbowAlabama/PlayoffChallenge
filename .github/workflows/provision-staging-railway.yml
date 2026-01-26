@@ -19,6 +19,22 @@ jobs:
           curl -fsSL https://railway.app/install.sh | sh
           echo "$HOME/.railway/bin" >> $GITHUB_PATH
 
+      - name: Debug token info
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "ERROR: RAILWAY_TOKEN is empty or not set"
+            exit 1
+          fi
+          TOKEN_LENGTH=${#RAILWAY_TOKEN}
+          echo "Token length: $TOKEN_LENGTH characters"
+          echo "Token prefix: ${RAILWAY_TOKEN:0:4}..."
+          echo "Token suffix: ...${RAILWAY_TOKEN: -4}"
+          if [[ "$RAILWAY_TOKEN" =~ ^[a-f0-9-]+$ ]]; then
+            echo "Token format: looks like UUID/hex format"
+          else
+            echo "Token format: contains non-hex characters"
+          fi
+
       - name: Verify Railway authentication
         run: |
           railway whoami
