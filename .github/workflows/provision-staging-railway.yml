@@ -3,8 +3,15 @@ name: Provision Railway Staging Environment
 on:
   workflow_dispatch:
 
+# This workflow verifies Railway project token connectivity.
+# Prerequisites (manual one-time setup):
+#   1. Create project "playoff-challenge-staging" in Railway UI
+#   2. Add PostgreSQL database to the project
+#   3. Create a Project Token (Project Settings > Tokens)
+#   4. Add token to GitHub as RAILWAY_TOKEN secret
+
 jobs:
-  provision-staging:
+  verify-staging:
     runs-on: ubuntu-latest
 
     env:
@@ -16,29 +23,43 @@ jobs:
 
       - name: Install Railway CLI
         run: |
-          curl -fsSL https://railway.app/install.sh | sh
-          echo "$HOME/.railway/bin" >> $GITHUB_PATH
+          npm install -g @railway/cli
 
-      - name: Verify Railway authentication
+      - name: Debug token info
         run: |
-          railway whoami
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "ERROR: RAILWAY_TOKEN is empty or not set"
+            exit 1
+          fi
+          TOKEN_LENGTH=${#RAILWAY_TOKEN}
+          echo "Token length: $TOKEN_LENGTH characters"
+          echo "Token prefix: ${RAILWAY_TOKEN:0:4}..."
+          echo "Token suffix: ...${RAILWAY_TOKEN: -4}"
 
-      - name: Create Railway project
+      - name: Test Project Token via Railway API
         run: |
-          PROJECT_ID=$(railway init -n playoff-challenge-staging -w "greenbowalabama's Projects" --json | jq -r '.id')
-          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
-          echo "Created project: $PROJECT_ID"
+          echo "Testing project token against Railway GraphQL API..."
+          RESPONSE=$(curl -s -X POST https://backboard.railway.com/graphql/v2 \
+            -H "Project-Access-Token: $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"query": "{ projectToken { projectId environmentId } }"}')
+          echo "API Response: $RESPONSE"
+          if echo "$RESPONSE" | grep -q "projectId"; then
+            echo "Project token authentication succeeded!"
+            echo "PROJECT_ID=$(echo $RESPONSE | jq -r '.data.projectToken.projectId')" >> $GITHUB_ENV
+            echo "ENVIRONMENT_ID=$(echo $RESPONSE | jq -r '.data.projectToken.environmentId')" >> $GITHUB_ENV
+          else
+            echo "Project token authentication failed"
+            exit 1
+          fi
 
-      - name: Link to project
+      - name: Display project info
         run: |
-          railway link -p "$PROJECT_ID"
-
-      - name: Add Postgres database
-        run: |
-          railway add -d postgres
-          echo "Postgres database added to project"
-
-      # Phase 2 (service attachment) is handled separately
-      # Services require explicit branch pinning which is not currently
-      # supported by the Railway CLI. Services must be added manually
-      # or via a future CLI update that supports branch selection.
+          echo "Connected to Railway project!"
+          echo "Project ID: $PROJECT_ID"
+          echo "Environment ID: $ENVIRONMENT_ID"
+          echo ""
+          echo "Staging environment is ready for service deployment."
+          echo "Next steps (Phase 2):"
+          echo "  - Add services via Railway UI with branch pinning to 'staging'"
+          echo "  - Configure environment variables"
