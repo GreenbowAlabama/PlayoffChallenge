@@ -19,9 +19,13 @@ jobs:
           curl -fsSL https://railway.app/install.sh | sh
           echo "$HOME/.railway/bin" >> $GITHUB_PATH
 
+      - name: Verify Railway authentication
+        run: |
+          railway whoami
+
       - name: Create Railway project
         run: |
-          PROJECT_ID=$(railway init -n playoff-challenge-staging --json | jq -r '.id')
+          PROJECT_ID=$(railway init -n playoff-challenge-staging -w "greenbowalabama's Projects" --json | jq -r '.id')
           echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
           echo "Created project: $PROJECT_ID"
 
