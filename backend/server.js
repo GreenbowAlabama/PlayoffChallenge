@@ -2459,17 +2459,20 @@ app.get('/api/admin/preview-week-transition', async (req, res) => {
       });
     }
 
-    if (current_playoff_week >= 4) {
+    // Cannot advance beyond Super Bowl (capped offset 3). With Pro Bowl skip, this can be round 5.
+    const currentOffset = Math.min(current_playoff_week - 1, 3);
+    if (currentOffset >= 3) {
       return res.status(400).json({
-        error: 'Cannot advance beyond Super Bowl (playoff week 4)',
-        currentState: { current_playoff_week }
+        error: 'Cannot advance beyond Super Bowl (already at final round)',
+        currentState: { current_playoff_week, effectiveOffset: currentOffset }
       });
     }
 
-    // Derive initial target week
+    // Derive initial target week using capped offset formula for consistency
     const fromPlayoffWeek = current_playoff_week;
     const initialToPlayoffWeek = current_playoff_week + 1;
-    const initialToWeek = playoff_start_week + initialToPlayoffWeek - 1;  // NFL week number
+    const initialToWeekOffset = Math.min(initialToPlayoffWeek - 1, 3);
+    const initialToWeek = playoff_start_week + initialToWeekOffset;  // NFL week number (capped)
 
     // Fetch ESPN data, automatically skipping Pro Bowl weeks entirely.
     // PRO BOWL WEEK EXCLUSION: If ESPN returns only AFC/NFC events for a week,
@@ -2488,14 +2491,21 @@ app.get('/api/admin/preview-week-transition', async (req, res) => {
 
     const activeTeamsArray = Array.from(validWeekData.activeTeams).sort();
 
+    // Calculate capped effective week (same formula as getEffectiveWeekNumber and process-week-transition)
+    const toPlayoffWeek = validWeekData.playoffWeek;
+    const toWeekOffset = Math.min(toPlayoffWeek - 1, 3);
+    const effectiveNflWeek = playoff_start_week + toWeekOffset;
+
     // Return preview data (no mutations)
-    // Note: toPlayoffWeek and nflWeek may differ from initial values if Pro Bowl weeks were skipped
+    // Note: toPlayoffWeek may differ from initial if Pro Bowl weeks were skipped
+    // effectiveNflWeek is the capped week where picks will be stored (may differ from ESPN's raw week)
     res.json({
       success: true,
       preview: {
         fromPlayoffWeek,
-        toPlayoffWeek: validWeekData.playoffWeek,
-        nflWeek: validWeekData.nflWeek,
+        toPlayoffWeek,
+        nflWeek: effectiveNflWeek,  // Capped effective week (where picks will be stored)
+        espnNflWeek: validWeekData.nflWeek,  // Raw ESPN week (for reference)
         eventCount: validWeekData.eventCount,
         activeTeams: activeTeamsArray,
         teamCount: activeTeamsArray.length,
@@ -2564,19 +2574,24 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
       });
     }
 
-    // PRECONDITION 2: Cannot advance beyond Super Bowl (playoff week 4)
-    if (current_playoff_week >= 4) {
+    // PRECONDITION 2: Cannot advance beyond Super Bowl
+    // Super Bowl is the final round (capped offset 3). With Pro Bowl skip, this can be round 5.
+    const currentOffset = Math.min(current_playoff_week - 1, 3);
+    if (currentOffset >= 3) {
       return res.status(400).json({
-        error: 'Cannot advance beyond Super Bowl (playoff week 4)',
-        currentState: { current_playoff_week }
+        error: 'Cannot advance beyond Super Bowl (already at final round)',
+        currentState: { current_playoff_week, effectiveOffset: currentOffset }
       });
     }
 
     // Derive initial target weeks from DB state
+    // Use capped offset formula for consistency with getEffectiveWeekNumber()
     const fromPlayoffWeek = current_playoff_week;
-    const fromWeek = playoff_start_week + fromPlayoffWeek - 1;  // NFL week number
+    const fromWeekOffset = Math.min(fromPlayoffWeek - 1, 3);
+    const fromWeek = playoff_start_week + fromWeekOffset;  // NFL week number (capped)
     const initialToPlayoffWeek = current_playoff_week + 1;
-    const initialToWeek = playoff_start_week + initialToPlayoffWeek - 1;  // NFL week number
+    const initialToWeekOffset = Math.min(initialToPlayoffWeek - 1, 3);
+    const initialToWeek = playoff_start_week + initialToWeekOffset;  // NFL week number (capped)
 
     console.log(`[admin] Processing week transition: Playoff ${fromPlayoffWeek} -> ${initialToPlayoffWeek} (NFL ${fromWeek} -> ${initialToWeek})`);
 
@@ -2600,11 +2615,16 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
 
     // Use the effective week values (may differ from initial if Pro Bowl weeks were skipped)
     const toPlayoffWeek = validWeekData.playoffWeek;
-    const toWeek = validWeekData.nflWeek;
     const activeTeams = validWeekData.activeTeams;
 
+    // CRITICAL: Calculate toWeek using the same capped formula as getEffectiveWeekNumber()
+    // This ensures picks are stored in the same week that clients will query.
+    // Without this, Pro Bowl skip causes ESPN to return week 20, but clients query week 19.
+    const toWeekOffset = Math.min(toPlayoffWeek - 1, 3);  // Cap at 3 (Super Bowl)
+    const toWeek = playoff_start_week + toWeekOffset;
+
     if (validWeekData.skippedProBowlWeeks > 0) {
-      console.log(`[admin] Skipped ${validWeekData.skippedProBowlWeeks} Pro Bowl week(s). Effective target: Playoff ${toPlayoffWeek} (NFL ${toWeek})`);
+      console.log(`[admin] Skipped ${validWeekData.skippedProBowlWeeks} Pro Bowl week(s). ESPN returned NFL week ${validWeekData.nflWeek}, using capped effective week ${toWeek}`);
     }
 
     // PRECONDITION 3: ESPN must return valid game data
