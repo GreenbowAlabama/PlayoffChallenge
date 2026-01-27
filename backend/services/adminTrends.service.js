@@ -78,8 +78,10 @@ async function getCurrentNflWeek(pool) {
     return null;
   }
 
-  // NFL week = playoff_start_week + current_playoff_week - 1
-  return playoff_start_week + current_playoff_week - 1;
+  // NFL week = playoff_start_week + offset, capped at 3 for Super Bowl
+  // This handles Pro Bowl skip where round 5 = Super Bowl = offset 3
+  const offset = Math.min(current_playoff_week - 1, 3);
+  return playoff_start_week + offset;
 }
 
 /**

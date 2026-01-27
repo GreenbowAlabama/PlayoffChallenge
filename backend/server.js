@@ -1599,8 +1599,9 @@ app.get('/api/admin/verify-lock-status', async (req, res) => {
     }
 
     const { is_week_active, current_playoff_week, playoff_start_week, updated_at } = gameStateResult.rows[0];
+    // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
     const effectiveNflWeek = current_playoff_week > 0
-      ? playoff_start_week + current_playoff_week - 1
+      ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
       : null;
 
     // Test that a picks write would actually be blocked
@@ -2812,8 +2813,9 @@ app.post('/api/picks/replace-player', async (req, res) => {
       });
     }
 
+    // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
     const effectiveWeekNumber = current_playoff_week > 0
-      ? playoff_start_week + current_playoff_week - 1
+      ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
       : weekNumber;
 
     // Verify the old player's team is actually eliminated
@@ -4187,9 +4189,10 @@ app.post('/api/picks', async (req, res) => {
 
     // Server is the single source of truth for active week (never trust client weekNumber)
     // If in playoff mode, compute NFL week from playoff round
-    // playoff_week 1 = Wild Card = week 19, playoff_week 2 = Divisional = week 20, etc.
+    // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
+    // playoff_week 1 = Wild Card = offset 0, playoff_week 5 = Super Bowl = offset 3 (capped)
     const effectiveWeekNumber = current_playoff_week > 0
-      ? playoff_start_week + current_playoff_week - 1
+      ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
       : (playoff_start_week > 0 ? playoff_start_week : 1);
 
     // Guard: reject if client sent a mismatched week (prevents future-week writes)
@@ -4625,12 +4628,13 @@ async function startLiveStatsPolling() {
 
   // Get current playoff week and derive NFL week number
   // FIX: Use NFL week numbers (19-22) for scoring, not playoff round (1-4)
+  // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
   const configResult = await pool.query(
     'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
   );
   const { current_playoff_week, playoff_start_week } = configResult.rows[0] || {};
   const currentWeek = current_playoff_week > 0
-    ? playoff_start_week + current_playoff_week - 1
+    ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
     : current_playoff_week || 1;
 
   console.log(`Starting live stats polling for week ${currentWeek}...`);
@@ -5450,8 +5454,11 @@ async function getEffectiveWeekNumber() {
   const { current_playoff_week, playoff_start_week } = gameStateResult.rows[0] || {};
 
   // Calculate from playoff state if in playoffs
+  // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
+  // This ensures: Wild Card=0, Divisional=1, Conference=2, Super Bowl=3
   if (current_playoff_week > 0 && playoff_start_week > 0) {
-    return playoff_start_week + current_playoff_week - 1;
+    const offset = Math.min(current_playoff_week - 1, 3);
+    return playoff_start_week + offset;
   }
 
   // Fall back to playoff_start_week if set
