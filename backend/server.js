@@ -2410,14 +2410,22 @@ app.get('/api/admin/preview-week-transition', async (req, res) => {
     let eventCount = 0;
 
     if (scoreboardResponse.data && scoreboardResponse.data.events) {
-      eventCount = scoreboardResponse.data.events.length;
       for (const event of scoreboardResponse.data.events) {
         const competitors = event.competitions?.[0]?.competitors || [];
-        for (const competitor of competitors) {
-          const teamAbbr = competitor.team?.abbreviation;
-          if (teamAbbr) {
-            activeTeams.add(teamAbbr);
-          }
+        const teamAbbrs = competitors.map(c => c.team?.abbreviation).filter(Boolean);
+
+        // Skip Pro Bowl games: ESPN returns Pro Bowl under postseason week 4 with
+        // conference teams "AFC" and "NFC" as competitors. These are not real NFL
+        // teams and must be excluded to correctly identify Super Bowl participants.
+        const isProBowl = teamAbbrs.some(abbr => abbr === 'AFC' || abbr === 'NFC');
+        if (isProBowl) {
+          console.log('[admin] Preview: Skipping Pro Bowl game (AFC vs NFC)');
+          continue;
+        }
+
+        eventCount++;
+        for (const abbr of teamAbbrs) {
+          activeTeams.add(abbr);
         }
       }
     }
@@ -2534,11 +2542,19 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
     if (scoreboardResponse.data && scoreboardResponse.data.events) {
       for (const event of scoreboardResponse.data.events) {
         const competitors = event.competitions?.[0]?.competitors || [];
-        for (const competitor of competitors) {
-          const teamAbbr = competitor.team?.abbreviation;
-          if (teamAbbr) {
-            activeTeams.add(teamAbbr);
-          }
+        const teamAbbrs = competitors.map(c => c.team?.abbreviation).filter(Boolean);
+
+        // Skip Pro Bowl games: ESPN returns Pro Bowl under postseason week 4 with
+        // conference teams "AFC" and "NFC" as competitors. These are not real NFL
+        // teams and must be excluded to correctly identify Super Bowl participants.
+        const isProBowl = teamAbbrs.some(abbr => abbr === 'AFC' || abbr === 'NFC');
+        if (isProBowl) {
+          console.log('[admin] Skipping Pro Bowl game (AFC vs NFC)');
+          continue;
+        }
+
+        for (const abbr of teamAbbrs) {
+          activeTeams.add(abbr);
         }
       }
     }
