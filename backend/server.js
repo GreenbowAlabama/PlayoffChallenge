@@ -381,6 +381,82 @@ function getESPNScoreboardUrl(weekNumber) {
   }
 }
 
+// Helper: Fetch ESPN postseason week and extract teams, skipping Pro Bowl weeks entirely.
+// PRO BOWL EXCLUSION RULE: ESPN returns the Pro Bowl under postseason week numbering
+// with "AFC" and "NFC" as team abbreviations. This data has no value for our contest
+// and must never be persisted. If a week contains ONLY Pro Bowl events (all events
+// have AFC/NFC teams), the entire week is skipped and we advance to the next week.
+// This function loops forward until it finds a valid playoff week with real NFL teams.
+async function fetchValidPostseasonWeek(startingNflWeek, playoffStartWeek, maxWeeksToSearch = 3) {
+  let currentNflWeek = startingNflWeek;
+  const maxNflWeek = startingNflWeek + maxWeeksToSearch;
+
+  while (currentNflWeek <= maxNflWeek) {
+    const url = getESPNScoreboardUrl(currentNflWeek);
+    console.log(`[admin] Fetching ESPN postseason data for NFL week ${currentNflWeek}: ${url}`);
+
+    let scoreboardResponse;
+    try {
+      scoreboardResponse = await axios.get(url);
+    } catch (espnErr) {
+      throw new Error(`ESPN API call failed for week ${currentNflWeek}: ${espnErr.message}`);
+    }
+
+    const events = scoreboardResponse.data?.events || [];
+    if (events.length === 0) {
+      // No events found, try next week
+      console.log(`[admin] NFL week ${currentNflWeek} has no events, advancing...`);
+      currentNflWeek++;
+      continue;
+    }
+
+    // Check if this week is entirely Pro Bowl (all events have AFC/NFC teams)
+    const realTeams = new Set();
+    let realEventCount = 0;
+    let proBowlEventCount = 0;
+
+    for (const event of events) {
+      const competitors = event.competitions?.[0]?.competitors || [];
+      const teamAbbrs = competitors.map(c => c.team?.abbreviation).filter(Boolean);
+
+      // An event is Pro Bowl if ANY team is AFC or NFC
+      const isProBowlEvent = teamAbbrs.some(abbr => abbr === 'AFC' || abbr === 'NFC');
+
+      if (isProBowlEvent) {
+        proBowlEventCount++;
+        console.log(`[admin] NFL week ${currentNflWeek}: Detected Pro Bowl event (AFC vs NFC)`);
+      } else {
+        realEventCount++;
+        for (const abbr of teamAbbrs) {
+          realTeams.add(abbr);
+        }
+      }
+    }
+
+    // If ALL events are Pro Bowl, skip this entire week
+    if (realEventCount === 0 && proBowlEventCount > 0) {
+      console.log(`[admin] NFL week ${currentNflWeek} is entirely Pro Bowl (${proBowlEventCount} events). Skipping entire week.`);
+      currentNflWeek++;
+      continue;
+    }
+
+    // Found a valid week with real NFL teams
+    const effectivePlayoffWeek = currentNflWeek - playoffStartWeek + 1;
+    console.log(`[admin] Found valid playoff week: NFL week ${currentNflWeek} (playoff week ${effectivePlayoffWeek}) with ${realTeams.size} teams`);
+
+    return {
+      nflWeek: currentNflWeek,
+      playoffWeek: effectivePlayoffWeek,
+      activeTeams: realTeams,
+      eventCount: realEventCount,
+      skippedProBowlWeeks: currentNflWeek - startingNflWeek
+    };
+  }
+
+  // Exhausted search without finding valid data
+  throw new Error(`No valid playoff data found in weeks ${startingNflWeek}-${maxNflWeek}. All weeks appear to be Pro Bowl or empty.`);
+}
+
 // Helper: Generate image URL based on player position and sleeper_id
 function getPlayerImageUrl(sleeperId, position) {
   if (!sleeperId) return null;
@@ -2389,59 +2465,40 @@ app.get('/api/admin/preview-week-transition', async (req, res) => {
       });
     }
 
-    // Derive target week
+    // Derive initial target week
     const fromPlayoffWeek = current_playoff_week;
-    const toPlayoffWeek = current_playoff_week + 1;
-    const toWeek = playoff_start_week + toPlayoffWeek - 1;  // NFL week number
+    const initialToPlayoffWeek = current_playoff_week + 1;
+    const initialToWeek = playoff_start_week + initialToPlayoffWeek - 1;  // NFL week number
 
-    // Fetch ESPN data (read-only external call)
-    let scoreboardResponse;
+    // Fetch ESPN data, automatically skipping Pro Bowl weeks entirely.
+    // PRO BOWL WEEK EXCLUSION: If ESPN returns only AFC/NFC events for a week,
+    // that entire week is skipped and we advance to the next postseason week.
+    // Pro Bowl data is never persisted or returned to the client.
+    let validWeekData;
     try {
-      scoreboardResponse = await axios.get(getESPNScoreboardUrl(toWeek));
+      validWeekData = await fetchValidPostseasonWeek(initialToWeek, playoff_start_week);
     } catch (espnErr) {
-      console.error('[admin] Preview: ESPN API call failed:', espnErr.message);
+      console.error('[admin] Preview: ESPN fetch failed:', espnErr.message);
       return res.status(502).json({
-        error: 'Failed to fetch ESPN scoreboard data',
+        error: 'Failed to fetch valid ESPN postseason data',
         details: espnErr.message
       });
     }
 
-    const activeTeams = new Set();
-    let eventCount = 0;
-
-    if (scoreboardResponse.data && scoreboardResponse.data.events) {
-      for (const event of scoreboardResponse.data.events) {
-        const competitors = event.competitions?.[0]?.competitors || [];
-        const teamAbbrs = competitors.map(c => c.team?.abbreviation).filter(Boolean);
-
-        // Skip Pro Bowl games: ESPN returns Pro Bowl under postseason week 4 with
-        // conference teams "AFC" and "NFC" as competitors. These are not real NFL
-        // teams and must be excluded to correctly identify Super Bowl participants.
-        const isProBowl = teamAbbrs.some(abbr => abbr === 'AFC' || abbr === 'NFC');
-        if (isProBowl) {
-          console.log('[admin] Preview: Skipping Pro Bowl game (AFC vs NFC)');
-          continue;
-        }
-
-        eventCount++;
-        for (const abbr of teamAbbrs) {
-          activeTeams.add(abbr);
-        }
-      }
-    }
-
-    const activeTeamsArray = Array.from(activeTeams).sort();
+    const activeTeamsArray = Array.from(validWeekData.activeTeams).sort();
 
     // Return preview data (no mutations)
+    // Note: toPlayoffWeek and nflWeek may differ from initial values if Pro Bowl weeks were skipped
     res.json({
       success: true,
       preview: {
         fromPlayoffWeek,
-        toPlayoffWeek,
-        nflWeek: toWeek,
-        eventCount,
+        toPlayoffWeek: validWeekData.playoffWeek,
+        nflWeek: validWeekData.nflWeek,
+        eventCount: validWeekData.eventCount,
         activeTeams: activeTeamsArray,
-        teamCount: activeTeamsArray.length
+        teamCount: activeTeamsArray.length,
+        skippedProBowlWeeks: validWeekData.skippedProBowlWeeks
       }
     });
 
@@ -2514,49 +2571,39 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
       });
     }
 
-    // Derive weeks deterministically from DB state
+    // Derive initial target weeks from DB state
     const fromPlayoffWeek = current_playoff_week;
-    const toPlayoffWeek = current_playoff_week + 1;
     const fromWeek = playoff_start_week + fromPlayoffWeek - 1;  // NFL week number
-    const toWeek = playoff_start_week + toPlayoffWeek - 1;      // NFL week number
+    const initialToPlayoffWeek = current_playoff_week + 1;
+    const initialToWeek = playoff_start_week + initialToPlayoffWeek - 1;  // NFL week number
 
-    console.log(`[admin] Processing week transition: Playoff ${fromPlayoffWeek} -> ${toPlayoffWeek} (NFL ${fromWeek} -> ${toWeek})`);
+    console.log(`[admin] Processing week transition: Playoff ${fromPlayoffWeek} -> ${initialToPlayoffWeek} (NFL ${fromWeek} -> ${initialToWeek})`);
 
     // ========================================
     // STEP 2: Fetch ESPN data BEFORE transaction (external call)
+    // PRO BOWL WEEK EXCLUSION: If ESPN returns only AFC/NFC events for a week,
+    // that entire week is skipped and we automatically advance to the next
+    // postseason week. Pro Bowl data is NEVER persisted.
     // ========================================
 
-    let scoreboardResponse;
+    let validWeekData;
     try {
-      scoreboardResponse = await axios.get(getESPNScoreboardUrl(toWeek));
+      validWeekData = await fetchValidPostseasonWeek(initialToWeek, playoff_start_week);
     } catch (espnErr) {
-      console.error('[admin] ESPN API call failed:', espnErr.message);
+      console.error('[admin] ESPN fetch failed:', espnErr.message);
       return res.status(502).json({
-        error: 'Failed to fetch ESPN scoreboard data',
+        error: 'Failed to fetch valid ESPN postseason data',
         details: espnErr.message
       });
     }
 
-    const activeTeams = new Set();
+    // Use the effective week values (may differ from initial if Pro Bowl weeks were skipped)
+    const toPlayoffWeek = validWeekData.playoffWeek;
+    const toWeek = validWeekData.nflWeek;
+    const activeTeams = validWeekData.activeTeams;
 
-    if (scoreboardResponse.data && scoreboardResponse.data.events) {
-      for (const event of scoreboardResponse.data.events) {
-        const competitors = event.competitions?.[0]?.competitors || [];
-        const teamAbbrs = competitors.map(c => c.team?.abbreviation).filter(Boolean);
-
-        // Skip Pro Bowl games: ESPN returns Pro Bowl under postseason week 4 with
-        // conference teams "AFC" and "NFC" as competitors. These are not real NFL
-        // teams and must be excluded to correctly identify Super Bowl participants.
-        const isProBowl = teamAbbrs.some(abbr => abbr === 'AFC' || abbr === 'NFC');
-        if (isProBowl) {
-          console.log('[admin] Skipping Pro Bowl game (AFC vs NFC)');
-          continue;
-        }
-
-        for (const abbr of teamAbbrs) {
-          activeTeams.add(abbr);
-        }
-      }
+    if (validWeekData.skippedProBowlWeeks > 0) {
+      console.log(`[admin] Skipped ${validWeekData.skippedProBowlWeeks} Pro Bowl week(s). Effective target: Playoff ${toPlayoffWeek} (NFL ${toWeek})`);
     }
 
     // PRECONDITION 3: ESPN must return valid game data
@@ -2653,6 +2700,7 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
         advancedCount,
         eliminatedCount,
         eliminated,
+        skippedProBowlWeeks: validWeekData.skippedProBowlWeeks,
         newState: {
           current_playoff_week: toPlayoffWeek,
           effective_nfl_week: toWeek
