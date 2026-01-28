@@ -620,93 +620,112 @@ export function Dashboard() {
       )}
 
       {/* Lineups Panel */}
-      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+      <div className={`rounded-lg border bg-white shadow-sm ${isPostSuperBowl ? 'border-red-200' : 'border-gray-200'}`}>
+        <div className={`border-b px-4 py-3 ${isPostSuperBowl ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-medium text-gray-900">User Lineups</h2>
-              <p className="text-sm text-gray-500">
-                Week {incompleteLineups?.weekNumber ?? '—'}
-                {incompleteLineups?.isWeekActive === false && (
-                  <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
-                    Week Locked
-                  </span>
+              <h2 className={`text-lg font-medium ${isPostSuperBowl ? 'text-red-900' : 'text-gray-900'}`}>
+                {isPostSuperBowl ? 'User Lineups — Contest Ended' : 'User Lineups'}
+              </h2>
+              <p className={`text-sm ${isPostSuperBowl ? 'text-red-600' : 'text-gray-500'}`}>
+                {isPostSuperBowl ? (
+                  'Database is past Super Bowl — lineup data unavailable'
+                ) : (
+                  <>
+                    Week {incompleteLineups?.weekNumber ?? '—'}
+                    {incompleteLineups?.isWeekActive === false && (
+                      <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                        Week Locked
+                      </span>
+                    )}
+                  </>
                 )}
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              {/* View Toggle */}
-              <div className="inline-flex rounded-md shadow-sm">
+            {/* Hide controls when contest has ended */}
+            {!isPostSuperBowl && (
+              <div className="flex items-center gap-3">
+                {/* View Toggle */}
+                <div className="inline-flex rounded-md shadow-sm">
+                  <button
+                    onClick={() => setLineupView('incomplete')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-l-md border ${
+                      lineupView === 'incomplete'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Incomplete
+                  </button>
+                  <button
+                    onClick={() => setLineupView('complete')}
+                    className={`px-3 py-1.5 text-xs font-medium border-t border-b ${
+                      lineupView === 'complete'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Complete
+                  </button>
+                  <button
+                    onClick={() => setLineupView('all')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-r-md border ${
+                      lineupView === 'all'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    All
+                  </button>
+                </div>
                 <button
-                  onClick={() => setLineupView('incomplete')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-l-md border ${
-                    lineupView === 'incomplete'
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                  }`}
+                  onClick={handleLineupsRefresh}
+                  disabled={isLineupsRefetching}
+                  className="inline-flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Incomplete
-                </button>
-                <button
-                  onClick={() => setLineupView('complete')}
-                  className={`px-3 py-1.5 text-xs font-medium border-t border-b ${
-                    lineupView === 'complete'
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  Complete
-                </button>
-                <button
-                  onClick={() => setLineupView('all')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-r-md border ${
-                    lineupView === 'all'
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  All
+                  {isLineupsRefetching ? (
+                    <>
+                      <RefreshSpinner />
+                      Refreshing...
+                    </>
+                  ) : (
+                    'Refresh'
+                  )}
                 </button>
               </div>
-              <button
-                onClick={handleLineupsRefresh}
-                disabled={isLineupsRefetching}
-                className="inline-flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isLineupsRefetching ? (
-                  <>
-                    <RefreshSpinner />
-                    Refreshing...
-                  </>
-                ) : (
-                  'Refresh'
-                )}
-              </button>
-            </div>
+            )}
           </div>
         </div>
         <div className="p-4">
-          {/* DEFENSIVE: Warning when database is past Super Bowl */}
-          {isPostSuperBowl && (
-            <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3">
-              <div className="flex items-start gap-2">
-                <svg className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-                <div>
-                  <p className="text-sm font-medium text-red-800">Contest Ended - Invalid Database State</p>
-                  <p className="text-xs text-red-700 mt-1">
-                    Database shows Playoff Week {currentPlayoffWeek} (NFL Week {currentNflWeek}), but Super Bowl is Week 4.
-                    Lineup data below is unreliable. Use <strong>Picks Explorer</strong> to view actual picks.
-                  </p>
-                  <p className="text-xs text-red-600 mt-1">
-                    To fix: Set <code className="bg-red-100 px-1 rounded">current_playoff_week = 4</code> in game_settings table.
-                  </p>
+          {/* DEFENSIVE: Terminal state when database is past Super Bowl */}
+          {isPostSuperBowl ? (
+            <div className="text-center py-8">
+              <svg className="mx-auto h-12 w-12 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <h3 className="mt-4 text-lg font-medium text-gray-900">Contest Has Ended</h3>
+              <p className="mt-2 text-sm text-gray-600">
+                The database shows Playoff Week {currentPlayoffWeek}, but Super Bowl (Week 4) is the final week.
+              </p>
+              <p className="mt-1 text-sm text-gray-500">
+                Week-specific lineup data is unavailable in this state.
+              </p>
+              <div className="mt-6 space-y-3">
+                <Link
+                  to="/picks"
+                  className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                  View All Picks in Picks Explorer
+                </Link>
+                <div className="text-xs text-gray-400">
+                  To restore lineup view: Set <code className="bg-gray-100 px-1 rounded">current_playoff_week = 4</code> in game_settings
                 </div>
               </div>
             </div>
-          )}
-          {isLineupsLoading ? (
+          ) : isLineupsLoading ? (
             <div className="animate-pulse space-y-2">
               <div className="h-4 bg-gray-200 rounded w-1/4"></div>
               <div className="h-8 bg-gray-200 rounded"></div>
