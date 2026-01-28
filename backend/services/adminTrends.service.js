@@ -78,10 +78,15 @@ async function getCurrentNflWeek(pool) {
     return null;
   }
 
-  // NFL week = playoff_start_week + offset, capped at 3 for Super Bowl
-  // This handles Pro Bowl skip where round 5 = Super Bowl = offset 3
-  const offset = Math.min(current_playoff_week - 1, 3);
-  return playoff_start_week + offset;
+  // Derive NFL week from playoff week, accounting for Pro Bowl gap
+  // Wild Card (1) = start, Divisional (2) = start+1, Conference (3) = start+2, Super Bowl (4) = start+4
+  // The +4 for Super Bowl accounts for Pro Bowl week being skipped
+  let nflWeek = playoff_start_week + current_playoff_week - 1;
+  // Super Bowl (playoff_week 4) skips Pro Bowl week, so add 1
+  if (current_playoff_week >= 4) {
+    nflWeek += 1;
+  }
+  return nflWeek;
 }
 
 /**

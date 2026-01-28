@@ -1644,9 +1644,18 @@ app.get('/api/admin/incomplete-lineups', async (req, res) => {
     }
 
     const settings = gameStateResult.rows[0];
-    const effectiveWeek = settings.current_playoff_week > 0
-      ? settings.playoff_start_week + settings.current_playoff_week - 1
-      : null;
+
+    // Derive NFL week from playoff week, accounting for Pro Bowl gap
+    // Wild Card (1) = start, Divisional (2) = start+1, Conference (3) = start+2, Super Bowl (4) = start+4
+    // The +4 for Super Bowl accounts for Pro Bowl week being skipped
+    let effectiveWeek = null;
+    if (settings.current_playoff_week > 0) {
+      effectiveWeek = settings.playoff_start_week + settings.current_playoff_week - 1;
+      // Super Bowl (playoff_week 4) skips Pro Bowl week, so add 1
+      if (settings.current_playoff_week >= 4) {
+        effectiveWeek += 1;
+      }
+    }
 
     if (!effectiveWeek) {
       return res.json({
@@ -1765,9 +1774,18 @@ app.get('/api/admin/all-lineups', async (req, res) => {
     }
 
     const settings = gameStateResult.rows[0];
-    const effectiveWeek = settings.current_playoff_week > 0
-      ? settings.playoff_start_week + settings.current_playoff_week - 1
-      : null;
+
+    // Derive NFL week from playoff week, accounting for Pro Bowl gap
+    // Wild Card (1) = start, Divisional (2) = start+1, Conference (3) = start+2, Super Bowl (4) = start+4
+    // The +4 for Super Bowl accounts for Pro Bowl week being skipped
+    let effectiveWeek = null;
+    if (settings.current_playoff_week > 0) {
+      effectiveWeek = settings.playoff_start_week + settings.current_playoff_week - 1;
+      // Super Bowl (playoff_week 4) skips Pro Bowl week, so add 1
+      if (settings.current_playoff_week >= 4) {
+        effectiveWeek += 1;
+      }
+    }
 
     if (!effectiveWeek) {
       return res.json({
