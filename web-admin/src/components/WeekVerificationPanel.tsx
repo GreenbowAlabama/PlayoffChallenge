@@ -17,7 +17,7 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   verifyLockStatus,
-  getGameConfig,
+  getIncompleteLineups,
   getWeekVerificationStatus,
   type LockVerificationResponse,
   type VerificationStatus,
@@ -183,17 +183,15 @@ function VerificationStatusCard({ verification, weekNumber, isLoading, error }: 
 // ============================================
 
 export function WeekVerificationPanel() {
-  // Fetch game config to determine current week
-  const configQuery = useQuery({
-    queryKey: ['gameConfig'],
-    queryFn: getGameConfig,
+  // Fetch weekNumber from admin API as source of truth
+  const lineupsQuery = useQuery({
+    queryKey: ['incompleteLineups'],
+    queryFn: getIncompleteLineups,
     refetchInterval: 30000,
   });
 
-  const gameConfig = configQuery.data;
-  const currentNflWeek = gameConfig
-    ? gameConfig.playoff_start_week + gameConfig.current_playoff_week - 1
-    : null;
+  // Use weekNumber from API as source of truth
+  const currentNflWeek = lineupsQuery.data?.weekNumber ?? null;
 
   // Fetch lock verification status (auto-refresh for passive awareness)
   const lockQuery = useQuery({
@@ -210,10 +208,10 @@ export function WeekVerificationPanel() {
     refetchInterval: 30000,
   });
 
-  const isAnyFetching = lockQuery.isFetching || verificationQuery.isFetching || configQuery.isFetching;
+  const isAnyFetching = lockQuery.isFetching || verificationQuery.isFetching || lineupsQuery.isFetching;
 
   const handleRefresh = () => {
-    configQuery.refetch();
+    lineupsQuery.refetch();
     lockQuery.refetch();
     if (currentNflWeek !== null) {
       verificationQuery.refetch();

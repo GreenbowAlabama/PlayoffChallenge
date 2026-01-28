@@ -13,6 +13,7 @@ import {
   getPickCountForWeek,
   getWeekVerificationStatus,
   verifyLockStatus,
+  getIncompleteLineups,
   type WeekTransitionParams,
   type WeekTransitionResponse,
   type WeekTransitionPreview,
@@ -57,10 +58,15 @@ export function Admin() {
     refetchInterval: 30000,
   });
 
-  // Calculate current NFL week from game settings
-  const currentNflWeek = gameConfig
-    ? gameConfig.playoff_start_week + gameConfig.current_playoff_week - 1
-    : null;
+  // Fetch weekNumber from admin API as source of truth
+  const { data: lineupsData } = useQuery({
+    queryKey: ['incompleteLineups'],
+    queryFn: getIncompleteLineups,
+    refetchInterval: 30000,
+  });
+
+  // Use weekNumber from API as source of truth (no client-side computation)
+  const currentNflWeek = lineupsData?.weekNumber ?? null;
   const nextNflWeek = currentNflWeek ? currentNflWeek + 1 : null;
   const currentPlayoffWeek = gameConfig?.current_playoff_week ?? null;
   const isWeekLocked = gameConfig ? !gameConfig.is_week_active : false;

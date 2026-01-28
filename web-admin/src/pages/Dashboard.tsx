@@ -81,10 +81,9 @@ export function Dashboard() {
     enabled: lineupView !== 'incomplete', // Only fetch when needed
   });
 
-  // Calculate current NFL week from game settings
-  const currentNflWeek = gameConfig
-    ? gameConfig.playoff_start_week + gameConfig.current_playoff_week - 1
-    : null;
+  // Derive currentNflWeek from API responses (fallback chain)
+  // pick.week_number is the source of truth - if picks exist, display them
+  const currentNflWeek = incompleteLineups?.weekNumber ?? allLineups?.weekNumber ?? null;
   const nextNflWeek = currentNflWeek ? currentNflWeek + 1 : null;
   const currentPlayoffWeek = gameConfig?.current_playoff_week ?? null;
   const isWeekLocked = gameConfig ? !gameConfig.is_week_active : false;

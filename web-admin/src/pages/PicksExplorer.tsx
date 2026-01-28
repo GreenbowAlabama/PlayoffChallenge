@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Switch } from '@headlessui/react';
 import { getUsers } from '../api/users';
 import { getUserPicks } from '../api/picks';
-import { getGameConfig } from '../api/admin';
+import { getIncompleteLineups } from '../api/admin';
 import type { User, UserWithPicks, Pick } from '../types';
 
 const BATCH_SIZE = 10;
@@ -30,18 +30,20 @@ export function PicksExplorer() {
   // Track expanded weeks per user: Map<userId, Set<weekNumber>>
   const [expandedWeeks, setExpandedWeeks] = useState<Map<string, Set<number>>>(new Map());
 
-  // Fetch game config to determine current NFL week
-  const { data: gameConfig } = useQuery({
-    queryKey: ['gameConfig'],
-    queryFn: getGameConfig,
+  // Fetch current week from admin API - weekNumber is the source of truth
+  const { data: lineupsData } = useQuery({
+    queryKey: ['incompleteLineups'],
+    queryFn: getIncompleteLineups,
     staleTime: 60000,
   });
 
-  // Derive current NFL week from game config (source of truth for grouping/filtering)
-  const currentNflWeek = gameConfig
-    ? gameConfig.playoff_start_week + gameConfig.current_playoff_week - 1
-    : 18; // Default to wild card week if config unavailable
-  const playoffStartWeek = gameConfig?.playoff_start_week ?? 18;
+  // Derive currentNflWeek from API or from loaded picks data (fallback)
+  // pick.week_number is the source of truth - if picks exist, display them
+  const allLoadedPicks = usersWithPicks.flatMap(u => u.picks);
+  const currentNflWeek = lineupsData?.weekNumber
+    ?? (allLoadedPicks.length > 0
+        ? Math.max(...allLoadedPicks.map(p => p.week_number))
+        : null);
 
   const { data: users, isLoading: usersLoading, error: usersError } = useQuery({
     queryKey: ['adminUsers'],
@@ -136,8 +138,8 @@ export function PicksExplorer() {
   const isWeekExpanded = (userId: string, weekNumber: number): boolean => {
     const userWeeks = expandedWeeks.get(userId);
     if (!userWeeks) {
-      // Default: current NFL week expanded, others collapsed
-      return weekNumber === currentNflWeek;
+      // Default: current week expanded (if known), others collapsed
+      return currentNflWeek !== null && weekNumber === currentNflWeek;
     }
     return userWeeks.has(weekNumber);
   };
@@ -146,8 +148,10 @@ export function PicksExplorer() {
   const initializeUserWeeks = (userId: string) => {
     if (!expandedWeeks.has(userId)) {
       const weeks = new Set<number>();
-      // Auto-expand current NFL week
-      weeks.add(currentNflWeek);
+      // Auto-expand current week if known
+      if (currentNflWeek !== null) {
+        weeks.add(currentNflWeek);
+      }
       setExpandedWeeks(prev => new Map(prev).set(userId, weeks));
     }
   };
@@ -369,11 +373,10 @@ export function PicksExplorer() {
                           return weeks.map((weekNum) => {
                             const weekPicks = groupedPicks.get(weekNum) ?? [];
                             const isExpanded = isWeekExpanded(user.id, weekNum);
-                            // weekNum is NFL week; compare against currentNflWeek
-                            const isCurrentWeek = weekNum === currentNflWeek;
+                            const isCurrentWeek = currentNflWeek !== null && weekNum === currentNflWeek;
                             const isIncomplete = weekPicks.length < REQUIRED_PICKS_PER_WEEK;
-                            // Derive display label (playoff week) from NFL week
-                            const displayPlayoffWeek = weekNum - playoffStartWeek + 1;
+                            // Use display_week from first pick if available, otherwise show week number
+                            const displayLabel = weekPicks[0]?.display_week ?? `Week ${weekNum}`;
 
                             return (
                               <div
@@ -403,7 +406,7 @@ export function PicksExplorer() {
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                                     </svg>
                                     <span className={`text-sm font-medium ${isCurrentWeek ? 'text-indigo-700' : 'text-gray-700'}`}>
-                                      {weekNum === 22 ? 'Super Bowl' : `Playoff Week ${displayPlayoffWeek}`}
+                                      {displayLabel}
                                     </span>
                                     {isCurrentWeek && (
                                       <span className="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
