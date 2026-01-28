@@ -78,9 +78,7 @@ async function getCurrentNflWeek(pool) {
     return null;
   }
 
-  // Derive NFL week from playoff week
-  // Formula: playoff_start_week + current_playoff_week - 1
-  // Example: playoff_start_week=18, current_playoff_week=5 (Super Bowl) → NFL week 22
+  // NFL week = playoff_start_week + current_playoff_week - 1
   return playoff_start_week + current_playoff_week - 1;
 }
 
