@@ -78,15 +78,10 @@ async function getCurrentNflWeek(pool) {
     return null;
   }
 
-  // Derive NFL week from playoff week, accounting for Pro Bowl gap
-  // Wild Card (1) = start, Divisional (2) = start+1, Conference (3) = start+2, Super Bowl (4) = start+4
-  // The +4 for Super Bowl accounts for Pro Bowl week being skipped
-  let nflWeek = playoff_start_week + current_playoff_week - 1;
-  // Super Bowl (playoff_week 4) skips Pro Bowl week, so add 1
-  if (current_playoff_week >= 4) {
-    nflWeek += 1;
-  }
-  return nflWeek;
+  // Derive NFL week from playoff week
+  // Formula: playoff_start_week + current_playoff_week - 1
+  // Example: playoff_start_week=18, current_playoff_week=5 (Super Bowl) → NFL week 22
+  return playoff_start_week + current_playoff_week - 1;
 }
 
 /**
