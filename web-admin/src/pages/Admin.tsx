@@ -67,15 +67,23 @@ export function Admin() {
 
   // Use weekNumber from API as source of truth (no client-side computation)
   const currentNflWeek = lineupsData?.weekNumber ?? null;
-  const nextNflWeek = currentNflWeek ? currentNflWeek + 1 : null;
   const currentPlayoffWeek = gameConfig?.current_playoff_week ?? null;
   const isWeekLocked = gameConfig ? !gameConfig.is_week_active : false;
 
+  // DEFENSIVE: Super Bowl detection - Playoff Week 4 is the final week
+  // TODO: Remove this guard after Super Bowl when backend handles end-of-season state
+  const isSuperBowlWeek = currentPlayoffWeek === 4;
+
+  // Only compute "next week" if not at Super Bowl (there is no week after Super Bowl)
+  const nextNflWeek = (!isSuperBowlWeek && currentNflWeek) ? currentNflWeek + 1 : null;
+  const nextPlayoffWeek = (!isSuperBowlWeek && currentPlayoffWeek !== null) ? currentPlayoffWeek + 1 : null;
+
   // Pre-flight: fetch pick count for next week
+  // DEFENSIVE: Explicitly disabled at Super Bowl - no next week exists
   const { data: nextWeekPickCount } = useQuery({
     queryKey: ['pickCountNextWeek', nextNflWeek],
     queryFn: () => (nextNflWeek ? getPickCountForWeek(nextNflWeek) : Promise.resolve(-1)),
-    enabled: !!nextNflWeek,
+    enabled: !isSuperBowlWeek && !!nextNflWeek,
     refetchInterval: 30000,
   });
 
@@ -137,7 +145,9 @@ export function Admin() {
   });
 
   // Button disable logic with reasons
+  // DEFENSIVE: Super Bowl check must be first - there is no next week
   const getTransitionDisableReason = (): string | null => {
+    if (isSuperBowlWeek) return 'Super Bowl is the final week — no further advancement possible';
     if (!currentNflWeek || !nextNflWeek) return 'Week configuration not loaded';
     if (!isWeekLocked) return 'Week must be locked before advancing (is_week_active = true)';
     if (nextWeekPickCount !== undefined && nextWeekPickCount > 0) {
@@ -217,12 +227,21 @@ export function Admin() {
             </div>
           </div>
 
-          {/* Next Week Info */}
+          {/* Next Week Info - DEFENSIVE: Explicit Super Bowl state display */}
           <div className="text-right">
-            <div className="text-sm text-gray-500">Next Week</div>
-            <div className="text-sm font-medium text-gray-700">
-              Playoff Week {currentPlayoffWeek !== null ? currentPlayoffWeek + 1 : '—'} / NFL Week {nextNflWeek ?? '—'}
-            </div>
+            {isSuperBowlWeek ? (
+              <>
+                <div className="text-sm text-amber-600 font-medium">Super Bowl</div>
+                <div className="text-sm text-amber-700">(Final Week)</div>
+              </>
+            ) : (
+              <>
+                <div className="text-sm text-gray-500">Next Week</div>
+                <div className="text-sm font-medium text-gray-700">
+                  Playoff Week {nextPlayoffWeek ?? '—'} / NFL Week {nextNflWeek ?? '—'}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

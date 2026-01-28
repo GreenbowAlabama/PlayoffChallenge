@@ -84,9 +84,16 @@ export function Dashboard() {
   // Derive currentNflWeek from API responses (fallback chain)
   // pick.week_number is the source of truth - if picks exist, display them
   const currentNflWeek = incompleteLineups?.weekNumber ?? allLineups?.weekNumber ?? null;
-  const nextNflWeek = currentNflWeek ? currentNflWeek + 1 : null;
   const currentPlayoffWeek = gameConfig?.current_playoff_week ?? null;
   const isWeekLocked = gameConfig ? !gameConfig.is_week_active : false;
+
+  // DEFENSIVE: Super Bowl detection - Playoff Week 4 is the final week
+  // TODO: Remove this guard after Super Bowl when backend handles end-of-season state
+  const isSuperBowlWeek = currentPlayoffWeek === 4;
+
+  // Only compute "next week" if not at Super Bowl (there is no week after Super Bowl)
+  const nextNflWeek = (!isSuperBowlWeek && currentNflWeek) ? currentNflWeek + 1 : null;
+  const nextPlayoffWeek = (!isSuperBowlWeek && currentPlayoffWeek !== null) ? currentPlayoffWeek + 1 : null;
 
   const isLoading = cacheLoading || usersLoading;
   const isSystemHealthRefetching = cacheRefetching || usersRefetching;
@@ -229,12 +236,21 @@ export function Dashboard() {
             </div>
           </div>
 
-          {/* Next Week Info + Admin Link */}
+          {/* Next Week Info + Admin Link - DEFENSIVE: Explicit Super Bowl state display */}
           <div className="text-right">
-            <div className="text-sm text-gray-500">Next Week</div>
-            <div className="text-sm font-medium text-gray-700">
-              Playoff Week {currentPlayoffWeek !== null ? currentPlayoffWeek + 1 : '—'} / NFL Week {nextNflWeek ?? '—'}
-            </div>
+            {isSuperBowlWeek ? (
+              <>
+                <div className="text-sm text-amber-600 font-medium">Super Bowl</div>
+                <div className="text-sm text-amber-700">(Final Week)</div>
+              </>
+            ) : (
+              <>
+                <div className="text-sm text-gray-500">Next Week</div>
+                <div className="text-sm font-medium text-gray-700">
+                  Playoff Week {nextPlayoffWeek ?? '—'} / NFL Week {nextNflWeek ?? '—'}
+                </div>
+              </>
+            )}
             <Link
               to="/admin"
               className="mt-2 inline-flex items-center text-xs text-indigo-600 hover:text-indigo-500"
