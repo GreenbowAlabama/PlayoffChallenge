@@ -87,13 +87,17 @@ export function Dashboard() {
   const currentPlayoffWeek = gameConfig?.current_playoff_week ?? null;
   const isWeekLocked = gameConfig ? !gameConfig.is_week_active : false;
 
-  // DEFENSIVE: Super Bowl detection - Playoff Week 4 is the final week
-  // TODO: Remove this guard after Super Bowl when backend handles end-of-season state
+  // DEFENSIVE: Season-end detection
+  // - Playoff Week 4 = Super Bowl (final valid week)
+  // - Playoff Week 5+ = Invalid state (database advanced past Super Bowl)
+  // TODO: Remove these guards after Super Bowl when backend handles end-of-season state
   const isSuperBowlWeek = currentPlayoffWeek === 4;
+  const isPostSuperBowl = currentPlayoffWeek !== null && currentPlayoffWeek > 4;
+  const isSeasonComplete = isSuperBowlWeek || isPostSuperBowl;
 
-  // Only compute "next week" if not at Super Bowl (there is no week after Super Bowl)
-  const nextNflWeek = (!isSuperBowlWeek && currentNflWeek) ? currentNflWeek + 1 : null;
-  const nextPlayoffWeek = (!isSuperBowlWeek && currentPlayoffWeek !== null) ? currentPlayoffWeek + 1 : null;
+  // Only compute "next week" if season is not complete (there is no week after Super Bowl)
+  const nextNflWeek = (!isSeasonComplete && currentNflWeek) ? currentNflWeek + 1 : null;
+  const nextPlayoffWeek = (!isSeasonComplete && currentPlayoffWeek !== null) ? currentPlayoffWeek + 1 : null;
 
   const isLoading = cacheLoading || usersLoading;
   const isSystemHealthRefetching = cacheRefetching || usersRefetching;
@@ -236,9 +240,14 @@ export function Dashboard() {
             </div>
           </div>
 
-          {/* Next Week Info + Admin Link - DEFENSIVE: Explicit Super Bowl state display */}
+          {/* Next Week Info + Admin Link - DEFENSIVE: Explicit season-end state display */}
           <div className="text-right">
-            {isSuperBowlWeek ? (
+            {isPostSuperBowl ? (
+              <>
+                <div className="text-sm text-red-600 font-medium">Contest Ended</div>
+                <div className="text-sm text-red-500">(DB past Super Bowl)</div>
+              </>
+            ) : isSuperBowlWeek ? (
               <>
                 <div className="text-sm text-amber-600 font-medium">Super Bowl</div>
                 <div className="text-sm text-amber-700">(Final Week)</div>
@@ -677,6 +686,26 @@ export function Dashboard() {
           </div>
         </div>
         <div className="p-4">
+          {/* DEFENSIVE: Warning when database is past Super Bowl */}
+          {isPostSuperBowl && (
+            <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3">
+              <div className="flex items-start gap-2">
+                <svg className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <div>
+                  <p className="text-sm font-medium text-red-800">Contest Ended - Invalid Database State</p>
+                  <p className="text-xs text-red-700 mt-1">
+                    Database shows Playoff Week {currentPlayoffWeek} (NFL Week {currentNflWeek}), but Super Bowl is Week 4.
+                    Lineup data below is unreliable. Use <strong>Picks Explorer</strong> to view actual picks.
+                  </p>
+                  <p className="text-xs text-red-600 mt-1">
+                    To fix: Set <code className="bg-red-100 px-1 rounded">current_playoff_week = 4</code> in game_settings table.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           {isLineupsLoading ? (
             <div className="animate-pulse space-y-2">
               <div className="h-4 bg-gray-200 rounded w-1/4"></div>

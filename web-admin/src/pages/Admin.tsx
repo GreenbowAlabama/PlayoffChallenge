@@ -70,20 +70,24 @@ export function Admin() {
   const currentPlayoffWeek = gameConfig?.current_playoff_week ?? null;
   const isWeekLocked = gameConfig ? !gameConfig.is_week_active : false;
 
-  // DEFENSIVE: Super Bowl detection - Playoff Week 4 is the final week
-  // TODO: Remove this guard after Super Bowl when backend handles end-of-season state
+  // DEFENSIVE: Season-end detection
+  // - Playoff Week 4 = Super Bowl (final valid week)
+  // - Playoff Week 5+ = Invalid state (database advanced past Super Bowl)
+  // TODO: Remove these guards after Super Bowl when backend handles end-of-season state
   const isSuperBowlWeek = currentPlayoffWeek === 4;
+  const isPostSuperBowl = currentPlayoffWeek !== null && currentPlayoffWeek > 4;
+  const isSeasonComplete = isSuperBowlWeek || isPostSuperBowl;
 
-  // Only compute "next week" if not at Super Bowl (there is no week after Super Bowl)
-  const nextNflWeek = (!isSuperBowlWeek && currentNflWeek) ? currentNflWeek + 1 : null;
-  const nextPlayoffWeek = (!isSuperBowlWeek && currentPlayoffWeek !== null) ? currentPlayoffWeek + 1 : null;
+  // Only compute "next week" if season is not complete (there is no week after Super Bowl)
+  const nextNflWeek = (!isSeasonComplete && currentNflWeek) ? currentNflWeek + 1 : null;
+  const nextPlayoffWeek = (!isSeasonComplete && currentPlayoffWeek !== null) ? currentPlayoffWeek + 1 : null;
 
   // Pre-flight: fetch pick count for next week
-  // DEFENSIVE: Explicitly disabled at Super Bowl - no next week exists
+  // DEFENSIVE: Explicitly disabled when season is complete - no next week exists
   const { data: nextWeekPickCount } = useQuery({
     queryKey: ['pickCountNextWeek', nextNflWeek],
     queryFn: () => (nextNflWeek ? getPickCountForWeek(nextNflWeek) : Promise.resolve(-1)),
-    enabled: !isSuperBowlWeek && !!nextNflWeek,
+    enabled: !isSeasonComplete && !!nextNflWeek,
     refetchInterval: 30000,
   });
 
@@ -145,8 +149,9 @@ export function Admin() {
   });
 
   // Button disable logic with reasons
-  // DEFENSIVE: Super Bowl check must be first - there is no next week
+  // DEFENSIVE: Season-complete checks must be first - there is no next week
   const getTransitionDisableReason = (): string | null => {
+    if (isPostSuperBowl) return 'Contest has ended — database is past Super Bowl (invalid state)';
     if (isSuperBowlWeek) return 'Super Bowl is the final week — no further advancement possible';
     if (!currentNflWeek || !nextNflWeek) return 'Week configuration not loaded';
     if (!isWeekLocked) return 'Week must be locked before advancing (is_week_active = true)';
@@ -227,9 +232,14 @@ export function Admin() {
             </div>
           </div>
 
-          {/* Next Week Info - DEFENSIVE: Explicit Super Bowl state display */}
+          {/* Next Week Info - DEFENSIVE: Explicit season-end state display */}
           <div className="text-right">
-            {isSuperBowlWeek ? (
+            {isPostSuperBowl ? (
+              <>
+                <div className="text-sm text-red-600 font-medium">Contest Ended</div>
+                <div className="text-sm text-red-500">(DB past Super Bowl)</div>
+              </>
+            ) : isSuperBowlWeek ? (
               <>
                 <div className="text-sm text-amber-600 font-medium">Super Bowl</div>
                 <div className="text-sm text-amber-700">(Final Week)</div>
