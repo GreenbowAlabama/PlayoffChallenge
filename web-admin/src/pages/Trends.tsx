@@ -35,14 +35,17 @@ export function Trends() {
     error: null,
   });
 
-  // Fetch game config to determine current playoff week
+  // Fetch game config to determine current NFL week
   const { data: gameConfig } = useQuery({
     queryKey: ['gameConfig'],
     queryFn: getGameConfig,
     staleTime: 60000,
   });
 
-  const currentPlayoffWeek = gameConfig?.current_playoff_week ?? 1;
+  // Derive current NFL week from game config (source of truth for filtering)
+  const currentNflWeek = gameConfig
+    ? gameConfig.playoff_start_week + gameConfig.current_playoff_week - 1
+    : 18; // Default to wild card week if config unavailable
 
   // Fetch users
   const {
@@ -108,10 +111,10 @@ export function Trends() {
     }
   }, [users, loadPicksSequentially, picksState.picks.length, picksState.loading]);
 
-  // Filter picks by scope
+  // Filter picks by scope (uses NFL week as source of truth)
   const scopedPicks = useMemo(() => {
-    return filterPicksByScope(picksState.picks, trendScope, currentPlayoffWeek);
-  }, [picksState.picks, trendScope, currentPlayoffWeek]);
+    return filterPicksByScope(picksState.picks, trendScope, currentNflWeek);
+  }, [picksState.picks, trendScope, currentNflWeek]);
 
   // Compute trends from scoped picks
   const conferenceTrends = useMemo(() => computeConferenceTrends(scopedPicks), [scopedPicks]);
@@ -173,7 +176,7 @@ export function Trends() {
             onChange={(e) => setTrendScope(e.target.value as 'current' | 'all')}
             className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           >
-            <option value="current">Current Week (Week {currentPlayoffWeek})</option>
+            <option value="current">Current Week (NFL Week {currentNflWeek})</option>
             <option value="all">Entire Contest</option>
           </select>
         </div>

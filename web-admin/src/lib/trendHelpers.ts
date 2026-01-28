@@ -78,15 +78,16 @@ export function getTeamConference(teamAbbr: string | null): 'AFC' | 'NFC' | null
 }
 
 /**
- * Filter picks by playoff week scope.
+ * Filter picks by NFL week scope.
+ * Uses week_number (NFL calendar week) as the source of truth, not computed playoff_week.
  */
 export function filterPicksByScope(
   picks: Pick[],
   scope: 'current' | 'all',
-  currentPlayoffWeek: number
+  currentNflWeek: number
 ): Pick[] {
   if (scope === 'all') return picks;
-  return picks.filter((p) => p.playoff_week === currentPlayoffWeek);
+  return picks.filter((p) => p.week_number === currentNflWeek);
 }
 
 /**

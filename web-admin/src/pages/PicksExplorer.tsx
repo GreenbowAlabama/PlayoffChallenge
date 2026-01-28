@@ -9,11 +9,11 @@ import type { User, UserWithPicks, Pick } from '../types';
 const BATCH_SIZE = 10;
 const REQUIRED_PICKS_PER_WEEK = 7;
 
-// Group picks by playoff week
+// Group picks by NFL week (week_number is the source of truth)
 function groupPicksByWeek(picks: Pick[]): Map<number, Pick[]> {
   const grouped = new Map<number, Pick[]>();
   picks.forEach((pick) => {
-    const week = pick.playoff_week ?? 0;
+    const week = pick.week_number;
     if (!grouped.has(week)) {
       grouped.set(week, []);
     }
@@ -30,14 +30,18 @@ export function PicksExplorer() {
   // Track expanded weeks per user: Map<userId, Set<weekNumber>>
   const [expandedWeeks, setExpandedWeeks] = useState<Map<string, Set<number>>>(new Map());
 
-  // Fetch game config to determine current playoff week
+  // Fetch game config to determine current NFL week
   const { data: gameConfig } = useQuery({
     queryKey: ['gameConfig'],
     queryFn: getGameConfig,
     staleTime: 60000,
   });
 
-  const currentPlayoffWeek = gameConfig?.current_playoff_week ?? 1;
+  // Derive current NFL week from game config (source of truth for grouping/filtering)
+  const currentNflWeek = gameConfig
+    ? gameConfig.playoff_start_week + gameConfig.current_playoff_week - 1
+    : 18; // Default to wild card week if config unavailable
+  const playoffStartWeek = gameConfig?.playoff_start_week ?? 18;
 
   const { data: users, isLoading: usersLoading, error: usersError } = useQuery({
     queryKey: ['adminUsers'],
@@ -128,12 +132,12 @@ export function PicksExplorer() {
     });
   };
 
-  // Check if a week is expanded for a user
+  // Check if a week is expanded for a user (weekNumber is NFL week)
   const isWeekExpanded = (userId: string, weekNumber: number): boolean => {
     const userWeeks = expandedWeeks.get(userId);
     if (!userWeeks) {
-      // Default: current week expanded, others collapsed
-      return weekNumber === currentPlayoffWeek;
+      // Default: current NFL week expanded, others collapsed
+      return weekNumber === currentNflWeek;
     }
     return userWeeks.has(weekNumber);
   };
@@ -142,8 +146,8 @@ export function PicksExplorer() {
   const initializeUserWeeks = (userId: string) => {
     if (!expandedWeeks.has(userId)) {
       const weeks = new Set<number>();
-      // Auto-expand current playoff week
-      weeks.add(currentPlayoffWeek);
+      // Auto-expand current NFL week
+      weeks.add(currentNflWeek);
       setExpandedWeeks(prev => new Map(prev).set(userId, weeks));
     }
   };
@@ -365,8 +369,11 @@ export function PicksExplorer() {
                           return weeks.map((weekNum) => {
                             const weekPicks = groupedPicks.get(weekNum) ?? [];
                             const isExpanded = isWeekExpanded(user.id, weekNum);
-                            const isCurrentWeek = weekNum === currentPlayoffWeek;
+                            // weekNum is NFL week; compare against currentNflWeek
+                            const isCurrentWeek = weekNum === currentNflWeek;
                             const isIncomplete = weekPicks.length < REQUIRED_PICKS_PER_WEEK;
+                            // Derive display label (playoff week) from NFL week
+                            const displayPlayoffWeek = weekNum - playoffStartWeek + 1;
 
                             return (
                               <div
@@ -396,7 +403,7 @@ export function PicksExplorer() {
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                                     </svg>
                                     <span className={`text-sm font-medium ${isCurrentWeek ? 'text-indigo-700' : 'text-gray-700'}`}>
-                                      Playoff Week {weekNum}
+                                      {weekNum === 22 ? 'Super Bowl' : `Playoff Week ${displayPlayoffWeek}`}
                                     </span>
                                     {isCurrentWeek && (
                                       <span className="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
