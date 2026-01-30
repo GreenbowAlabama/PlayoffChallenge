@@ -11,6 +11,9 @@ const adminAuthRoutes = require('./routes/adminAuth');
 const adminDiagnosticsRoutes = require('./routes/admin.diagnostics.routes');
 const adminTrendsRoutes = require('./routes/admin.trends.routes');
 const jobsService = require('./services/adminJobs.service');
+const scoringService = require('./services/scoringService');
+const gameStateService = require('./services/gameStateService');
+const picksService = require('./services/picksService');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -69,142 +72,21 @@ const SCOREBOARD_CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const GAME_SUMMARY_CACHE_MS = 90 * 1000; // 90 seconds
 const PLAYERS_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
-// Fallback playoff teams - used only during Wildcard if DB active_teams is not set
-const FALLBACK_PLAYOFF_TEAMS = process.env.PLAYOFF_TEAMS
-  ? process.env.PLAYOFF_TEAMS.split(',').map(t => t.trim())
-  : ['DEN','NE','JAX','PIT','HOU','LAC','BUF','SEA','CHI','PHI','CAR','SF','LAR','GB'];
-
-// Helper: Handle team abbreviations better.
+// ==============================================
+// GAME STATE (delegated to gameStateService)
+// ==============================================
+// Wrappers maintain backward compatibility with existing call sites
 
 function normalizeTeamAbbr(abbr) {
-  if (!abbr) return null;
-
-  const map = {
-    WSH: 'WAS',
-    JAC: 'JAX',
-    LA: 'LAR',
-    STL: 'LAR',
-    SD: 'LAC',
-    OAK: 'LV'
-  };
-
-  return map[abbr] || abbr;
+  return gameStateService.normalizeTeamAbbr(abbr);
 }
 
-// ==============================================
-// SELECTABLE TEAMS (DB-backed with TTL cache)
-// ==============================================
-const selectableTeamsCache = {
-  teams: null,
-  currentPlayoffWeek: null,
-  lastFetch: 0
-};
-const SELECTABLE_TEAMS_CACHE_MS = 60 * 1000; // 60 seconds TTL
-
-// Helper: Normalize active_teams JSON from game_settings into array of team abbreviations
-// Handles various possible shapes safely:
-// - Array of strings: ["BUF","KC"]
-// - Array of objects: [{abbreviation:"BUF"}, {abbr:"KC"}]
-// - Object map: {"BUF": true, "KC": true} or {"BUF": {...}, "KC": {...}}
-// - Object wrapper: {teams:[...]} or {activeTeams:[...]}
 function normalizeActiveTeams(activeTeamsJson) {
-  if (!activeTeamsJson) return [];
-
-  let data = activeTeamsJson;
-
-  // If it's a string, try to parse it
-  if (typeof data === 'string') {
-    try {
-      data = JSON.parse(data);
-    } catch (e) {
-      console.error('[normalizeActiveTeams] Failed to parse JSON string:', e.message);
-      return [];
-    }
-  }
-
-  // If it's already an array
-  if (Array.isArray(data)) {
-    return data.map(item => {
-      if (typeof item === 'string') {
-        return normalizeTeamAbbr(item);
-      }
-      if (typeof item === 'object' && item !== null) {
-        // Handle {abbreviation: "BUF"} or {abbr: "KC"} or {team: "SF"}
-        const abbr = item.abbreviation || item.abbr || item.team || null;
-        return normalizeTeamAbbr(abbr);
-      }
-      return null;
-    }).filter(Boolean);
-  }
-
-  // If it's an object (not array)
-  if (typeof data === 'object' && data !== null) {
-    // Check for wrapper keys: {teams:[...]} or {activeTeams:[...]}
-    if (Array.isArray(data.teams)) {
-      return normalizeActiveTeams(data.teams);
-    }
-    if (Array.isArray(data.activeTeams)) {
-      return normalizeActiveTeams(data.activeTeams);
-    }
-    if (Array.isArray(data.active_teams)) {
-      return normalizeActiveTeams(data.active_teams);
-    }
-
-    // Otherwise treat keys as team abbreviations: {"BUF": true, "KC": {...}}
-    return Object.keys(data).map(key => normalizeTeamAbbr(key)).filter(Boolean);
-  }
-
-  return [];
+  return gameStateService.normalizeActiveTeams(activeTeamsJson);
 }
 
-// Helper: Get selectable teams from DB with caching
-// Returns { teams: string[], currentPlayoffWeek: number }
-// Fails closed after Wildcard if active_teams is missing/empty
 async function getSelectableTeams(dbPool) {
-  const now = Date.now();
-
-  // Return cached value if still valid
-  if (selectableTeamsCache.teams !== null &&
-      (now - selectableTeamsCache.lastFetch) < SELECTABLE_TEAMS_CACHE_MS) {
-    return {
-      teams: selectableTeamsCache.teams,
-      currentPlayoffWeek: selectableTeamsCache.currentPlayoffWeek
-    };
-  }
-
-  // Fetch from DB
-  const result = await dbPool.query(
-    'SELECT active_teams, current_playoff_week FROM game_settings LIMIT 1'
-  );
-
-  const row = result.rows[0] || {};
-  const currentPlayoffWeek = row.current_playoff_week || 1;
-  const normalizedTeams = normalizeActiveTeams(row.active_teams);
-
-  // Fail-closed after Wildcard: if active_teams is missing/empty, return error indicator
-  if (currentPlayoffWeek > 1 && normalizedTeams.length === 0) {
-    // Don't cache error state - allow retry
-    return {
-      teams: null,
-      currentPlayoffWeek: currentPlayoffWeek,
-      error: 'Server configuration error'
-    };
-  }
-
-  // During Wildcard (week 1): fallback to env/hardcoded if DB active_teams is empty
-  let teams;
-  if (normalizedTeams.length === 0) {
-    teams = FALLBACK_PLAYOFF_TEAMS.map(t => normalizeTeamAbbr(t));
-  } else {
-    teams = normalizedTeams;
-  }
-
-  // Update cache
-  selectableTeamsCache.teams = teams;
-  selectableTeamsCache.currentPlayoffWeek = currentPlayoffWeek;
-  selectableTeamsCache.lastFetch = now;
-
-  return { teams, currentPlayoffWeek };
+  return gameStateService.getSelectableTeams(dbPool);
 }
 
 // ==============================================
@@ -1394,20 +1276,9 @@ async function fetchGameSummary(gameId) {
 }
 
 // Get teams that have active picks this week
+// Wrapper that delegates to gameStateService with injected pool
 async function getActiveTeamsForWeek(weekNumber) {
-  try {
-    const result = await pool.query(`
-      SELECT DISTINCT p.team
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id::text
-      WHERE pk.week_number = $1 AND p.team IS NOT NULL
-    `, [weekNumber]);
-
-    return result.rows.map(r => r.team);
-  } catch (err) {
-    console.error('Error getting active teams:', err);
-    return [];
-  }
+  return gameStateService.getActiveTeamsForWeek(pool, weekNumber);
 }
 
 // Main live stats update function
@@ -1466,75 +1337,9 @@ async function updateLiveStats(weekNumber) {
 }
 
 // Calculate fantasy points from stats
+// Wrapper that delegates to scoringService with injected pool
 async function calculateFantasyPoints(stats) {
-  try {
-    const rulesResult = await pool.query(
-      'SELECT stat_name, points FROM scoring_rules WHERE is_active = true'
-    );
-
-    const rules = {};
-    for (const row of rulesResult.rows) {
-      rules[row.stat_name] = parseFloat(row.points);
-    }
-
-    let points = 0;
-
-    // Passing
-    points += (stats.pass_yd || 0) * (rules.pass_yd || 0);
-    points += (stats.pass_td || 0) * (rules.pass_td || 0);
-    points += (stats.pass_int || 0) * (rules.pass_int || 0);
-    points += (stats.pass_2pt || 0) * (rules.pass_2pt || 0);
-
-    // Rushing
-    points += (stats.rush_yd || 0) * (rules.rush_yd || 0);
-    points += (stats.rush_td || 0) * (rules.rush_td || 0);
-    points += (stats.rush_2pt || 0) * (rules.rush_2pt || 0);
-
-    // Receiving
-    points += (stats.rec || 0) * (rules.rec || 0);
-    points += (stats.rec_yd || 0) * (rules.rec_yd || 0);
-    points += (stats.rec_td || 0) * (rules.rec_td || 0);
-    points += (stats.rec_2pt || 0) * (rules.rec_2pt || 0);
-
-    // Fumbles
-    points += (stats.fum_lost || 0) * (rules.fum_lost || 0);
-
-    // Kicker stats - flat scoring
-    points += (stats.fg_made || 0) * 3;
-    points += (stats.xp_made || 0) * 1;
-    points += (stats.fg_missed || 0) * -1;
-    points += (stats.xp_missed || 0) * -1;
-
-    // Defense stats
-    if (stats.def_sack !== undefined) {
-      points += (stats.def_sack || 0) * (rules.def_sack || 1);
-      points += (stats.def_int || 0) * (rules.def_int || 2);
-      points += (stats.def_fum_rec || 0) * (rules.def_fum_rec || 2);
-      points += (stats.def_td || 0) * (rules.def_td || 6);
-      points += (stats.def_safety || 0) * (rules.def_safety || 2);
-      points += (stats.def_block || 0) * (rules.def_block || 4);
-      points += (stats.def_ret_td || 0) * (rules.def_ret_td || 6);
-
-      const ptsAllowed = stats.def_pts_allowed || 0;
-      if (ptsAllowed === 0) points += 20;
-      else if (ptsAllowed <= 6) points += 15;
-      else if (ptsAllowed <= 13) points += 10;
-      else if (ptsAllowed <= 20) points += 5;
-      else if (ptsAllowed <= 27) points += 0;
-      else if (ptsAllowed <= 34) points += -1;
-      else points += -4;
-    }
-
-    // Bonuses
-    if (stats.pass_yd >= 400) points += (rules.pass_yd_bonus || 0);
-    if (stats.rush_yd >= 150) points += (rules.rush_yd_bonus || 0);
-    if (stats.rec_yd >= 150) points += (rules.rec_yd_bonus || 0);
-
-    return parseFloat(points.toFixed(2));
-  } catch (err) {
-    console.error('Error calculating points:', err);
-    return 0;
-  }
+  return scoringService.calculateFantasyPoints(pool, stats);
 }
 
 // API ROUTES
@@ -2769,36 +2574,12 @@ app.get('/api/picks/eliminated/:userId/:weekNumber', async (req, res) => {
       }
     }
 
-    // Get user's picks from PREVIOUS week
-    const prevWeek = parseInt(weekNumber) - 1;
-    const picksResult = await pool.query(`
-      SELECT pk.id, pk.user_id, pk.player_id, pk.position, pk.multiplier, p.team, p.full_name
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id
-      WHERE pk.user_id = $1 AND pk.week_number = $2
-    `, [userId, prevWeek]);
-
-    const eliminated = [];
-
-    for (const pick of picksResult.rows) {
-      const playerTeam = pick.team;
-      const isActive = activeTeams.has(playerTeam);
-
-      if (!isActive) {
-        eliminated.push({
-          pickId: pick.id,
-          playerId: pick.player_id,
-          playerName: pick.full_name,
-          position: pick.position,
-          team: playerTeam,
-          multiplier: pick.multiplier
-        });
-      }
-    }
+    // Get eliminated players via service
+    const eliminated = await picksService.getEliminatedPlayers(pool, userId, parseInt(weekNumber), activeTeams);
 
     res.json({
       weekNumber: parseInt(weekNumber),
-      previousWeek: prevWeek,
+      previousWeek: parseInt(weekNumber) - 1,
       activeTeams: Array.from(activeTeams),
       eliminated
     });
@@ -3799,7 +3580,6 @@ app.get('/api/picks/v2', async (req, res) => {
     }
 
     // For reads: allow viewing historical weeks, default to server week when omitted
-    // Remap playoff week index (1-4) to NFL week (19-22)
     let effectiveWeek;
     if (weekNumber !== undefined) {
       effectiveWeek = await resolveActualWeekNumber(weekNumber, pool, 'PicksV2');
@@ -3807,63 +3587,17 @@ app.get('/api/picks/v2', async (req, res) => {
         return res.status(400).json({ error: 'Invalid weekNumber' });
       }
     } else {
-      // Default to server's effective week (already returns NFL week)
       effectiveWeek = await getEffectiveWeekNumber();
     }
 
-    // Get picks with player info
-    const picksResult = await pool.query(`
-      SELECT
-        pk.id AS pick_id,
-        pk.player_id,
-        pk.position,
-        pk.multiplier,
-        pk.locked,
-        pk.consecutive_weeks,
-        COALESCE(p.full_name, p.first_name || ' ' || p.last_name) AS full_name,
-        p.team,
-        p.sleeper_id,
-        p.image_url,
-        COALESCE(s.final_points, 0) AS final_points
-      FROM picks pk
-      JOIN players p
-        ON pk.player_id = p.id
-      LEFT JOIN scores s
-        ON s.player_id = pk.player_id
-      AND s.user_id = pk.user_id
-      AND s.week_number = pk.week_number
-      WHERE pk.user_id = $1
-        AND pk.week_number = $2
-      ORDER BY
-        CASE pk.position
-          WHEN 'QB' THEN 1
-          WHEN 'RB' THEN 2
-          WHEN 'WR' THEN 3
-          WHEN 'TE' THEN 4
-          WHEN 'K' THEN 5
-          WHEN 'DEF' THEN 6
-          ELSE 7
-        END;
-    `, [userId, effectiveWeek]);
-
-    // Get position limits
-    const settingsResult = await pool.query(
-      `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
-    );
-    const settings = settingsResult.rows[0] || {};
+    // Get picks and position limits via service
+    const { picks, positionLimits } = await picksService.getPicksV2(pool, userId, effectiveWeek);
 
     res.json({
       userId,
       weekNumber: effectiveWeek,
-      picks: picksResult.rows,
-      positionLimits: {
-        QB: settings.qb_limit || 1,
-        RB: settings.rb_limit || 2,
-        WR: settings.wr_limit || 2,
-        TE: settings.te_limit || 1,
-        K: settings.k_limit || 1,
-        DEF: settings.def_limit || 1
-      }
+      picks,
+      positionLimits
     });
   } catch (err) {
     console.error('Error in GET /api/picks/v2:', err);
@@ -4062,34 +3796,8 @@ app.post('/api/picks/v2', async (req, res) => {
 app.get('/api/picks/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-
-    // Fetch playoff_start_week for display field derivation
-    const settingsResult = await pool.query(
-      'SELECT playoff_start_week FROM game_settings LIMIT 1'
-    );
-    const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
-
-    const result = await pool.query(`
-      SELECT pk.*, p.full_name, p.position, p.team
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id
-      WHERE pk.user_id = $1
-      ORDER BY pk.week_number, pk.position
-    `, [userId]);
-
-    // Add display fields derived at response time
-    const picksWithDisplayFields = result.rows.map(pick => {
-      const isPlayoff = pick.week_number >= playoffStartWeek;
-      const playoffWeek = isPlayoff ? pick.week_number - playoffStartWeek + 1 : null;
-      return {
-        ...pick,
-        is_playoff: isPlayoff,
-        playoff_week: playoffWeek,
-        display_week: isPlayoff ? `Playoff Week ${playoffWeek}` : `Week ${pick.week_number}`
-      };
-    });
-
-    res.json(picksWithDisplayFields);
+    const picks = await picksService.getPicksForUser(pool, userId);
+    res.json(picks);
   } catch (err) {
     console.error('Error fetching picks:', err);
     res.status(500).json({ error: err.message });
@@ -4100,34 +3808,8 @@ app.get('/api/picks/:userId', async (req, res) => {
 app.get('/api/picks/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-
-    // Fetch playoff_start_week for display field derivation
-    const settingsResult = await pool.query(
-      'SELECT playoff_start_week FROM game_settings LIMIT 1'
-    );
-    const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
-
-    const result = await pool.query(`
-      SELECT pk.*, p.full_name, p.position, p.team, p.sleeper_id, p.image_url
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id
-      WHERE pk.user_id = $1
-      ORDER BY pk.week_number, pk.position
-    `, [userId]);
-
-    // Add display fields derived at response time
-    const picksWithDisplayFields = result.rows.map(pick => {
-      const isPlayoff = pick.week_number >= playoffStartWeek;
-      const playoffWeek = isPlayoff ? pick.week_number - playoffStartWeek + 1 : null;
-      return {
-        ...pick,
-        is_playoff: isPlayoff,
-        playoff_week: playoffWeek,
-        display_week: isPlayoff ? `Playoff Week ${playoffWeek}` : `Week ${pick.week_number}`
-      };
-    });
-
-    res.json(picksWithDisplayFields);
+    const picks = await picksService.getPicksForUserExtended(pool, userId);
+    res.json(picks);
   } catch (err) {
     console.error('Error fetching picks:', err);
     res.status(500).json({ error: err.message });
@@ -4143,34 +3825,8 @@ app.get('/api/picks', async (req, res) => {
       return res.status(400).json({ error: 'userId required' });
     }
 
-    // Fetch playoff_start_week for display field derivation
-    const settingsResult = await pool.query(
-      'SELECT playoff_start_week FROM game_settings LIMIT 1'
-    );
-    const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
-
-    const result = await pool.query(
-      `SELECT p.*, pl.full_name, pl.position as player_position, pl.team, pl.sleeper_id, pl.image_url
-        FROM picks p
-        LEFT JOIN players pl ON p.player_id = pl.id
-        WHERE p.user_id = $1
-        ORDER BY p.week_number, p.position`,
-      [userId]
-    );
-
-    // Add display fields derived at response time
-    const picksWithDisplayFields = result.rows.map(pick => {
-      const isPlayoff = pick.week_number >= playoffStartWeek;
-      const playoffWeek = isPlayoff ? pick.week_number - playoffStartWeek + 1 : null;
-      return {
-        ...pick,
-        is_playoff: isPlayoff,
-        playoff_week: playoffWeek,
-        display_week: isPlayoff ? `Playoff Week ${playoffWeek}` : `Week ${pick.week_number}`
-      };
-    });
-
-    res.json(picksWithDisplayFields);
+    const picks = await picksService.getPicksByQuery(pool, userId);
+    res.json(picks);
   } catch (err) {
     console.error('Error getting picks:', err);
     res.status(500).json({ error: err.message });
@@ -5491,58 +5147,9 @@ async function getEffectiveWeekNumber() {
 }
 
 // Helper: Validate position counts for v2 API
+// Wrapper that delegates to picksService with injected pool
 async function validatePositionCounts(userId, weekNumber, proposedOps = []) {
-  // Get current position limits from game_settings
-  const settingsResult = await pool.query(
-    `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
-  );
-  const settings = settingsResult.rows[0] || {};
-  const limits = {
-    'QB': settings.qb_limit || 1,
-    'RB': settings.rb_limit || 2,
-    'WR': settings.wr_limit || 2,
-    'TE': settings.te_limit || 1,
-    'K': settings.k_limit || 1,
-    'DEF': settings.def_limit || 1
-  };
-
-  // Get current pick counts by position
-  const currentPicks = await pool.query(`
-    SELECT position, COUNT(*) as count
-    FROM picks
-    WHERE user_id = $1 AND week_number = $2
-    GROUP BY position
-  `, [userId, weekNumber]);
-
-  const counts = {};
-  for (const row of currentPicks.rows) {
-    counts[row.position] = parseInt(row.count, 10);
-  }
-
-  // Apply proposed operations
-  for (const op of proposedOps) {
-    const pos = op.position;
-    if (!counts[pos]) counts[pos] = 0;
-
-    if (op.action === 'add') {
-      counts[pos]++;
-    } else if (op.action === 'remove') {
-      counts[pos]--;
-    }
-  }
-
-  // Validate against limits
-  const errors = [];
-  for (const [pos, count] of Object.entries(counts)) {
-    if (count > limits[pos]) {
-      errors.push(`${pos}: ${count} exceeds limit of ${limits[pos]}`);
-    }
-    if (count < 0) {
-      errors.push(`${pos}: cannot have negative count`);
-    }
-  }
-
-  return { valid: errors.length === 0, errors, counts, limits };
+  return picksService.validatePositionCounts(pool, userId, weekNumber, proposedOps);
 }
 
 // ==============================================
