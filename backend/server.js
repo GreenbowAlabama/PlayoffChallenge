@@ -5610,16 +5610,23 @@ app.get('/api/me/flags', async (req, res) => {
   }
 });
 
-// Start server
-app.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  
-  // Start live stats polling if in production
-  if (process.env.NODE_ENV === 'production') {
-    setTimeout(startLiveStatsPolling, 5000); // Start after 5 seconds
-  }
-});
+// Start server only when run directly (not when required by tests)
+function startServer() {
+  return app.listen(PORT, async () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+
+    // Start live stats polling if in production
+    if (process.env.NODE_ENV === 'production') {
+      setTimeout(startLiveStatsPolling, 5000); // Start after 5 seconds
+    }
+  });
+}
+
+// Start server when executed directly
+if (require.main === module) {
+  startServer();
+}
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
@@ -5629,4 +5636,4 @@ process.on('SIGTERM', () => {
 });
 
 // Export for testing (does not affect production behavior)
-module.exports = { app, pool, calculateFantasyPoints };
+module.exports = { app, pool, calculateFantasyPoints, startServer };
