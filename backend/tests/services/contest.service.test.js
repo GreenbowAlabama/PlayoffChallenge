@@ -1200,5 +1200,215 @@ describe('Join Contest By Token - Validation Enforcement', () => {
       );
       expect(entryInserts.length).toBe(0);
     });
+
+    it('should reject join when contest is in draft state', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+      const joinLink = `https://app.playoff.com/join/${validToken}`;
+
+      const draftContest = {
+        ...contests.private,
+        join_link: joinLink,
+        state: 'draft'
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single(draftContest)
+      );
+
+      await expect(
+        contestService.joinContestByToken(mockPool, userId, validToken)
+      ).rejects.toThrow(/contest.*not open.*draft/i);
+
+      // Verify entry creation was NOT called
+      const queryHistory = mockPool.getQueryHistory();
+      const entryInserts = queryHistory.filter(q =>
+        /INSERT INTO contest_entries/i.test(q.sql)
+      );
+      expect(entryInserts.length).toBe(0);
+    });
+  });
+});
+
+/**
+ * Publish Contest - Owner Action
+ *
+ * Tests for the publishContest service function.
+ * Validates owner-only access and draft → open state transition.
+ */
+describe('Publish Contest - Owner Action', () => {
+  let mockPool;
+
+  beforeEach(() => {
+    mockPool = createMockPool();
+  });
+
+  afterEach(() => {
+    mockPool.reset();
+  });
+
+  describe('Owner Publish', () => {
+    it('should allow owner to publish draft contest', async () => {
+      const ownerUserId = TEST_IDS.users.validUser;
+      const contestId = TEST_CONTEST_IDS.privateContest;
+
+      const draftContest = {
+        contest_id: contestId,
+        created_by_user_id: ownerUserId,
+        state: 'draft',
+        league_name: 'My Draft Contest'
+      };
+
+      const publishedContest = {
+        ...draftContest,
+        state: 'open'
+      };
+
+      // Setup contest lookup mock
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*contest_id/,
+        mockQueryResponses.single(draftContest)
+      );
+
+      // Setup update mock
+      mockPool.setQueryResponse(
+        /UPDATE contests SET state.*open/,
+        mockQueryResponses.single(publishedContest)
+      );
+
+      const result = await contestService.publishContest(mockPool, ownerUserId, contestId);
+
+      expect(result.state).toBe('open');
+      expect(result.contest_id).toBe(contestId);
+
+      // Verify update was called
+      const queryHistory = mockPool.getQueryHistory();
+      const updates = queryHistory.filter(q =>
+        /UPDATE contests SET state/i.test(q.sql)
+      );
+      expect(updates.length).toBe(1);
+    });
+  });
+
+  describe('Non-Owner Publish Rejection', () => {
+    it('should reject publish attempt by non-owner', async () => {
+      const ownerUserId = TEST_IDS.users.validUser;
+      const otherUserId = TEST_IDS.users.paidUser;
+      const contestId = TEST_CONTEST_IDS.privateContest;
+
+      const draftContest = {
+        contest_id: contestId,
+        created_by_user_id: ownerUserId,
+        state: 'draft',
+        league_name: 'My Draft Contest'
+      };
+
+      // Setup contest lookup mock
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*contest_id/,
+        mockQueryResponses.single(draftContest)
+      );
+
+      // Attempt publish as non-owner
+      await expect(
+        contestService.publishContest(mockPool, otherUserId, contestId)
+      ).rejects.toThrow(/only.*owner.*publish/i);
+
+      // Verify update was NOT called
+      const queryHistory = mockPool.getQueryHistory();
+      const updates = queryHistory.filter(q =>
+        /UPDATE contests SET state/i.test(q.sql)
+      );
+      expect(updates.length).toBe(0);
+    });
+  });
+
+  describe('Non-Draft Publish Rejection', () => {
+    it('should reject publish when contest is already open', async () => {
+      const ownerUserId = TEST_IDS.users.validUser;
+      const contestId = TEST_CONTEST_IDS.freeContest;
+
+      const openContest = {
+        contest_id: contestId,
+        created_by_user_id: ownerUserId,
+        state: 'open',
+        league_name: 'Already Open Contest'
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*contest_id/,
+        mockQueryResponses.single(openContest)
+      );
+
+      await expect(
+        contestService.publishContest(mockPool, ownerUserId, contestId)
+      ).rejects.toThrow(/cannot publish.*draft.*open/i);
+
+      // Verify update was NOT called
+      const queryHistory = mockPool.getQueryHistory();
+      const updates = queryHistory.filter(q =>
+        /UPDATE contests SET state/i.test(q.sql)
+      );
+      expect(updates.length).toBe(0);
+    });
+
+    it('should reject publish when contest is locked', async () => {
+      const ownerUserId = TEST_IDS.users.validUser;
+      const contestId = TEST_CONTEST_IDS.lockedContest;
+
+      const lockedContest = {
+        contest_id: contestId,
+        created_by_user_id: ownerUserId,
+        state: 'locked',
+        league_name: 'Locked Contest'
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*contest_id/,
+        mockQueryResponses.single(lockedContest)
+      );
+
+      await expect(
+        contestService.publishContest(mockPool, ownerUserId, contestId)
+      ).rejects.toThrow(/cannot publish.*draft.*locked/i);
+    });
+
+    it('should reject publish when contest is cancelled', async () => {
+      const ownerUserId = TEST_IDS.users.validUser;
+      const contestId = 'cancelled-contest-uuid';
+
+      const cancelledContest = {
+        contest_id: contestId,
+        created_by_user_id: ownerUserId,
+        state: 'cancelled',
+        league_name: 'Cancelled Contest'
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*contest_id/,
+        mockQueryResponses.single(cancelledContest)
+      );
+
+      await expect(
+        contestService.publishContest(mockPool, ownerUserId, contestId)
+      ).rejects.toThrow(/cannot publish.*draft.*cancelled/i);
+    });
+  });
+
+  describe('Contest Not Found', () => {
+    it('should reject publish when contest does not exist', async () => {
+      const userId = TEST_IDS.users.validUser;
+      const nonExistentContestId = 'non-existent-uuid';
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*contest_id/,
+        mockQueryResponses.empty()
+      );
+
+      await expect(
+        contestService.publishContest(mockPool, userId, nonExistentContestId)
+      ).rejects.toThrow(/contest.*not found/i);
+    });
   });
 });

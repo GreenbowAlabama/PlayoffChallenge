@@ -233,6 +233,49 @@ async function joinContestByToken(pool, userId, joinToken) {
   return entryResult.rows[0];
 }
 
+/**
+ * Publish a contest (transition from draft to open)
+ *
+ * Owner-only action. Only draft contests can be published.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} userId - UUID of the user attempting to publish
+ * @param {string} contestId - UUID of the contest to publish
+ * @returns {Promise<Object>} Updated contest object
+ * @throws {Error} If contest not found, user is not owner, or contest is not in draft state
+ */
+async function publishContest(pool, userId, contestId) {
+  // Lookup contest
+  const contestResult = await pool.query(
+    `SELECT * FROM contests WHERE contest_id = $1`,
+    [contestId]
+  );
+
+  if (contestResult.rows.length === 0) {
+    throw new Error('Contest not found');
+  }
+
+  const contest = contestResult.rows[0];
+
+  // Verify ownership
+  if (contest.created_by_user_id !== userId) {
+    throw new Error('Only the contest owner can publish');
+  }
+
+  // Verify state is draft
+  if (contest.state !== 'draft') {
+    throw new Error(`Cannot publish contest: must be in draft state (current state: ${contest.state})`);
+  }
+
+  // Transition to open
+  const updateResult = await pool.query(
+    `UPDATE contests SET state = 'open' WHERE contest_id = $1 RETURNING *`,
+    [contestId]
+  );
+
+  return updateResult.rows[0];
+}
+
 module.exports = {
   createContest,
   getContestsForUser,
@@ -240,6 +283,7 @@ module.exports = {
   validateContestInput,
   validateJoinToken,
   joinContestByToken,
+  publishContest,
   VALID_CONTEST_TYPES,
   VALID_ENV_PREFIXES
 };
