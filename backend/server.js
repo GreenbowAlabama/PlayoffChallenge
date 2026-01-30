@@ -2949,10 +2949,8 @@ app.get('/api/players', async (req, res) => {
 });
 
 // ==============================================
-// V2 PICKS API - MUST BE DEFINED BEFORE /:userId ROUTES
+// PICKS API (v2 only - v1 routes removed)
 // ==============================================
-// These routes must come BEFORE /api/picks/:userId to prevent
-// "v2" from being captured as a userId parameter
 
 // GET /api/picks/v2 - Get normalized lineup for v2 clients
 app.get('/api/picks/v2', async (req, res) => {
@@ -3046,119 +3044,6 @@ app.post('/api/picks/v2', async (req, res) => {
       }
       return res.status(err.statusCode).json(response);
     }
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ==============================================
-// LEGACY PICKS ROUTES (v1) - Keep for backward compatibility
-// ==============================================
-
-// Get user's picks
-app.get('/api/picks/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const picks = await picksService.getPicksForUser(pool, userId);
-    res.json(picks);
-  } catch (err) {
-    console.error('Error fetching picks:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Alternative route for picks (handles /api/picks/user/:userId)
-app.get('/api/picks/user/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const picks = await picksService.getPicksForUserExtended(pool, userId);
-    res.json(picks);
-  } catch (err) {
-    console.error('Error fetching picks:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Get user picks
-app.get('/api/picks', async (req, res) => {
-  try {
-    const { userId } = req.query;
-
-    if (!userId) {
-      return res.status(400).json({ error: 'userId required' });
-    }
-
-    const picks = await picksService.getPicksByQuery(pool, userId);
-    res.json(picks);
-  } catch (err) {
-    console.error('Error getting picks:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Submit picks (supports single pick or batch)
-app.post('/api/picks', async (req, res) => {
-  try {
-    const { userId, playerId, weekNumber, position, picks } = req.body;
-
-    // Get selectable teams
-    const selectableResult = await getSelectableTeams(pool);
-    if (selectableResult.error) {
-      console.error(`[picks] ${selectableResult.error}: active_teams not set for playoff week ${selectableResult.currentPlayoffWeek}`);
-      return res.status(500).json({ error: 'Server configuration error. Please contact support.' });
-    }
-
-    const result = await picksService.executePickSubmission(pool, {
-      userId,
-      playerId,
-      weekNumber,
-      position,
-      picks,
-      selectableTeams: selectableResult.teams,
-      normalizeTeamAbbr
-    });
-
-    res.json(result);
-  } catch (err) {
-    console.error('Error creating pick:', err);
-    if (err.name === 'PicksError') {
-      const response = { error: err.message };
-      if (err.details) {
-        Object.assign(response, err.details);
-      }
-      return res.status(err.statusCode).json(response);
-    }
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Delete a pick
-app.delete('/api/picks/:pickId', async (req, res) => {
-  try {
-    const { pickId } = req.params;
-
-    // Week lockout check - block deletions when week is locked
-    const gameStateResult = await pool.query(
-      'SELECT is_week_active FROM game_settings LIMIT 1'
-    );
-    const { is_week_active } = gameStateResult.rows[0] || {};
-    if (!is_week_active) {
-      return res.status(403).json({
-        error: 'Picks are locked for this week. The submission window has closed.'
-      });
-    }
-
-    const result = await pool.query(
-      'DELETE FROM picks WHERE id = $1 RETURNING *',
-      [pickId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Pick not found' });
-    }
-
-    res.json({ success: true, deletedPick: result.rows[0] });
-  } catch (err) {
-    console.error('Error deleting pick:', err);
     res.status(500).json({ error: err.message });
   }
 });

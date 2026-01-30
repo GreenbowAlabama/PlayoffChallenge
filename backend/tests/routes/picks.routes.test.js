@@ -1,17 +1,17 @@
 /**
- * Picks Routes Contract Tests
+ * Picks Routes Contract Tests (v2 Only)
  *
  * Purpose: Lock in API contract for picks-related endpoints
- * - GET /api/picks/:userId
  * - GET /api/picks/v2
- * - POST /api/picks
  * - POST /api/picks/v2
- * - DELETE /api/picks/:pickId
  * - POST /api/picks/replace-player
  * - GET /api/picks/eliminated/:userId/:weekNumber
  *
  * These tests verify response shapes and validation behavior.
  * They are read-only and do not create persistent data.
+ *
+ * Note: v1 endpoints (GET /api/picks/:userId, POST /api/picks, DELETE /api/picks/:pickId)
+ * have been removed. All clients must use v2 endpoints.
  */
 
 const request = require('supertest');
@@ -26,42 +26,6 @@ describe('Picks Routes Contract Tests', () => {
     const { app: integrationApp } = getIntegrationApp();
     app = integrationApp;
     requestFactory = createRequestFactory(app);
-  });
-
-  describe('GET /api/picks/:userId', () => {
-    it('should return 200 with array for valid userId', async () => {
-      const response = await request(app).get(`/api/picks/${TEST_IDS.users.nonExistent}`);
-
-      expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
-    });
-
-    it('should return empty array for non-existent user', async () => {
-      const response = await request(app).get(`/api/picks/${TEST_IDS.users.nonExistent}`);
-
-      expect(response.body).toEqual([]);
-    });
-
-    it('should return picks with required fields when they exist', async () => {
-      // This test verifies the response shape when data exists
-      const response = await request(app).get(`/api/picks/${TEST_IDS.users.validUser}`);
-
-      expect(response.status).toBe(200);
-      if (response.body.length > 0) {
-        const pick = response.body[0];
-        expect(pick).toHaveProperty('id');
-        expect(pick).toHaveProperty('player_id');
-        expect(pick).toHaveProperty('week_number');
-      }
-    });
-
-    it('should handle invalid UUID format gracefully', async () => {
-      const response = await request(app).get('/api/picks/not-a-uuid');
-
-      // Server returns 500 for invalid UUID - this is acceptable behavior
-      // A future improvement could validate UUID format and return 400
-      expect([200, 400, 500]).toContain(response.status);
-    });
   });
 
   describe('GET /api/picks/v2', () => {
@@ -94,54 +58,8 @@ describe('Picks Routes Contract Tests', () => {
     });
   });
 
-  describe('POST /api/picks', () => {
-    it('should handle pick creation request', async () => {
-      const response = await request(app)
-        .post('/api/picks')
-        .send({});
-
-      // API may return 400 (validation) or 404 (no route) depending on implementation
-      expect([400, 404]).toContain(response.status);
-    });
-
-    it('should require userId for pick creation', async () => {
-      const response = await request(app)
-        .post('/api/picks')
-        .send({
-          playerId: TEST_IDS.players.qb1,
-          weekNumber: 1
-        });
-
-      expect([400, 404]).toContain(response.status);
-    });
-
-    it('should require playerId for pick creation', async () => {
-      const response = await request(app)
-        .post('/api/picks')
-        .send({
-          userId: TEST_IDS.users.validUser,
-          weekNumber: 1
-        });
-
-      expect([400, 404]).toContain(response.status);
-    });
-
-    it('should not return 500 for valid pick request', async () => {
-      // This test verifies error handling doesn't crash
-      const response = await request(app)
-        .post('/api/picks')
-        .send({
-          userId: TEST_IDS.users.validUser,
-          playerId: TEST_IDS.players.qb1,
-          weekNumber: 1
-        });
-
-      expect([200, 201, 400, 403, 404]).toContain(response.status);
-    });
-  });
-
   describe('POST /api/picks/v2', () => {
-    it('should return 400 without operation', async () => {
+    it('should return 400 without ops array', async () => {
       const response = await requestFactory.post('/api/picks/v2')
         .send({
           userId: TEST_IDS.users.validUser,
@@ -149,65 +67,54 @@ describe('Picks Routes Contract Tests', () => {
         });
 
       expect(response.status).toBe(400);
+      expect(response.body.error).toContain('ops');
     });
 
-    it('should accept add operation', async () => {
+    it('should accept add operation in ops array', async () => {
       const response = await requestFactory.post('/api/picks/v2')
         .send({
-          operation: 'add',
           userId: TEST_IDS.users.validUser,
-          playerId: TEST_IDS.players.qb1,
           weekNumber: 1,
-          slot: 'QB'
+          ops: [{
+            op: 'add',
+            playerId: TEST_IDS.players.qb1,
+            slot: 'QB'
+          }]
         });
 
-      // May succeed or fail based on game state, but not 500
-      expect([200, 201, 400, 403]).toContain(response.status);
+      // May succeed or fail based on game state or user existence, but not 500
+      expect([200, 201, 400, 403, 404]).toContain(response.status);
     });
 
-    it('should accept remove operation', async () => {
+    it('should accept remove operation in ops array', async () => {
       const response = await requestFactory.post('/api/picks/v2')
         .send({
-          operation: 'remove',
           userId: TEST_IDS.users.validUser,
-          pickId: TEST_IDS.picks.pick1,
-          weekNumber: 1
+          weekNumber: 1,
+          ops: [{
+            op: 'remove',
+            pickId: TEST_IDS.picks.pick1
+          }]
         });
 
       // May succeed or fail based on game state, but not 500
       expect([200, 400, 403, 404]).toContain(response.status);
     });
 
-    it('should accept replace operation', async () => {
+    it('should accept replace operation in ops array', async () => {
       const response = await requestFactory.post('/api/picks/v2')
         .send({
-          operation: 'replace',
           userId: TEST_IDS.users.validUser,
-          oldPlayerId: TEST_IDS.players.qb1,
-          newPlayerId: TEST_IDS.players.rb1,
-          weekNumber: 1
+          weekNumber: 1,
+          ops: [{
+            op: 'replace',
+            oldPlayerId: TEST_IDS.players.qb1,
+            newPlayerId: TEST_IDS.players.rb1
+          }]
         });
 
       // May succeed or fail based on game state, but not 500
       expect([200, 400, 403, 404]).toContain(response.status);
-    });
-  });
-
-  describe('DELETE /api/picks/:pickId', () => {
-    it('should handle delete request without userId', async () => {
-      const response = await request(app)
-        .delete(`/api/picks/${TEST_IDS.picks.pick1}`);
-
-      // May return 400 (validation) or 404 (route not found)
-      expect([400, 404]).toContain(response.status);
-    });
-
-    it('should return 404 for non-existent pick', async () => {
-      const response = await request(app)
-        .delete(`/api/picks/${TEST_IDS.picks.pick1}`)
-        .send({ userId: TEST_IDS.users.validUser });
-
-      expect([400, 403, 404]).toContain(response.status);
     });
   });
 
