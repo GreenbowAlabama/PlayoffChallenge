@@ -94,43 +94,71 @@ function getContractTestApp() {
  * Useful for simulating different client types.
  *
  * @param {Object} app Express app instance
- * @returns {Function} Request factory with preset headers
+ * @returns {Object} Request factory with methods for different client types
  */
 function createRequestFactory(app) {
   const request = require('supertest');
 
+  const modernHeaders = {
+    'X-Client-Capabilities': 'leaderboard_meta,leaderboard_gating,tos_required_flag,picks_v2',
+    'X-Client-Version': '2.0.0'
+  };
+
   return {
     /**
-     * Create request with modern client capabilities
+     * GET request with modern client capabilities
      */
-    modernClient() {
+    get(path) {
       return request(app)
-        .set('X-Client-Capabilities', 'leaderboard_meta,leaderboard_gating,tos_required_flag,picks_v2')
-        .set('X-Client-Version', '2.0.0');
+        .get(path)
+        .set(modernHeaders);
     },
 
     /**
-     * Create request with legacy client (no capabilities)
+     * POST request with modern client capabilities
      */
-    legacyClient() {
-      return request(app);
-    },
-
-    /**
-     * Create request with admin authentication
-     * @param {string} token JWT token for admin auth
-     */
-    adminClient(token) {
+    post(path) {
       return request(app)
-        .set('Authorization', `Bearer ${token}`)
-        .set('X-Client-Capabilities', 'leaderboard_meta,leaderboard_gating,tos_required_flag,picks_v2');
+        .post(path)
+        .set(modernHeaders);
     },
 
     /**
-     * Create raw supertest request
+     * PUT request with modern client capabilities
+     */
+    put(path) {
+      return request(app)
+        .put(path)
+        .set(modernHeaders);
+    },
+
+    /**
+     * DELETE request with modern client capabilities
+     */
+    delete(path) {
+      return request(app)
+        .delete(path)
+        .set(modernHeaders);
+    },
+
+    /**
+     * Raw supertest request (no preset headers)
      */
     raw() {
       return request(app);
+    },
+
+    /**
+     * Request with admin authentication
+     * @param {string} token JWT token for admin auth
+     */
+    withAdmin(token) {
+      return {
+        get: (path) => request(app).get(path).set('Authorization', `Bearer ${token}`).set(modernHeaders),
+        post: (path) => request(app).post(path).set('Authorization', `Bearer ${token}`).set(modernHeaders),
+        put: (path) => request(app).put(path).set('Authorization', `Bearer ${token}`).set(modernHeaders),
+        delete: (path) => request(app).delete(path).set('Authorization', `Bearer ${token}`).set(modernHeaders)
+      };
     }
   };
 }
