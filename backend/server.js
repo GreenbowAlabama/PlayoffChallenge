@@ -15,6 +15,7 @@ const gameStateService = require('./services/gameStateService');
 const picksService = require('./services/picksService');
 const usersService = require('./services/usersService');
 const adminService = require('./services/adminService');
+const contestService = require('./services/contestService');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -3103,6 +3104,74 @@ app.get('/api/game-config', async (req, res) => {
   } catch (err) {
     console.error('Error fetching game config:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ==============================================
+// UNIVERSAL JOIN LINK RESOLUTION
+// ==============================================
+// Resolves a join token and returns contest information.
+// This is a public endpoint - no authentication required.
+// Used by mobile clients for deep link handling.
+
+/**
+ * GET /api/join/:token
+ *
+ * Resolve a join token and return contest information.
+ * This endpoint is public and does not require authentication.
+ *
+ * Path params:
+ *   token - The join token (format: {env}_{tokenId})
+ *
+ * Response (200):
+ *   {
+ *     valid: boolean,
+ *     reason?: string,              // Present if valid=false
+ *     environment_mismatch?: boolean,
+ *     token_environment?: string,   // Present if environment_mismatch=true
+ *     current_environment?: string, // Present if environment_mismatch=true
+ *     contest?: {                   // Present if valid=true
+ *       contest_id: string,
+ *       league_name: string,
+ *       contest_type: string,
+ *       state: string,
+ *       is_private: boolean,
+ *       current_entries: number,
+ *       max_entries: number,
+ *       entry_fee_cents: number
+ *     }
+ *   }
+ */
+app.get('/api/join/:token', async (req, res) => {
+  const { token } = req.params;
+
+  console.log('[Join] Resolving join token', {
+    timestamp: new Date().toISOString(),
+    tokenPrefix: token ? token.split('_')[0] : null,
+    ip: req.ip
+  });
+
+  try {
+    const result = await contestService.resolveJoinToken(pool, token);
+
+    // Log outcome (without exposing full token)
+    console.log('[Join] Token resolution complete', {
+      timestamp: new Date().toISOString(),
+      valid: result.valid,
+      reason: result.reason || null,
+      environmentMismatch: result.environment_mismatch || false,
+      contestState: result.contest?.state || null,
+      ip: req.ip
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error('[Join] Unexpected error resolving token', {
+      timestamp: new Date().toISOString(),
+      error: err.message,
+      ip: req.ip
+    });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

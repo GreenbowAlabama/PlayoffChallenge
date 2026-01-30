@@ -234,6 +234,100 @@ async function joinContestByToken(pool, userId, joinToken) {
 }
 
 /**
+ * Resolve a join token and return contest information
+ *
+ * Used for universal join link support. This function validates the token
+ * and returns structured information about the contest without requiring
+ * user authentication. Mobile clients can use this to:
+ * - Validate link before showing join UI
+ * - Display contest information during onboarding
+ * - Handle deep links for both new and existing users
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} token - The join token to resolve
+ * @returns {Promise<Object>} Resolution result with structure:
+ *   {
+ *     valid: boolean,
+ *     reason?: string,           // Present if valid=false
+ *     environment_mismatch?: boolean,  // True if token env doesn't match
+ *     token_environment?: string,      // The environment the token was issued for
+ *     current_environment?: string,    // The current server environment
+ *     contest?: {                // Present if valid=true
+ *       contest_id: string,
+ *       league_name: string,
+ *       contest_type: string,
+ *       state: string,
+ *       is_private: boolean,
+ *       current_entries: number,
+ *       max_entries: number,
+ *       entry_fee_cents: number
+ *     }
+ *   }
+ */
+async function resolveJoinToken(pool, token) {
+  // Step 1: Validate token format and environment
+  const validation = validateJoinToken(token);
+
+  if (!validation.valid) {
+    // Check if this is an environment mismatch
+    const isEnvMismatch = validation.error && validation.error.includes('Environment mismatch');
+
+    if (isEnvMismatch) {
+      // Parse environment info from token for client display
+      const parts = token.split('_');
+      const tokenEnv = parts[0];
+      const currentEnv = getEnvPrefix();
+
+      return {
+        valid: false,
+        reason: validation.error,
+        environment_mismatch: true,
+        token_environment: tokenEnv,
+        current_environment: currentEnv
+      };
+    }
+
+    return {
+      valid: false,
+      reason: validation.error,
+      environment_mismatch: false
+    };
+  }
+
+  // Step 2: Look up contest by join_link
+  const joinLink = `https://app.playoff.com/join/${token}`;
+
+  const contestResult = await pool.query(
+    'SELECT contest_id, league_name, contest_type, state, is_private, current_entries, max_entries, entry_fee_cents FROM contests WHERE join_link = $1',
+    [joinLink]
+  );
+
+  if (contestResult.rows.length === 0) {
+    return {
+      valid: false,
+      reason: 'Contest not found for this token',
+      environment_mismatch: false
+    };
+  }
+
+  const contest = contestResult.rows[0];
+
+  return {
+    valid: true,
+    contest: {
+      contest_id: contest.contest_id,
+      league_name: contest.league_name,
+      contest_type: contest.contest_type,
+      state: contest.state,
+      is_private: contest.is_private,
+      current_entries: contest.current_entries,
+      max_entries: contest.max_entries,
+      entry_fee_cents: contest.entry_fee_cents
+    }
+  };
+}
+
+/**
  * Publish a contest (transition from draft to open)
  *
  * Owner-only action. Only draft contests can be published.
@@ -282,6 +376,7 @@ module.exports = {
   getVisibleContests,
   validateContestInput,
   validateJoinToken,
+  resolveJoinToken,
   joinContestByToken,
   publishContest,
   VALID_CONTEST_TYPES,

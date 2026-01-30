@@ -1412,3 +1412,309 @@ describe('Publish Contest - Owner Action', () => {
     });
   });
 });
+
+/**
+ * Resolve Join Token - Universal Link Support
+ *
+ * Tests for the resolveJoinToken service function.
+ * This function validates a join token and returns structured contest information
+ * for mobile clients to handle universal/deep links.
+ */
+describe('Resolve Join Token - Universal Link Support', () => {
+  let mockPool;
+  const originalEnv = process.env.APP_ENV;
+
+  beforeEach(() => {
+    mockPool = createMockPool();
+    // Set consistent environment for tests
+    process.env.APP_ENV = 'test';
+  });
+
+  afterEach(() => {
+    mockPool.reset();
+    // Restore original env
+    if (originalEnv !== undefined) {
+      process.env.APP_ENV = originalEnv;
+    } else {
+      delete process.env.APP_ENV;
+    }
+  });
+
+  describe('Valid Token Resolution', () => {
+    it('should return contest info for valid token', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const joinLink = `https://app.playoff.com/join/${validToken}`;
+
+      const privateContest = {
+        contest_id: TEST_CONTEST_IDS.privateContest,
+        league_name: 'Private League',
+        contest_type: 'playoff_challenge',
+        state: 'open',
+        is_private: true,
+        current_entries: 5,
+        max_entries: 20,
+        entry_fee_cents: 1000,
+        join_link: joinLink
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single(privateContest)
+      );
+
+      const result = await contestService.resolveJoinToken(mockPool, validToken);
+
+      expect(result.valid).toBe(true);
+      expect(result.contest).toBeDefined();
+      expect(result.contest.contest_id).toBe(TEST_CONTEST_IDS.privateContest);
+      expect(result.contest.league_name).toBe('Private League');
+      expect(result.contest.contest_type).toBe('playoff_challenge');
+      expect(result.contest.state).toBe('open');
+      expect(result.contest.is_private).toBe(true);
+      expect(result.contest.current_entries).toBe(5);
+      expect(result.contest.max_entries).toBe(20);
+      expect(result.contest.entry_fee_cents).toBe(1000);
+    });
+
+    it('should query database with correct join_link format', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const expectedJoinLink = `https://app.playoff.com/join/${validToken}`;
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single({
+          ...contests.private,
+          join_link: expectedJoinLink,
+          state: 'open'
+        })
+      );
+
+      await contestService.resolveJoinToken(mockPool, validToken);
+
+      const queryHistory = mockPool.getQueryHistory();
+      expect(queryHistory.length).toBe(1);
+      expect(queryHistory[0].params).toContain(expectedJoinLink);
+    });
+
+    it('should return contest in draft state', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const joinLink = `https://app.playoff.com/join/${validToken}`;
+
+      const draftContest = {
+        ...contests.private,
+        join_link: joinLink,
+        state: 'draft'
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single(draftContest)
+      );
+
+      const result = await contestService.resolveJoinToken(mockPool, validToken);
+
+      expect(result.valid).toBe(true);
+      expect(result.contest.state).toBe('draft');
+    });
+
+    it('should return contest in locked state', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const joinLink = `https://app.playoff.com/join/${validToken}`;
+
+      const lockedContest = {
+        ...contests.private,
+        join_link: joinLink,
+        state: 'locked'
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single(lockedContest)
+      );
+
+      const result = await contestService.resolveJoinToken(mockPool, validToken);
+
+      expect(result.valid).toBe(true);
+      expect(result.contest.state).toBe('locked');
+    });
+  });
+
+  describe('Environment Mismatch Detection', () => {
+    it('should return environment_mismatch when token is from different env', async () => {
+      // Current env is 'test', token is from 'prd'
+      const prodToken = 'prd_abc123def456789012345678901234';
+
+      const result = await contestService.resolveJoinToken(mockPool, prodToken);
+
+      expect(result.valid).toBe(false);
+      expect(result.environment_mismatch).toBe(true);
+      expect(result.token_environment).toBe('prd');
+      expect(result.current_environment).toBe('test');
+      expect(result.reason).toMatch(/environment mismatch/i);
+
+      // No database query should be made
+      const queryHistory = mockPool.getQueryHistory();
+      expect(queryHistory.length).toBe(0);
+    });
+
+    it('should return environment info for staging token in test env', async () => {
+      const stagingToken = 'stg_abc123def456789012345678901234';
+
+      const result = await contestService.resolveJoinToken(mockPool, stagingToken);
+
+      expect(result.valid).toBe(false);
+      expect(result.environment_mismatch).toBe(true);
+      expect(result.token_environment).toBe('stg');
+      expect(result.current_environment).toBe('test');
+    });
+
+    it('should return environment info for dev token in test env', async () => {
+      const devToken = 'dev_abc123def456789012345678901234';
+
+      const result = await contestService.resolveJoinToken(mockPool, devToken);
+
+      expect(result.valid).toBe(false);
+      expect(result.environment_mismatch).toBe(true);
+      expect(result.token_environment).toBe('dev');
+      expect(result.current_environment).toBe('test');
+    });
+  });
+
+  describe('Malformed Token Handling', () => {
+    it('should return invalid for token without prefix', async () => {
+      const malformedToken = 'abc123def456789012345678901234';
+
+      const result = await contestService.resolveJoinToken(mockPool, malformedToken);
+
+      expect(result.valid).toBe(false);
+      expect(result.environment_mismatch).toBe(false);
+      expect(result.reason).toMatch(/malformed token/i);
+
+      // No database query should be made
+      const queryHistory = mockPool.getQueryHistory();
+      expect(queryHistory.length).toBe(0);
+    });
+
+    it('should return invalid for token with unknown prefix', async () => {
+      const invalidPrefixToken = 'xyz_abc123def456789012345678901234';
+
+      const result = await contestService.resolveJoinToken(mockPool, invalidPrefixToken);
+
+      expect(result.valid).toBe(false);
+      expect(result.environment_mismatch).toBe(false);
+      expect(result.reason).toMatch(/malformed token/i);
+    });
+
+    it('should return invalid for empty token', async () => {
+      const result = await contestService.resolveJoinToken(mockPool, '');
+
+      expect(result.valid).toBe(false);
+      expect(result.environment_mismatch).toBe(false);
+      expect(result.reason).toMatch(/token.*required/i);
+    });
+
+    it('should return invalid for null token', async () => {
+      const result = await contestService.resolveJoinToken(mockPool, null);
+
+      expect(result.valid).toBe(false);
+      expect(result.environment_mismatch).toBe(false);
+      expect(result.reason).toMatch(/token.*required/i);
+    });
+
+    it('should return invalid for undefined token', async () => {
+      const result = await contestService.resolveJoinToken(mockPool, undefined);
+
+      expect(result.valid).toBe(false);
+      expect(result.environment_mismatch).toBe(false);
+    });
+  });
+
+  describe('Contest Not Found', () => {
+    it('should return invalid when contest is not found', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.empty()
+      );
+
+      const result = await contestService.resolveJoinToken(mockPool, validToken);
+
+      expect(result.valid).toBe(false);
+      expect(result.environment_mismatch).toBe(false);
+      expect(result.reason).toMatch(/contest.*not found/i);
+    });
+  });
+
+  describe('Response Shape Validation', () => {
+    it('should not include contest object when invalid', async () => {
+      const prodToken = 'prd_abc123def456789012345678901234';
+
+      const result = await contestService.resolveJoinToken(mockPool, prodToken);
+
+      expect(result.valid).toBe(false);
+      expect(result.contest).toBeUndefined();
+    });
+
+    it('should not include reason when valid', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const joinLink = `https://app.playoff.com/join/${validToken}`;
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single({
+          ...contests.private,
+          join_link: joinLink,
+          state: 'open'
+        })
+      );
+
+      const result = await contestService.resolveJoinToken(mockPool, validToken);
+
+      expect(result.valid).toBe(true);
+      expect(result.reason).toBeUndefined();
+      expect(result.environment_mismatch).toBeUndefined();
+    });
+
+    it('should return all contest fields needed for UI display', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const joinLink = `https://app.playoff.com/join/${validToken}`;
+
+      const fullContest = {
+        contest_id: TEST_CONTEST_IDS.privateContest,
+        league_name: 'Test League',
+        contest_type: 'march_madness',
+        state: 'open',
+        is_private: true,
+        current_entries: 10,
+        max_entries: 50,
+        entry_fee_cents: 2500,
+        join_link: joinLink,
+        created_at: new Date(),
+        starts_at: new Date()
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single(fullContest)
+      );
+
+      const result = await contestService.resolveJoinToken(mockPool, validToken);
+
+      // Verify all UI-required fields are present
+      expect(result.contest).toHaveProperty('contest_id');
+      expect(result.contest).toHaveProperty('league_name');
+      expect(result.contest).toHaveProperty('contest_type');
+      expect(result.contest).toHaveProperty('state');
+      expect(result.contest).toHaveProperty('is_private');
+      expect(result.contest).toHaveProperty('current_entries');
+      expect(result.contest).toHaveProperty('max_entries');
+      expect(result.contest).toHaveProperty('entry_fee_cents');
+
+      // Verify sensitive fields are NOT exposed
+      expect(result.contest).not.toHaveProperty('join_link');
+      expect(result.contest).not.toHaveProperty('created_at');
+      expect(result.contest).not.toHaveProperty('starts_at');
+    });
+  });
+});

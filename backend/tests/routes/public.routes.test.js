@@ -254,4 +254,57 @@ describe('Public Routes Contract Tests', () => {
       expect(response.status).toBe(200);
     });
   });
+
+  describe('GET /api/join/:token', () => {
+    it('should return 200 with response shape for any token', async () => {
+      const response = await request(app).get('/api/join/test_abc123def456');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('valid');
+    });
+
+    it('should return environment_mismatch for wrong env token', async () => {
+      // Token from production env (assuming test env is not prd)
+      const response = await request(app).get('/api/join/prd_abc123def456');
+
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(false);
+      expect(response.body.environment_mismatch).toBe(true);
+      expect(response.body).toHaveProperty('token_environment', 'prd');
+      expect(response.body).toHaveProperty('current_environment');
+    });
+
+    it('should return invalid for malformed token without prefix', async () => {
+      const response = await request(app).get('/api/join/abc123def456');
+
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(false);
+      expect(response.body.environment_mismatch).toBe(false);
+      expect(response.body).toHaveProperty('reason');
+    });
+
+    it('should return invalid for unknown prefix token', async () => {
+      const response = await request(app).get('/api/join/xyz_abc123def456');
+
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(false);
+      expect(response.body.environment_mismatch).toBe(false);
+      expect(response.body.reason).toMatch(/malformed/i);
+    });
+
+    it('should return Content-Type application/json', async () => {
+      const response = await request(app).get('/api/join/test_abc123def456');
+
+      expect(response.headers['content-type']).toMatch(/application\/json/);
+    });
+
+    it('should not require authentication', async () => {
+      // No auth headers provided, should still work
+      const response = await request(app)
+        .get('/api/join/test_abc123def456');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('valid');
+    });
+  });
 });
