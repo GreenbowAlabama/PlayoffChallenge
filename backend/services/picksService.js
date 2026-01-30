@@ -6,6 +6,18 @@
  */
 
 /**
+ * Custom error class for picks operations with HTTP status codes.
+ */
+class PicksError extends Error {
+  constructor(message, statusCode = 400, details = null) {
+    super(message);
+    this.name = 'PicksError';
+    this.statusCode = statusCode;
+    this.details = details;
+  }
+}
+
+/**
  * Add display fields to picks based on playoff start week.
  *
  * @param {Object[]} picks - Array of pick objects
@@ -497,7 +509,423 @@ async function getNewPlayerInfo(pool, playerId) {
   return result.rows[0] || null;
 }
 
+// ==============================================
+// ORCHESTRATION FUNCTIONS
+// ==============================================
+
+/**
+ * Get game state from database.
+ *
+ * @param {Object} pool - Database connection pool
+ * @returns {Promise<Object>} - Game state settings
+ */
+async function getGameState(pool) {
+  const result = await pool.query(
+    'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
+  );
+  return result.rows[0] || {};
+}
+
+/**
+ * Calculate effective week number from game state.
+ *
+ * @param {Object} gameState - Game state from getGameState
+ * @returns {number} - Effective NFL week number
+ */
+function calculateEffectiveWeek(gameState) {
+  const { current_playoff_week, playoff_start_week } = gameState;
+  if (current_playoff_week > 0) {
+    return playoff_start_week + Math.min(current_playoff_week - 1, 3);
+  }
+  return playoff_start_week > 0 ? playoff_start_week : 1;
+}
+
+/**
+ * Execute v2 pick operations (add/remove).
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {Object} params - Operation parameters
+ * @param {string} params.userId - User ID
+ * @param {number} params.weekNumber - Client-provided week number (optional, for validation)
+ * @param {Object[]} params.ops - Array of operations [{action: 'add'|'remove', playerId?, pickId?}]
+ * @param {string[]} params.selectableTeams - Array of selectable team abbreviations
+ * @param {Function} params.normalizeTeamAbbr - Team abbreviation normalizer function
+ * @returns {Promise<Object>} - Result with operations and position counts
+ */
+async function executePicksV2Operations(pool, params) {
+  const { userId, weekNumber, ops, selectableTeams, normalizeTeamAbbr } = params;
+
+  // User validation
+  if (!await userExists(pool, userId)) {
+    throw new PicksError('User not found', 404);
+  }
+
+  // Get game state
+  const gameState = await getGameState(pool);
+  const { current_playoff_week, is_week_active } = gameState;
+
+  // Week lockout check
+  if (!is_week_active) {
+    throw new PicksError('Picks are locked for this week. The submission window has closed.', 403);
+  }
+
+  // Server is the single source of truth for active week
+  const effectiveWeek = calculateEffectiveWeek(gameState);
+
+  // Guard: reject if client sent a mismatched week
+  if (weekNumber && parseInt(weekNumber, 10) !== effectiveWeek) {
+    throw new PicksError(
+      'Week mismatch. The active playoff week has changed. Please refresh.',
+      409,
+      { serverWeek: effectiveWeek, clientWeek: parseInt(weekNumber, 10) }
+    );
+  }
+
+  // Build proposed operations with position info
+  const proposedOps = [];
+  for (const op of ops) {
+    if (op.action === 'add') {
+      const eligibility = await validatePlayerEligibility(pool, op.playerId, selectableTeams, normalizeTeamAbbr);
+      if (!eligibility.valid) {
+        throw new PicksError(eligibility.error, 400);
+      }
+      proposedOps.push({ action: 'add', position: eligibility.player.position, playerId: op.playerId });
+    } else if (op.action === 'remove') {
+      const pick = await getPickById(pool, op.pickId);
+      if (!pick) {
+        throw new PicksError(`Pick ${op.pickId} not found`, 400);
+      }
+      proposedOps.push({ action: 'remove', position: pick.position, pickId: op.pickId, playerId: pick.playerId });
+    }
+  }
+
+  // Validate position limits
+  const validation = await validatePositionCounts(pool, userId, effectiveWeek, proposedOps);
+  if (!validation.valid) {
+    throw new PicksError('Position limit exceeded', 400, { details: validation.errors });
+  }
+
+  // Execute operations within a transaction
+  const dbClient = await pool.connect();
+  const results = [];
+
+  try {
+    await dbClient.query('BEGIN');
+
+    // Track removals by position for swap detection
+    const removalsByPosition = new Map();
+
+    for (const op of proposedOps) {
+      if (op.action === 'add') {
+        // Get carry-forward values
+        let preservedMultiplier = 1;
+        let preservedConsecutiveWeeks = 1;
+        if (current_playoff_week > 1) {
+          const carryForward = await getCarryForwardValues(dbClient, userId, op.playerId, effectiveWeek - 1);
+          preservedMultiplier = carryForward.multiplier;
+          preservedConsecutiveWeeks = carryForward.consecutiveWeeks;
+          if (preservedMultiplier > 1) {
+            console.log(`[picks/v2] Carrying multiplier ${preservedMultiplier} and consecutive_weeks ${preservedConsecutiveWeeks} for player ${op.playerId}`);
+          }
+        }
+
+        const insertResult = await dbClient.query(`
+          INSERT INTO picks (user_id, player_id, position, week_number, multiplier, consecutive_weeks, locked)
+          VALUES ($1, $2, $3, $4, $5, $6, false)
+          RETURNING *
+        `, [userId, op.playerId, op.position, effectiveWeek, preservedMultiplier, preservedConsecutiveWeeks]);
+        results.push({ action: 'add', success: true, pick: insertResult.rows[0] });
+
+        // Check for swap
+        const removal = removalsByPosition.get(op.position);
+        if (removal && removal.playerId !== op.playerId) {
+          await logPlayerSwap(dbClient, {
+            userId, oldPlayerId: removal.playerId, newPlayerId: op.playerId,
+            position: op.position, weekNumber: effectiveWeek
+          });
+          console.log(`[picks/v2] Logged swap: user ${userId} replaced ${removal.playerId} with ${op.playerId} at ${op.position} for week ${effectiveWeek}`);
+        }
+      } else if (op.action === 'remove') {
+        await deletePick(dbClient, op.pickId, userId);
+        results.push({ action: 'remove', success: true, pickId: op.pickId });
+        removalsByPosition.set(op.position, { playerId: op.playerId, pickId: op.pickId });
+      }
+    }
+
+    await dbClient.query('COMMIT');
+  } catch (txErr) {
+    await dbClient.query('ROLLBACK');
+    throw txErr;
+  } finally {
+    dbClient.release();
+  }
+
+  return {
+    success: true,
+    weekNumber: effectiveWeek,
+    operations: results,
+    positionCounts: validation.counts
+  };
+}
+
+/**
+ * Execute legacy pick submission (batch or single).
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {Object} params - Submission parameters
+ * @param {string} params.userId - User ID
+ * @param {string} params.playerId - Single player ID (for single submission)
+ * @param {number} params.weekNumber - Client-provided week number (optional, for validation)
+ * @param {string} params.position - Position (for single submission)
+ * @param {Object[]} params.picks - Array of picks for batch submission
+ * @param {string[]} params.selectableTeams - Array of selectable team abbreviations
+ * @param {Function} params.normalizeTeamAbbr - Team abbreviation normalizer function
+ * @returns {Promise<Object>} - Result with picks
+ */
+async function executePickSubmission(pool, params) {
+  const { userId, playerId, weekNumber, position, picks, selectableTeams, normalizeTeamAbbr } = params;
+
+  // User validation
+  if (!await userExists(pool, userId)) {
+    throw new PicksError('User not found', 404);
+  }
+
+  // Get game state
+  const gameState = await getGameState(pool);
+  const { current_playoff_week, is_week_active } = gameState;
+
+  // Week lockout check
+  if (!is_week_active) {
+    throw new PicksError('Picks are locked for this week. The submission window has closed.', 403);
+  }
+
+  const effectiveWeekNumber = calculateEffectiveWeek(gameState);
+
+  // Guard: reject if client sent a mismatched week
+  if (weekNumber && parseInt(weekNumber, 10) !== effectiveWeekNumber) {
+    throw new PicksError(
+      'Week mismatch. The active playoff week has changed. Please refresh.',
+      409,
+      { serverWeek: effectiveWeekNumber, clientWeek: parseInt(weekNumber, 10) }
+    );
+  }
+
+  // Batch submission
+  if (picks && Array.isArray(picks)) {
+    const results = [];
+
+    for (const pick of picks) {
+      // Validate player eligibility
+      const player = await getPlayerForValidation(pool, pick.playerId);
+      if (!player) {
+        throw new PicksError(`Player not found: ${pick.playerId}`, 404);
+      }
+
+      // Check IR status
+      const ineligibleStatuses = ['IR', 'PUP', 'SUSP'];
+      const normalizedStatus = player.injury_status ? player.injury_status.toUpperCase().trim() : null;
+      if (normalizedStatus && ineligibleStatuses.includes(normalizedStatus)) {
+        throw new PicksError(`${player.full_name || pick.playerId} is on ${player.injury_status} and cannot be selected.`, 400);
+      }
+
+      // Check team eligibility
+      const normalizedTeam = normalizeTeamAbbr(player.team);
+      if (!selectableTeams.includes(normalizedTeam)) {
+        throw new PicksError(`Player ${pick.playerId}'s team (${player.team}) has been eliminated. Only players from active teams are selectable.`, 400);
+      }
+
+      // Validate position limit
+      const limits = await getPositionLimits(pool);
+      const maxPicks = limits[pick.position] || 2;
+      const currentCount = await getCurrentPositionCount(pool, userId, effectiveWeekNumber, pick.position, pick.playerId);
+
+      if (currentCount >= maxPicks) {
+        throw new PicksError(`Position limit exceeded for ${pick.position}. Maximum allowed: ${maxPicks}`, 400);
+      }
+
+      // Get carry-forward values
+      let preservedMultiplier = 1;
+      let preservedConsecutiveWeeks = 1;
+      if (current_playoff_week > 1) {
+        const carryForward = await getCarryForwardValues(pool, userId, pick.playerId, effectiveWeekNumber - 1);
+        preservedMultiplier = carryForward.multiplier;
+        preservedConsecutiveWeeks = carryForward.consecutiveWeeks;
+        if (preservedMultiplier > 1) {
+          console.log(`[picks] Carrying multiplier ${preservedMultiplier} and consecutive_weeks ${preservedConsecutiveWeeks} for player ${pick.playerId}`);
+        }
+      }
+
+      const result = await upsertPick(pool, {
+        userId, playerId: pick.playerId, weekNumber: effectiveWeekNumber,
+        position: pick.position, multiplier: preservedMultiplier, consecutiveWeeks: preservedConsecutiveWeeks
+      });
+      results.push(result);
+    }
+
+    return { success: true, picks: results };
+  }
+
+  // Single pick submission
+  // Validate player's team is selectable
+  const playerResult = await pool.query('SELECT team FROM players WHERE id = $1', [playerId]);
+  if (playerResult.rows.length === 0) {
+    throw new PicksError(`Player not found: ${playerId}`, 404);
+  }
+  const normalizedTeam = normalizeTeamAbbr(playerResult.rows[0].team);
+  if (!selectableTeams.includes(normalizedTeam)) {
+    throw new PicksError(`Player ${playerId}'s team (${playerResult.rows[0].team}) has been eliminated. Only players from active teams are selectable.`, 400);
+  }
+
+  // Validate position limit
+  const limits = await getPositionLimits(pool);
+  const maxPicks = limits[position] || 2;
+  const currentCount = await getCurrentPositionCount(pool, userId, effectiveWeekNumber, position, playerId);
+
+  if (currentCount >= maxPicks) {
+    throw new PicksError(`Position limit exceeded for ${position}. Maximum allowed: ${maxPicks}`, 400);
+  }
+
+  // Get carry-forward values
+  let preservedMultiplier = 1;
+  let preservedConsecutiveWeeks = 1;
+  if (current_playoff_week > 1) {
+    const carryForward = await getCarryForwardValues(pool, userId, playerId, effectiveWeekNumber - 1);
+    preservedMultiplier = carryForward.multiplier;
+    preservedConsecutiveWeeks = carryForward.consecutiveWeeks;
+    if (preservedMultiplier > 1) {
+      console.log(`[picks] Carrying multiplier ${preservedMultiplier} and consecutive_weeks ${preservedConsecutiveWeeks} for player ${playerId}`);
+    }
+  }
+
+  const result = await upsertPick(pool, {
+    userId, playerId, weekNumber: effectiveWeekNumber,
+    position, multiplier: preservedMultiplier, consecutiveWeeks: preservedConsecutiveWeeks
+  });
+
+  return result;
+}
+
+/**
+ * Execute player replacement (for eliminated teams).
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {Object} params - Replacement parameters
+ * @param {string} params.userId - User ID
+ * @param {string} params.oldPlayerId - Old player ID to replace
+ * @param {string} params.newPlayerId - New player ID
+ * @param {string} params.position - Position
+ * @param {number} params.weekNumber - Client-provided week number
+ * @param {Set<string>} params.activeTeams - Set of active team abbreviations (from ESPN)
+ * @param {string[]} params.selectableTeams - Array of selectable team abbreviations
+ * @param {Function} params.normalizeTeamAbbr - Team abbreviation normalizer function
+ * @returns {Promise<Object>} - Result with old/new player info and pick
+ */
+async function executePlayerReplacement(pool, params) {
+  const { userId, oldPlayerId, newPlayerId, position, weekNumber, activeTeams, selectableTeams, normalizeTeamAbbr } = params;
+
+  // Get game state
+  const gameState = await getGameState(pool);
+  const { current_playoff_week, playoff_start_week, is_week_active } = gameState;
+
+  // Week lockout check
+  if (!is_week_active) {
+    throw new PicksError('Picks are locked for this week. The submission window has closed.', 403);
+  }
+
+  // Calculate effective week
+  const effectiveWeekNumber = current_playoff_week > 0
+    ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
+    : weekNumber;
+
+  // Check old player's team
+  const oldPlayer = await getOldPlayerInfo(pool, oldPlayerId);
+  if (!oldPlayer) {
+    throw new PicksError('Old player not found', 404);
+  }
+
+  if (activeTeams.has(oldPlayer.team)) {
+    throw new PicksError(`Cannot replace ${oldPlayer.full_name} - their team (${oldPlayer.team}) is still active`, 400);
+  }
+
+  // Get and validate new player
+  const newPlayer = await getNewPlayerInfo(pool, newPlayerId);
+  if (!newPlayer) {
+    throw new PicksError('New player not found', 404);
+  }
+
+  // Check IR status
+  const ineligibleStatuses = ['IR', 'PUP', 'SUSP'];
+  const normalizedStatus = newPlayer.injury_status ? newPlayer.injury_status.toUpperCase().trim() : null;
+  if (normalizedStatus && ineligibleStatuses.includes(normalizedStatus)) {
+    throw new PicksError(`${newPlayer.full_name} is on ${newPlayer.injury_status} and cannot be selected.`, 400);
+  }
+
+  // Check team eligibility
+  const normalizedNewTeam = normalizeTeamAbbr(newPlayer.team);
+  if (!selectableTeams.includes(normalizedNewTeam)) {
+    throw new PicksError(`${newPlayer.full_name}'s team (${newPlayer.team}) has been eliminated. Only players from active teams are selectable.`, 400);
+  }
+
+  // Validate position limit
+  const positionLimit = await pool.query(
+    'SELECT required_count FROM position_requirements WHERE position = $1',
+    [position]
+  );
+  const maxPicks = positionLimit.rows[0]?.required_count || 2;
+  const currentCount = await getCurrentPositionCount(pool, userId, effectiveWeekNumber, position, oldPlayerId);
+
+  if (currentCount >= maxPicks) {
+    throw new PicksError(`Position limit exceeded for ${position}. Maximum allowed: ${maxPicks}`, 400);
+  }
+
+  // Delete old pick
+  await deletePickByPlayer(pool, userId, oldPlayerId, effectiveWeekNumber);
+
+  // Get carry-forward values for new player
+  let preservedMultiplier = 1;
+  let preservedConsecutiveWeeks = 1;
+  if (current_playoff_week > 1) {
+    const carryForward = await getCarryForwardValues(pool, userId, newPlayerId, effectiveWeekNumber - 1);
+    preservedMultiplier = carryForward.multiplier;
+    preservedConsecutiveWeeks = carryForward.consecutiveWeeks;
+    if (preservedMultiplier > 1) {
+      console.log(`[swap] Carrying multiplier ${preservedMultiplier} and consecutive_weeks ${preservedConsecutiveWeeks} for player ${newPlayerId}`);
+    }
+  }
+
+  // Create new pick
+  const newPick = await upsertPick(pool, {
+    userId, playerId: newPlayerId, weekNumber: effectiveWeekNumber,
+    position, multiplier: preservedMultiplier, consecutiveWeeks: preservedConsecutiveWeeks
+  });
+
+  // Log the swap
+  await logPlayerSwap(pool, {
+    userId, oldPlayerId, newPlayerId, position, weekNumber: effectiveWeekNumber
+  });
+
+  console.log(`[swap] User ${userId} replaced ${oldPlayer.full_name} with ${newPlayer.full_name} for week ${effectiveWeekNumber}`);
+
+  return {
+    success: true,
+    oldPlayer: {
+      id: oldPlayerId,
+      name: oldPlayer.full_name,
+      team: oldPlayer.team
+    },
+    newPlayer: {
+      id: newPlayerId,
+      name: newPlayer.full_name,
+      team: newPlayer.team
+    },
+    pick: newPick
+  };
+}
+
 module.exports = {
+  // Error class
+  PicksError,
+
   // Display helpers
   addDisplayFields,
   getPlayoffStartWeek,
@@ -529,5 +957,10 @@ module.exports = {
   upsertPick,
   deletePick,
   deletePickByPlayer,
-  logPlayerSwap
+  logPlayerSwap,
+
+  // Orchestration (command handlers)
+  executePicksV2Operations,
+  executePickSubmission,
+  executePlayerReplacement
 };
