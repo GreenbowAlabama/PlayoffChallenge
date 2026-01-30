@@ -184,12 +184,62 @@ async function getVisibleContests(pool, userId) {
   return result.rows;
 }
 
+/**
+ * Join a contest using a join token
+ *
+ * Validates the token BEFORE any database access.
+ * This enforces environment isolation and fail-fast behavior.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} userId - UUID of the user joining
+ * @param {string} joinToken - The join token (format: {env}_{tokenId})
+ * @returns {Promise<Object>} Created contest entry
+ * @throws {Error} If token is invalid, contest not found, or contest not open
+ */
+async function joinContestByToken(pool, userId, joinToken) {
+  // FAIL FAST: Validate token before any DB access
+  const validation = validateJoinToken(joinToken);
+  if (!validation.valid) {
+    throw new Error(validation.error);
+  }
+
+  // Token is valid - proceed with contest lookup
+  const joinLink = `https://app.playoff.com/join/${joinToken}`;
+
+  const contestResult = await pool.query(
+    `SELECT * FROM contests WHERE join_link = $1`,
+    [joinLink]
+  );
+
+  if (contestResult.rows.length === 0) {
+    throw new Error('Contest not found for this token');
+  }
+
+  const contest = contestResult.rows[0];
+
+  // Verify contest is open for joining
+  if (contest.state !== 'open') {
+    throw new Error(`Contest is not open for joining (current state: ${contest.state})`);
+  }
+
+  // Create contest entry
+  const entryResult = await pool.query(
+    `INSERT INTO contest_entries (user_id, contest_id)
+     VALUES ($1, $2)
+     RETURNING *`,
+    [userId, contest.contest_id]
+  );
+
+  return entryResult.rows[0];
+}
+
 module.exports = {
   createContest,
   getContestsForUser,
   getVisibleContests,
   validateContestInput,
   validateJoinToken,
+  joinContestByToken,
   VALID_CONTEST_TYPES,
   VALID_ENV_PREFIXES
 };

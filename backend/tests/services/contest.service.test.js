@@ -904,3 +904,301 @@ describe('Custom Contest Creation v1 - Owner Semantics', () => {
     });
   });
 });
+
+/**
+ * Join Contest By Token - Token Validation Enforcement
+ *
+ * Tests for the joinContestByToken service function.
+ * These tests verify that token validation occurs BEFORE any database access.
+ */
+describe('Join Contest By Token - Validation Enforcement', () => {
+  let mockPool;
+  const originalEnv = process.env.APP_ENV;
+
+  beforeEach(() => {
+    mockPool = createMockPool();
+    // Set consistent environment for tests
+    process.env.APP_ENV = 'test';
+  });
+
+  afterEach(() => {
+    mockPool.reset();
+    // Restore original env
+    if (originalEnv !== undefined) {
+      process.env.APP_ENV = originalEnv;
+    } else {
+      delete process.env.APP_ENV;
+    }
+  });
+
+  describe('Environment-Mismatched Token Rejection', () => {
+    it('should reject join with token from different environment', async () => {
+      // Token generated in production, but we're in test environment
+      const prodToken = 'prd_abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+
+      // Attempt to join with mismatched token
+      await expect(
+        contestService.joinContestByToken(mockPool, userId, prodToken)
+      ).rejects.toThrow(/environment mismatch/i);
+
+      // CRITICAL: Verify NO database queries were made
+      const queryHistory = mockPool.getQueryHistory();
+      expect(queryHistory.length).toBe(0);
+    });
+
+    it('should not invoke contest lookup when token environment mismatches', async () => {
+      const stagingToken = 'stg_abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+
+      // Setup mock that should NOT be called
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single(contests.private)
+      );
+
+      await expect(
+        contestService.joinContestByToken(mockPool, userId, stagingToken)
+      ).rejects.toThrow(/environment mismatch/i);
+
+      // Verify contest lookup was NOT invoked
+      const queryHistory = mockPool.getQueryHistory();
+      const contestLookups = queryHistory.filter(q =>
+        /SELECT.*FROM contests/i.test(q.sql)
+      );
+      expect(contestLookups.length).toBe(0);
+    });
+
+    it('should not invoke entry creation when token environment mismatches', async () => {
+      const devToken = 'dev_abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+
+      // Setup mock that should NOT be called
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_entries/,
+        mockQueryResponses.single({ user_id: userId, contest_id: TEST_CONTEST_IDS.privateContest })
+      );
+
+      await expect(
+        contestService.joinContestByToken(mockPool, userId, devToken)
+      ).rejects.toThrow(/environment mismatch/i);
+
+      // Verify entry creation was NOT invoked
+      const queryHistory = mockPool.getQueryHistory();
+      const entryInserts = queryHistory.filter(q =>
+        /INSERT INTO contest_entries/i.test(q.sql)
+      );
+      expect(entryInserts.length).toBe(0);
+    });
+  });
+
+  describe('Malformed Token Rejection', () => {
+    it('should reject join with token missing environment prefix', async () => {
+      const malformedToken = 'abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+
+      await expect(
+        contestService.joinContestByToken(mockPool, userId, malformedToken)
+      ).rejects.toThrow(/malformed token/i);
+
+      // CRITICAL: Zero persistence calls
+      const queryHistory = mockPool.getQueryHistory();
+      expect(queryHistory.length).toBe(0);
+    });
+
+    it('should reject join with empty token', async () => {
+      const userId = TEST_IDS.users.validUser;
+
+      await expect(
+        contestService.joinContestByToken(mockPool, userId, '')
+      ).rejects.toThrow(/token.*required/i);
+
+      // Zero persistence calls
+      const queryHistory = mockPool.getQueryHistory();
+      expect(queryHistory.length).toBe(0);
+    });
+
+    it('should reject join with null token', async () => {
+      const userId = TEST_IDS.users.validUser;
+
+      await expect(
+        contestService.joinContestByToken(mockPool, userId, null)
+      ).rejects.toThrow(/token.*required/i);
+
+      // Zero persistence calls
+      const queryHistory = mockPool.getQueryHistory();
+      expect(queryHistory.length).toBe(0);
+    });
+
+    it('should reject join with unknown environment prefix', async () => {
+      const invalidPrefixToken = 'xyz_abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+
+      await expect(
+        contestService.joinContestByToken(mockPool, userId, invalidPrefixToken)
+      ).rejects.toThrow(/malformed token/i);
+
+      // Zero persistence calls
+      const queryHistory = mockPool.getQueryHistory();
+      expect(queryHistory.length).toBe(0);
+    });
+  });
+
+  describe('Valid Token - Successful Join Flow', () => {
+    it('should proceed with contest lookup when token is valid', async () => {
+      // Token matching current environment (test)
+      const validToken = 'test_abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+      const joinLink = `https://app.playoff.com/join/${validToken}`;
+
+      const privateContest = {
+        ...contests.private,
+        join_link: joinLink,
+        state: 'open'
+      };
+
+      // Setup contest lookup mock
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single(privateContest)
+      );
+
+      // Setup entry creation mock
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_entries/,
+        mockQueryResponses.single({
+          user_id: userId,
+          contest_id: privateContest.contest_id,
+          joined_at: new Date()
+        })
+      );
+
+      const result = await contestService.joinContestByToken(mockPool, userId, validToken);
+
+      // Verify contest lookup WAS called
+      const queryHistory = mockPool.getQueryHistory();
+      const contestLookups = queryHistory.filter(q =>
+        /SELECT.*FROM contests/i.test(q.sql)
+      );
+      expect(contestLookups.length).toBeGreaterThan(0);
+    });
+
+    it('should create contest entry when token is valid', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+      const joinLink = `https://app.playoff.com/join/${validToken}`;
+
+      const privateContest = {
+        ...contests.private,
+        join_link: joinLink,
+        state: 'open'
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single(privateContest)
+      );
+
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_entries/,
+        mockQueryResponses.single({
+          user_id: userId,
+          contest_id: privateContest.contest_id,
+          joined_at: new Date()
+        })
+      );
+
+      await contestService.joinContestByToken(mockPool, userId, validToken);
+
+      // Verify entry creation WAS called
+      const queryHistory = mockPool.getQueryHistory();
+      const entryInserts = queryHistory.filter(q =>
+        /INSERT INTO contest_entries/i.test(q.sql)
+      );
+      expect(entryInserts.length).toBe(1);
+    });
+
+    it('should return the created entry on successful join', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+      const joinLink = `https://app.playoff.com/join/${validToken}`;
+
+      const privateContest = {
+        ...contests.private,
+        join_link: joinLink,
+        state: 'open'
+      };
+
+      const expectedEntry = {
+        user_id: userId,
+        contest_id: privateContest.contest_id,
+        joined_at: new Date()
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single(privateContest)
+      );
+
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_entries/,
+        mockQueryResponses.single(expectedEntry)
+      );
+
+      const result = await contestService.joinContestByToken(mockPool, userId, validToken);
+
+      expect(result).toHaveProperty('user_id', userId);
+      expect(result).toHaveProperty('contest_id', privateContest.contest_id);
+    });
+
+    it('should reject join when contest is not found', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+
+      // Contest lookup returns empty
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.empty()
+      );
+
+      await expect(
+        contestService.joinContestByToken(mockPool, userId, validToken)
+      ).rejects.toThrow(/contest.*not found/i);
+
+      // Verify entry creation was NOT called
+      const queryHistory = mockPool.getQueryHistory();
+      const entryInserts = queryHistory.filter(q =>
+        /INSERT INTO contest_entries/i.test(q.sql)
+      );
+      expect(entryInserts.length).toBe(0);
+    });
+
+    it('should reject join when contest is not in open state', async () => {
+      const validToken = 'test_abc123def456789012345678901234';
+      const userId = TEST_IDS.users.validUser;
+      const joinLink = `https://app.playoff.com/join/${validToken}`;
+
+      const lockedContest = {
+        ...contests.private,
+        join_link: joinLink,
+        state: 'locked'
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT.*FROM contests.*WHERE.*join_link/,
+        mockQueryResponses.single(lockedContest)
+      );
+
+      await expect(
+        contestService.joinContestByToken(mockPool, userId, validToken)
+      ).rejects.toThrow(/contest.*not open/i);
+
+      // Verify entry creation was NOT called
+      const queryHistory = mockPool.getQueryHistory();
+      const entryInserts = queryHistory.filter(q =>
+        /INSERT INTO contest_entries/i.test(q.sql)
+      );
+      expect(entryInserts.length).toBe(0);
+    });
+  });
+});
