@@ -3,9 +3,8 @@ const { Pool } = require('pg');
 const pg = require('pg');
 const cors = require('cors');
 const axios = require('axios');
-const geoip = require('geoip-lite');
-const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
+// Note: geoip and bcrypt moved to usersService
 const requireAdmin = require('./middleware/adminAuth');
 const adminAuthRoutes = require('./routes/adminAuth');
 const adminDiagnosticsRoutes = require('./routes/admin.diagnostics.routes');
@@ -14,6 +13,8 @@ const jobsService = require('./services/adminJobs.service');
 const scoringService = require('./services/scoringService');
 const gameStateService = require('./services/gameStateService');
 const picksService = require('./services/picksService');
+const usersService = require('./services/usersService');
+const adminService = require('./services/adminService');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1370,14 +1371,8 @@ app.post('/api/admin/update-week-status', async (req, res) => {
       return res.status(400).json({ success: false, error: 'is_week_active must be a boolean' });
     }
 
-    const result = await pool.query(
-      'UPDATE game_settings SET is_week_active = $1 RETURNING *',
-      [is_week_active]
-    );
-
-    console.log(`Week lock status updated: is_week_active = ${is_week_active}`);
-
-    res.json({ success: true, message: is_week_active ? 'Week unlocked' : 'Week locked' });
+    const result = await adminService.updateWeekStatus(pool, is_week_active);
+    res.json(result);
   } catch (err) {
     console.error('Error updating week status:', err);
     res.status(500).json({ success: false, error: err.message });
@@ -1387,43 +1382,18 @@ app.post('/api/admin/update-week-status', async (req, res) => {
 // Verify week lock status - provides authoritative confirmation for admin verification
 app.get('/api/admin/verify-lock-status', async (req, res) => {
   try {
-    const gameStateResult = await pool.query(
-      `SELECT
-        is_week_active,
-        current_playoff_week,
-        playoff_start_week,
-        updated_at
-       FROM game_settings LIMIT 1`
-    );
+    const verification = await adminService.getLockStatusVerification(pool);
 
-    if (gameStateResult.rows.length === 0) {
+    if (!verification) {
       return res.status(500).json({
         success: false,
         error: 'Game settings not found'
       });
     }
 
-    const { is_week_active, current_playoff_week, playoff_start_week, updated_at } = gameStateResult.rows[0];
-    // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
-    const effectiveNflWeek = current_playoff_week > 0
-      ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
-      : null;
-
-    // Test that a picks write would actually be blocked
-    const lockEnforced = !is_week_active;
-
     res.json({
       success: true,
-      verification: {
-        isLocked: lockEnforced,
-        isWeekActive: is_week_active,
-        currentPlayoffWeek: current_playoff_week,
-        effectiveNflWeek: effectiveNflWeek,
-        lastUpdated: updated_at,
-        message: lockEnforced
-          ? 'Week is LOCKED. All pick modifications will be rejected by the API.'
-          : 'Week is UNLOCKED. Users can currently modify picks.'
-      }
+      verification
     });
   } catch (err) {
     console.error('Error verifying lock status:', err);
@@ -2207,31 +2177,12 @@ app.post('/api/admin/set-active-week', async (req, res) => {
       return res.status(400).json({ error: 'userId and weekNumber required' });
     }
 
-    // Verify user is admin
-    const userCheck = await pool.query(
-      'SELECT is_admin FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (userCheck.rows.length === 0 || !userCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Update the playoff_start_week setting
-    await pool.query(
-      `INSERT INTO game_settings (setting_key, setting_value, updated_by, updated_at)
-        VALUES ('playoff_start_week', $1, $2, NOW())
-        ON CONFLICT (setting_key) 
-        DO UPDATE SET setting_value = $1, updated_by = $2, updated_at = NOW()`,
-      [weekNumber.toString(), userId]
-    );
-
-    res.json({
-      success: true,
-      message: `Active week set to ${weekNumber}`,
-      weekNumber
-    });
+    const result = await adminService.setActiveWeek(pool, userId, weekNumber);
+    res.json(result);
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     console.error('Error setting active week:', err);
     res.status(500).json({ error: err.message });
   }
@@ -2245,80 +2196,16 @@ app.post('/api/admin/set-active-week', async (req, res) => {
 // This endpoint does NOT mutate any state. It only fetches and returns preview data.
 app.get('/api/admin/preview-week-transition', async (req, res) => {
   try {
-    // Get current game state
-    const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
-    );
-
-    if (gameStateResult.rows.length === 0) {
-      return res.status(500).json({ error: 'Game settings not found' });
-    }
-
-    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0];
-
-    // Validate preconditions (same as transition endpoint)
-    if (is_week_active) {
-      return res.status(400).json({
-        error: 'Week must be locked before previewing transition. Set is_week_active = false first.',
-        currentState: { is_week_active, current_playoff_week }
-      });
-    }
-
-    // Cannot advance beyond Super Bowl (capped offset 3). With Pro Bowl skip, this can be round 5.
-    const currentOffset = Math.min(current_playoff_week - 1, 3);
-    if (currentOffset >= 3) {
-      return res.status(400).json({
-        error: 'Cannot advance beyond Super Bowl (already at final round)',
-        currentState: { current_playoff_week, effectiveOffset: currentOffset }
-      });
-    }
-
-    // Derive initial target week using capped offset formula for consistency
-    const fromPlayoffWeek = current_playoff_week;
-    const initialToPlayoffWeek = current_playoff_week + 1;
-    const initialToWeekOffset = Math.min(initialToPlayoffWeek - 1, 3);
-    const initialToWeek = playoff_start_week + initialToWeekOffset;  // NFL week number (capped)
-
-    // Fetch ESPN data, automatically skipping Pro Bowl weeks entirely.
-    // PRO BOWL WEEK EXCLUSION: If ESPN returns only AFC/NFC events for a week,
-    // that entire week is skipped and we advance to the next postseason week.
-    // Pro Bowl data is never persisted or returned to the client.
-    let validWeekData;
-    try {
-      validWeekData = await fetchValidPostseasonWeek(initialToWeek, playoff_start_week);
-    } catch (espnErr) {
-      console.error('[admin] Preview: ESPN fetch failed:', espnErr.message);
-      return res.status(502).json({
-        error: 'Failed to fetch valid ESPN postseason data',
-        details: espnErr.message
-      });
-    }
-
-    const activeTeamsArray = Array.from(validWeekData.activeTeams).sort();
-
-    // Calculate capped effective week (same formula as getEffectiveWeekNumber and process-week-transition)
-    const toPlayoffWeek = validWeekData.playoffWeek;
-    const toWeekOffset = Math.min(toPlayoffWeek - 1, 3);
-    const effectiveNflWeek = playoff_start_week + toWeekOffset;
-
-    // Return preview data (no mutations)
-    // Note: toPlayoffWeek may differ from initial if Pro Bowl weeks were skipped
-    // effectiveNflWeek is the capped week where picks will be stored (may differ from ESPN's raw week)
-    res.json({
-      success: true,
-      preview: {
-        fromPlayoffWeek,
-        toPlayoffWeek,
-        nflWeek: effectiveNflWeek,  // Capped effective week (where picks will be stored)
-        espnNflWeek: validWeekData.nflWeek,  // Raw ESPN week (for reference)
-        eventCount: validWeekData.eventCount,
-        activeTeams: activeTeamsArray,
-        teamCount: activeTeamsArray.length,
-        skippedProBowlWeeks: validWeekData.skippedProBowlWeeks
-      }
-    });
-
+    const preview = await adminService.getWeekTransitionPreview(pool, fetchValidPostseasonWeek);
+    res.json({ success: true, preview });
   } catch (err) {
+    if (err.statusCode === 400) {
+      return res.status(400).json({ error: err.message, currentState: err.currentState });
+    }
+    if (err.message.includes('ESPN') || err.message.includes('postseason')) {
+      console.error('[admin] Preview: ESPN fetch failed:', err.message);
+      return res.status(502).json({ error: 'Failed to fetch valid ESPN postseason data', details: err.message });
+    }
     console.error('Error generating week transition preview:', err);
     res.status(500).json({ error: err.message });
   }
@@ -2332,7 +2219,6 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
 
   try {
     const { userId, previewConfirmed } = req.body;
-    // NOTE: fromWeek and toWeek are now IGNORED from client - derived from DB state
 
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
@@ -2346,201 +2232,24 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
       });
     }
 
-    // ========================================
-    // STEP 1: Validate preconditions (no transaction yet)
-    // ========================================
+    const result = await adminService.processWeekTransition(client, {
+      userId,
+      fetchValidPostseasonWeek,
+      getESPNScoreboardUrl
+    });
 
-    // Verify user is admin
-    const userCheck = await client.query(
-      'SELECT is_admin FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (userCheck.rows.length === 0 || !userCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Get current game state - this is the SINGLE SOURCE OF TRUTH
-    const gameStateResult = await client.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
-    );
-
-    if (gameStateResult.rows.length === 0) {
-      return res.status(500).json({ error: 'Game settings not found' });
-    }
-
-    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0];
-
-    // PRECONDITION 1: Week must be locked
-    if (is_week_active) {
-      return res.status(400).json({
-        error: 'Week must be locked before advancing. Set is_week_active = false first.',
-        currentState: { is_week_active, current_playoff_week }
-      });
-    }
-
-    // PRECONDITION 2: Cannot advance beyond Super Bowl
-    // Super Bowl is the final round (capped offset 3). With Pro Bowl skip, this can be round 5.
-    const currentOffset = Math.min(current_playoff_week - 1, 3);
-    if (currentOffset >= 3) {
-      return res.status(400).json({
-        error: 'Cannot advance beyond Super Bowl (already at final round)',
-        currentState: { current_playoff_week, effectiveOffset: currentOffset }
-      });
-    }
-
-    // Derive initial target weeks from DB state
-    // Use capped offset formula for consistency with getEffectiveWeekNumber()
-    const fromPlayoffWeek = current_playoff_week;
-    const fromWeekOffset = Math.min(fromPlayoffWeek - 1, 3);
-    const fromWeek = playoff_start_week + fromWeekOffset;  // NFL week number (capped)
-    const initialToPlayoffWeek = current_playoff_week + 1;
-    const initialToWeekOffset = Math.min(initialToPlayoffWeek - 1, 3);
-    const initialToWeek = playoff_start_week + initialToWeekOffset;  // NFL week number (capped)
-
-    console.log(`[admin] Processing week transition: Playoff ${fromPlayoffWeek} -> ${initialToPlayoffWeek} (NFL ${fromWeek} -> ${initialToWeek})`);
-
-    // ========================================
-    // STEP 2: Fetch ESPN data BEFORE transaction (external call)
-    // PRO BOWL WEEK EXCLUSION: If ESPN returns only AFC/NFC events for a week,
-    // that entire week is skipped and we automatically advance to the next
-    // postseason week. Pro Bowl data is NEVER persisted.
-    // ========================================
-
-    let validWeekData;
-    try {
-      validWeekData = await fetchValidPostseasonWeek(initialToWeek, playoff_start_week);
-    } catch (espnErr) {
-      console.error('[admin] ESPN fetch failed:', espnErr.message);
-      return res.status(502).json({
-        error: 'Failed to fetch valid ESPN postseason data',
-        details: espnErr.message
-      });
-    }
-
-    // Use the effective week values (may differ from initial if Pro Bowl weeks were skipped)
-    const toPlayoffWeek = validWeekData.playoffWeek;
-    const activeTeams = validWeekData.activeTeams;
-
-    // CRITICAL: Calculate toWeek using the same capped formula as getEffectiveWeekNumber()
-    // This ensures picks are stored in the same week that clients will query.
-    // Without this, Pro Bowl skip causes ESPN to return week 20, but clients query week 19.
-    const toWeekOffset = Math.min(toPlayoffWeek - 1, 3);  // Cap at 3 (Super Bowl)
-    const toWeek = playoff_start_week + toWeekOffset;
-
-    if (validWeekData.skippedProBowlWeeks > 0) {
-      console.log(`[admin] Skipped ${validWeekData.skippedProBowlWeeks} Pro Bowl week(s). ESPN returned NFL week ${validWeekData.nflWeek}, using capped effective week ${toWeek}`);
-    }
-
-    // PRECONDITION 3: ESPN must return valid game data
-    // Expected team counts: Wild Card=12, Divisional=8, Conference=4, Super Bowl=2
-    const expectedTeamCounts = { 1: 12, 2: 8, 3: 4, 4: 2 };
-    const expectedCount = expectedTeamCounts[toPlayoffWeek];
-
-    if (activeTeams.size === 0) {
-      return res.status(400).json({
-        error: `ESPN returned no active teams for NFL week ${toWeek}. Cannot proceed with empty data.`,
-        espnUrl: getESPNScoreboardUrl(toWeek)
-      });
-    }
-
-    if (expectedCount && activeTeams.size !== expectedCount) {
-      console.warn(`[admin] WARNING: Expected ${expectedCount} teams for playoff week ${toPlayoffWeek}, got ${activeTeams.size}`);
-      // Log warning but don't block - playoff schedule can vary
-    }
-
-    console.log(`[admin] Active teams for NFL week ${toWeek}:`, Array.from(activeTeams));
-
-    // ========================================
-    // STEP 3: Begin transaction for all mutations
-    // ========================================
-
-    await client.query('BEGIN');
-
-    try {
-      // Get all picks from the current week
-      const picksResult = await client.query(`
-        SELECT pk.id, pk.user_id, pk.player_id, pk.position, pk.multiplier, pk.consecutive_weeks, p.team, p.full_name
-        FROM picks pk
-        JOIN players p ON pk.player_id = p.id
-        WHERE pk.week_number = $1
-      `, [fromWeek]);
-
-      let advancedCount = 0;
-      let eliminatedCount = 0;
-      const eliminated = [];
-      const activeTeamsArray = Array.from(activeTeams);
-
-      // Process each pick
-      for (const pick of picksResult.rows) {
-        const playerTeam = pick.team;
-        const isActive = activeTeams.has(playerTeam);
-
-        if (isActive) {
-          // Player's team is still active - increment multiplier
-          const newMultiplier = (pick.multiplier || 1) + 1;
-          const newConsecutiveWeeks = (pick.consecutive_weeks || 1) + 1;
-
-          // Create new pick for next week with incremented multiplier
-          await client.query(`
-            INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-            VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, false, NOW())
-            ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
-              multiplier = $5,
-              consecutive_weeks = $6
-          `, [pick.user_id, pick.player_id, toWeek, pick.position, newMultiplier, newConsecutiveWeeks]);
-
-          advancedCount++;
-        } else {
-          // Player's team is eliminated
-          eliminated.push({
-            userId: pick.user_id,
-            playerId: pick.player_id,
-            playerName: pick.full_name,
-            position: pick.position,
-            team: playerTeam
-          });
-          eliminatedCount++;
-        }
-      }
-
-      // Update game_settings atomically: active_teams AND current_playoff_week
-      await client.query(
-        'UPDATE game_settings SET active_teams = $1, current_playoff_week = $2',
-        [activeTeamsArray, toPlayoffWeek]
-      );
-
-      // Commit transaction
-      await client.query('COMMIT');
-
-      console.log(`[admin] Week transition COMMITTED: ${advancedCount} advanced, ${eliminatedCount} eliminated`);
-      console.log(`[admin] game_settings updated: current_playoff_week = ${toPlayoffWeek}, active_teams = [${activeTeamsArray.join(', ')}]`);
-
-      res.json({
-        success: true,
-        fromPlayoffWeek,
-        toPlayoffWeek,
-        fromWeek,
-        toWeek,
-        activeTeams: activeTeamsArray,
-        advancedCount,
-        eliminatedCount,
-        eliminated,
-        skippedProBowlWeeks: validWeekData.skippedProBowlWeeks,
-        newState: {
-          current_playoff_week: toPlayoffWeek,
-          effective_nfl_week: toWeek
-        }
-      });
-
-    } catch (txErr) {
-      // Rollback on ANY error within transaction
-      await client.query('ROLLBACK');
-      console.error('[admin] Week transition ROLLED BACK:', txErr.message);
-      throw txErr;
-    }
-
+    res.json(result);
   } catch (err) {
+    if (err.statusCode === 403) {
+      return res.status(403).json({ error: err.message });
+    }
+    if (err.statusCode === 400) {
+      return res.status(400).json({ error: err.message, currentState: err.currentState, espnUrl: err.espnUrl });
+    }
+    if (err.message.includes('ESPN') || err.message.includes('postseason')) {
+      console.error('[admin] ESPN fetch failed:', err.message);
+      return res.status(502).json({ error: 'Failed to fetch valid ESPN postseason data', details: err.message });
+    }
     console.error('Error processing week transition:', err);
     res.status(500).json({ error: err.message });
   } finally {
@@ -2659,52 +2368,7 @@ app.post('/api/picks/replace-player', async (req, res) => {
 // ==============================================
 // USER REGISTRATION / LOGIN
 // ==============================================
-
-// Restricted states (fantasy sports prohibited or heavily restricted)
-const RESTRICTED_STATES = ['NV', 'HI', 'ID', 'MT', 'WA'];
-
-// Helper: Log signup attempt for compliance auditing
-async function logSignupAttempt(appleId, email, name, attemptedState, ipState, blocked, blockedReason = null) {
-  try {
-    await pool.query(
-      `INSERT INTO signup_attempts
-        (apple_id, email, name, attempted_state, ip_state_verified, blocked, blocked_reason)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [appleId, email, name, attemptedState, ipState, blocked, blockedReason]
-    );
-  } catch (err) {
-    console.error('[COMPLIANCE] Error logging signup attempt:', err);
-    // Don't fail signup if logging fails
-  }
-}
-
-// Helper: Get IP state from request
-function getIPState(req) {
-  try {
-    const forwarded = req.headers['x-forwarded-for'];
-    const ip = forwarded ? forwarded.split(',')[0].trim() : req.connection.remoteAddress;
-
-    // Handle localhost/private IPs
-    if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
-      console.log('[COMPLIANCE] Local/private IP detected, skipping geolocation');
-      return null;
-    }
-
-    const geo = geoip.lookup(ip);
-    const state = geo?.region || null;
-
-    if (state) {
-      console.log(`[COMPLIANCE] IP ${ip} → State: ${state}`);
-    } else {
-      console.log(`[COMPLIANCE] IP ${ip} → State: unknown`);
-    }
-
-    return state;
-  } catch (err) {
-    console.error('[COMPLIANCE] Error in IP geolocation:', err);
-    return null;
-  }
-}
+// Business logic delegated to usersService
 
 app.post('/api/users', authLimiter, async (req, res) => {
   try {
@@ -2717,28 +2381,16 @@ app.post('/api/users', authLimiter, async (req, res) => {
     }
 
     // Try to find existing user first (allow returning users)
-    let result = await pool.query(
-      'SELECT * FROM users WHERE apple_id = $1 LIMIT 1',
-      [apple_id]
-    );
+    const existingUser = await usersService.findUserByAppleId(pool, apple_id);
 
-    if (result.rows.length > 0) {
-      const existingUser = result.rows[0];
+    if (existingUser) {
       console.log('Found existing user:', existingUser.id);
 
       // Update email/name if provided and currently NULL
       if ((email && !existingUser.email) || (name && !existingUser.name)) {
         console.log('Updating user with new email/name');
-        const updateResult = await pool.query(
-          `UPDATE users
-            SET email = COALESCE($1, email),
-                name = COALESCE($2, name),
-                updated_at = NOW()
-            WHERE id = $3
-            RETURNING *`,
-          [email || null, name || null, existingUser.id]
-        );
-        return res.json(updateResult.rows[0]);
+        const updatedUser = await usersService.updateUserEmailName(pool, existingUser.id, email, name);
+        return res.json(updatedUser);
       }
 
       return res.json(existingUser);
@@ -2752,14 +2404,17 @@ app.post('/api/users', authLimiter, async (req, res) => {
     }
 
     // Get IP-based state for audit trail
-    const ipState = getIPState(req);
+    const ipState = usersService.getIPState(req);
 
     // Check if state is restricted
-    if (RESTRICTED_STATES.includes(state.toUpperCase())) {
+    if (usersService.isRestrictedState(state)) {
       console.log(`[COMPLIANCE] Blocking signup from restricted state: ${state}`);
 
       // Log blocked attempt
-      await logSignupAttempt(apple_id, email, name, state.toUpperCase(), ipState, true, 'Restricted state');
+      await usersService.logSignupAttempt(pool, {
+        appleId: apple_id, email, name, attemptedState: state.toUpperCase(),
+        ipState, blocked: true, blockedReason: 'Restricted state'
+      });
 
       return res.status(403).json({
         error: 'Fantasy contests are not available in your state'
@@ -2773,42 +2428,18 @@ app.post('/api/users', authLimiter, async (req, res) => {
 
     // Create new user with compliance fields
     console.log('Creating new user with compliance data...');
-    // Username = email prefix (before @), never full email for privacy
-    let generatedUsername = email ? email.split('@')[0] : null;
-    if (!generatedUsername) {
-      generatedUsername = 'User_' + Math.random().toString(36).substring(2, 10);
-    }
-
-    const insert = await pool.query(
-      `INSERT INTO users (
-        id, apple_id, email, name, username,
-        state, ip_state_verified, state_certification_date,
-        eligibility_confirmed_at, age_verified, tos_version,
-        created_at, updated_at, paid
-      )
-      VALUES (
-        gen_random_uuid(), $1, $2, $3, $4,
-        $5, $6, NOW(),
-        NOW(), true, $7,
-        NOW(), NOW(), true
-      )
-      RETURNING *`,
-      [
-        apple_id,
-        email || null,
-        name || null,
-        generatedUsername,
-        state.toUpperCase(),
-        ipState,
-        tos_version || '2025-12-12'
-      ]
-    );
+    const newUser = await usersService.createAppleUser(pool, {
+      appleId: apple_id, email, name, state, ipState, tosVersion: tos_version
+    });
 
     // Log successful signup attempt
-    await logSignupAttempt(apple_id, email, name, state.toUpperCase(), ipState, false, null);
+    await usersService.logSignupAttempt(pool, {
+      appleId: apple_id, email, name, attemptedState: state.toUpperCase(),
+      ipState, blocked: false, blockedReason: null
+    });
 
-    console.log(`[COMPLIANCE] Created new user: ${insert.rows[0].id} (State: ${state})`);
-    res.json(insert.rows[0]);
+    console.log(`[COMPLIANCE] Created new user: ${newUser.id} (State: ${state})`);
+    res.json(newUser);
   } catch (err) {
     console.error('Error in /api/users:', err);
     res.status(500).json({ error: err.message });
@@ -2837,24 +2468,22 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     }
 
     // Check if email already exists
-    const existingUser = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email.toLowerCase()]
-    );
-
-    if (existingUser.rows.length > 0) {
+    if (await usersService.isEmailRegistered(pool, email)) {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
     // Get IP-based state for audit trail
-    const ipState = getIPState(req);
+    const ipState = usersService.getIPState(req);
 
     // Check if state is restricted
-    if (RESTRICTED_STATES.includes(state.toUpperCase())) {
+    if (usersService.isRestrictedState(state)) {
       console.log(`[COMPLIANCE] Blocking signup from restricted state: ${state}`);
 
       // Log blocked attempt
-      await logSignupAttempt(null, email, name, state.toUpperCase(), ipState, true, 'Restricted state');
+      await usersService.logSignupAttempt(pool, {
+        appleId: null, email, name, attemptedState: state.toUpperCase(),
+        ipState, blocked: true, blockedReason: 'Restricted state'
+      });
 
       return res.status(403).json({
         error: 'Fantasy contests are not available in your state'
@@ -2866,51 +2495,20 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       console.warn(`[COMPLIANCE] State mismatch - User claimed: ${state}, IP shows: ${ipState}`);
     }
 
-    // Hash password
-    const saltRounds = 10;
-    const password_hash = await bcrypt.hash(password, saltRounds);
-
-    // Generate username = email prefix (before @), never full email for privacy
-    let generatedUsername = email ? email.split('@')[0] : null;
-    if (!generatedUsername) {
-      generatedUsername = 'User_' + Math.random().toString(36).substring(2, 10);
-    }
-
     // Create new user
-    const insert = await pool.query(
-      `INSERT INTO users (
-        id, email, password_hash, name, username, auth_method,
-        state, ip_state_verified, state_certification_date,
-        eligibility_confirmed_at, age_verified, tos_version,
-        created_at, updated_at, paid
-      )
-      VALUES (
-        gen_random_uuid(), $1, $2, $3, $4, 'email',
-        $5, $6, NOW(),
-        NOW(), true, $7,
-        NOW(), NOW(), true
-      )
-      RETURNING *`,
-      [
-        email.toLowerCase(),
-        password_hash,
-        name || null,
-        generatedUsername,
-        state.toUpperCase(),
-        ipState,
-        tos_version || '2025-12-12'
-      ]
-    );
+    const newUser = await usersService.createEmailUser(pool, {
+      email, password, name, state, ipState, tosVersion: tos_version
+    });
 
     // Log successful signup
-    await logSignupAttempt(null, email, name, state.toUpperCase(), ipState, false, null);
+    await usersService.logSignupAttempt(pool, {
+      appleId: null, email, name, attemptedState: state.toUpperCase(),
+      ipState, blocked: false, blockedReason: null
+    });
 
-    console.log(`[AUTH] Created new email user: ${insert.rows[0].id} (State: ${state})`);
+    console.log(`[AUTH] Created new email user: ${newUser.id} (State: ${state})`);
 
-    // Return user (without password_hash)
-    const user = insert.rows[0];
-    delete user.password_hash;
-    res.json(user);
+    res.json(newUser);
   } catch (err) {
     console.error('Error in /api/auth/register:', err);
     res.status(500).json({ error: err.message });
@@ -2929,16 +2527,11 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
 
     // Find user by email
-    const result = await pool.query(
-      'SELECT * FROM users WHERE email = $1 LIMIT 1',
-      [email.toLowerCase()]
-    );
+    const user = await usersService.findUserByEmail(pool, email);
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
-
-    const user = result.rows[0];
 
     // Check if user has password_hash (might be Apple Sign In user)
     if (!user.password_hash) {
@@ -2946,7 +2539,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
 
     // Verify password
-    const validPassword = await bcrypt.compare(password, user.password_hash);
+    const validPassword = await usersService.verifyPassword(password, user.password_hash);
 
     if (!validPassword) {
       return res.status(401).json({ error: 'Invalid email or password' });
@@ -2968,16 +2561,13 @@ app.get('/api/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const result = await pool.query(
-      'SELECT * FROM users WHERE id = $1 LIMIT 1',
-      [userId]
-    );
+    const user = await usersService.findUserById(pool, userId);
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json(result.rows[0]);
+    res.json(user);
   } catch (err) {
     console.error('Error fetching user:', err);
     res.status(500).json({ error: err.message });
@@ -2993,89 +2583,33 @@ app.put('/api/users/:userId', async (req, res) => {
     console.log('PUT /api/users/:userId - Updating user:', { userId, username, email, phone, name });
 
     // Verify user exists
-    const userCheck = await pool.query(
-      'SELECT id FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (userCheck.rows.length === 0) {
+    const existingUser = await usersService.findUserById(pool, userId);
+    if (!existingUser) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Check username uniqueness if username is being updated
     if (username) {
-      const usernameCheck = await pool.query(
-        'SELECT id FROM users WHERE username = $1 AND id != $2',
-        [username, userId]
-      );
-
-      if (usernameCheck.rows.length > 0) {
+      const isAvailable = await usersService.isUsernameAvailable(pool, username, userId);
+      if (!isAvailable) {
         return res.status(400).json({ error: 'Username already taken' });
       }
 
-      // Validate username format (alphanumeric, underscore, dash, 3-30 chars)
-      const usernameRegex = /^[a-zA-Z0-9_-]{3,30}$/;
-      if (!usernameRegex.test(username)) {
-        return res.status(400).json({
-          error: 'Username must be 3-30 characters and contain only letters, numbers, underscores, and dashes'
-        });
+      // Validate username format
+      const validation = usersService.validateUsername(username);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
       }
     }
 
-    // Build dynamic update query based on provided fields
-    const updates = [];
-    const values = [];
-    let paramCount = 1;
-
-    if (username !== undefined) {
-      updates.push(`username = $${paramCount}`);
-      values.push(username);
-      paramCount++;
-    }
-
-    if (email !== undefined) {
-      updates.push(`email = $${paramCount}`);
-      values.push(email);
-      paramCount++;
-    }
-
-    if (phone !== undefined) {
-      updates.push(`phone = $${paramCount}`);
-      values.push(phone);
-      paramCount++;
-    }
-
-    if (name !== undefined) {
-      updates.push(`name = $${paramCount}`);
-      values.push(name);
-      paramCount++;
-    }
-
-    // Always update the updated_at timestamp
-    updates.push(`updated_at = NOW()`);
-
-    if (updates.length === 1) {
-      // Only updated_at would be updated, nothing else provided
+    // Check if there are fields to update
+    if (username === undefined && email === undefined && phone === undefined && name === undefined) {
       return res.status(400).json({ error: 'No fields to update' });
     }
 
-    // Add userId as the last parameter for WHERE clause
-    values.push(userId);
+    const user = await usersService.updateUserProfile(pool, userId, { username, email, phone, name });
 
-    const query = `
-      UPDATE users
-      SET ${updates.join(', ')}
-      WHERE id = $${paramCount}
-      RETURNING *
-    `;
-
-    const result = await pool.query(query, values);
-
-    console.log('User updated successfully:', result.rows[0].id);
-
-    // Remove password_hash from response (iOS User model doesn't have this field)
-    const user = result.rows[0];
-    delete user.password_hash;
+    console.log('User updated successfully:', user.id);
 
     res.json(user);
   } catch (err) {
@@ -3090,22 +2624,13 @@ app.put('/api/users/:userId/accept-tos', async (req, res) => {
     const { userId } = req.params;
     const { tos_version } = req.body;
 
-    const result = await pool.query(
-      `UPDATE users
-        SET tos_accepted_at = NOW(),
-            tos_version = $1,
-            updated_at = NOW()
-        WHERE id = $2
-        RETURNING *`,
-      [tos_version || '2025-12-12', userId]
-    );
+    const user = await usersService.acceptTos(pool, userId, tos_version);
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    console.log(`[COMPLIANCE] User ${userId} accepted TOS version ${tos_version}`);
-    res.json(result.rows[0]);
+    res.json(user);
   } catch (err) {
     console.error('Error accepting TOS:', err);
     res.status(500).json({ error: err.message });
@@ -3115,17 +2640,6 @@ app.put('/api/users/:userId/accept-tos', async (req, res) => {
 // ==============================================
 // ACCOUNT DELETION ENDPOINT
 // ==============================================
-
-// Shared helper for deleting a user and all related data
-// Accepts a client from pool.connect() - caller is responsible for BEGIN/COMMIT/ROLLBACK
-async function deleteUserById(client, userId) {
-  // Delete in order: picks, player_swaps, scores, then user
-  await client.query('DELETE FROM picks WHERE user_id = $1', [userId]);
-  await client.query('DELETE FROM player_swaps WHERE user_id = $1', [userId]);
-  await client.query('DELETE FROM scores WHERE user_id = $1', [userId]);
-  const result = await client.query('DELETE FROM users WHERE id = $1 RETURNING *', [userId]);
-  return result;
-}
 
 // DELETE /api/user - Permanently delete the authenticated user's account
 // This endpoint satisfies Apple App Review requirements for account deletion
@@ -3157,7 +2671,7 @@ app.delete('/api/user', async (req, res) => {
 
     console.log(`[ACCOUNT DELETION] Deleting user: ${userId}`);
 
-    await deleteUserById(client, userId);
+    await usersService.deleteUserById(client, userId);
     await client.query('COMMIT');
 
     console.log(`[ACCOUNT DELETION] User ${userId} permanently deleted`);
@@ -4708,7 +4222,6 @@ app.get('/api/me/flags', async (req, res) => {
     const { userId } = req.query;
 
     // Require tos_required_flag capability (or allow for diagnostic purposes)
-    const client = getClientCapabilities(req);
     // Note: We allow this endpoint even for legacy clients for diagnostic purposes
     // but new clients should send tos_required_flag capability
 
@@ -4716,46 +4229,13 @@ app.get('/api/me/flags', async (req, res) => {
       return res.status(400).json({ error: 'userId is required' });
     }
 
-    // Get user's TOS status
-    const userResult = await pool.query(
-      'SELECT tos_accepted_at, tos_version FROM users WHERE id = $1',
-      [userId]
-    );
+    const tosStatus = await usersService.getUserTosStatus(pool, userId);
 
-    if (userResult.rows.length === 0) {
+    if (!tosStatus) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const user = userResult.rows[0];
-
-    // Get current TOS version from terms
-    let currentTermsVersion = null;
-    try {
-      const termsResult = await pool.query(`
-        SELECT updated_at FROM rules_content WHERE section = 'terms_of_service'
-      `);
-      if (termsResult.rows.length > 0) {
-        currentTermsVersion = termsResult.rows[0].updated_at.toISOString().split('T')[0];
-      }
-    } catch (termsErr) {
-      console.warn('[flags] Could not fetch current TOS version:', termsErr.message);
-      // Fail open - don't block if we can't determine version
-    }
-
-    // Determine if TOS is required
-    let requiresTos = false;
-    if (!user.tos_accepted_at) {
-      requiresTos = true;
-    } else if (currentTermsVersion && user.tos_version !== currentTermsVersion) {
-      requiresTos = true;
-    }
-
-    res.json({
-      requires_tos: requiresTos,
-      tos_version_required: currentTermsVersion,
-      tos_accepted_at: user.tos_accepted_at,
-      tos_version_accepted: user.tos_version
-    });
+    res.json(tosStatus);
   } catch (err) {
     console.error('Error in GET /api/me/flags:', err);
     res.status(500).json({ error: err.message });
