@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict lDljt76cPfeJ2GIIbkwZNp76215d0lDEJOQXXaVdQ1aSyrTZn1VyMzABYit6aHu
+\restrict uXjR8nJR8TunIfDXpmQrATdwnUScT7E60CDF0fBm8Yzjwe51ECcdgWMbdBNNBgr
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -107,6 +107,7 @@ CREATE TABLE public.contest_instances (
     settlement_time timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    join_token text,
     CONSTRAINT entry_fee_non_negative CHECK ((entry_fee_cents >= 0)),
     CONSTRAINT status_valid CHECK ((status = ANY (ARRAY['draft'::text, 'open'::text, 'locked'::text, 'settled'::text, 'cancelled'::text])))
 );
@@ -740,6 +741,14 @@ ALTER TABLE ONLY public.signup_attempts ALTER COLUMN id SET DEFAULT nextval('pub
 
 
 --
+-- Name: contest_instances contest_instances_join_token_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contest_instances
+    ADD CONSTRAINT contest_instances_join_token_key UNIQUE (join_token);
+
+
+--
 -- Name: contest_instances contest_instances_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1296,5 +1305,5 @@ ALTER TABLE ONLY public.scores
 -- PostgreSQL database dump complete
 --
 
-\unrestrict lDljt76cPfeJ2GIIbkwZNp76215d0lDEJOQXXaVdQ1aSyrTZn1VyMzABYit6aHu
+\unrestrict uXjR8nJR8TunIfDXpmQrATdwnUScT7E60CDF0fBm8Yzjwe51ECcdgWMbdBNNBgr
 

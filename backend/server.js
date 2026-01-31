@@ -9,6 +9,7 @@ const requireAdmin = require('./middleware/adminAuth');
 const adminAuthRoutes = require('./routes/adminAuth');
 const adminDiagnosticsRoutes = require('./routes/admin.diagnostics.routes');
 const adminTrendsRoutes = require('./routes/admin.trends.routes');
+const customContestRoutes = require('./routes/customContest.routes');
 const jobsService = require('./services/adminJobs.service');
 const scoringService = require('./services/scoringService');
 const gameStateService = require('./services/gameStateService');
@@ -1362,6 +1363,9 @@ app.use('/api/admin/diagnostics', adminDiagnosticsRoutes);
 
 // Admin trends routes (protected by requireAdmin above)
 app.use('/api/admin/trends', adminTrendsRoutes);
+
+// Custom contest routes (user-created contests)
+app.use('/api/custom-contests', customContestRoutes);
 
 // Update week active status (lock/unlock)
 app.post('/api/admin/update-week-status', async (req, res) => {
