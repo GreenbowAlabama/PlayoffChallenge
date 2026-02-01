@@ -150,16 +150,20 @@ router.post('/', async (req, res) => {
 
     res.status(201).json(instance);
   } catch (err) {
-    console.error('[Custom Contest] Error creating contest:', err);
+    // Template not found is a 404
+    if (err.message.includes('Template not found')) {
+      return res.status(404).json({ error: err.message });
+    }
 
     // Return validation errors with 400
     if (err.message.includes('required') ||
         err.message.includes('must be') ||
-        err.message.includes('not found') ||
         err.message.includes('must match')) {
       return res.status(400).json({ error: err.message });
     }
 
+    // Unexpected error - log with stack trace
+    console.error('[Custom Contest] Error creating contest:', err);
     res.status(500).json({ error: 'Failed to create contest' });
   }
 });
@@ -231,15 +235,18 @@ router.post('/:id/publish', async (req, res) => {
     const instance = await customContestService.publishContestInstance(pool, id, organizerId);
     res.json(instance);
   } catch (err) {
-    console.error('[Custom Contest] Error publishing contest:', err);
-
     if (err.message.includes('not found')) {
       return res.status(404).json({ error: err.message });
     }
     if (err.message.includes('Only the organizer') || err.message.includes('Cannot transition')) {
       return res.status(403).json({ error: err.message });
     }
+    if (err.message.includes('was modified by another operation')) {
+      return res.status(409).json({ error: err.message });
+    }
 
+    // Unexpected error - log with stack trace
+    console.error('[Custom Contest] Error publishing contest:', err);
     res.status(500).json({ error: 'Failed to publish contest' });
   }
 });
@@ -274,8 +281,6 @@ router.patch('/:id/status', async (req, res) => {
     );
     res.json(instance);
   } catch (err) {
-    console.error('[Custom Contest] Error updating contest status:', err);
-
     if (err.message.includes('not found')) {
       return res.status(404).json({ error: err.message });
     }
@@ -286,6 +291,8 @@ router.patch('/:id/status', async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
+    // Unexpected error - log with stack trace
+    console.error('[Custom Contest] Error updating contest status:', err);
     res.status(500).json({ error: 'Failed to update contest status' });
   }
 });

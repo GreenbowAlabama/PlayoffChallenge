@@ -214,7 +214,7 @@ describe('Custom Contest Routes', () => {
       expect(response.body.error).toContain('Invalid template_id format');
     });
 
-    it('should return 400 for nonexistent template', async () => {
+    it('should return 404 for nonexistent template', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_templates WHERE id/,
         mockQueryResponses.empty()
@@ -225,7 +225,7 @@ describe('Custom Contest Routes', () => {
         .set('X-User-Id', TEST_USER_ID)
         .send(validInput);
 
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(404);
       expect(response.body.error).toContain('Template not found');
     });
 
@@ -426,6 +426,26 @@ describe('Custom Contest Routes', () => {
 
       expect(response.status).toBe(403);
       expect(response.body.error).toContain('Cannot transition');
+    });
+
+    it('should return 409 for race condition during publish', async () => {
+      // First query returns draft contest
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'draft' })
+      );
+      // Update returns empty (another operation modified it)
+      mockPool.setQueryResponse(
+        /UPDATE contest_instances SET status/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .post(`/api/custom-contests/${TEST_INSTANCE_ID}/publish`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(409);
+      expect(response.body.error).toContain('was modified by another operation');
     });
   });
 
