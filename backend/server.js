@@ -10,6 +10,7 @@ const adminAuthRoutes = require('./routes/adminAuth');
 const adminDiagnosticsRoutes = require('./routes/admin.diagnostics.routes');
 const adminTrendsRoutes = require('./routes/admin.trends.routes');
 const customContestRoutes = require('./routes/customContest.routes');
+const customContestTemplatesRoutes = require('./routes/customContestTemplates.routes');
 const jobsService = require('./services/adminJobs.service');
 const scoringService = require('./services/scoringService');
 const gameStateService = require('./services/gameStateService');
@@ -1363,6 +1364,9 @@ app.use('/api/admin/diagnostics', adminDiagnosticsRoutes);
 
 // Admin trends routes (protected by requireAdmin above)
 app.use('/api/admin/trends', adminTrendsRoutes);
+
+// Admin custom contest template routes (protected by requireAdmin above)
+app.use('/api/admin/custom-contests/templates', customContestTemplatesRoutes);
 
 // Custom contest routes (user-created contests)
 app.use('/api/custom-contests', customContestRoutes);

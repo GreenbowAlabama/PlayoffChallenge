@@ -39,7 +39,11 @@ describe('Admin Routes Contract Tests', () => {
       { method: 'get', path: '/api/admin/picks/count' },
       { method: 'get', path: '/api/admin/scores/count' },
       { method: 'get', path: '/api/admin/picks/multiplier-distribution' },
-      { method: 'get', path: '/api/admin/preview-week-transition' }
+      { method: 'get', path: '/api/admin/preview-week-transition' },
+      // Custom contest template management
+      { method: 'get', path: '/api/admin/custom-contests/templates' },
+      { method: 'post', path: '/api/admin/custom-contests/templates' },
+      { method: 'delete', path: '/api/admin/custom-contests/templates/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }
     ];
 
     describe('Unauthenticated Access', () => {
