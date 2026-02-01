@@ -400,13 +400,55 @@ async function updateContestInstanceStatus(pool, instanceId, organizerId, newSta
 /**
  * Publish a contest (transition from draft to open)
  *
+ * Idempotent: If the contest is already open, returns the existing instance
+ * without modification (no token regeneration, no timestamp updates, no error).
+ *
+ * When publishing from draft, ensures join_token exists to satisfy the database
+ * constraint (join_token IS NOT NULL when status != 'draft').
+ *
  * @param {Object} pool - Database connection pool
  * @param {string} instanceId - UUID of the contest instance
  * @param {string} organizerId - UUID of the user attempting to publish
- * @returns {Promise<Object>} Updated contest instance
+ * @returns {Promise<Object>} Contest instance (updated or existing if already open)
  */
 async function publishContestInstance(pool, instanceId, organizerId) {
-  return updateContestInstanceStatus(pool, instanceId, organizerId, 'open');
+  // Fetch current state
+  const existing = await getContestInstance(pool, instanceId);
+  if (!existing) {
+    throw new Error('Contest instance not found');
+  }
+
+  // Verify ownership
+  if (existing.organizer_id !== organizerId) {
+    throw new Error('Only the organizer can publish contest');
+  }
+
+  // Idempotency: if already open, return as-is without any modifications
+  if (existing.status === 'open') {
+    return existing;
+  }
+
+  // Only draft contests can be published
+  if (existing.status !== 'draft') {
+    throw new Error(`Cannot transition from '${existing.status}' to 'open'`);
+  }
+
+  // Ensure join_token exists (required by database constraint for non-draft status)
+  // If draft has no token (edge case), generate one during publish
+  const joinToken = existing.join_token || generateJoinToken();
+
+  // Perform atomic update: set status to open and ensure join_token is set
+  const result = await pool.query(
+    `UPDATE contest_instances SET status = 'open', join_token = $1, updated_at = NOW() WHERE id = $2 AND organizer_id = $3 RETURNING *`,
+    [joinToken, instanceId, organizerId]
+  );
+
+  if (result.rows.length === 0) {
+    // Race condition: contest was modified between fetch and update
+    throw new Error('Contest was modified by another operation');
+  }
+
+  return result.rows[0];
 }
 
 module.exports = {
