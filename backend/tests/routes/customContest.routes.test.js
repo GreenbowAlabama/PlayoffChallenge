@@ -219,6 +219,20 @@ describe('Custom Contest Routes', () => {
       expect(response.body.error).toBe('Authentication required');
     });
 
+    it('should return 400 for invalid UUID in X-User-Id header', async () => {
+      const response = await request(app)
+        .post('/api/custom-contests')
+        .set('X-User-Id', 'not-a-uuid')
+        .send(validInput);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid user ID format');
+
+      // Verify no database query was made with invalid UUID
+      const queries = mockPool.getQueryHistory();
+      expect(queries.length).toBe(0);
+    });
+
     it('should return 201 with valid input including join_url', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_templates WHERE id/,

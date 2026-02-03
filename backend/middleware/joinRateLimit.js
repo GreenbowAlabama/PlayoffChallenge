@@ -16,6 +16,8 @@ const { logJoinRateLimited } = require('../services/joinAuditService');
 /**
  * Create the join token rate limiter
  * Limits requests based on IP address
+ *
+ * Uses default keyGenerator which properly handles IPv6 addresses.
  */
 function createJoinRateLimiter() {
   const rateLimitConfig = config.getJoinRateLimitConfig();
@@ -30,14 +32,11 @@ function createJoinRateLimiter() {
       error_code: 'RATE_LIMITED',
       reason: 'Too many join attempts, please try again later'
     },
-    // Key generator: use IP address
-    keyGenerator: (req) => {
-      return req.ip || req.connection.remoteAddress || 'unknown';
-    },
+    // Use default keyGenerator (handles IPv6 properly)
     // Handler when rate limit is exceeded
     handler: (req, res, next, options) => {
       const token = req.params.token;
-      const ipAddress = req.ip || req.connection.remoteAddress;
+      const ipAddress = req.ip;
 
       // Log the rate-limited attempt
       logJoinRateLimited({
@@ -48,8 +47,6 @@ function createJoinRateLimiter() {
 
       res.status(429).json(options.message);
     },
-    // Skip successful requests from counting (only failed lookups)
-    skip: (req, res) => false, // Count all requests by default
   });
 }
 
@@ -88,7 +85,7 @@ function perTokenRateLimiter(req, res, next) {
 
   const rateLimitConfig = config.getJoinRateLimitConfig();
   const now = Date.now();
-  const ipAddress = req.ip || req.connection.remoteAddress;
+  const ipAddress = req.ip;
 
   // Get or create entry for this token
   let tokenData = tokenAttemptStore.get(token);

@@ -21,25 +21,31 @@ const { logJoinSuccess, logJoinFailure } = require('../services/joinAuditService
 const { createCombinedJoinRateLimiter } = require('../middleware/joinRateLimit');
 
 /**
+ * Validate UUID format
+ */
+function isValidUUID(str) {
+  if (!str || typeof str !== 'string') return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+/**
  * Middleware to extract user ID from request.
  * In production, this would come from authentication middleware.
  * For now, expects X-User-Id header.
+ *
+ * Validates UUID format to prevent invalid IDs from reaching database queries.
  */
 function extractUserId(req, res, next) {
   const userId = req.headers['x-user-id'];
   if (!userId) {
     return res.status(401).json({ error: 'Authentication required' });
   }
+  if (!isValidUUID(userId)) {
+    return res.status(400).json({ error: 'Invalid user ID format' });
+  }
   req.userId = userId;
   next();
-}
-
-/**
- * Validate UUID format
- */
-function isValidUUID(str) {
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(str);
 }
 
 // ============================================
