@@ -69,9 +69,11 @@ describe('Custom Contest Routes', () => {
 
   beforeEach(() => {
     process.env.APP_ENV = 'dev';
+    process.env.JOIN_BASE_URL = 'https://app.playoffchallenge.com';
     mockPool = createMockPool();
 
     app = express();
+    app.set('trust proxy', 1);
     app.use(express.json());
     app.locals.pool = mockPool;
     app.use('/api/custom-contests', customContestRoutes);
@@ -80,6 +82,7 @@ describe('Custom Contest Routes', () => {
   afterEach(() => {
     mockPool.reset();
     delete process.env.APP_ENV;
+    delete process.env.JOIN_BASE_URL;
   });
 
   describe('GET /api/custom-contests/templates', () => {
@@ -112,11 +115,11 @@ describe('Custom Contest Routes', () => {
   });
 
   describe('GET /api/custom-contests/join/:token', () => {
-    it('should return valid contest for valid token', async () => {
+    it('should return valid contest with join_url for valid token', async () => {
       const token = 'dev_abc123def456abc123def456abc123';
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token })
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'open' })
       );
 
       const response = await request(app)
@@ -126,18 +129,21 @@ describe('Custom Contest Routes', () => {
       expect(response.body.valid).toBe(true);
       expect(response.body.contest).toBeDefined();
       expect(response.body.contest.id).toBe(TEST_INSTANCE_ID);
+      expect(response.body.contest.join_url).toBeDefined();
+      expect(response.body.contest.join_url).toContain('/join/');
     });
 
-    it('should return invalid for environment mismatch', async () => {
+    it('should return invalid with error_code for environment mismatch', async () => {
       const response = await request(app)
         .get('/api/custom-contests/join/prd_abc123');
 
       expect(response.status).toBe(200);
       expect(response.body.valid).toBe(false);
       expect(response.body.environment_mismatch).toBe(true);
+      expect(response.body.error_code).toBe('ENVIRONMENT_MISMATCH');
     });
 
-    it('should return invalid for unknown token', async () => {
+    it('should return invalid with error_code for unknown token', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
         mockQueryResponses.empty()
@@ -149,6 +155,51 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.valid).toBe(false);
       expect(response.body.reason).toContain('Contest not found');
+      expect(response.body.error_code).toBe('NOT_FOUND');
+    });
+
+    it('should return CONTEST_LOCKED for locked contest', async () => {
+      const token = 'dev_locked12345678901234567890';
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'locked' })
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/join/${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(false);
+      expect(response.body.error_code).toBe('CONTEST_LOCKED');
+    });
+
+    it('should return EXPIRED_TOKEN for cancelled contest', async () => {
+      const token = 'dev_cancelled123456789012345';
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'cancelled' })
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/join/${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(false);
+      expect(response.body.error_code).toBe('EXPIRED_TOKEN');
+    });
+
+    it('should accept optional source query parameter', async () => {
+      const token = 'dev_abc123def456abc123def456abc123';
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'open' })
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/join/${token}?source=qr_code`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(true);
     });
   });
 
@@ -168,7 +219,7 @@ describe('Custom Contest Routes', () => {
       expect(response.body.error).toBe('Authentication required');
     });
 
-    it('should return 201 with valid input', async () => {
+    it('should return 201 with valid input including join_url', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_templates WHERE id/,
         mockQueryResponses.single(mockTemplate)
@@ -186,6 +237,8 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(201);
       expect(response.body.id).toBe(TEST_INSTANCE_ID);
       expect(response.body.status).toBe('draft');
+      expect(response.body.join_url).toBeDefined();
+      expect(response.body.join_url).toContain('/join/');
     });
 
     it('should return 400 for missing template_id', async () => {
@@ -359,7 +412,7 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(401);
     });
 
-    it('should publish draft contest', async () => {
+    it('should publish draft contest with join_url', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
         mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'draft' })
@@ -375,6 +428,8 @@ describe('Custom Contest Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('open');
+      expect(response.body.join_url).toBeDefined();
+      expect(response.body.join_url).toContain('/join/');
     });
 
     it('should return 400 for invalid UUID', async () => {

@@ -10,20 +10,42 @@
  */
 
 const crypto = require('crypto');
+const config = require('../config');
 
 const VALID_STATUSES = ['draft', 'open', 'locked', 'settled', 'cancelled'];
 const VALID_ENV_PREFIXES = ['dev', 'test', 'stg', 'prd'];
 
 /**
+ * Structured error codes for join token operations
+ * These are machine-readable codes for client error handling
+ */
+const JOIN_ERROR_CODES = {
+  INVALID_TOKEN: 'INVALID_TOKEN',         // Malformed or unrecognized token format
+  EXPIRED_TOKEN: 'EXPIRED_TOKEN',         // Token's contest is no longer joinable (cancelled/settled)
+  CONTEST_FULL: 'CONTEST_FULL',           // Contest has reached max participants
+  CONTEST_LOCKED: 'CONTEST_LOCKED',       // Contest is locked (past lock_time)
+  ALREADY_JOINED: 'ALREADY_JOINED',       // User has already joined this contest
+  NOT_FOUND: 'NOT_FOUND',                 // Token valid but contest not found
+  ENVIRONMENT_MISMATCH: 'ENVIRONMENT_MISMATCH', // Token from different environment
+};
+
+/**
  * Get the current environment prefix for join tokens
+ * Uses centralized config module
  * @returns {string} Environment prefix (dev, test, stg, prd)
  */
 function getEnvPrefix() {
-  const env = process.env.APP_ENV || 'dev';
-  if (!VALID_ENV_PREFIXES.includes(env)) {
-    return 'dev';
-  }
-  return env;
+  return config.getAppEnv();
+}
+
+/**
+ * Generate a full join URL for a contest instance
+ * Uses centralized config for JOIN_BASE_URL
+ * @param {string} token - The join token
+ * @returns {string} Full join URL (e.g., https://app.playoffchallenge.com/join/dev_abc123...)
+ */
+function generateJoinUrl(token) {
+  return config.buildJoinUrl(token);
 }
 
 /**
@@ -208,7 +230,12 @@ async function createContestInstance(pool, organizerId, input) {
     ]
   );
 
-  return result.rows[0];
+  const instance = result.rows[0];
+  // Add canonical join URL to response
+  return {
+    ...instance,
+    join_url: generateJoinUrl(instance.join_token)
+  };
 }
 
 /**
@@ -271,9 +298,16 @@ async function getContestInstanceByToken(pool, token) {
  * Resolve a join token and return structured contest information
  * Used for universal join link support (pre-authentication)
  *
+ * Returns structured error codes for client handling:
+ * - INVALID_TOKEN: Malformed token format
+ * - ENVIRONMENT_MISMATCH: Token from different environment
+ * - NOT_FOUND: Contest not found
+ * - EXPIRED_TOKEN: Contest is cancelled or settled
+ * - CONTEST_LOCKED: Contest is locked
+ *
  * @param {Object} pool - Database connection pool
  * @param {string} token - The join token to resolve
- * @returns {Promise<Object>} Resolution result
+ * @returns {Promise<Object>} Resolution result with error_code if invalid
  */
 async function resolveJoinToken(pool, token) {
   const validation = validateJoinToken(token);
@@ -288,6 +322,7 @@ async function resolveJoinToken(pool, token) {
 
       return {
         valid: false,
+        error_code: JOIN_ERROR_CODES.ENVIRONMENT_MISMATCH,
         reason: validation.error,
         environment_mismatch: true,
         token_environment: tokenEnv,
@@ -297,6 +332,7 @@ async function resolveJoinToken(pool, token) {
 
     return {
       valid: false,
+      error_code: JOIN_ERROR_CODES.INVALID_TOKEN,
       reason: validation.error,
       environment_mismatch: false
     };
@@ -307,11 +343,41 @@ async function resolveJoinToken(pool, token) {
   if (!instance) {
     return {
       valid: false,
+      error_code: JOIN_ERROR_CODES.NOT_FOUND,
       reason: 'Contest not found for this token',
       environment_mismatch: false
     };
   }
 
+  // Check if contest is in a non-joinable state
+  if (instance.status === 'cancelled' || instance.status === 'settled') {
+    return {
+      valid: false,
+      error_code: JOIN_ERROR_CODES.EXPIRED_TOKEN,
+      reason: `Contest is ${instance.status} and no longer accepting participants`,
+      environment_mismatch: false,
+      contest: {
+        id: instance.id,
+        status: instance.status
+      }
+    };
+  }
+
+  if (instance.status === 'locked') {
+    return {
+      valid: false,
+      error_code: JOIN_ERROR_CODES.CONTEST_LOCKED,
+      reason: 'Contest is locked and no longer accepting participants',
+      environment_mismatch: false,
+      contest: {
+        id: instance.id,
+        status: instance.status,
+        lock_time: instance.lock_time
+      }
+    };
+  }
+
+  // Contest is in a joinable state (draft or open)
   return {
     valid: true,
     contest: {
@@ -323,7 +389,8 @@ async function resolveJoinToken(pool, token) {
       payout_structure: instance.payout_structure,
       status: instance.status,
       start_time: instance.start_time,
-      lock_time: instance.lock_time
+      lock_time: instance.lock_time,
+      join_url: generateJoinUrl(token)
     }
   };
 }
@@ -425,7 +492,10 @@ async function publishContestInstance(pool, instanceId, organizerId) {
 
   // Idempotency: if already open, return as-is without any modifications
   if (existing.status === 'open') {
-    return existing;
+    return {
+      ...existing,
+      join_url: generateJoinUrl(existing.join_token)
+    };
   }
 
   // Only draft contests can be published
@@ -448,7 +518,11 @@ async function publishContestInstance(pool, instanceId, organizerId) {
     throw new Error('Contest was modified by another operation');
   }
 
-  return result.rows[0];
+  const instance = result.rows[0];
+  return {
+    ...instance,
+    join_url: generateJoinUrl(instance.join_token)
+  };
 }
 
 module.exports = {
@@ -466,6 +540,7 @@ module.exports = {
 
   // Token functions
   generateJoinToken,
+  generateJoinUrl,
   validateJoinToken,
   resolveJoinToken,
 
@@ -475,5 +550,6 @@ module.exports = {
 
   // Constants
   VALID_STATUSES,
-  VALID_ENV_PREFIXES
+  VALID_ENV_PREFIXES,
+  JOIN_ERROR_CODES,
 };

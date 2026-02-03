@@ -17,6 +17,8 @@ const express = require('express');
 const router = express.Router();
 
 const customContestService = require('../services/customContestService');
+const { logJoinSuccess, logJoinFailure } = require('../services/joinAuditService');
+const { createCombinedJoinRateLimiter } = require('../middleware/joinRateLimit');
 
 /**
  * Middleware to extract user ID from request.
@@ -65,35 +67,86 @@ router.get('/templates', async (req, res) => {
 // JOIN TOKEN RESOLUTION (Pre-auth)
 // ============================================
 
+// Create rate limiter for join endpoint
+const joinRateLimiter = createCombinedJoinRateLimiter();
+
 /**
  * GET /api/custom-contests/join/:token
  * Resolves a join token and returns contest information.
  * Does not require authentication.
  *
+ * Rate limited to prevent token brute forcing.
+ *
  * Response:
  * - valid: boolean
  * - contest?: Object (if valid)
- * - reason?: string (if invalid)
+ * - error_code?: string (structured error code if invalid)
+ * - reason?: string (human-readable reason if invalid)
  * - environment_mismatch?: boolean
  */
-router.get('/join/:token', async (req, res) => {
+router.get('/join/:token', joinRateLimiter, async (req, res) => {
+  const { token } = req.params;
+  const ipAddress = req.ip || req.connection.remoteAddress;
+  const joinSource = req.query.source || 'universal_link';
+  const userId = req.headers['x-user-id'] || null; // Optional if provided
+
   try {
     const pool = req.app.locals.pool;
-    const { token } = req.params;
 
     if (!token) {
+      logJoinFailure({
+        token: '',
+        errorCode: customContestService.JOIN_ERROR_CODES.INVALID_TOKEN,
+        ipAddress,
+        joinSource
+      });
       return res.status(400).json({
         valid: false,
+        error_code: customContestService.JOIN_ERROR_CODES.INVALID_TOKEN,
         reason: 'Token is required'
       });
     }
 
     const result = await customContestService.resolveJoinToken(pool, token);
+
+    // Log the attempt
+    if (result.valid) {
+      logJoinSuccess({
+        token,
+        contestId: result.contest.id,
+        userId,
+        ipAddress,
+        joinSource
+      });
+    } else {
+      logJoinFailure({
+        token,
+        errorCode: result.error_code,
+        contestId: result.contest?.id || null,
+        userId,
+        ipAddress,
+        joinSource,
+        extra: result.environment_mismatch ? {
+          token_environment: result.token_environment,
+          current_environment: result.current_environment
+        } : undefined
+      });
+    }
+
     res.json(result);
   } catch (err) {
     console.error('[Custom Contest] Error resolving join token:', err);
+    logJoinFailure({
+      token,
+      errorCode: 'INTERNAL_ERROR',
+      userId,
+      ipAddress,
+      joinSource,
+      extra: { error: err.message }
+    });
     res.status(500).json({
       valid: false,
+      error_code: 'INTERNAL_ERROR',
       reason: 'Failed to resolve token'
     });
   }

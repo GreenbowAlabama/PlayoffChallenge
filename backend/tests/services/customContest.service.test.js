@@ -255,7 +255,7 @@ describe('Custom Contest Service Unit Tests', () => {
         );
       });
 
-      it('should create instance with valid input', async () => {
+      it('should create instance with valid input and join_url', async () => {
         mockPool.setQueryResponse(
           /INSERT INTO contest_instances/,
           mockQueryResponses.single(mockInstance)
@@ -271,6 +271,9 @@ describe('Custom Contest Service Unit Tests', () => {
         expect(instance.id).toBe(TEST_INSTANCE_ID);
         expect(instance.status).toBe('draft');
         expect(instance.join_token).toBeDefined();
+        expect(instance.join_url).toBeDefined();
+        expect(instance.join_url).toContain('/join/');
+        expect(instance.join_url).toContain(instance.join_token);
       });
 
       it('should reject missing template_id', async () => {
@@ -571,7 +574,7 @@ describe('Custom Contest Service Unit Tests', () => {
         settlement_strategy_key: mockTemplate.settlement_strategy_key
       };
 
-      it('should publish draft contest successfully', async () => {
+      it('should publish draft contest successfully with join_url', async () => {
         mockPool.setQueryResponse(
           /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
           mockQueryResponses.single(instanceWithTemplate)
@@ -586,9 +589,12 @@ describe('Custom Contest Service Unit Tests', () => {
         );
         expect(result.status).toBe('open');
         expect(result.join_token).toBe(instanceWithTemplate.join_token);
+        expect(result.join_url).toBeDefined();
+        expect(result.join_url).toContain('/join/');
+        expect(result.join_url).toContain(result.join_token);
       });
 
-      it('should be idempotent: return existing data if already open', async () => {
+      it('should be idempotent: return existing data with join_url if already open', async () => {
         const openInstance = {
           ...instanceWithTemplate,
           status: 'open',
@@ -605,10 +611,12 @@ describe('Custom Contest Service Unit Tests', () => {
           mockPool, TEST_INSTANCE_ID, TEST_USER_ID
         );
 
-        // Should return existing data unchanged
+        // Should return existing data with join_url
         expect(result.status).toBe('open');
         expect(result.join_token).toBe('dev_originaltoken1234567890123');
         expect(result.updated_at).toEqual(openInstance.updated_at);
+        expect(result.join_url).toBeDefined();
+        expect(result.join_url).toContain('/join/dev_originaltoken1234567890123');
 
         // Verify no UPDATE query was made
         const queries = mockPool.getQueryHistory();
@@ -748,6 +756,7 @@ describe('Custom Contest Service Unit Tests', () => {
       const instanceWithTemplate = {
         ...mockInstance,
         join_token: token,
+        status: 'open',
         template_name: mockTemplate.name,
         template_sport: mockTemplate.sport
       };
@@ -762,24 +771,28 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(result.contest).toBeDefined();
       expect(result.contest.id).toBe(TEST_INSTANCE_ID);
       expect(result.contest.template_name).toBe('NFL Playoff Challenge');
+      expect(result.contest.join_url).toContain('/join/');
+      expect(result.contest.join_url).toContain(token);
     });
 
-    it('should return invalid for environment mismatch', async () => {
+    it('should return invalid for environment mismatch with error_code', async () => {
       const result = await customContestService.resolveJoinToken(mockPool, 'prd_abc123');
       expect(result.valid).toBe(false);
       expect(result.environment_mismatch).toBe(true);
       expect(result.token_environment).toBe('prd');
       expect(result.current_environment).toBe('dev');
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.ENVIRONMENT_MISMATCH);
     });
 
-    it('should return invalid for malformed token', async () => {
+    it('should return invalid for malformed token with error_code', async () => {
       const result = await customContestService.resolveJoinToken(mockPool, 'notavalidtoken');
       expect(result.valid).toBe(false);
       expect(result.environment_mismatch).toBe(false);
       expect(result.reason).toContain('missing environment prefix');
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.INVALID_TOKEN);
     });
 
-    it('should return invalid if contest not found', async () => {
+    it('should return invalid if contest not found with error_code', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
         mockQueryResponses.empty()
@@ -788,6 +801,110 @@ describe('Custom Contest Service Unit Tests', () => {
       const result = await customContestService.resolveJoinToken(mockPool, 'dev_notfound123456');
       expect(result.valid).toBe(false);
       expect(result.reason).toContain('Contest not found');
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.NOT_FOUND);
+    });
+
+    it('should return EXPIRED_TOKEN for cancelled contest', async () => {
+      const token = 'dev_cancelled123456789012345678';
+      const cancelledInstance = {
+        ...mockInstance,
+        join_token: token,
+        status: 'cancelled',
+        template_name: mockTemplate.name,
+        template_sport: mockTemplate.sport
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        mockQueryResponses.single(cancelledInstance)
+      );
+
+      const result = await customContestService.resolveJoinToken(mockPool, token);
+      expect(result.valid).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.EXPIRED_TOKEN);
+      expect(result.reason).toContain('cancelled');
+      expect(result.contest.status).toBe('cancelled');
+    });
+
+    it('should return EXPIRED_TOKEN for settled contest', async () => {
+      const token = 'dev_settled12345678901234567890';
+      const settledInstance = {
+        ...mockInstance,
+        join_token: token,
+        status: 'settled',
+        template_name: mockTemplate.name,
+        template_sport: mockTemplate.sport
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        mockQueryResponses.single(settledInstance)
+      );
+
+      const result = await customContestService.resolveJoinToken(mockPool, token);
+      expect(result.valid).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.EXPIRED_TOKEN);
+      expect(result.reason).toContain('settled');
+    });
+
+    it('should return CONTEST_LOCKED for locked contest', async () => {
+      const token = 'dev_locked12345678901234567890';
+      const lockedInstance = {
+        ...mockInstance,
+        join_token: token,
+        status: 'locked',
+        lock_time: new Date().toISOString(),
+        template_name: mockTemplate.name,
+        template_sport: mockTemplate.sport
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        mockQueryResponses.single(lockedInstance)
+      );
+
+      const result = await customContestService.resolveJoinToken(mockPool, token);
+      expect(result.valid).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_LOCKED);
+      expect(result.reason).toContain('locked');
+      expect(result.contest.lock_time).toBeDefined();
+    });
+  });
+
+  describe('generateJoinUrl', () => {
+    beforeEach(() => {
+      process.env.JOIN_BASE_URL = 'https://app.playoffchallenge.com';
+    });
+
+    afterEach(() => {
+      delete process.env.JOIN_BASE_URL;
+    });
+
+    it('should generate full join URL from token', () => {
+      const url = customContestService.generateJoinUrl('dev_abc123def456');
+      expect(url).toBe('https://app.playoffchallenge.com/join/dev_abc123def456');
+    });
+
+    it('should use custom JOIN_BASE_URL', () => {
+      process.env.JOIN_BASE_URL = 'https://staging.example.com';
+      // Need to re-require to pick up new env var
+      jest.resetModules();
+      const freshService = require('../../services/customContestService');
+      const url = freshService.generateJoinUrl('stg_xyz789');
+      expect(url).toBe('https://staging.example.com/join/stg_xyz789');
+    });
+  });
+
+  describe('JOIN_ERROR_CODES', () => {
+    it('should export all expected error codes', () => {
+      expect(customContestService.JOIN_ERROR_CODES).toBeDefined();
+      expect(customContestService.JOIN_ERROR_CODES.INVALID_TOKEN).toBe('INVALID_TOKEN');
+      expect(customContestService.JOIN_ERROR_CODES.EXPIRED_TOKEN).toBe('EXPIRED_TOKEN');
+      expect(customContestService.JOIN_ERROR_CODES.CONTEST_FULL).toBe('CONTEST_FULL');
+      expect(customContestService.JOIN_ERROR_CODES.CONTEST_LOCKED).toBe('CONTEST_LOCKED');
+      expect(customContestService.JOIN_ERROR_CODES.ALREADY_JOINED).toBe('ALREADY_JOINED');
+      expect(customContestService.JOIN_ERROR_CODES.NOT_FOUND).toBe('NOT_FOUND');
+      expect(customContestService.JOIN_ERROR_CODES.ENVIRONMENT_MISMATCH).toBe('ENVIRONMENT_MISMATCH');
     });
   });
 
