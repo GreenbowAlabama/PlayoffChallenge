@@ -36,8 +36,9 @@ function getJoinBaseUrl() {
     console.warn('[Config] JOIN_BASE_URL not set - join URLs will use placeholder');
     return 'https://app.playoffchallenge.com';
   }
-  // Remove trailing slash if present
-  return url.replace(/\/$/, '');
+  // Remove trailing slash and any surrounding quotes (in case of misconfiguration)
+  const cleanUrl = url.replace(/^["']|["']$/g, '').replace(/\/$/, '');
+  return cleanUrl;
 }
 
 /**
