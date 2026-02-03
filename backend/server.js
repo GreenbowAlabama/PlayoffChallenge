@@ -77,6 +77,21 @@ const GAME_SUMMARY_CACHE_MS = 90 * 1000; // 90 seconds
 const PLAYERS_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
 // ==============================================
+// VALIDATION HELPERS
+// ==============================================
+
+/**
+ * Validate UUID format
+ * @param {string} str - String to validate
+ * @returns {boolean} True if valid UUID format
+ */
+function isValidUUID(str) {
+  if (!str || typeof str !== 'string') return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+// ==============================================
 // GAME STATE (delegated to gameStateService)
 // ==============================================
 // Wrappers maintain backward compatibility with existing call sites
@@ -2570,6 +2585,10 @@ app.get('/api/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
+    if (!isValidUUID(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
+
     const user = await usersService.findUserById(pool, userId);
 
     if (!user) {
@@ -2588,6 +2607,10 @@ app.put('/api/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const { username, email, phone, name } = req.body;
+
+    if (!isValidUUID(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
 
     console.log('PUT /api/users/:userId - Updating user:', { userId, username, email, phone, name });
 
