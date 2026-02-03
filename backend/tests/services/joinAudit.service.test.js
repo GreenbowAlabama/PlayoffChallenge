@@ -164,4 +164,62 @@ describe('Join Audit Service', () => {
       expect(logEntry.extra.device).toBe('iPhone');
     });
   });
+
+  describe('logContestCreated', () => {
+    it('should log structured JSON for contest creation', () => {
+      joinAuditService.logContestCreated({
+        contestId: 'contest-uuid-123',
+        organizerId: 'user-uuid-456',
+        templateId: 'template-uuid-789',
+        token: 'dev_newcontesttoken12345678901234'
+      });
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      const logCall = consoleSpy.mock.calls[0];
+      expect(logCall[0]).toBe('[Join Audit]');
+
+      const logEntry = JSON.parse(logCall[1]);
+      expect(logEntry.event).toBe('contest_created');
+      expect(logEntry.contest_id).toBe('contest-uuid-123');
+      expect(logEntry.organizer_id).toBe('user-uuid-456');
+      expect(logEntry.template_id).toBe('template-uuid-789');
+      expect(logEntry.token_id).toBe('dev_...1234');
+      expect(logEntry.timestamp).toBeDefined();
+    });
+
+    it('should handle missing token', () => {
+      joinAuditService.logContestCreated({
+        contestId: 'contest-uuid-123',
+        organizerId: 'user-uuid-456',
+        templateId: 'template-uuid-789'
+      });
+
+      const logCall = consoleSpy.mock.calls[0];
+      const logEntry = JSON.parse(logCall[1]);
+
+      expect(logEntry.event).toBe('contest_created');
+      expect(logEntry.token_id).toBeNull();
+    });
+  });
+
+  describe('logContestPublished', () => {
+    it('should log structured JSON for contest publish', () => {
+      joinAuditService.logContestPublished({
+        contestId: 'contest-uuid-123',
+        organizerId: 'user-uuid-456',
+        token: 'dev_publishedtoken123456789012345'
+      });
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      const logCall = consoleSpy.mock.calls[0];
+      expect(logCall[0]).toBe('[Join Audit]');
+
+      const logEntry = JSON.parse(logCall[1]);
+      expect(logEntry.event).toBe('contest_published');
+      expect(logEntry.contest_id).toBe('contest-uuid-123');
+      expect(logEntry.organizer_id).toBe('user-uuid-456');
+      expect(logEntry.token_id).toBe('dev_...2345');
+      expect(logEntry.timestamp).toBeDefined();
+    });
+  });
 });

@@ -142,10 +142,58 @@ function logJoinRateLimited(params) {
   console.log(LOG_PREFIX, JSON.stringify(logEntry));
 }
 
+/**
+ * Log a contest creation event
+ *
+ * @param {Object} params - Logging parameters
+ * @param {string} params.contestId - The created contest ID
+ * @param {string} params.organizerId - The user who created the contest
+ * @param {string} params.templateId - The template used
+ * @param {string} [params.token] - The join token (will be redacted)
+ */
+function logContestCreated(params) {
+  const { contestId, organizerId, templateId, token } = params;
+
+  const logEntry = {
+    event: 'contest_created',
+    timestamp: new Date().toISOString(),
+    contest_id: contestId,
+    organizer_id: organizerId,
+    template_id: templateId,
+    token_id: token ? redactToken(token) : null
+  };
+
+  console.log(LOG_PREFIX, JSON.stringify(logEntry));
+}
+
+/**
+ * Log a contest publish event
+ *
+ * @param {Object} params - Logging parameters
+ * @param {string} params.contestId - The published contest ID
+ * @param {string} params.organizerId - The user who published the contest
+ * @param {string} params.token - The join token (will be redacted)
+ */
+function logContestPublished(params) {
+  const { contestId, organizerId, token } = params;
+
+  const logEntry = {
+    event: 'contest_published',
+    timestamp: new Date().toISOString(),
+    contest_id: contestId,
+    organizer_id: organizerId,
+    token_id: redactToken(token)
+  };
+
+  console.log(LOG_PREFIX, JSON.stringify(logEntry));
+}
+
 module.exports = {
   logJoinAttempt,
   logJoinSuccess,
   logJoinFailure,
   logJoinRateLimited,
+  logContestCreated,
+  logContestPublished,
   redactToken,
 };

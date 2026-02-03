@@ -426,7 +426,7 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(401);
     });
 
-    it('should publish draft contest with join_url', async () => {
+    it('should publish draft contest and return contestId, joinToken, joinURL', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
         mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'draft' })
@@ -441,9 +441,12 @@ describe('Custom Contest Routes', () => {
         .set('X-User-Id', TEST_USER_ID);
 
       expect(response.status).toBe(200);
-      expect(response.body.status).toBe('open');
-      expect(response.body.join_url).toBeDefined();
-      expect(response.body.join_url).toContain('/join/');
+      // Verify the specific response format
+      expect(response.body.contestId).toBe(TEST_INSTANCE_ID);
+      expect(response.body.joinToken).toBe(mockInstance.join_token);
+      expect(response.body.joinURL).toBeDefined();
+      expect(response.body.joinURL).toContain('/join/');
+      expect(response.body.joinURL).toContain(mockInstance.join_token);
     });
 
     it('should return 400 for invalid UUID', async () => {

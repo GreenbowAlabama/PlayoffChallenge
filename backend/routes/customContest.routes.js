@@ -17,7 +17,7 @@ const express = require('express');
 const router = express.Router();
 
 const customContestService = require('../services/customContestService');
-const { logJoinSuccess, logJoinFailure } = require('../services/joinAuditService');
+const { logJoinSuccess, logJoinFailure, logContestCreated, logContestPublished } = require('../services/joinAuditService');
 const { createCombinedJoinRateLimiter } = require('../middleware/joinRateLimit');
 
 /**
@@ -207,6 +207,14 @@ router.post('/', async (req, res) => {
       settlement_time
     });
 
+    // Log contest creation
+    logContestCreated({
+      contestId: instance.id,
+      organizerId,
+      templateId: template_id,
+      token: instance.join_token
+    });
+
     res.status(201).json(instance);
   } catch (err) {
     // Template not found is a 404
@@ -292,7 +300,20 @@ router.post('/:id/publish', async (req, res) => {
     }
 
     const instance = await customContestService.publishContestInstance(pool, id, organizerId);
-    res.json(instance);
+
+    // Log contest publish
+    logContestPublished({
+      contestId: instance.id,
+      organizerId,
+      token: instance.join_token
+    });
+
+    // Return the specific format expected by clients
+    res.json({
+      contestId: instance.id,
+      joinToken: instance.join_token,
+      joinURL: instance.join_url
+    });
   } catch (err) {
     if (err.message.includes('not found')) {
       return res.status(404).json({ error: err.message });
