@@ -207,6 +207,13 @@ router.post('/', async (req, res) => {
       settlement_time
     });
 
+    // [JOIN DEBUG] Diagnostic logging for join URL generation
+    console.log('[JOIN DEBUG]', {
+      contestId: instance.id,
+      joinToken: instance.join_token,
+      joinUrl: instance.join_url || null,
+    });
+
     // Log contest creation
     logContestCreated({
       contestId: instance.id,

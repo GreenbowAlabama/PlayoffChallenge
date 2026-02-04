@@ -260,7 +260,13 @@ async function getContestInstance(pool, instanceId) {
     WHERE ci.id = $1`,
     [instanceId]
   );
-  return result.rows[0] || null;
+  const instance = result.rows[0];
+  if (!instance) return null;
+  // Add computed join_url if join_token exists
+  return {
+    ...instance,
+    join_url: instance.join_token ? generateJoinUrl(instance.join_token) : null
+  };
 }
 
 /**
@@ -291,7 +297,13 @@ async function getContestInstanceByToken(pool, token) {
     WHERE ci.join_token = $1`,
     [token]
   );
-  return result.rows[0] || null;
+  const instance = result.rows[0];
+  if (!instance) return null;
+  // Add computed join_url
+  return {
+    ...instance,
+    join_url: generateJoinUrl(instance.join_token)
+  };
 }
 
 /**
@@ -415,7 +427,11 @@ async function getContestInstancesForOrganizer(pool, organizerId) {
     ORDER BY ci.created_at DESC`,
     [organizerId]
   );
-  return result.rows;
+  // Add computed join_url to each instance
+  return result.rows.map(instance => ({
+    ...instance,
+    join_url: instance.join_token ? generateJoinUrl(instance.join_token) : null
+  }));
 }
 
 /**
