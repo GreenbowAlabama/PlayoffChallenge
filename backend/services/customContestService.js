@@ -201,8 +201,8 @@ async function createContestInstance(pool, organizerId, input) {
   validateEntryFeeAgainstTemplate(input.entry_fee_cents, template);
   validatePayoutStructureAgainstTemplate(input.payout_structure, template);
 
-  // Generate join token
-  const joinToken = generateJoinToken();
+  // Note: join_token is generated at publish time, not creation time
+  // Database constraint requires join_token to be NULL for draft status
 
   const result = await pool.query(
     `INSERT INTO contest_instances (
@@ -211,11 +211,10 @@ async function createContestInstance(pool, organizerId, input) {
       entry_fee_cents,
       payout_structure,
       status,
-      join_token,
       start_time,
       lock_time,
       settlement_time
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *`,
     [
       input.template_id,
@@ -223,7 +222,6 @@ async function createContestInstance(pool, organizerId, input) {
       input.entry_fee_cents,
       JSON.stringify(input.payout_structure),
       'draft',
-      joinToken,
       input.start_time || null,
       input.lock_time || null,
       input.settlement_time || null
@@ -231,11 +229,7 @@ async function createContestInstance(pool, organizerId, input) {
   );
 
   const instance = result.rows[0];
-  // Add canonical join URL to response
-  return {
-    ...instance,
-    join_url: generateJoinUrl(instance.join_token)
-  };
+  return instance;
 }
 
 /**

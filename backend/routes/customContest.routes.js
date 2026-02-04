@@ -207,19 +207,12 @@ router.post('/', async (req, res) => {
       settlement_time
     });
 
-    // [JOIN DEBUG] Diagnostic logging for join URL generation
-    console.log('[JOIN DEBUG]', {
-      contestId: instance.id,
-      joinToken: instance.join_token,
-      joinUrl: instance.join_url || null,
-    });
-
-    // Log contest creation
+    // Log contest creation (join_token is assigned at publish time)
     logContestCreated({
       contestId: instance.id,
       organizerId,
       templateId: template_id,
-      token: instance.join_token
+      token: null
     });
 
     res.status(201).json(instance);
@@ -307,6 +300,13 @@ router.post('/:id/publish', async (req, res) => {
     }
 
     const instance = await customContestService.publishContestInstance(pool, id, organizerId);
+
+    // [JOIN DEBUG] Diagnostic logging for join URL generation
+    console.log('[JOIN DEBUG]', {
+      contestId: instance.id,
+      joinToken: instance.join_token,
+      joinUrl: instance.join_url,
+    });
 
     // Log contest publish
     logContestPublished({
