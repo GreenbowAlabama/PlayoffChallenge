@@ -18,6 +18,7 @@ const picksService = require('./services/picksService');
 const usersService = require('./services/usersService');
 const adminService = require('./services/adminService');
 const contestService = require('./services/contestService');
+const config = require('./config');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1366,6 +1367,35 @@ async function calculateFantasyPoints(stats) {
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ==============================================
+// UNIVERSAL LINKS (iOS App Association)
+// ==============================================
+
+// Apple App Site Association for Universal Links
+// Served at /.well-known/apple-app-site-association (no file extension)
+app.get('/.well-known/apple-app-site-association', (req, res) => {
+  const aasa = {
+    applinks: {
+      apps: [],
+      details: [
+        {
+          appID: '24Z6R7U38A.com.iancarter.PlayoffChallenge',
+          paths: ['/join/*']
+        }
+      ]
+    }
+  };
+  res.setHeader('Content-Type', 'application/json');
+  res.json(aasa);
+});
+
+// Join link handler - redirects to App Store for iOS users without the app
+// iOS users with the app installed will be intercepted by Universal Links before this route
+app.get('/join/:token', (req, res) => {
+  const appStoreUrl = config.getAppStoreUrl();
+  res.redirect(302, appStoreUrl);
 });
 
 // Admin auth routes (no protection)

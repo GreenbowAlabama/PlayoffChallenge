@@ -112,6 +112,20 @@ describe('Config Module', () => {
     });
   });
 
+  describe('getAppStoreUrl', () => {
+    it('should return default App Store URL', () => {
+      delete process.env.APP_STORE_URL;
+      const config = require('../../config');
+      expect(config.getAppStoreUrl()).toBe('https://apps.apple.com/app/playoff-challenge/id6740032781');
+    });
+
+    it('should return APP_STORE_URL if set', () => {
+      process.env.APP_STORE_URL = 'https://apps.apple.com/app/custom/id123';
+      const config = require('../../config');
+      expect(config.getAppStoreUrl()).toBe('https://apps.apple.com/app/custom/id123');
+    });
+  });
+
   describe('environment detection', () => {
     it('isProduction should return true for production', () => {
       process.env.NODE_ENV = 'production';

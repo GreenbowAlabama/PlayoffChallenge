@@ -82,6 +82,27 @@ describe('API Smoke Tests', () => {
     });
   });
 
+  describe('Universal Links (iOS)', () => {
+    it('GET /.well-known/apple-app-site-association should return AASA JSON', async () => {
+      const response = await request(app).get('/.well-known/apple-app-site-association');
+
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/application\/json/);
+      expect(response.body).toHaveProperty('applinks');
+      expect(response.body.applinks).toHaveProperty('details');
+      expect(response.body.applinks.details[0]).toHaveProperty('appID');
+      expect(response.body.applinks.details[0]).toHaveProperty('paths');
+      expect(response.body.applinks.details[0].paths).toContain('/join/*');
+    });
+
+    it('GET /join/:token should redirect to App Store', async () => {
+      const response = await request(app).get('/join/test-token-123');
+
+      expect(response.status).toBe(302);
+      expect(response.headers.location).toMatch(/apps\.apple\.com/);
+    });
+  });
+
   describe('Read Path (End-to-End)', () => {
     it('GET /api/players should return data', async () => {
       const response = await request(app).get('/api/players?limit=1');

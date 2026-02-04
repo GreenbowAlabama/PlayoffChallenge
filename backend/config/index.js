@@ -91,6 +91,14 @@ function getAdminJwtSecret() {
 }
 
 /**
+ * App Store URL for iOS app
+ * Used for fallback redirect when universal links don't work
+ */
+function getAppStoreUrl() {
+  return process.env.APP_STORE_URL || 'https://apps.apple.com/app/playoff-challenge/id6740032781';
+}
+
+/**
  * Rate limiting configuration for join token endpoint
  */
 function getJoinRateLimitConfig() {
@@ -123,4 +131,7 @@ module.exports = {
 
   // Rate limiting
   getJoinRateLimitConfig,
+
+  // App Store
+  getAppStoreUrl,
 };
