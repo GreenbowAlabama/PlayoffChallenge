@@ -255,10 +255,12 @@ describe('Custom Contest Service Unit Tests', () => {
         );
       });
 
-      it('should create instance with valid input and join_url', async () => {
+      it('should create instance with valid input (no join_token until publish)', async () => {
+        // Draft instances have no join_token - it's set at publish time
+        const draftInstance = { ...mockInstance, join_token: null };
         mockPool.setQueryResponse(
           /INSERT INTO contest_instances/,
-          mockQueryResponses.single(mockInstance)
+          mockQueryResponses.single(draftInstance)
         );
 
         const instance = await customContestService.createContestInstance(mockPool, TEST_USER_ID, {
@@ -270,10 +272,8 @@ describe('Custom Contest Service Unit Tests', () => {
         expect(instance).toBeDefined();
         expect(instance.id).toBe(TEST_INSTANCE_ID);
         expect(instance.status).toBe('draft');
-        expect(instance.join_token).toBeDefined();
-        expect(instance.join_url).toBeDefined();
-        expect(instance.join_url).toContain('/join/');
-        expect(instance.join_url).toContain(instance.join_token);
+        // join_token and join_url are only set at publish time, not creation
+        expect(instance.join_token).toBeNull();
       });
 
       it('should reject missing template_id', async () => {

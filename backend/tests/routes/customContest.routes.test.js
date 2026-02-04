@@ -233,14 +233,16 @@ describe('Custom Contest Routes', () => {
       expect(queries.length).toBe(0);
     });
 
-    it('should return 201 with valid input including join_url', async () => {
+    it('should return 201 with valid input (no join_token until publish)', async () => {
+      // Draft instances have no join_token - it's set at publish time
+      const draftInstance = { ...mockInstance, join_token: null };
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_templates WHERE id/,
         mockQueryResponses.single(mockTemplate)
       );
       mockPool.setQueryResponse(
         /INSERT INTO contest_instances/,
-        mockQueryResponses.single(mockInstance)
+        mockQueryResponses.single(draftInstance)
       );
 
       const response = await request(app)
@@ -251,8 +253,8 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(201);
       expect(response.body.id).toBe(TEST_INSTANCE_ID);
       expect(response.body.status).toBe('draft');
-      expect(response.body.join_url).toBeDefined();
-      expect(response.body.join_url).toContain('/join/');
+      // join_token and join_url are only set at publish time, not creation
+      expect(response.body.join_token).toBeNull();
     });
 
     it('should return 400 for missing template_id', async () => {
