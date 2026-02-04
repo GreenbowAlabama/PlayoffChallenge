@@ -17,7 +17,7 @@ const gameStateService = require('./services/gameStateService');
 const picksService = require('./services/picksService');
 const usersService = require('./services/usersService');
 const adminService = require('./services/adminService');
-const contestService = require('./services/contestService');
+const customContestService = require('./services/customContestService');
 const config = require('./config');
 
 const app = express();
@@ -3213,15 +3213,16 @@ app.get('/api/join/:token', async (req, res) => {
   });
 
   try {
-    const result = await contestService.resolveJoinToken(pool, token);
+    const result = await customContestService.resolveJoinToken(pool, token);
 
     // Log outcome (without exposing full token)
     console.log('[Join] Token resolution complete', {
       timestamp: new Date().toISOString(),
       valid: result.valid,
       reason: result.reason || null,
+      errorCode: result.error_code || null,
       environmentMismatch: result.environment_mismatch || false,
-      contestState: result.contest?.state || null,
+      contestStatus: result.contest?.status || null,
       ip: req.ip
     });
 

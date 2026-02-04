@@ -95,7 +95,7 @@ function getAdminJwtSecret() {
  * Used for fallback redirect when universal links don't work
  */
 function getAppStoreUrl() {
-  return process.env.APP_STORE_URL || 'https://apps.apple.com/app/playoff-challenge/id6740032781';
+  return process.env.APP_STORE_URL || 'https://apps.apple.com/us/app/fantasy-playoffs/id6754228835';
 }
 
 /**

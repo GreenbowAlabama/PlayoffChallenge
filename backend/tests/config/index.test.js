@@ -116,7 +116,7 @@ describe('Config Module', () => {
     it('should return default App Store URL', () => {
       delete process.env.APP_STORE_URL;
       const config = require('../../config');
-      expect(config.getAppStoreUrl()).toBe('https://apps.apple.com/app/playoff-challenge/id6740032781');
+      expect(config.getAppStoreUrl()).toBe('https://apps.apple.com/us/app/fantasy-playoffs/id6754228835');
     });
 
     it('should return APP_STORE_URL if set', () => {
