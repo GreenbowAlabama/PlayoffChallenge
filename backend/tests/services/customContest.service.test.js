@@ -57,11 +57,13 @@ describe('Custom Contest Service Unit Tests', () => {
   beforeEach(() => {
     mockPool = createMockPool();
     process.env.APP_ENV = 'dev';
+    process.env.JOIN_BASE_URL = 'https://test.example.com';
   });
 
   afterEach(() => {
     mockPool.reset();
     delete process.env.APP_ENV;
+    delete process.env.JOIN_BASE_URL;
   });
 
   describe('Token Functions', () => {

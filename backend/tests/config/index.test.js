@@ -52,10 +52,10 @@ describe('Config Module', () => {
       expect(config.getJoinBaseUrl()).toBe('https://custom.example.com');
     });
 
-    it('should return default URL if not set', () => {
+    it('should throw error if not set', () => {
       delete process.env.JOIN_BASE_URL;
       const config = require('../../config');
-      expect(config.getJoinBaseUrl()).toBe('https://app.playoffchallenge.com');
+      expect(() => config.getJoinBaseUrl()).toThrow('JOIN_BASE_URL environment variable is required');
     });
 
     it('should remove trailing slash from URL', () => {

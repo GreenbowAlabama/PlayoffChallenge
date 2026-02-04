@@ -27,14 +27,16 @@ function getAppEnv() {
  * Join Base URL for generating shareable join links
  * This should be the public-facing URL where users access the app
  *
- * Format: https://app.playoffchallenge.com (no trailing slash)
+ * Format: https://app.67enterprises.com (no trailing slash)
+ * REQUIRED: Must be set in all environments (dev, staging, prod)
  */
 function getJoinBaseUrl() {
   const url = process.env.JOIN_BASE_URL;
   if (!url) {
-    // In development, use a placeholder that makes it obvious it needs configuration
-    console.warn('[Config] JOIN_BASE_URL not set - join URLs will use placeholder');
-    return 'https://app.playoffchallenge.com';
+    throw new Error(
+      'JOIN_BASE_URL environment variable is required but not set. ' +
+      'Set it to the public-facing app URL (e.g., https://app.67enterprises.com)'
+    );
   }
   // Remove trailing slash and any surrounding quotes (in case of misconfiguration)
   const cleanUrl = url.replace(/^["']|["']$/g, '').replace(/\/$/, '');
