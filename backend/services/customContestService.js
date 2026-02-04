@@ -448,7 +448,8 @@ async function updateContestInstanceStatus(pool, instanceId, organizerId, newSta
   if (!existing) {
     throw new Error('Contest instance not found');
   }
-  if (existing.organizer_id !== organizerId) {
+  // Case-insensitive UUID comparison
+  if (existing.organizer_id.toLowerCase() !== organizerId.toLowerCase()) {
     throw new Error('Only the organizer can update contest status');
   }
 
@@ -495,8 +496,8 @@ async function publishContestInstance(pool, instanceId, organizerId) {
     throw new Error('Contest instance not found');
   }
 
-  // Verify ownership
-  if (existing.organizer_id !== organizerId) {
+  // Verify ownership (case-insensitive UUID comparison)
+  if (existing.organizer_id.toLowerCase() !== organizerId.toLowerCase()) {
     throw new Error('Only the organizer can publish contest');
   }
 
