@@ -32,10 +32,10 @@ describe('Config Module', () => {
       expect(config.getAppEnv()).toBe('prd');
     });
 
-    it('should return dev for invalid APP_ENV', () => {
+    it('should throw for invalid APP_ENV (no silent fallback)', () => {
       process.env.APP_ENV = 'invalid';
       const config = require('../../config');
-      expect(config.getAppEnv()).toBe('dev');
+      expect(() => config.getAppEnv()).toThrow('Invalid APP_ENV: "invalid"');
     });
 
     it.each(['dev', 'test', 'stg', 'prd'])('should accept valid env: %s', (env) => {
@@ -143,6 +143,55 @@ describe('Config Module', () => {
       delete process.env.NODE_ENV;
       const config = require('../../config');
       expect(config.getNodeEnv()).toBe('development');
+    });
+  });
+
+  describe('validateEnvironment', () => {
+    it('should pass for valid APP_ENV', () => {
+      process.env.APP_ENV = 'stg';
+      const config = require('../../config');
+      expect(() => config.validateEnvironment()).not.toThrow();
+    });
+
+    it.each(['dev', 'test', 'stg', 'prd'])('should accept valid APP_ENV: %s', (env) => {
+      process.env.APP_ENV = env;
+      const config = require('../../config');
+      expect(() => config.validateEnvironment()).not.toThrow();
+    });
+
+    it('should throw for invalid APP_ENV', () => {
+      process.env.APP_ENV = 'banana';
+      const config = require('../../config');
+      expect(() => config.validateEnvironment()).toThrow('[STARTUP FATAL] Invalid APP_ENV: "banana"');
+    });
+
+    it('should throw when APP_ENV missing in production', () => {
+      delete process.env.APP_ENV;
+      process.env.NODE_ENV = 'production';
+      const config = require('../../config');
+      expect(() => config.validateEnvironment()).toThrow('APP_ENV is required in production');
+    });
+
+    it('should warn but not throw when APP_ENV missing in development', () => {
+      delete process.env.APP_ENV;
+      process.env.NODE_ENV = 'development';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const config = require('../../config');
+      expect(() => config.validateEnvironment()).not.toThrow();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('APP_ENV is not set')
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('should not warn when APP_ENV missing in test environment', () => {
+      delete process.env.APP_ENV;
+      process.env.NODE_ENV = 'test';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const config = require('../../config');
+      expect(() => config.validateEnvironment()).not.toThrow();
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
     });
   });
 });

@@ -601,4 +601,140 @@ describe('Custom Contest Routes', () => {
       expect(response.body.error).toContain('Cannot transition');
     });
   });
+
+  // ==========================================================
+  // JOIN ENDPOINT (Step 5 — participant enforcement)
+  // ==========================================================
+
+  describe('POST /api/custom-contests/:id/join', () => {
+    const openInstance = {
+      id: TEST_INSTANCE_ID,
+      status: 'open',
+      max_entries: 10,
+    };
+
+    const mockParticipant = {
+      id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      contest_instance_id: TEST_INSTANCE_ID,
+      user_id: TEST_USER_ID,
+      joined_at: new Date().toISOString()
+    };
+
+    it('should return 401 without authentication', async () => {
+      const response = await request(app)
+        .post(`/api/custom-contests/${TEST_INSTANCE_ID}/join`);
+
+      expect(response.status).toBe(401);
+    });
+
+    it('should return 400 for invalid UUID', async () => {
+      const response = await request(app)
+        .post('/api/custom-contests/not-a-uuid/join')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain('Invalid contest ID format');
+    });
+
+    it('should return 200 on successful join', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single(openInstance)
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.single(mockParticipant)
+      );
+
+      const response = await request(app)
+        .post(`/api/custom-contests/${TEST_INSTANCE_ID}/join`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.joined).toBe(true);
+      expect(response.body.participant).toBeDefined();
+      expect(response.body.participant.contest_instance_id).toBe(TEST_INSTANCE_ID);
+    });
+
+    it('should return 409 for ALREADY_JOINED', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single(openInstance)
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.error(
+          'duplicate key value violates unique constraint "contest_participants_instance_user_unique"',
+          '23505'
+        )
+      );
+
+      const response = await request(app)
+        .post(`/api/custom-contests/${TEST_INSTANCE_ID}/join`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(409);
+      expect(response.body.error_code).toBe('ALREADY_JOINED');
+    });
+
+    it('should return 409 for CONTEST_FULL', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...openInstance, max_entries: 5 })
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .post(`/api/custom-contests/${TEST_INSTANCE_ID}/join`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(409);
+      expect(response.body.error_code).toBe('CONTEST_FULL');
+    });
+
+    it('should return 404 for non-existent contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .post(`/api/custom-contests/${TEST_INSTANCE_ID}/join`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(404);
+      expect(response.body.error_code).toBe('NOT_FOUND');
+    });
+
+    it('should return 409 for locked contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...openInstance, status: 'locked' })
+      );
+
+      const response = await request(app)
+        .post(`/api/custom-contests/${TEST_INSTANCE_ID}/join`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(409);
+      expect(response.body.error_code).toBe('CONTEST_LOCKED');
+    });
+
+    it('should return 409 for draft contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...openInstance, status: 'draft' })
+      );
+
+      const response = await request(app)
+        .post(`/api/custom-contests/${TEST_INSTANCE_ID}/join`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(409);
+      expect(response.body.error_code).toBe('NOT_PUBLISHED');
+    });
+  });
 });

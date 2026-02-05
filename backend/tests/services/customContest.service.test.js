@@ -79,10 +79,9 @@ describe('Custom Contest Service Unit Tests', () => {
         expect(token).toMatch(/^prd_[a-f0-9]{32}$/);
       });
 
-      it('should default to dev for invalid APP_ENV', () => {
+      it('should throw for invalid APP_ENV (no silent fallback)', () => {
         process.env.APP_ENV = 'invalid';
-        const token = customContestService.generateJoinToken();
-        expect(token).toMatch(/^dev_[a-f0-9]{32}$/);
+        expect(() => customContestService.generateJoinToken()).toThrow('Invalid APP_ENV: "invalid"');
       });
     });
 
@@ -871,6 +870,88 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(result.reason).toContain('locked');
       expect(result.contest.lock_time).toBeDefined();
     });
+
+    it('should return NOT_PUBLISHED for draft contest', async () => {
+      const token = 'dev_draft1234567890123456789012';
+      const draftInstance = {
+        ...mockInstance,
+        join_token: token,
+        status: 'draft',
+        template_name: mockTemplate.name,
+        template_sport: mockTemplate.sport
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        mockQueryResponses.single(draftInstance)
+      );
+
+      const result = await customContestService.resolveJoinToken(mockPool, token);
+      expect(result.valid).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.NOT_PUBLISHED);
+      expect(result.reason).toContain('not been published');
+      expect(result.contest.id).toBe(TEST_INSTANCE_ID);
+      expect(result.contest.status).toBe('draft');
+      // Must NOT contain joinable payload fields
+      expect(result.contest.template_name).toBeUndefined();
+      expect(result.contest.entry_fee_cents).toBeUndefined();
+      expect(result.contest.join_url).toBeUndefined();
+    });
+
+    it('should return NOT_FOUND for unknown contest status (fail closed)', async () => {
+      const token = 'dev_unknown123456789012345678901';
+      const weirdInstance = {
+        ...mockInstance,
+        join_token: token,
+        status: 'some_future_status',
+        template_name: mockTemplate.name,
+        template_sport: mockTemplate.sport
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        mockQueryResponses.single(weirdInstance)
+      );
+
+      const result = await customContestService.resolveJoinToken(mockPool, token);
+      expect(result.valid).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.NOT_FOUND);
+    });
+
+    it('should make zero DB queries for malformed token', async () => {
+      mockPool.reset();
+      await customContestService.resolveJoinToken(mockPool, 'notavalidtoken');
+      const queries = mockPool.getQueryHistory();
+      expect(queries).toHaveLength(0);
+    });
+
+    it('should make zero DB queries for environment mismatch', async () => {
+      mockPool.reset();
+      await customContestService.resolveJoinToken(mockPool, 'prd_abc123');
+      const queries = mockPool.getQueryHistory();
+      expect(queries).toHaveLength(0);
+    });
+
+    it('should make zero DB queries for null token', async () => {
+      mockPool.reset();
+      await customContestService.resolveJoinToken(mockPool, null);
+      const queries = mockPool.getQueryHistory();
+      expect(queries).toHaveLength(0);
+    });
+
+    it('should return correct error codes for all short-circuit paths', async () => {
+      // Malformed → INVALID_TOKEN
+      const malformed = await customContestService.resolveJoinToken(mockPool, 'notokenprefix');
+      expect(malformed.error_code).toBe(customContestService.JOIN_ERROR_CODES.INVALID_TOKEN);
+
+      // Unknown prefix → INVALID_TOKEN
+      const unknownPrefix = await customContestService.resolveJoinToken(mockPool, 'xyz_abc123');
+      expect(unknownPrefix.error_code).toBe(customContestService.JOIN_ERROR_CODES.INVALID_TOKEN);
+
+      // Env mismatch → ENVIRONMENT_MISMATCH
+      const envMismatch = await customContestService.resolveJoinToken(mockPool, 'prd_abc123');
+      expect(envMismatch.error_code).toBe(customContestService.JOIN_ERROR_CODES.ENVIRONMENT_MISMATCH);
+    });
   });
 
   describe('generateJoinUrl', () => {
@@ -906,6 +987,7 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(customContestService.JOIN_ERROR_CODES.CONTEST_LOCKED).toBe('CONTEST_LOCKED');
       expect(customContestService.JOIN_ERROR_CODES.ALREADY_JOINED).toBe('ALREADY_JOINED');
       expect(customContestService.JOIN_ERROR_CODES.NOT_FOUND).toBe('NOT_FOUND');
+      expect(customContestService.JOIN_ERROR_CODES.NOT_PUBLISHED).toBe('NOT_PUBLISHED');
       expect(customContestService.JOIN_ERROR_CODES.ENVIRONMENT_MISMATCH).toBe('ENVIRONMENT_MISMATCH');
     });
   });
@@ -967,6 +1049,236 @@ describe('Custom Contest Service Unit Tests', () => {
       await expect(
         customContestService.publishContestInstance(mockPool, TEST_INSTANCE_ID, TEST_USER_ID)
       ).rejects.toThrow('duplicate key value');
+    });
+  });
+
+  // ==========================================================
+  // PARTICIPANT ENFORCEMENT (Step 5)
+  // ==========================================================
+
+  describe('joinContest', () => {
+    const openInstance = {
+      id: TEST_INSTANCE_ID,
+      status: 'open',
+      max_entries: 10,
+    };
+
+    const mockParticipant = {
+      id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      contest_instance_id: TEST_INSTANCE_ID,
+      user_id: TEST_USER_ID,
+      joined_at: new Date().toISOString()
+    };
+
+    it('should successfully join an open contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single(openInstance)
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.single(mockParticipant)
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(true);
+      expect(result.participant).toBeDefined();
+      expect(result.participant.contest_instance_id).toBe(TEST_INSTANCE_ID);
+      expect(result.participant.user_id).toBe(TEST_USER_ID);
+    });
+
+    it('should allow join when max_entries is NULL (unlimited capacity)', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...openInstance, max_entries: null })
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.single(mockParticipant)
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(true);
+    });
+
+    it('should return ALREADY_JOINED on unique constraint violation (PG 23505)', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single(openInstance)
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.error(
+          'duplicate key value violates unique constraint "contest_participants_instance_user_unique"',
+          '23505'
+        )
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.ALREADY_JOINED);
+    });
+
+    it('should return CONTEST_FULL when capacity CTE returns 0 rows', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...openInstance, max_entries: 5 })
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.empty()
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_FULL);
+    });
+
+    it('should return NOT_FOUND when contest does not exist', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.empty()
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.NOT_FOUND);
+    });
+
+    it('should return CONTEST_LOCKED for locked contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...openInstance, status: 'locked' })
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_LOCKED);
+    });
+
+    it('should return NOT_PUBLISHED for draft contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...openInstance, status: 'draft' })
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.NOT_PUBLISHED);
+    });
+
+    it('should return EXPIRED_TOKEN for cancelled contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...openInstance, status: 'cancelled' })
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.EXPIRED_TOKEN);
+    });
+
+    it('should return EXPIRED_TOKEN for settled contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...openInstance, status: 'settled' })
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.EXPIRED_TOKEN);
+    });
+
+    it('should use a transaction (pool.connect)', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single(openInstance)
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.single(mockParticipant)
+      );
+
+      await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(mockPool.connect).toHaveBeenCalled();
+    });
+
+    it('should ROLLBACK transaction on unexpected error', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.error('connection lost', 'XX000')
+      );
+
+      await expect(
+        customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID)
+      ).rejects.toThrow();
+
+      const queries = mockPool.getQueryHistory();
+      const rollbackQueries = queries.filter(q => q.sql === 'ROLLBACK');
+      expect(rollbackQueries.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Organizer auto-join on publish', () => {
+    const draftInstance = {
+      ...mockInstance,
+      status: 'draft',
+      join_token: 'dev_existingtoken12345678901234',
+      template_name: mockTemplate.name,
+      template_sport: mockTemplate.sport,
+      template_type: mockTemplate.template_type,
+      scoring_strategy_key: mockTemplate.scoring_strategy_key,
+      lock_strategy_key: mockTemplate.lock_strategy_key,
+      settlement_strategy_key: mockTemplate.settlement_strategy_key
+    };
+
+    it('should insert organizer as participant when publishing draft to open', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single(draftInstance)
+      );
+      mockPool.setQueryResponse(
+        /UPDATE contest_instances/,
+        mockQueryResponses.single({ ...mockInstance, status: 'open', join_token: draftInstance.join_token })
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.single({
+          id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+          contest_instance_id: TEST_INSTANCE_ID,
+          user_id: TEST_USER_ID,
+          joined_at: new Date().toISOString()
+        })
+      );
+
+      await customContestService.publishContestInstance(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+
+      const queries = mockPool.getQueryHistory();
+      const participantInserts = queries.filter(q =>
+        /INSERT[\s\S]*contest_participants/.test(q.sql)
+      );
+      expect(participantInserts).toHaveLength(1);
+    });
+
+    it('should NOT insert participant when publish is idempotent (already open)', async () => {
+      const openInstance = {
+        ...draftInstance,
+        status: 'open',
+        join_token: 'dev_originaltoken1234567890123'
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single(openInstance)
+      );
+
+      await customContestService.publishContestInstance(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+
+      const queries = mockPool.getQueryHistory();
+      const participantInserts = queries.filter(q =>
+        /INSERT[\s\S]*contest_participants/.test(q.sql)
+      );
+      expect(participantInserts).toHaveLength(0);
     });
   });
 });

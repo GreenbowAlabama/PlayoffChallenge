@@ -10,17 +10,75 @@
  * - Easy testing with config overrides
  */
 
+const VALID_APP_ENVS = ['dev', 'test', 'stg', 'prd'];
+
 /**
  * Application environment (dev, test, stg, prd)
  * Used for environment-scoped tokens and feature flags
+ *
+ * Behavior:
+ * - Missing APP_ENV: defaults to 'dev', warns in non-test environments
+ * - Invalid APP_ENV: throws (no silent fallback)
  */
 function getAppEnv() {
-  const env = process.env.APP_ENV || 'dev';
-  const validEnvs = ['dev', 'test', 'stg', 'prd'];
-  if (!validEnvs.includes(env)) {
+  const env = process.env.APP_ENV;
+
+  if (!env) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn(
+        '[CONFIG WARNING] APP_ENV is not set. Defaulting to "dev". ' +
+        'Set APP_ENV explicitly in all environments.'
+      );
+    }
     return 'dev';
   }
+
+  if (!VALID_APP_ENVS.includes(env)) {
+    throw new Error(
+      `Invalid APP_ENV: "${env}". Must be one of: ${VALID_APP_ENVS.join(', ')}. ` +
+      'Fix the APP_ENV environment variable.'
+    );
+  }
+
   return env;
+}
+
+/**
+ * Validate environment configuration at startup.
+ * Call during server initialization to fail fast on misconfiguration.
+ *
+ * Throws if:
+ * - APP_ENV is set to an invalid value
+ * - APP_ENV is missing in production (NODE_ENV=production)
+ *
+ * Warns if:
+ * - APP_ENV is missing in non-production, non-test environments
+ */
+function validateEnvironment() {
+  const appEnv = process.env.APP_ENV;
+  const nodeEnv = process.env.NODE_ENV;
+
+  if (appEnv && !VALID_APP_ENVS.includes(appEnv)) {
+    throw new Error(
+      `[STARTUP FATAL] Invalid APP_ENV: "${appEnv}". ` +
+      `Must be one of: ${VALID_APP_ENVS.join(', ')}`
+    );
+  }
+
+  if (!appEnv) {
+    if (nodeEnv === 'production') {
+      throw new Error(
+        '[STARTUP FATAL] APP_ENV is required in production. ' +
+        `Set APP_ENV to one of: ${VALID_APP_ENVS.join(', ')}`
+      );
+    }
+    if (nodeEnv !== 'test') {
+      console.warn(
+        '[CONFIG WARNING] APP_ENV is not set. Defaulting to "dev". ' +
+        'Set APP_ENV explicitly to avoid environment mismatch issues.'
+      );
+    }
+  }
 }
 
 /**
@@ -115,6 +173,7 @@ function getJoinRateLimitConfig() {
 module.exports = {
   // Environment
   getAppEnv,
+  validateEnvironment,
   getNodeEnv,
   isProduction,
   getPort,

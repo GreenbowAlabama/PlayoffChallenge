@@ -26,6 +26,7 @@ const JOIN_ERROR_CODES = {
   CONTEST_LOCKED: 'CONTEST_LOCKED',       // Contest is locked (past lock_time)
   ALREADY_JOINED: 'ALREADY_JOINED',       // User has already joined this contest
   NOT_FOUND: 'NOT_FOUND',                 // Token valid but contest not found
+  NOT_PUBLISHED: 'NOT_PUBLISHED',         // Contest exists but is still in draft (not yet published)
   ENVIRONMENT_MISMATCH: 'ENVIRONMENT_MISMATCH', // Token from different environment
 };
 
@@ -304,10 +305,14 @@ async function getContestInstanceByToken(pool, token) {
  * Resolve a join token and return structured contest information
  * Used for universal join link support (pre-authentication)
  *
+ * Only OPEN contests resolve as valid. All other statuses are explicit rejections.
+ * Validation failures (bad format, env mismatch) short-circuit before any DB query.
+ *
  * Returns structured error codes for client handling:
- * - INVALID_TOKEN: Malformed token format
- * - ENVIRONMENT_MISMATCH: Token from different environment
+ * - INVALID_TOKEN: Malformed token format (no DB query)
+ * - ENVIRONMENT_MISMATCH: Token from different environment (no DB query)
  * - NOT_FOUND: Contest not found
+ * - NOT_PUBLISHED: Contest is still in draft
  * - EXPIRED_TOKEN: Contest is cancelled or settled
  * - CONTEST_LOCKED: Contest is locked
  *
@@ -355,12 +360,30 @@ async function resolveJoinToken(pool, token) {
     };
   }
 
-  // Check if contest is in a non-joinable state
-  if (instance.status === 'cancelled' || instance.status === 'settled') {
+  // Only OPEN contests are joinable. Every other status is an explicit rejection.
+  if (instance.status === 'open') {
+    return {
+      valid: true,
+      contest: {
+        id: instance.id,
+        template_id: instance.template_id,
+        template_name: instance.template_name,
+        template_sport: instance.template_sport,
+        entry_fee_cents: instance.entry_fee_cents,
+        payout_structure: instance.payout_structure,
+        status: instance.status,
+        start_time: instance.start_time,
+        lock_time: instance.lock_time,
+        join_url: generateJoinUrl(token)
+      }
+    };
+  }
+
+  if (instance.status === 'draft') {
     return {
       valid: false,
-      error_code: JOIN_ERROR_CODES.EXPIRED_TOKEN,
-      reason: `Contest is ${instance.status} and no longer accepting participants`,
+      error_code: JOIN_ERROR_CODES.NOT_PUBLISHED,
+      reason: 'Contest has not been published yet',
       environment_mismatch: false,
       contest: {
         id: instance.id,
@@ -383,21 +406,25 @@ async function resolveJoinToken(pool, token) {
     };
   }
 
-  // Contest is in a joinable state (draft or open)
+  if (instance.status === 'cancelled' || instance.status === 'settled') {
+    return {
+      valid: false,
+      error_code: JOIN_ERROR_CODES.EXPIRED_TOKEN,
+      reason: `Contest is ${instance.status} and no longer accepting participants`,
+      environment_mismatch: false,
+      contest: {
+        id: instance.id,
+        status: instance.status
+      }
+    };
+  }
+
+  // Unknown status — fail closed
   return {
-    valid: true,
-    contest: {
-      id: instance.id,
-      template_id: instance.template_id,
-      template_name: instance.template_name,
-      template_sport: instance.template_sport,
-      entry_fee_cents: instance.entry_fee_cents,
-      payout_structure: instance.payout_structure,
-      status: instance.status,
-      start_time: instance.start_time,
-      lock_time: instance.lock_time,
-      join_url: generateJoinUrl(token)
-    }
+    valid: false,
+    error_code: JOIN_ERROR_CODES.NOT_FOUND,
+    reason: 'Contest is not in a joinable state',
+    environment_mismatch: false
   };
 }
 
@@ -529,11 +556,119 @@ async function publishContestInstance(pool, instanceId, organizerId) {
     throw new Error('Contest was modified by another operation');
   }
 
+  // Auto-join organizer as first participant
+  await pool.query(
+    'INSERT INTO contest_participants (contest_instance_id, user_id) VALUES ($1, $2) ON CONFLICT (contest_instance_id, user_id) DO NOTHING',
+    [instanceId, organizerId]
+  );
+
   const instance = result.rows[0];
   return {
     ...instance,
     join_url: generateJoinUrl(instance.join_token)
   };
+}
+
+/**
+ * Join a contest as a participant (authenticated operation)
+ *
+ * Uses a transaction with SELECT FOR UPDATE to serialize concurrent joins.
+ * Capacity is enforced via a CTE that conditionally inserts only when
+ * current_count < max_entries (or max_entries IS NULL for unlimited).
+ *
+ * DB constraints are the source of truth:
+ * - Unique (contest_instance_id, user_id) → ALREADY_JOINED
+ * - CTE returns 0 rows → CONTEST_FULL
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} contestInstanceId - UUID of the contest instance
+ * @param {string} userId - UUID of the user joining
+ * @returns {Promise<Object>} Join result { joined, participant? } or { joined, error_code, reason }
+ */
+async function joinContest(pool, contestInstanceId, userId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Lock the contest row to serialize concurrent joins
+    const contestResult = await client.query(
+      'SELECT id, status, max_entries FROM contest_instances WHERE id = $1 FOR UPDATE',
+      [contestInstanceId]
+    );
+
+    if (contestResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return {
+        joined: false,
+        error_code: JOIN_ERROR_CODES.NOT_FOUND,
+        reason: 'Contest not found'
+      };
+    }
+
+    const contest = contestResult.rows[0];
+
+    // Only open contests can be joined
+    if (contest.status !== 'open') {
+      await client.query('ROLLBACK');
+
+      if (contest.status === 'draft') {
+        return { joined: false, error_code: JOIN_ERROR_CODES.NOT_PUBLISHED, reason: 'Contest has not been published yet' };
+      }
+      if (contest.status === 'locked') {
+        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest is locked' };
+      }
+      if (contest.status === 'cancelled' || contest.status === 'settled') {
+        return { joined: false, error_code: JOIN_ERROR_CODES.EXPIRED_TOKEN, reason: `Contest is ${contest.status}` };
+      }
+      return { joined: false, error_code: JOIN_ERROR_CODES.NOT_FOUND, reason: 'Contest is not in a joinable state' };
+    }
+
+    // Capacity-checked insert: only succeeds if under max_entries
+    const insertResult = await client.query(
+      `WITH capacity AS (
+        SELECT max_entries,
+          (SELECT COUNT(*) FROM contest_participants WHERE contest_instance_id = $1) AS current_count
+        FROM contest_instances
+        WHERE id = $1
+      )
+      INSERT INTO contest_participants (contest_instance_id, user_id)
+      SELECT $1, $2
+      FROM capacity
+      WHERE capacity.max_entries IS NULL OR capacity.current_count < capacity.max_entries
+      RETURNING *`,
+      [contestInstanceId, userId]
+    );
+
+    if (insertResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return {
+        joined: false,
+        error_code: JOIN_ERROR_CODES.CONTEST_FULL,
+        reason: 'Contest has reached maximum participants'
+      };
+    }
+
+    await client.query('COMMIT');
+    return {
+      joined: true,
+      participant: insertResult.rows[0]
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+
+    // Map PG unique violation to ALREADY_JOINED
+    if (err.code === '23505') {
+      return {
+        joined: false,
+        error_code: JOIN_ERROR_CODES.ALREADY_JOINED,
+        reason: 'User has already joined this contest'
+      };
+    }
+
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 module.exports = {
@@ -548,6 +683,7 @@ module.exports = {
   getContestInstancesForOrganizer,
   updateContestInstanceStatus,
   publishContestInstance,
+  joinContest,
 
   // Token functions
   generateJoinToken,

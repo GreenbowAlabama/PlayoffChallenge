@@ -20,6 +20,9 @@ const adminService = require('./services/adminService');
 const customContestService = require('./services/customContestService');
 const config = require('./config');
 
+// Fail fast on misconfigured environment
+config.validateEnvironment();
+
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 8080;
@@ -3169,71 +3172,64 @@ app.get('/api/game-config', async (req, res) => {
 });
 
 // ==============================================
-// UNIVERSAL JOIN LINK RESOLUTION
+// LEGACY JOIN ROUTE (delegates to canonical endpoint)
 // ==============================================
-// Resolves a join token and returns contest information.
-// This is a public endpoint - no authentication required.
-// Used by mobile clients for deep link handling.
+// DEPRECATED: Use /api/custom-contests/join/:token instead.
+// This route exists for backward compatibility with mobile clients.
+// It delegates to the same service with identical behavior and rate limiting.
 
-/**
- * GET /api/join/:token
- *
- * Resolve a join token and return contest information.
- * This endpoint is public and does not require authentication.
- *
- * Path params:
- *   token - The join token (format: {env}_{tokenId})
- *
- * Response (200):
- *   {
- *     valid: boolean,
- *     reason?: string,              // Present if valid=false
- *     environment_mismatch?: boolean,
- *     token_environment?: string,   // Present if environment_mismatch=true
- *     current_environment?: string, // Present if environment_mismatch=true
- *     contest?: {                   // Present if valid=true
- *       contest_id: string,
- *       league_name: string,
- *       contest_type: string,
- *       state: string,
- *       is_private: boolean,
- *       current_entries: number,
- *       max_entries: number,
- *       entry_fee_cents: number
- *     }
- *   }
- */
-app.get('/api/join/:token', async (req, res) => {
+const { createCombinedJoinRateLimiter } = require('./middleware/joinRateLimit');
+const { logJoinSuccess, logJoinFailure } = require('./services/joinAuditService');
+const legacyJoinRateLimiter = createCombinedJoinRateLimiter();
+
+app.get('/api/join/:token', legacyJoinRateLimiter, async (req, res) => {
   const { token } = req.params;
-
-  console.log('[Join] Resolving join token', {
-    timestamp: new Date().toISOString(),
-    tokenPrefix: token ? token.split('_')[0] : null,
-    ip: req.ip
-  });
+  const ipAddress = req.ip || req.connection.remoteAddress;
+  const joinSource = req.query.source || 'legacy_join';
+  const userId = req.headers['x-user-id'] || null;
 
   try {
     const result = await customContestService.resolveJoinToken(pool, token);
 
-    // Log outcome (without exposing full token)
-    console.log('[Join] Token resolution complete', {
-      timestamp: new Date().toISOString(),
-      valid: result.valid,
-      reason: result.reason || null,
-      errorCode: result.error_code || null,
-      environmentMismatch: result.environment_mismatch || false,
-      contestStatus: result.contest?.status || null,
-      ip: req.ip
-    });
+    if (result.valid) {
+      logJoinSuccess({
+        token,
+        contestId: result.contest.id,
+        userId,
+        ipAddress,
+        joinSource
+      });
+    } else {
+      logJoinFailure({
+        token,
+        errorCode: result.error_code,
+        contestId: result.contest?.id || null,
+        userId,
+        ipAddress,
+        joinSource,
+        extra: result.environment_mismatch ? {
+          token_environment: result.token_environment,
+          current_environment: result.current_environment
+        } : undefined
+      });
+    }
 
     return res.json(result);
   } catch (err) {
-    console.error('[Join] Unexpected error resolving token', {
-      timestamp: new Date().toISOString(),
-      error: err.message,
-      ip: req.ip
+    console.error('[Join Legacy] Unexpected error resolving token:', err.message);
+    logJoinFailure({
+      token,
+      errorCode: 'INTERNAL_ERROR',
+      userId,
+      ipAddress,
+      joinSource,
+      extra: { error: err.message }
     });
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({
+      valid: false,
+      error_code: 'INTERNAL_ERROR',
+      reason: 'Failed to resolve token'
+    });
   }
 });
 

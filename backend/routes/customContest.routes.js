@@ -384,4 +384,44 @@ router.patch('/:id/status', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/custom-contests/:id/join
+ * Join a contest as a participant.
+ * Requires authentication.
+ *
+ * Enforces:
+ * - ALREADY_JOINED (DB unique constraint)
+ * - CONTEST_FULL (capacity check)
+ * - Contest must be open
+ *
+ * Response:
+ * - 200: { joined: true, participant: { ... } }
+ * - 404: { error_code: 'NOT_FOUND', reason: '...' }
+ * - 409: { error_code: 'ALREADY_JOINED' | 'CONTEST_FULL' | 'CONTEST_LOCKED' | ... }
+ */
+router.post('/:id/join', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+    const userId = req.userId;
+
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: 'Invalid contest ID format' });
+    }
+
+    const result = await customContestService.joinContest(pool, id, userId);
+
+    if (result.joined) {
+      return res.json(result);
+    }
+
+    // Map error codes to HTTP status
+    const httpStatus = result.error_code === 'NOT_FOUND' ? 404 : 409;
+    return res.status(httpStatus).json(result);
+  } catch (err) {
+    console.error('[Custom Contest] Error joining contest:', err);
+    res.status(500).json({ error: 'Failed to join contest' });
+  }
+});
+
 module.exports = router;
