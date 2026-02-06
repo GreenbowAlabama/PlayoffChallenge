@@ -70,8 +70,10 @@ function cleanupTokenStore() {
   }
 }
 
-// Run cleanup every 5 minutes
-setInterval(cleanupTokenStore, 5 * 60 * 1000);
+// Run cleanup every 5 minutes.
+// unref() so this timer does not keep the Node process alive (e.g. after tests).
+const cleanupInterval = setInterval(cleanupTokenStore, 5 * 60 * 1000);
+cleanupInterval.unref();
 
 /**
  * Per-token rate limiting middleware
