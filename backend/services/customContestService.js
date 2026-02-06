@@ -362,6 +362,21 @@ async function resolveJoinToken(pool, token) {
 
   // Only OPEN contests are joinable. Every other status is an explicit rejection.
   if (instance.status === 'open') {
+    // Enforce lock_time: if lock_time has passed, treat as locked
+    if (instance.lock_time !== null && new Date() >= new Date(instance.lock_time)) {
+      return {
+        valid: false,
+        error_code: JOIN_ERROR_CODES.CONTEST_LOCKED,
+        reason: 'Contest join window has closed',
+        environment_mismatch: false,
+        contest: {
+          id: instance.id,
+          status: instance.status,
+          lock_time: instance.lock_time
+        }
+      };
+    }
+
     return {
       valid: true,
       contest: {
@@ -592,7 +607,7 @@ async function joinContest(pool, contestInstanceId, userId) {
 
     // Lock the contest row to serialize concurrent joins
     const contestResult = await client.query(
-      'SELECT id, status, max_entries FROM contest_instances WHERE id = $1 FOR UPDATE',
+      'SELECT id, status, max_entries, lock_time FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestInstanceId]
     );
 
@@ -621,6 +636,12 @@ async function joinContest(pool, contestInstanceId, userId) {
         return { joined: false, error_code: JOIN_ERROR_CODES.EXPIRED_TOKEN, reason: `Contest is ${contest.status}` };
       }
       return { joined: false, error_code: JOIN_ERROR_CODES.NOT_FOUND, reason: 'Contest is not in a joinable state' };
+    }
+
+    // Enforce lock_time: if lock_time has passed, the join window is closed
+    if (contest.lock_time !== null && new Date() >= new Date(contest.lock_time)) {
+      await client.query('ROLLBACK');
+      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest join window has closed' };
     }
 
     // Capacity-checked insert: only succeeds if under max_entries
