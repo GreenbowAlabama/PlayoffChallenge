@@ -39,6 +39,9 @@ const mockInstance = {
   start_time: null,
   lock_time: null,
   settlement_time: null,
+  max_entries: 10,
+  creator_display_name: 'TestUser',
+  entries_current: 3,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString()
 };
@@ -136,7 +139,7 @@ describe('Join Endpoint Parity', () => {
       const token = 'dev_abc123def456abc123def456abc123';
       const { canonical } = await assertParity(token, () => {
         mockPool.setQueryResponse(
-          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
           mockQueryResponses.single({ ...mockInstance, join_token: token })
         );
       });
@@ -149,46 +152,46 @@ describe('Join Endpoint Parity', () => {
       const { canonical } = await assertParity('prd_abc123def456');
 
       expect(canonical.body.valid).toBe(false);
-      expect(canonical.body.error_code).toBe('ENVIRONMENT_MISMATCH');
+      expect(canonical.body.error_code).toBe('CONTEST_ENV_MISMATCH');
     });
 
     it('should return identical responses for malformed token', async () => {
       const { canonical } = await assertParity('notavalidtoken');
 
       expect(canonical.body.valid).toBe(false);
-      expect(canonical.body.error_code).toBe('INVALID_TOKEN');
+      expect(canonical.body.error_code).toBe('CONTEST_UNAVAILABLE');
     });
 
     it('should return identical responses for not-found contest', async () => {
       const { canonical } = await assertParity('dev_notfound123456789012', () => {
         mockPool.setQueryResponse(
-          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
           mockQueryResponses.empty()
         );
       });
 
       expect(canonical.body.valid).toBe(false);
-      expect(canonical.body.error_code).toBe('NOT_FOUND');
+      expect(canonical.body.error_code).toBe('CONTEST_NOT_FOUND');
     });
 
     it('should return identical responses for draft contest', async () => {
       const token = 'dev_draft1234567890123456789012';
       const { canonical } = await assertParity(token, () => {
         mockPool.setQueryResponse(
-          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
           mockQueryResponses.single({ ...mockInstance, join_token: token, status: 'draft' })
         );
       });
 
       expect(canonical.body.valid).toBe(false);
-      expect(canonical.body.error_code).toBe('NOT_PUBLISHED');
+      expect(canonical.body.error_code).toBe('CONTEST_UNAVAILABLE');
     });
 
     it('should return identical responses for locked contest', async () => {
       const token = 'dev_locked12345678901234567890';
       const { canonical } = await assertParity(token, () => {
         mockPool.setQueryResponse(
-          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
           mockQueryResponses.single({ ...mockInstance, join_token: token, status: 'locked' })
         );
       });
@@ -201,13 +204,13 @@ describe('Join Endpoint Parity', () => {
       const token = 'dev_cancelled123456789012345';
       const { canonical } = await assertParity(token, () => {
         mockPool.setQueryResponse(
-          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
           mockQueryResponses.single({ ...mockInstance, join_token: token, status: 'cancelled' })
         );
       });
 
       expect(canonical.body.valid).toBe(false);
-      expect(canonical.body.error_code).toBe('EXPIRED_TOKEN');
+      expect(canonical.body.error_code).toBe('CONTEST_UNAVAILABLE');
     });
   });
 
@@ -236,7 +239,7 @@ describe('Join Endpoint Parity', () => {
 
       // Simulate DB error for canonical
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
         mockQueryResponses.error('Connection refused', 'ECONNREFUSED')
       );
       const canonical = await request(app).get(`/api/custom-contests/join/${token}`);
@@ -244,7 +247,7 @@ describe('Join Endpoint Parity', () => {
       // Reset and simulate same error for legacy
       mockPool.reset();
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
         mockQueryResponses.error('Connection refused', 'ECONNREFUSED')
       );
       const legacy = await request(app).get(`/api/join/${token}`);

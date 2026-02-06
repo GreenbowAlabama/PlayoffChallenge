@@ -102,13 +102,13 @@ router.get('/join/:token', joinRateLimiter, async (req, res) => {
     if (!token) {
       logJoinFailure({
         token: '',
-        errorCode: customContestService.JOIN_ERROR_CODES.INVALID_TOKEN,
+        errorCode: customContestService.JOIN_ERROR_CODES.CONTEST_UNAVAILABLE,
         ipAddress,
         joinSource
       });
       return res.status(400).json({
         valid: false,
-        error_code: customContestService.JOIN_ERROR_CODES.INVALID_TOKEN,
+        error_code: customContestService.JOIN_ERROR_CODES.CONTEST_UNAVAILABLE,
         reason: 'Token is required'
       });
     }
@@ -301,13 +301,6 @@ router.post('/:id/publish', async (req, res) => {
 
     const instance = await customContestService.publishContestInstance(pool, id, organizerId);
 
-    // [JOIN DEBUG] Diagnostic logging for join URL generation
-    console.log('[JOIN DEBUG]', {
-      contestId: instance.id,
-      joinToken: instance.join_token,
-      joinUrl: instance.join_url,
-    });
-
     // Log contest publish
     logContestPublished({
       contestId: instance.id,
@@ -396,7 +389,7 @@ router.patch('/:id/status', async (req, res) => {
  *
  * Response:
  * - 200: { joined: true, participant: { ... } }
- * - 404: { error_code: 'NOT_FOUND', reason: '...' }
+ * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
  * - 409: { error_code: 'ALREADY_JOINED' | 'CONTEST_FULL' | 'CONTEST_LOCKED' | ... }
  */
 router.post('/:id/join', async (req, res) => {
@@ -416,7 +409,7 @@ router.post('/:id/join', async (req, res) => {
     }
 
     // Map error codes to HTTP status
-    const httpStatus = result.error_code === 'NOT_FOUND' ? 404 : 409;
+    const httpStatus = result.error_code === 'CONTEST_NOT_FOUND' ? 404 : 409;
     return res.status(httpStatus).json(result);
   } catch (err) {
     console.error('[Custom Contest] Error joining contest:', err);

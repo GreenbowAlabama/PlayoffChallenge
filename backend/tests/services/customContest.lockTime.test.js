@@ -128,7 +128,10 @@ describe('lock_time enforcement', () => {
       entry_fee_cents: 2500,
       payout_structure: { first: 100 },
       start_time: null,
-      lock_time: null
+      lock_time: null,
+      max_entries: 10,
+      creator_display_name: 'TestUser',
+      entries_current: 1
     };
 
     it('should return CONTEST_LOCKED when open contest has past lock_time', async () => {
@@ -136,7 +139,7 @@ describe('lock_time enforcement', () => {
       const token = 'dev_abc123def456abc123def456abc123';
 
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
         mockQueryResponses.single({ ...mockOpenInstance, lock_time: pastLockTime })
       );
 
@@ -152,7 +155,7 @@ describe('lock_time enforcement', () => {
       const token = 'dev_abc123def456abc123def456abc123';
 
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
         mockQueryResponses.single({ ...mockOpenInstance, lock_time: futureLockTime })
       );
 
@@ -165,7 +168,7 @@ describe('lock_time enforcement', () => {
       const token = 'dev_abc123def456abc123def456abc123';
 
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
         mockQueryResponses.single({ ...mockOpenInstance, lock_time: null })
       );
 

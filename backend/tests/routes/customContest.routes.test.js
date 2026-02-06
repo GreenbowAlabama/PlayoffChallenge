@@ -115,11 +115,18 @@ describe('Custom Contest Routes', () => {
   });
 
   describe('GET /api/custom-contests/join/:token', () => {
-    it('should return valid contest with join_url for valid token', async () => {
+    it('should return valid contest with join_url and enriched fields for valid token', async () => {
       const token = 'dev_abc123def456abc123def456abc123';
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'open' })
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          join_token: token,
+          status: 'open',
+          max_entries: 10,
+          creator_display_name: 'TestUser',
+          entries_current: 3
+        })
       );
 
       const response = await request(app)
@@ -131,6 +138,11 @@ describe('Custom Contest Routes', () => {
       expect(response.body.contest.id).toBe(TEST_INSTANCE_ID);
       expect(response.body.contest.join_url).toBeDefined();
       expect(response.body.contest.join_url).toContain('/join/');
+      // Enriched fields
+      expect(response.body.contest.computedJoinState).toBe('JOINABLE');
+      expect(response.body.contest.creatorName).toBe('TestUser');
+      expect(response.body.contest.entriesCurrent).toBe(3);
+      expect(response.body.contest.maxEntries).toBe(10);
     });
 
     it('should return invalid with error_code for environment mismatch', async () => {
@@ -140,12 +152,12 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.valid).toBe(false);
       expect(response.body.environment_mismatch).toBe(true);
-      expect(response.body.error_code).toBe('ENVIRONMENT_MISMATCH');
+      expect(response.body.error_code).toBe('CONTEST_ENV_MISMATCH');
     });
 
     it('should return invalid with error_code for unknown token', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
         mockQueryResponses.empty()
       );
 
@@ -155,13 +167,13 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.valid).toBe(false);
       expect(response.body.reason).toContain('Contest not found');
-      expect(response.body.error_code).toBe('NOT_FOUND');
+      expect(response.body.error_code).toBe('CONTEST_NOT_FOUND');
     });
 
     it('should return CONTEST_LOCKED for locked contest', async () => {
       const token = 'dev_locked12345678901234567890';
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
         mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'locked' })
       );
 
@@ -173,10 +185,10 @@ describe('Custom Contest Routes', () => {
       expect(response.body.error_code).toBe('CONTEST_LOCKED');
     });
 
-    it('should return EXPIRED_TOKEN for cancelled contest', async () => {
+    it('should return CONTEST_UNAVAILABLE for cancelled contest', async () => {
       const token = 'dev_cancelled123456789012345';
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
         mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'cancelled' })
       );
 
@@ -185,14 +197,21 @@ describe('Custom Contest Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.valid).toBe(false);
-      expect(response.body.error_code).toBe('EXPIRED_TOKEN');
+      expect(response.body.error_code).toBe('CONTEST_UNAVAILABLE');
     });
 
     it('should accept optional source query parameter', async () => {
       const token = 'dev_abc123def456abc123def456abc123';
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'open' })
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          join_token: token,
+          status: 'open',
+          max_entries: null,
+          creator_display_name: 'TestUser',
+          entries_current: 0
+        })
       );
 
       const response = await request(app)
@@ -706,7 +725,7 @@ describe('Custom Contest Routes', () => {
         .set('X-User-Id', TEST_USER_ID);
 
       expect(response.status).toBe(404);
-      expect(response.body.error_code).toBe('NOT_FOUND');
+      expect(response.body.error_code).toBe('CONTEST_NOT_FOUND');
     });
 
     it('should return 409 for locked contest', async () => {
@@ -734,7 +753,7 @@ describe('Custom Contest Routes', () => {
         .set('X-User-Id', TEST_USER_ID);
 
       expect(response.status).toBe(409);
-      expect(response.body.error_code).toBe('NOT_PUBLISHED');
+      expect(response.body.error_code).toBe('CONTEST_UNAVAILABLE');
     });
   });
 });

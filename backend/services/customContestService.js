@@ -11,23 +11,36 @@
 
 const crypto = require('crypto');
 const config = require('../config');
+const { computeJoinState } = require('./helpers/contestState');
 
 const VALID_STATUSES = ['draft', 'open', 'locked', 'settled', 'cancelled'];
 const VALID_ENV_PREFIXES = ['dev', 'test', 'stg', 'prd'];
 
 /**
- * Structured error codes for join token operations
- * These are machine-readable codes for client error handling
+ * Two-tier error taxonomy:
+ *
+ * State errors (externally visible, derived from contest state / environment):
+ *   CONTEST_LOCKED        — Contest is locked (past lock_time or status locked)
+ *   CONTEST_COMPLETED     — Contest is in a terminal completed state (settled)
+ *   CONTEST_UNAVAILABLE   — Contest cannot be joined (cancelled, draft, invalid token)
+ *   CONTEST_NOT_FOUND     — No contest matches this token / ID
+ *   CONTEST_ENV_MISMATCH  — Token is from a different environment
+ *
+ * Join-action errors (only on the write path):
+ *   ALREADY_JOINED — User has already joined this contest (DB unique constraint)
+ *   CONTEST_FULL   — Contest has reached max participants (capacity CTE)
  */
 const JOIN_ERROR_CODES = {
-  INVALID_TOKEN: 'INVALID_TOKEN',         // Malformed or unrecognized token format
-  EXPIRED_TOKEN: 'EXPIRED_TOKEN',         // Token's contest is no longer joinable (cancelled/settled)
-  CONTEST_FULL: 'CONTEST_FULL',           // Contest has reached max participants
-  CONTEST_LOCKED: 'CONTEST_LOCKED',       // Contest is locked (past lock_time)
-  ALREADY_JOINED: 'ALREADY_JOINED',       // User has already joined this contest
-  NOT_FOUND: 'NOT_FOUND',                 // Token valid but contest not found
-  NOT_PUBLISHED: 'NOT_PUBLISHED',         // Contest exists but is still in draft (not yet published)
-  ENVIRONMENT_MISMATCH: 'ENVIRONMENT_MISMATCH', // Token from different environment
+  // State errors
+  CONTEST_LOCKED: 'CONTEST_LOCKED',
+  CONTEST_COMPLETED: 'CONTEST_COMPLETED',
+  CONTEST_UNAVAILABLE: 'CONTEST_UNAVAILABLE',
+  CONTEST_NOT_FOUND: 'CONTEST_NOT_FOUND',
+  CONTEST_ENV_MISMATCH: 'CONTEST_ENV_MISMATCH',
+
+  // Join-action errors
+  ALREADY_JOINED: 'ALREADY_JOINED',
+  CONTEST_FULL: 'CONTEST_FULL',
 };
 
 /**
@@ -257,10 +270,10 @@ async function getContestInstance(pool, instanceId) {
   );
   const instance = result.rows[0];
   if (!instance) return null;
-  // Add computed join_url if join_token exists
   return {
     ...instance,
-    join_url: instance.join_token ? generateJoinUrl(instance.join_token) : null
+    join_url: instance.join_token ? generateJoinUrl(instance.join_token) : null,
+    computedJoinState: computeJoinState(instance)
   };
 }
 
@@ -294,10 +307,10 @@ async function getContestInstanceByToken(pool, token) {
   );
   const instance = result.rows[0];
   if (!instance) return null;
-  // Add computed join_url
   return {
     ...instance,
-    join_url: generateJoinUrl(instance.join_token)
+    join_url: generateJoinUrl(instance.join_token),
+    computedJoinState: computeJoinState(instance)
   };
 }
 
@@ -308,13 +321,10 @@ async function getContestInstanceByToken(pool, token) {
  * Only OPEN contests resolve as valid. All other statuses are explicit rejections.
  * Validation failures (bad format, env mismatch) short-circuit before any DB query.
  *
- * Returns structured error codes for client handling:
- * - INVALID_TOKEN: Malformed token format (no DB query)
- * - ENVIRONMENT_MISMATCH: Token from different environment (no DB query)
- * - NOT_FOUND: Contest not found
- * - NOT_PUBLISHED: Contest is still in draft
- * - EXPIRED_TOKEN: Contest is cancelled or settled
- * - CONTEST_LOCKED: Contest is locked
+ * Returns structured error codes (two-tier taxonomy):
+ *   State errors  — CONTEST_UNAVAILABLE, CONTEST_ENV_MISMATCH, CONTEST_NOT_FOUND,
+ *                   CONTEST_LOCKED, CONTEST_COMPLETED
+ *   (Join-action errors are not emitted here — preview is pre-auth)
  *
  * @param {Object} pool - Database connection pool
  * @param {string} token - The join token to resolve
@@ -333,7 +343,7 @@ async function resolveJoinToken(pool, token) {
 
       return {
         valid: false,
-        error_code: JOIN_ERROR_CODES.ENVIRONMENT_MISMATCH,
+        error_code: JOIN_ERROR_CODES.CONTEST_ENV_MISMATCH,
         reason: validation.error,
         environment_mismatch: true,
         token_environment: tokenEnv,
@@ -341,42 +351,48 @@ async function resolveJoinToken(pool, token) {
       };
     }
 
+    // Malformed / unrecognised token → CONTEST_UNAVAILABLE (collapsed)
     return {
       valid: false,
-      error_code: JOIN_ERROR_CODES.INVALID_TOKEN,
+      error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE,
       reason: validation.error,
       environment_mismatch: false
     };
   }
 
-  const instance = await getContestInstanceByToken(pool, token);
+  // Enriched query: include organizer name and current participant count
+  const result = await pool.query(
+    `SELECT
+      ci.*,
+      ct.name as template_name,
+      ct.sport as template_sport,
+      ct.template_type,
+      ct.scoring_strategy_key,
+      ct.lock_strategy_key,
+      ct.settlement_strategy_key,
+      COALESCE(u.username, u.name, 'Unknown') as creator_display_name,
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
+    FROM contest_instances ci
+    JOIN contest_templates ct ON ci.template_id = ct.id
+    LEFT JOIN users u ON ci.organizer_id = u.id
+    WHERE ci.join_token = $1`,
+    [token]
+  );
+  const instance = result.rows[0];
 
   if (!instance) {
     return {
       valid: false,
-      error_code: JOIN_ERROR_CODES.NOT_FOUND,
+      error_code: JOIN_ERROR_CODES.CONTEST_NOT_FOUND,
       reason: 'Contest not found for this token',
       environment_mismatch: false
     };
   }
 
-  // Only OPEN contests are joinable. Every other status is an explicit rejection.
-  if (instance.status === 'open') {
-    // Enforce lock_time: if lock_time has passed, treat as locked
-    if (instance.lock_time !== null && new Date() >= new Date(instance.lock_time)) {
-      return {
-        valid: false,
-        error_code: JOIN_ERROR_CODES.CONTEST_LOCKED,
-        reason: 'Contest join window has closed',
-        environment_mismatch: false,
-        contest: {
-          id: instance.id,
-          status: instance.status,
-          lock_time: instance.lock_time
-        }
-      };
-    }
+  const joinState = computeJoinState(instance);
 
+  // Only OPEN + JOINABLE contests resolve as valid
+  if (instance.status === 'open' && joinState === 'JOINABLE') {
     return {
       valid: true,
       contest: {
@@ -389,20 +405,42 @@ async function resolveJoinToken(pool, token) {
         status: instance.status,
         start_time: instance.start_time,
         lock_time: instance.lock_time,
-        join_url: generateJoinUrl(token)
+        join_url: generateJoinUrl(token),
+        computedJoinState: joinState,
+        creatorName: instance.creator_display_name,
+        entriesCurrent: instance.entries_current,
+        maxEntries: instance.max_entries
+      }
+    };
+  }
+
+  // Open but past lock_time
+  if (instance.status === 'open' && joinState === 'LOCKED') {
+    return {
+      valid: false,
+      error_code: JOIN_ERROR_CODES.CONTEST_LOCKED,
+      reason: 'Contest join window has closed',
+      environment_mismatch: false,
+      contest: {
+        id: instance.id,
+        status: instance.status,
+        lock_time: instance.lock_time,
+        computedJoinState: joinState
       }
     };
   }
 
   if (instance.status === 'draft') {
+    // Draft → CONTEST_UNAVAILABLE (collapsed from NOT_PUBLISHED)
     return {
       valid: false,
-      error_code: JOIN_ERROR_CODES.NOT_PUBLISHED,
+      error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE,
       reason: 'Contest has not been published yet',
       environment_mismatch: false,
       contest: {
         id: instance.id,
-        status: instance.status
+        status: instance.status,
+        computedJoinState: joinState
       }
     };
   }
@@ -416,20 +454,36 @@ async function resolveJoinToken(pool, token) {
       contest: {
         id: instance.id,
         status: instance.status,
-        lock_time: instance.lock_time
+        lock_time: instance.lock_time,
+        computedJoinState: joinState
       }
     };
   }
 
-  if (instance.status === 'cancelled' || instance.status === 'settled') {
+  if (instance.status === 'settled') {
     return {
       valid: false,
-      error_code: JOIN_ERROR_CODES.EXPIRED_TOKEN,
-      reason: `Contest is ${instance.status} and no longer accepting participants`,
+      error_code: JOIN_ERROR_CODES.CONTEST_COMPLETED,
+      reason: 'Contest is settled and no longer accepting participants',
       environment_mismatch: false,
       contest: {
         id: instance.id,
-        status: instance.status
+        status: instance.status,
+        computedJoinState: joinState
+      }
+    };
+  }
+
+  if (instance.status === 'cancelled') {
+    return {
+      valid: false,
+      error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE,
+      reason: 'Contest is cancelled and no longer accepting participants',
+      environment_mismatch: false,
+      contest: {
+        id: instance.id,
+        status: instance.status,
+        computedJoinState: joinState
       }
     };
   }
@@ -437,7 +491,7 @@ async function resolveJoinToken(pool, token) {
   // Unknown status — fail closed
   return {
     valid: false,
-    error_code: JOIN_ERROR_CODES.NOT_FOUND,
+    error_code: JOIN_ERROR_CODES.CONTEST_NOT_FOUND,
     reason: 'Contest is not in a joinable state',
     environment_mismatch: false
   };
@@ -463,10 +517,10 @@ async function getContestInstancesForOrganizer(pool, organizerId) {
     ORDER BY ci.created_at DESC`,
     [organizerId]
   );
-  // Add computed join_url to each instance
   return result.rows.map(instance => ({
     ...instance,
-    join_url: instance.join_token ? generateJoinUrl(instance.join_token) : null
+    join_url: instance.join_token ? generateJoinUrl(instance.join_token) : null,
+    computedJoinState: computeJoinState(instance)
   }));
 }
 
@@ -547,7 +601,8 @@ async function publishContestInstance(pool, instanceId, organizerId) {
   if (existing.status === 'open') {
     return {
       ...existing,
-      join_url: generateJoinUrl(existing.join_token)
+      join_url: generateJoinUrl(existing.join_token),
+      computedJoinState: computeJoinState(existing)
     };
   }
 
@@ -580,7 +635,8 @@ async function publishContestInstance(pool, instanceId, organizerId) {
   const instance = result.rows[0];
   return {
     ...instance,
-    join_url: generateJoinUrl(instance.join_token)
+    join_url: generateJoinUrl(instance.join_token),
+    computedJoinState: computeJoinState(instance)
   };
 }
 
@@ -615,7 +671,7 @@ async function joinContest(pool, contestInstanceId, userId) {
       await client.query('ROLLBACK');
       return {
         joined: false,
-        error_code: JOIN_ERROR_CODES.NOT_FOUND,
+        error_code: JOIN_ERROR_CODES.CONTEST_NOT_FOUND,
         reason: 'Contest not found'
       };
     }
@@ -627,15 +683,18 @@ async function joinContest(pool, contestInstanceId, userId) {
       await client.query('ROLLBACK');
 
       if (contest.status === 'draft') {
-        return { joined: false, error_code: JOIN_ERROR_CODES.NOT_PUBLISHED, reason: 'Contest has not been published yet' };
+        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest has not been published yet' };
       }
       if (contest.status === 'locked') {
         return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest is locked' };
       }
-      if (contest.status === 'cancelled' || contest.status === 'settled') {
-        return { joined: false, error_code: JOIN_ERROR_CODES.EXPIRED_TOKEN, reason: `Contest is ${contest.status}` };
+      if (contest.status === 'settled') {
+        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_COMPLETED, reason: 'Contest is settled' };
       }
-      return { joined: false, error_code: JOIN_ERROR_CODES.NOT_FOUND, reason: 'Contest is not in a joinable state' };
+      if (contest.status === 'cancelled') {
+        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is cancelled' };
+      }
+      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_NOT_FOUND, reason: 'Contest is not in a joinable state' };
     }
 
     // Enforce lock_time: if lock_time has passed, the join window is closed
@@ -715,6 +774,9 @@ module.exports = {
   // Validation helpers
   validateEntryFeeAgainstTemplate,
   validatePayoutStructureAgainstTemplate,
+
+  // State helpers
+  computeJoinState,
 
   // Constants
   VALID_STATUSES,
