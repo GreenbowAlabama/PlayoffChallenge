@@ -275,12 +275,19 @@ async function getContestInstance(pool, instanceId) {
     WHERE ci.id = $1`,
     [instanceId]
   );
-  const instance = result.rows[0];
-  if (!instance) return null;
+  const row = result.rows[0];
+  if (!row) return null;
+
+  // Enforce instance-owned fields; hard-delete template leakage
+  row.contest_name = row.contest_name;
+  row.max_entries = row.max_entries;
+  delete row.name;
+  delete row.template_name;
+
   return {
-    ...instance,
-    join_url: instance.join_token ? generateJoinUrl(instance.join_token) : null,
-    computedJoinState: computeJoinState(instance)
+    ...row,
+    join_url: row.join_token ? generateJoinUrl(row.join_token) : null,
+    computedJoinState: computeJoinState(row)
   };
 }
 
@@ -319,12 +326,19 @@ async function getContestInstanceByToken(pool, token) {
     WHERE ci.join_token = $1`,
     [token]
   );
-  const instance = result.rows[0];
-  if (!instance) return null;
+  const row = result.rows[0];
+  if (!row) return null;
+
+  // Enforce instance-owned fields; hard-delete template leakage
+  row.contest_name = row.contest_name;
+  row.max_entries = row.max_entries;
+  delete row.name;
+  delete row.template_name;
+
   return {
-    ...instance,
-    join_url: generateJoinUrl(instance.join_token),
-    computedJoinState: computeJoinState(instance)
+    ...row,
+    join_url: generateJoinUrl(row.join_token),
+    computedJoinState: computeJoinState(row)
   };
 }
 
@@ -538,11 +552,19 @@ async function getContestInstancesForOrganizer(pool, organizerId) {
     ORDER BY ci.created_at DESC`,
     [organizerId]
   );
-  return result.rows.map(instance => ({
-    ...instance,
-    join_url: instance.join_token ? generateJoinUrl(instance.join_token) : null,
-    computedJoinState: computeJoinState(instance)
-  }));
+  return result.rows.map(row => {
+    // Enforce instance-owned fields; hard-delete template leakage
+    row.contest_name = row.contest_name;
+    row.max_entries = row.max_entries;
+    delete row.name;
+    delete row.template_name;
+
+    return {
+      ...row,
+      join_url: row.join_token ? generateJoinUrl(row.join_token) : null,
+      computedJoinState: computeJoinState(row)
+    };
+  });
 }
 
 /**
