@@ -262,7 +262,8 @@ async function getContestInstance(pool, instanceId) {
       ct.template_type,
       ct.scoring_strategy_key,
       ct.lock_strategy_key,
-      ct.settlement_strategy_key
+      ct.settlement_strategy_key,
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
     FROM contest_instances ci
     JOIN contest_templates ct ON ci.template_id = ct.id
     WHERE ci.id = $1`,
@@ -510,7 +511,8 @@ async function getContestInstancesForOrganizer(pool, organizerId) {
       ci.*,
       ct.name as template_name,
       ct.sport as template_sport,
-      ct.template_type
+      ct.template_type,
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
     FROM contest_instances ci
     JOIN contest_templates ct ON ci.template_id = ct.id
     WHERE ci.organizer_id = $1
