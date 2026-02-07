@@ -222,17 +222,21 @@ async function createContestInstance(pool, organizerId, input) {
     `INSERT INTO contest_instances (
       template_id,
       organizer_id,
+      contest_name,
+      max_entries,
       entry_fee_cents,
       payout_structure,
       status,
       start_time,
       lock_time,
       settlement_time
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING *`,
     [
       input.template_id,
       organizerId,
+      input.contest_name || null,
+      input.max_entries || null,
       input.entry_fee_cents,
       JSON.stringify(input.payout_structure),
       'draft',
