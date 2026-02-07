@@ -257,7 +257,7 @@ async function getContestInstance(pool, instanceId) {
   const result = await pool.query(
     `SELECT
       ci.*,
-      ct.name AS contest_name,
+      ci.contest_name,
       ci.max_entries,
       ci.lock_time,
       ci.status,
@@ -301,7 +301,7 @@ async function getContestInstanceByToken(pool, token) {
   const result = await pool.query(
     `SELECT
       ci.*,
-      ct.name AS contest_name,
+      ci.contest_name,
       ci.max_entries,
       ci.lock_time,
       ci.status,
@@ -522,7 +522,7 @@ async function getContestInstancesForOrganizer(pool, organizerId) {
   const result = await pool.query(
     `SELECT
       ci.*,
-      ct.name AS contest_name,
+      ci.contest_name,
       ci.max_entries,
       ci.lock_time,
       ci.status,
