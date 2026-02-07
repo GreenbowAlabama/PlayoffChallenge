@@ -257,15 +257,21 @@ async function getContestInstance(pool, instanceId) {
   const result = await pool.query(
     `SELECT
       ci.*,
+      ci.name AS contest_name,
+      ci.max_entries,
+      ci.lock_time,
+      ci.status,
       ct.name as template_name,
       ct.sport as template_sport,
       ct.template_type,
       ct.scoring_strategy_key,
       ct.lock_strategy_key,
       ct.settlement_strategy_key,
+      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
     FROM contest_instances ci
     JOIN contest_templates ct ON ci.template_id = ct.id
+    LEFT JOIN users u ON u.id = ci.organizer_id
     WHERE ci.id = $1`,
     [instanceId]
   );
@@ -295,14 +301,21 @@ async function getContestInstanceByToken(pool, token) {
   const result = await pool.query(
     `SELECT
       ci.*,
+      ci.name AS contest_name,
+      ci.max_entries,
+      ci.lock_time,
+      ci.status,
       ct.name as template_name,
       ct.sport as template_sport,
       ct.template_type,
       ct.scoring_strategy_key,
       ct.lock_strategy_key,
-      ct.settlement_strategy_key
+      ct.settlement_strategy_key,
+      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
     FROM contest_instances ci
     JOIN contest_templates ct ON ci.template_id = ct.id
+    LEFT JOIN users u ON u.id = ci.organizer_id
     WHERE ci.join_token = $1`,
     [token]
   );
@@ -509,12 +522,18 @@ async function getContestInstancesForOrganizer(pool, organizerId) {
   const result = await pool.query(
     `SELECT
       ci.*,
+      ci.name AS contest_name,
+      ci.max_entries,
+      ci.lock_time,
+      ci.status,
       ct.name as template_name,
       ct.sport as template_sport,
       ct.template_type,
+      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
     FROM contest_instances ci
     JOIN contest_templates ct ON ci.template_id = ct.id
+    LEFT JOIN users u ON u.id = ci.organizer_id
     WHERE ci.organizer_id = $1
     ORDER BY ci.created_at DESC`,
     [organizerId]
