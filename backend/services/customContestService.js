@@ -194,7 +194,6 @@ async function listActiveTemplates(pool) {
  * @returns {Promise<Object>} Created contest instance
  */
 async function createContestInstance(pool, organizerId, input) {
-  console.log('[CREATE CONTEST INPUT]', input);
   // Validate required fields
   if (!input.template_id) {
     throw new Error('template_id is required');
@@ -215,6 +214,14 @@ async function createContestInstance(pool, organizerId, input) {
   // Validate against template constraints
   validateEntryFeeAgainstTemplate(input.entry_fee_cents, template);
   validatePayoutStructureAgainstTemplate(input.payout_structure, template);
+
+  // Normalize max_entries: accept both snake_case and camelCase, default to 20
+  const maxEntries =
+    typeof input.max_entries === 'number'
+      ? input.max_entries
+      : typeof input.maxEntries === 'number'
+      ? input.maxEntries
+      : 20;
 
   // Note: join_token is generated at publish time, not creation time
   // Database constraint requires join_token to be NULL for draft status
@@ -237,13 +244,13 @@ async function createContestInstance(pool, organizerId, input) {
       input.template_id,
       organizerId,
       input.contest_name || null,
-      input.max_entries || null,
+      maxEntries,
       input.entry_fee_cents,
       JSON.stringify(input.payout_structure),
       'draft',
-      input.start_time || null,
-      input.lock_time || null,
-      input.settlement_time || null
+      input.start_time ?? null,
+      input.lock_time ?? null,
+      input.settlement_time ?? null
     ]
   );
 
