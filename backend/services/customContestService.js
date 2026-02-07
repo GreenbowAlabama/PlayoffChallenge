@@ -194,6 +194,7 @@ async function listActiveTemplates(pool) {
  * @returns {Promise<Object>} Created contest instance
  */
 async function createContestInstance(pool, organizerId, input) {
+  console.log('[CREATE CONTEST INPUT]', input);
   // Validate required fields
   if (!input.template_id) {
     throw new Error('template_id is required');
