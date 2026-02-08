@@ -215,13 +215,21 @@ async function createContestInstance(pool, organizerId, input) {
   validateEntryFeeAgainstTemplate(input.entry_fee_cents, template);
   validatePayoutStructureAgainstTemplate(input.payout_structure, template);
 
+  // Derive and validate contest_name (non-null, non-empty string)
+  const contestName = (input.contest_name ?? input.contestName ?? '').trim();
+  if (!contestName) {
+    throw new Error('contest_name is required and must be a non-empty string');
+  }
+
   // Normalize max_entries: accept both snake_case and camelCase, default to 20
-  const maxEntries =
-    typeof input.max_entries === 'number'
-      ? input.max_entries
-      : typeof input.maxEntries === 'number'
-      ? input.maxEntries
-      : 20;
+  let maxEntries = input.max_entries ?? input.maxEntries ?? 20;
+  maxEntries = Number(maxEntries);
+  if (!Number.isInteger(maxEntries) || maxEntries <= 0) {
+    throw new Error('max_entries must be a positive integer');
+  }
+
+  // CONTRACT CHECK: normalized values before insert
+  console.log(`CONTRACT CHECK createContestInstance: contestName="${contestName}", maxEntries=${maxEntries}`);
 
   // Note: join_token is generated at publish time, not creation time
   // Database constraint requires join_token to be NULL for draft status
@@ -243,7 +251,7 @@ async function createContestInstance(pool, organizerId, input) {
     [
       input.template_id,
       organizerId,
-      input.contest_name || null,
+      contestName,
       maxEntries,
       input.entry_fee_cents,
       JSON.stringify(input.payout_structure),
@@ -295,6 +303,9 @@ async function getContestInstance(pool, instanceId) {
   row.max_entries = row.max_entries;
   delete row.name;
   delete row.template_name;
+
+  // CONTRACT CHECK: values returned from getContestInstance
+  console.log(`CONTRACT CHECK getContestInstance: contest_name="${row.contest_name}", max_entries=${row.max_entries}`);
 
   return {
     ...row,
@@ -438,6 +449,8 @@ async function resolveJoinToken(pool, token) {
       contest: {
         id: instance.id,
         template_id: instance.template_id,
+        contest_name: instance.contest_name,
+        max_entries: instance.max_entries,
         template_name: instance.template_name,
         template_sport: instance.template_sport,
         entry_fee_cents: instance.entry_fee_cents,

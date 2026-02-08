@@ -186,6 +186,10 @@ router.post('/', async (req, res) => {
 
     const {
       template_id,
+      contest_name,
+      contestName,
+      max_entries,
+      maxEntries,
       entry_fee_cents,
       payout_structure,
       start_time,
@@ -200,6 +204,8 @@ router.post('/', async (req, res) => {
 
     const instance = await customContestService.createContestInstance(pool, organizerId, {
       template_id,
+      contest_name: contest_name ?? contestName,
+      max_entries: max_entries ?? maxEntries,
       entry_fee_cents,
       payout_structure,
       start_time,

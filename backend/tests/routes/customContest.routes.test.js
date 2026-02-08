@@ -42,6 +42,8 @@ const mockInstance = {
   id: TEST_INSTANCE_ID,
   template_id: TEST_TEMPLATE_ID,
   organizer_id: TEST_USER_ID,
+  contest_name: 'Test Contest',
+  max_entries: 20,
   entry_fee_cents: 2500,
   payout_structure: { first: 70, second: 20, third: 10 },
   status: 'draft',
@@ -225,6 +227,7 @@ describe('Custom Contest Routes', () => {
   describe('POST /api/custom-contests', () => {
     const validInput = {
       template_id: TEST_TEMPLATE_ID,
+      contest_name: 'Test Contest',
       entry_fee_cents: 2500,
       payout_structure: { first: 70, second: 20, third: 10 }
     };
@@ -412,7 +415,8 @@ describe('Custom Contest Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.id).toBe(TEST_INSTANCE_ID);
-      expect(response.body.template_name).toBe('NFL Playoff Challenge');
+      expect(response.body.contest_name).toBe('Test Contest');
+      expect(response.body.max_entries).toBe(20);
     });
 
     it('should return 400 for invalid UUID', async () => {

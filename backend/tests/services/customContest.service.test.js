@@ -40,6 +40,8 @@ const mockInstance = {
   id: TEST_INSTANCE_ID,
   template_id: TEST_TEMPLATE_ID,
   organizer_id: TEST_USER_ID,
+  contest_name: 'Test Contest',
+  max_entries: 20,
   entry_fee_cents: 2500,
   payout_structure: { first: 70, second: 20, third: 10 },
   status: 'draft',
@@ -266,6 +268,7 @@ describe('Custom Contest Service Unit Tests', () => {
 
         const instance = await customContestService.createContestInstance(mockPool, TEST_USER_ID, {
           template_id: TEST_TEMPLATE_ID,
+          contest_name: 'Test Contest',
           entry_fee_cents: 2500,
           payout_structure: { first: 70, second: 20, third: 10 }
         });
@@ -361,7 +364,8 @@ describe('Custom Contest Service Unit Tests', () => {
 
         const instance = await customContestService.getContestInstance(mockPool, TEST_INSTANCE_ID);
         expect(instance).toBeDefined();
-        expect(instance.template_name).toBe('NFL Playoff Challenge');
+        expect(instance.contest_name).toBe('Test Contest');
+        expect(instance.max_entries).toBe(20);
         expect(instance.template_sport).toBe('NFL');
         expect(instance.computedJoinState).toBeDefined();
       });
