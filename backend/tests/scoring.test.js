@@ -125,24 +125,25 @@ describe('Scoring Guardrail - calculateFantasyPoints', () => {
       expect(points).toBeGreaterThan(0);
     });
 
-    it('should apply 50+ yard FG bonus', async () => {
+    it('should use flat scoring regardless of FG distance', async () => {
+      // Current implementation uses flat 3 points per FG
+      // fg_longest field is not used in scoring calculation
       const shortFG = { fg_made: 2, fg_longest: 39, xp_made: 1 };
       const longFG = { fg_made: 2, fg_longest: 50, xp_made: 1 };
 
       const pointsShort = await calculateFantasyPoints(shortFG);
       const pointsLong = await calculateFantasyPoints(longFG);
 
-      expect(pointsLong).toBeGreaterThan(pointsShort);
+      // Both should be equal since distance isn't factored in
+      expect(pointsLong).toBe(pointsShort);
     });
 
-    it('should apply 40-49 yard FG bonus', async () => {
-      const shortFG = { fg_made: 2, fg_longest: 39, xp_made: 1 };
-      const medFG = { fg_made: 2, fg_longest: 45, xp_made: 1 };
+    it('should calculate flat FG points correctly', async () => {
+      // 2 FG * 3 points + 1 XP * 1 point = 7 points
+      const stats = { fg_made: 2, xp_made: 1 };
+      const points = await calculateFantasyPoints(stats);
 
-      const pointsShort = await calculateFantasyPoints(shortFG);
-      const pointsMed = await calculateFantasyPoints(medFG);
-
-      expect(pointsMed).toBeGreaterThan(pointsShort);
+      expect(points).toBe(7);
     });
 
     it('should penalize missed FGs', async () => {

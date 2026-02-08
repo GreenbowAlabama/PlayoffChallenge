@@ -2,9 +2,9 @@
 -- PostgreSQL database dump
 --
 
-\restrict 94ogSPtCsjY82Y0hYPtJbFHGPQoa4qL81k72fbZWKF4b2b8W7shGTChlXRUTNuB
+\restrict uXjR8nJR8TunIfDXpmQrATdwnUScT7E60CDF0fBm8Yzjwe51ECcdgWMbdBNNBgr
 
--- Dumped from database version 17.6 (Debian 17.6-2.pgdg13+1)
+-- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
 
 SET statement_timeout = 0;
@@ -20,7 +20,21 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- Name: get_nfl_week_number(integer); Type: FUNCTION; Schema: public; Owner: postgres
+-- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
+
+
+--
+-- Name: get_nfl_week_number(integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
 CREATE FUNCTION public.get_nfl_week_number(playoff_week integer) RETURNS integer
@@ -41,10 +55,8 @@ END;
 $$;
 
 
-ALTER FUNCTION public.get_nfl_week_number(playoff_week integer) OWNER TO postgres;
-
 --
--- Name: get_playoff_week_number(integer); Type: FUNCTION; Schema: public; Owner: postgres
+-- Name: get_playoff_week_number(integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
 CREATE FUNCTION public.get_playoff_week_number(nfl_week integer) RETURNS integer
@@ -61,10 +73,8 @@ END;
 $$;
 
 
-ALTER FUNCTION public.get_playoff_week_number(nfl_week integer) OWNER TO postgres;
-
 --
--- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: postgres
+-- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: -
 --
 
 CREATE FUNCTION public.update_updated_at_column() RETURNS trigger
@@ -77,14 +87,56 @@ END;
 $$;
 
 
-ALTER FUNCTION public.update_updated_at_column() OWNER TO postgres;
-
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
 
 --
--- Name: game_settings; Type: TABLE; Schema: public; Owner: postgres
+-- Name: contest_instances; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.contest_instances (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    template_id uuid NOT NULL,
+    organizer_id uuid NOT NULL,
+    entry_fee_cents integer NOT NULL,
+    payout_structure jsonb NOT NULL,
+    status text NOT NULL,
+    start_time timestamp with time zone,
+    lock_time timestamp with time zone,
+    settlement_time timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    join_token text,
+    CONSTRAINT entry_fee_non_negative CHECK ((entry_fee_cents >= 0)),
+    CONSTRAINT status_valid CHECK ((status = ANY (ARRAY['draft'::text, 'open'::text, 'locked'::text, 'settled'::text, 'cancelled'::text])))
+);
+
+
+--
+-- Name: contest_templates; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.contest_templates (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    sport text NOT NULL,
+    template_type text NOT NULL,
+    scoring_strategy_key text NOT NULL,
+    lock_strategy_key text NOT NULL,
+    settlement_strategy_key text NOT NULL,
+    default_entry_fee_cents integer NOT NULL,
+    allowed_entry_fee_min_cents integer NOT NULL,
+    allowed_entry_fee_max_cents integer NOT NULL,
+    allowed_payout_structures jsonb NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: game_settings; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.game_settings (
@@ -105,35 +157,34 @@ CREATE TABLE public.game_settings (
     playoff_start_week integer DEFAULT 19,
     current_playoff_week integer DEFAULT 0,
     season_year character varying(4) DEFAULT '2024'::character varying,
-    is_week_active boolean DEFAULT true
+    is_week_active boolean DEFAULT true,
+    active_teams text[]
 );
 
 
-ALTER TABLE public.game_settings OWNER TO postgres;
-
 --
--- Name: COLUMN game_settings.playoff_start_week; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN game_settings.playoff_start_week; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.game_settings.playoff_start_week IS 'NFL week number where playoffs begin (19 = Wild Card for standard season)';
 
 
 --
--- Name: COLUMN game_settings.current_playoff_week; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN game_settings.current_playoff_week; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.game_settings.current_playoff_week IS 'Current active playoff week (0 = not started, 1-4 = rounds)';
 
 
 --
--- Name: COLUMN game_settings.season_year; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN game_settings.season_year; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.game_settings.season_year IS 'NFL season year (e.g. 2024)';
 
 
 --
--- Name: payout_structure; Type: TABLE; Schema: public; Owner: postgres
+-- Name: payout_structure; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.payout_structure (
@@ -147,10 +198,8 @@ CREATE TABLE public.payout_structure (
 );
 
 
-ALTER TABLE public.payout_structure OWNER TO postgres;
-
 --
--- Name: payout_structure_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: payout_structure_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
 CREATE SEQUENCE public.payout_structure_id_seq
@@ -162,17 +211,15 @@ CREATE SEQUENCE public.payout_structure_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.payout_structure_id_seq OWNER TO postgres;
-
 --
--- Name: payout_structure_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: payout_structure_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
 ALTER SEQUENCE public.payout_structure_id_seq OWNED BY public.payout_structure.id;
 
 
 --
--- Name: payouts; Type: TABLE; Schema: public; Owner: postgres
+-- Name: payouts; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.payouts (
@@ -184,10 +231,8 @@ CREATE TABLE public.payouts (
 );
 
 
-ALTER TABLE public.payouts OWNER TO postgres;
-
 --
--- Name: payouts_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: payouts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
 CREATE SEQUENCE public.payouts_id_seq
@@ -199,17 +244,15 @@ CREATE SEQUENCE public.payouts_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.payouts_id_seq OWNER TO postgres;
-
 --
--- Name: payouts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: payouts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
 ALTER SEQUENCE public.payouts_id_seq OWNED BY public.payouts.id;
 
 
 --
--- Name: pick_multipliers; Type: TABLE; Schema: public; Owner: postgres
+-- Name: pick_multipliers; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.pick_multipliers (
@@ -224,10 +267,8 @@ CREATE TABLE public.pick_multipliers (
 );
 
 
-ALTER TABLE public.pick_multipliers OWNER TO postgres;
-
 --
--- Name: pick_multipliers_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: pick_multipliers_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
 CREATE SEQUENCE public.pick_multipliers_id_seq
@@ -239,17 +280,15 @@ CREATE SEQUENCE public.pick_multipliers_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.pick_multipliers_id_seq OWNER TO postgres;
-
 --
--- Name: pick_multipliers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: pick_multipliers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
 ALTER SEQUENCE public.pick_multipliers_id_seq OWNED BY public.pick_multipliers.id;
 
 
 --
--- Name: picks; Type: TABLE; Schema: public; Owner: postgres
+-- Name: picks; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.picks (
@@ -266,10 +305,8 @@ CREATE TABLE public.picks (
 );
 
 
-ALTER TABLE public.picks OWNER TO postgres;
-
 --
--- Name: player_swaps; Type: TABLE; Schema: public; Owner: postgres
+-- Name: player_swaps; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.player_swaps (
@@ -283,10 +320,8 @@ CREATE TABLE public.player_swaps (
 );
 
 
-ALTER TABLE public.player_swaps OWNER TO postgres;
-
 --
--- Name: player_swaps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: player_swaps_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
 CREATE SEQUENCE public.player_swaps_id_seq
@@ -298,17 +333,15 @@ CREATE SEQUENCE public.player_swaps_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.player_swaps_id_seq OWNER TO postgres;
-
 --
--- Name: player_swaps_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: player_swaps_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
 ALTER SEQUENCE public.player_swaps_id_seq OWNED BY public.player_swaps.id;
 
 
 --
--- Name: players; Type: TABLE; Schema: public; Owner: postgres
+-- Name: players; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.players (
@@ -333,10 +366,8 @@ CREATE TABLE public.players (
 );
 
 
-ALTER TABLE public.players OWNER TO postgres;
-
 --
--- Name: position_requirements; Type: TABLE; Schema: public; Owner: postgres
+-- Name: position_requirements; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.position_requirements (
@@ -351,10 +382,8 @@ CREATE TABLE public.position_requirements (
 );
 
 
-ALTER TABLE public.position_requirements OWNER TO postgres;
-
 --
--- Name: position_requirements_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: position_requirements_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
 CREATE SEQUENCE public.position_requirements_id_seq
@@ -366,17 +395,15 @@ CREATE SEQUENCE public.position_requirements_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.position_requirements_id_seq OWNER TO postgres;
-
 --
--- Name: position_requirements_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: position_requirements_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
 ALTER SEQUENCE public.position_requirements_id_seq OWNED BY public.position_requirements.id;
 
 
 --
--- Name: rules_content; Type: TABLE; Schema: public; Owner: postgres
+-- Name: rules_content; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.rules_content (
@@ -389,10 +416,8 @@ CREATE TABLE public.rules_content (
 );
 
 
-ALTER TABLE public.rules_content OWNER TO postgres;
-
 --
--- Name: rules_content_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: rules_content_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
 CREATE SEQUENCE public.rules_content_id_seq
@@ -404,17 +429,15 @@ CREATE SEQUENCE public.rules_content_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.rules_content_id_seq OWNER TO postgres;
-
 --
--- Name: rules_content_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: rules_content_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
 ALTER SEQUENCE public.rules_content_id_seq OWNED BY public.rules_content.id;
 
 
 --
--- Name: scores; Type: TABLE; Schema: public; Owner: postgres
+-- Name: scores; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.scores (
@@ -431,10 +454,8 @@ CREATE TABLE public.scores (
 );
 
 
-ALTER TABLE public.scores OWNER TO postgres;
-
 --
--- Name: scoring_rules; Type: TABLE; Schema: public; Owner: postgres
+-- Name: scoring_rules; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.scoring_rules (
@@ -450,10 +471,8 @@ CREATE TABLE public.scoring_rules (
 );
 
 
-ALTER TABLE public.scoring_rules OWNER TO postgres;
-
 --
--- Name: scoring_rules_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: scoring_rules_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
 CREATE SEQUENCE public.scoring_rules_id_seq
@@ -465,17 +484,94 @@ CREATE SEQUENCE public.scoring_rules_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.scoring_rules_id_seq OWNER TO postgres;
-
 --
--- Name: scoring_rules_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: scoring_rules_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
 ALTER SEQUENCE public.scoring_rules_id_seq OWNED BY public.scoring_rules.id;
 
 
 --
--- Name: users; Type: TABLE; Schema: public; Owner: postgres
+-- Name: signup_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.signup_attempts (
+    id integer NOT NULL,
+    apple_id character varying(255),
+    email character varying(255),
+    name character varying(255),
+    attempted_state character varying(2),
+    ip_state_verified character varying(2),
+    blocked boolean DEFAULT false,
+    blocked_reason character varying(100),
+    attempted_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+--
+-- Name: TABLE signup_attempts; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.signup_attempts IS 'Audit log of all signup attempts, including blocked ones for compliance reporting';
+
+
+--
+-- Name: COLUMN signup_attempts.apple_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.signup_attempts.apple_id IS 'Apple ID of user attempting signup';
+
+
+--
+-- Name: COLUMN signup_attempts.attempted_state; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.signup_attempts.attempted_state IS 'State user selected during signup';
+
+
+--
+-- Name: COLUMN signup_attempts.ip_state_verified; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.signup_attempts.ip_state_verified IS 'State derived from IP geolocation';
+
+
+--
+-- Name: COLUMN signup_attempts.blocked; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.signup_attempts.blocked IS 'Whether signup was blocked';
+
+
+--
+-- Name: COLUMN signup_attempts.blocked_reason; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.signup_attempts.blocked_reason IS 'Reason for blocking (e.g., "Restricted state")';
+
+
+--
+-- Name: signup_attempts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.signup_attempts_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: signup_attempts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.signup_attempts_id_seq OWNED BY public.signup_attempts.id;
+
+
+--
+-- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.users (
@@ -490,63 +586,72 @@ CREATE TABLE public.users (
     email character varying(255),
     apple_id character varying(255),
     name character varying(255),
-    phone character varying(50),
     updated_at timestamp without time zone DEFAULT now(),
+    phone character varying(50),
     state character varying(2),
     ip_state_verified character varying(2),
     state_certification_date timestamp without time zone,
     eligibility_confirmed_at timestamp without time zone,
     tos_version character varying(20),
     tos_accepted_at timestamp without time zone,
-    age_verified boolean DEFAULT false
+    age_verified boolean DEFAULT false,
+    password_hash character varying(255),
+    auth_method character varying(20) DEFAULT 'apple'::character varying,
+    admin_notes text
 );
 
 
-ALTER TABLE public.users OWNER TO postgres;
-
 --
--- Name: signup_attempts; Type: TABLE; Schema: public; Owner: postgres
+-- Name: COLUMN users.state; Type: COMMENT; Schema: public; Owner: -
 --
 
-CREATE TABLE public.signup_attempts (
-    id integer NOT NULL,
-    apple_id character varying(255) NOT NULL,
-    email character varying(255),
-    name character varying(255),
-    attempted_state character varying(2),
-    ip_state_verified character varying(2),
-    blocked boolean DEFAULT false,
-    blocked_reason character varying(100),
-    attempted_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
-);
-
-
-ALTER TABLE public.signup_attempts OWNER TO postgres;
-
---
--- Name: signup_attempts_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.signup_attempts_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.signup_attempts_id_seq OWNER TO postgres;
-
---
--- Name: signup_attempts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.signup_attempts_id_seq OWNED BY public.signup_attempts.id;
+COMMENT ON COLUMN public.users.state IS 'User self-certified state of residence (2-letter code)';
 
 
 --
--- Name: v_game_status; Type: VIEW; Schema: public; Owner: postgres
+-- Name: COLUMN users.ip_state_verified; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.ip_state_verified IS 'State derived from IP geolocation at signup (may differ from claimed state)';
+
+
+--
+-- Name: COLUMN users.state_certification_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.state_certification_date IS 'When user certified their state eligibility';
+
+
+--
+-- Name: COLUMN users.eligibility_confirmed_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.eligibility_confirmed_at IS 'When user confirmed age and eligibility requirements';
+
+
+--
+-- Name: COLUMN users.tos_version; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.tos_version IS 'Version of Terms of Service user agreed to (e.g., 2025-12-12)';
+
+
+--
+-- Name: COLUMN users.tos_accepted_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.tos_accepted_at IS 'When user accepted the Terms of Service';
+
+
+--
+-- Name: COLUMN users.age_verified; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.age_verified IS 'Whether user confirmed they are 18+ years old';
+
+
+--
+-- Name: v_game_status; Type: VIEW; Schema: public; Owner: -
 --
 
 CREATE VIEW public.v_game_status AS
@@ -567,78 +672,100 @@ CREATE VIEW public.v_game_status AS
           WHERE (users.paid = true)) AS paid_users,
     ( SELECT count(DISTINCT picks.user_id) AS count
            FROM public.picks
-          WHERE (picks.week_number = gs.current_playoff_week)) AS users_with_picks
+          WHERE (picks.week_number = public.get_nfl_week_number(gs.current_playoff_week))) AS users_with_picks
    FROM public.game_settings gs
  LIMIT 1;
 
 
-ALTER VIEW public.v_game_status OWNER TO postgres;
-
 --
--- Name: VIEW v_game_status; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: VIEW v_game_status; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON VIEW public.v_game_status IS 'Shows current game state and week mappings';
 
 
 --
--- Name: payout_structure id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: payout_structure id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payout_structure ALTER COLUMN id SET DEFAULT nextval('public.payout_structure_id_seq'::regclass);
 
 
 --
--- Name: payouts id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: payouts id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payouts ALTER COLUMN id SET DEFAULT nextval('public.payouts_id_seq'::regclass);
 
 
 --
--- Name: pick_multipliers id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: pick_multipliers id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.pick_multipliers ALTER COLUMN id SET DEFAULT nextval('public.pick_multipliers_id_seq'::regclass);
 
 
 --
--- Name: player_swaps id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: player_swaps id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.player_swaps ALTER COLUMN id SET DEFAULT nextval('public.player_swaps_id_seq'::regclass);
 
 
 --
--- Name: position_requirements id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: position_requirements id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.position_requirements ALTER COLUMN id SET DEFAULT nextval('public.position_requirements_id_seq'::regclass);
 
 
 --
--- Name: rules_content id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: rules_content id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.rules_content ALTER COLUMN id SET DEFAULT nextval('public.rules_content_id_seq'::regclass);
 
 
 --
--- Name: scoring_rules id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: scoring_rules id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.scoring_rules ALTER COLUMN id SET DEFAULT nextval('public.scoring_rules_id_seq'::regclass);
 
 
 --
--- Name: signup_attempts id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: signup_attempts id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.signup_attempts ALTER COLUMN id SET DEFAULT nextval('public.signup_attempts_id_seq'::regclass);
 
 
 --
--- Name: game_settings game_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: contest_instances contest_instances_join_token_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contest_instances
+    ADD CONSTRAINT contest_instances_join_token_key UNIQUE (join_token);
+
+
+--
+-- Name: contest_instances contest_instances_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contest_instances
+    ADD CONSTRAINT contest_instances_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: contest_templates contest_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contest_templates
+    ADD CONSTRAINT contest_templates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: game_settings game_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.game_settings
@@ -646,7 +773,7 @@ ALTER TABLE ONLY public.game_settings
 
 
 --
--- Name: payout_structure payout_structure_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: payout_structure payout_structure_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payout_structure
@@ -654,7 +781,7 @@ ALTER TABLE ONLY public.payout_structure
 
 
 --
--- Name: payout_structure payout_structure_place_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: payout_structure payout_structure_place_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payout_structure
@@ -662,7 +789,7 @@ ALTER TABLE ONLY public.payout_structure
 
 
 --
--- Name: payouts payouts_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: payouts payouts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payouts
@@ -670,7 +797,7 @@ ALTER TABLE ONLY public.payouts
 
 
 --
--- Name: payouts payouts_place_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: payouts payouts_place_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payouts
@@ -678,7 +805,7 @@ ALTER TABLE ONLY public.payouts
 
 
 --
--- Name: pick_multipliers pick_multipliers_pick_id_week_number_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: pick_multipliers pick_multipliers_pick_id_week_number_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.pick_multipliers
@@ -686,7 +813,7 @@ ALTER TABLE ONLY public.pick_multipliers
 
 
 --
--- Name: pick_multipliers pick_multipliers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: pick_multipliers pick_multipliers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.pick_multipliers
@@ -694,7 +821,7 @@ ALTER TABLE ONLY public.pick_multipliers
 
 
 --
--- Name: picks picks_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: picks picks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.picks
@@ -702,7 +829,7 @@ ALTER TABLE ONLY public.picks
 
 
 --
--- Name: picks picks_user_id_player_id_week_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: picks picks_user_id_player_id_week_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.picks
@@ -710,7 +837,7 @@ ALTER TABLE ONLY public.picks
 
 
 --
--- Name: player_swaps player_swaps_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: player_swaps player_swaps_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.player_swaps
@@ -718,7 +845,7 @@ ALTER TABLE ONLY public.player_swaps
 
 
 --
--- Name: players players_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: players players_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.players
@@ -726,7 +853,15 @@ ALTER TABLE ONLY public.players
 
 
 --
--- Name: position_requirements position_requirements_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: players players_sleeper_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.players
+    ADD CONSTRAINT players_sleeper_id_unique UNIQUE (sleeper_id);
+
+
+--
+-- Name: position_requirements position_requirements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.position_requirements
@@ -734,7 +869,7 @@ ALTER TABLE ONLY public.position_requirements
 
 
 --
--- Name: position_requirements position_requirements_position_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: position_requirements position_requirements_position_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.position_requirements
@@ -742,7 +877,7 @@ ALTER TABLE ONLY public.position_requirements
 
 
 --
--- Name: rules_content rules_content_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: rules_content rules_content_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.rules_content
@@ -750,7 +885,7 @@ ALTER TABLE ONLY public.rules_content
 
 
 --
--- Name: rules_content rules_content_section_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: rules_content rules_content_section_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.rules_content
@@ -758,7 +893,7 @@ ALTER TABLE ONLY public.rules_content
 
 
 --
--- Name: scores scores_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: scores scores_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.scores
@@ -766,7 +901,7 @@ ALTER TABLE ONLY public.scores
 
 
 --
--- Name: scoring_rules scoring_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: scoring_rules scoring_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.scoring_rules
@@ -774,7 +909,7 @@ ALTER TABLE ONLY public.scoring_rules
 
 
 --
--- Name: signup_attempts signup_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: signup_attempts signup_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.signup_attempts
@@ -782,7 +917,7 @@ ALTER TABLE ONLY public.signup_attempts
 
 
 --
--- Name: scores unique_user_player_week_score; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: scores unique_user_player_week_score; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.scores
@@ -790,7 +925,7 @@ ALTER TABLE ONLY public.scores
 
 
 --
--- Name: users users_apple_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: users users_apple_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.users
@@ -798,7 +933,15 @@ ALTER TABLE ONLY public.users
 
 
 --
--- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_email_key UNIQUE (email);
+
+
+--
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.users
@@ -806,238 +949,296 @@ ALTER TABLE ONLY public.users
 
 
 --
--- Name: idx_pick_multipliers_pick_week; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_contest_instances_organizer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_contest_instances_organizer ON public.contest_instances USING btree (organizer_id);
+
+
+--
+-- Name: idx_contest_instances_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_contest_instances_status ON public.contest_instances USING btree (status);
+
+
+--
+-- Name: idx_contest_instances_template; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_contest_instances_template ON public.contest_instances USING btree (template_id);
+
+
+--
+-- Name: idx_contest_templates_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_contest_templates_active ON public.contest_templates USING btree (is_active);
+
+
+--
+-- Name: idx_contest_templates_sport; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_contest_templates_sport ON public.contest_templates USING btree (sport);
+
+
+--
+-- Name: idx_contest_templates_template_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_contest_templates_template_type ON public.contest_templates USING btree (template_type);
+
+
+--
+-- Name: idx_pick_multipliers_pick_week; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_pick_multipliers_pick_week ON public.pick_multipliers USING btree (pick_id, week_number);
 
 
 --
--- Name: idx_picks_user_id; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_picks_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_picks_user_id ON public.picks USING btree (user_id);
 
 
 --
--- Name: idx_picks_user_week; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_picks_user_week; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_picks_user_week ON public.picks USING btree (user_id, week_number);
 
 
 --
--- Name: idx_picks_week; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_picks_week; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_picks_week ON public.picks USING btree (week_number);
 
 
 --
--- Name: idx_picks_week_number; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_picks_week_number; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_picks_week_number ON public.picks USING btree (week_number);
 
 
 --
--- Name: idx_picks_week_user; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_picks_week_user; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_picks_week_user ON public.picks USING btree (week_number, user_id);
 
 
 --
--- Name: idx_player_swaps_user_id; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_player_swaps_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_player_swaps_user_id ON public.player_swaps USING btree (user_id);
 
 
 --
--- Name: idx_player_swaps_user_week; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_player_swaps_user_week; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_player_swaps_user_week ON public.player_swaps USING btree (user_id, week_number);
 
 
 --
--- Name: idx_players_active; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_players_active; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_players_active ON public.players USING btree (is_active);
 
 
 --
--- Name: idx_players_espn_id; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_players_espn_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_players_espn_id ON public.players USING btree (espn_id);
 
 
 --
--- Name: idx_players_position; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_players_position; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_players_position ON public.players USING btree ("position");
 
 
 --
--- Name: idx_players_sleeper_id; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_players_sleeper_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_players_sleeper_id ON public.players USING btree (sleeper_id);
 
 
 --
--- Name: idx_players_team; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_players_team; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_players_team ON public.players USING btree (team);
 
 
 --
--- Name: idx_scores_user_id; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_scores_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_scores_user_id ON public.scores USING btree (user_id);
 
 
 --
--- Name: idx_scores_user_week; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_scores_user_week; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_scores_user_week ON public.scores USING btree (user_id, week_number);
 
 
 --
--- Name: idx_scores_week; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_scores_week; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_scores_week ON public.scores USING btree (week_number);
 
 
 --
--- Name: idx_scores_week_number; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_scores_week_number; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_scores_week_number ON public.scores USING btree (week_number);
 
 
 --
--- Name: idx_scores_week_user; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_scores_week_user; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_scores_week_user ON public.scores USING btree (week_number, user_id);
 
 
 --
--- Name: idx_scoring_rules_category; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_scoring_rules_category; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_scoring_rules_category ON public.scoring_rules USING btree (category);
 
 
 --
--- Name: idx_scoring_rules_stat_name; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_scoring_rules_stat_name; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_scoring_rules_stat_name ON public.scoring_rules USING btree (stat_name);
 
 
 --
--- Name: unique_espn_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE UNIQUE INDEX unique_espn_id ON public.players USING btree (espn_id);
-
-
---
--- Name: idx_users_state; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_users_state ON public.users USING btree (state);
-
-
---
--- Name: idx_users_eligibility; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_users_eligibility ON public.users USING btree (eligibility_confirmed_at);
-
-
---
--- Name: idx_signup_attempts_state; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_signup_attempts_state ON public.signup_attempts USING btree (attempted_state);
-
-
---
--- Name: idx_signup_attempts_blocked; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_signup_attempts_blocked ON public.signup_attempts USING btree (blocked);
-
-
---
--- Name: idx_signup_attempts_apple_id; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_signup_attempts_apple_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_signup_attempts_apple_id ON public.signup_attempts USING btree (apple_id);
 
 
 --
--- Name: idx_signup_attempts_attempted_at; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_signup_attempts_attempted_at; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_signup_attempts_attempted_at ON public.signup_attempts USING btree (attempted_at DESC);
 
 
 --
--- Name: payout_structure update_payout_structure_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: idx_signup_attempts_blocked; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_signup_attempts_blocked ON public.signup_attempts USING btree (blocked);
+
+
+--
+-- Name: idx_signup_attempts_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_signup_attempts_state ON public.signup_attempts USING btree (attempted_state);
+
+
+--
+-- Name: idx_users_eligibility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_eligibility ON public.users USING btree (eligibility_confirmed_at);
+
+
+--
+-- Name: idx_users_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_state ON public.users USING btree (state);
+
+
+--
+-- Name: unique_espn_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX unique_espn_id ON public.players USING btree (espn_id);
+
+
+--
+-- Name: payout_structure update_payout_structure_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER update_payout_structure_updated_at BEFORE UPDATE ON public.payout_structure FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: pick_multipliers update_pick_multipliers_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: pick_multipliers update_pick_multipliers_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER update_pick_multipliers_updated_at BEFORE UPDATE ON public.pick_multipliers FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: position_requirements update_position_requirements_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: position_requirements update_position_requirements_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER update_position_requirements_updated_at BEFORE UPDATE ON public.position_requirements FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: rules_content update_rules_content_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: rules_content update_rules_content_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER update_rules_content_updated_at BEFORE UPDATE ON public.rules_content FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: scoring_rules update_scoring_rules_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: scoring_rules update_scoring_rules_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER update_scoring_rules_updated_at BEFORE UPDATE ON public.scoring_rules FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: users update_users_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: users update_users_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: pick_multipliers pick_multipliers_pick_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: contest_instances fk_contest_instance_organizer; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contest_instances
+    ADD CONSTRAINT fk_contest_instance_organizer FOREIGN KEY (organizer_id) REFERENCES public.users(id);
+
+
+--
+-- Name: contest_instances fk_contest_instance_template; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contest_instances
+    ADD CONSTRAINT fk_contest_instance_template FOREIGN KEY (template_id) REFERENCES public.contest_templates(id);
+
+
+--
+-- Name: pick_multipliers pick_multipliers_pick_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.pick_multipliers
@@ -1045,7 +1246,7 @@ ALTER TABLE ONLY public.pick_multipliers
 
 
 --
--- Name: picks picks_player_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: picks picks_player_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.picks
@@ -1053,7 +1254,7 @@ ALTER TABLE ONLY public.picks
 
 
 --
--- Name: picks picks_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: picks picks_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.picks
@@ -1061,7 +1262,7 @@ ALTER TABLE ONLY public.picks
 
 
 --
--- Name: player_swaps player_swaps_new_player_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: player_swaps player_swaps_new_player_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.player_swaps
@@ -1069,7 +1270,7 @@ ALTER TABLE ONLY public.player_swaps
 
 
 --
--- Name: player_swaps player_swaps_old_player_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: player_swaps player_swaps_old_player_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.player_swaps
@@ -1077,7 +1278,7 @@ ALTER TABLE ONLY public.player_swaps
 
 
 --
--- Name: player_swaps player_swaps_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: player_swaps player_swaps_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.player_swaps
@@ -1085,7 +1286,7 @@ ALTER TABLE ONLY public.player_swaps
 
 
 --
--- Name: scores scores_player_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: scores scores_player_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.scores
@@ -1093,7 +1294,7 @@ ALTER TABLE ONLY public.scores
 
 
 --
--- Name: scores scores_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: scores scores_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.scores
@@ -1101,15 +1302,8 @@ ALTER TABLE ONLY public.scores
 
 
 --
--- Name: TABLE v_game_status; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT SELECT ON TABLE public.v_game_status TO PUBLIC;
-
-
---
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 94ogSPtCsjY82Y0hYPtJbFHGPQoa4qL81k72fbZWKF4b2b8W7shGTChlXRUTNuB
+\unrestrict uXjR8nJR8TunIfDXpmQrATdwnUScT7E60CDF0fBm8Yzjwe51ECcdgWMbdBNNBgr
 

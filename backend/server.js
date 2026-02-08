@@ -3,14 +3,26 @@ const { Pool } = require('pg');
 const pg = require('pg');
 const cors = require('cors');
 const axios = require('axios');
-const geoip = require('geoip-lite');
-const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
+// Note: geoip and bcrypt moved to usersService
 const requireAdmin = require('./middleware/adminAuth');
 const adminAuthRoutes = require('./routes/adminAuth');
 const adminDiagnosticsRoutes = require('./routes/admin.diagnostics.routes');
 const adminTrendsRoutes = require('./routes/admin.trends.routes');
+const adminContestsRoutes = require('./routes/admin.contests.routes');
+const customContestRoutes = require('./routes/customContest.routes');
+const customContestTemplatesRoutes = require('./routes/customContestTemplates.routes');
 const jobsService = require('./services/adminJobs.service');
+const scoringService = require('./services/scoringService');
+const gameStateService = require('./services/gameStateService');
+const picksService = require('./services/picksService');
+const usersService = require('./services/usersService');
+const adminService = require('./services/adminService');
+const customContestService = require('./services/customContestService');
+const config = require('./config');
+
+// Fail fast on misconfigured environment
+config.validateEnvironment();
 
 const app = express();
 app.set('trust proxy', 1);
@@ -69,142 +81,36 @@ const SCOREBOARD_CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const GAME_SUMMARY_CACHE_MS = 90 * 1000; // 90 seconds
 const PLAYERS_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
-// Fallback playoff teams - used only during Wildcard if DB active_teams is not set
-const FALLBACK_PLAYOFF_TEAMS = process.env.PLAYOFF_TEAMS
-  ? process.env.PLAYOFF_TEAMS.split(',').map(t => t.trim())
-  : ['DEN','NE','JAX','PIT','HOU','LAC','BUF','SEA','CHI','PHI','CAR','SF','LAR','GB'];
+// ==============================================
+// VALIDATION HELPERS
+// ==============================================
 
-// Helper: Handle team abbreviations better.
+/**
+ * Validate UUID format
+ * @param {string} str - String to validate
+ * @returns {boolean} True if valid UUID format
+ */
+function isValidUUID(str) {
+  if (!str || typeof str !== 'string') return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+// ==============================================
+// GAME STATE (delegated to gameStateService)
+// ==============================================
+// Wrappers maintain backward compatibility with existing call sites
 
 function normalizeTeamAbbr(abbr) {
-  if (!abbr) return null;
-
-  const map = {
-    WSH: 'WAS',
-    JAC: 'JAX',
-    LA: 'LAR',
-    STL: 'LAR',
-    SD: 'LAC',
-    OAK: 'LV'
-  };
-
-  return map[abbr] || abbr;
+  return gameStateService.normalizeTeamAbbr(abbr);
 }
 
-// ==============================================
-// SELECTABLE TEAMS (DB-backed with TTL cache)
-// ==============================================
-const selectableTeamsCache = {
-  teams: null,
-  currentPlayoffWeek: null,
-  lastFetch: 0
-};
-const SELECTABLE_TEAMS_CACHE_MS = 60 * 1000; // 60 seconds TTL
-
-// Helper: Normalize active_teams JSON from game_settings into array of team abbreviations
-// Handles various possible shapes safely:
-// - Array of strings: ["BUF","KC"]
-// - Array of objects: [{abbreviation:"BUF"}, {abbr:"KC"}]
-// - Object map: {"BUF": true, "KC": true} or {"BUF": {...}, "KC": {...}}
-// - Object wrapper: {teams:[...]} or {activeTeams:[...]}
 function normalizeActiveTeams(activeTeamsJson) {
-  if (!activeTeamsJson) return [];
-
-  let data = activeTeamsJson;
-
-  // If it's a string, try to parse it
-  if (typeof data === 'string') {
-    try {
-      data = JSON.parse(data);
-    } catch (e) {
-      console.error('[normalizeActiveTeams] Failed to parse JSON string:', e.message);
-      return [];
-    }
-  }
-
-  // If it's already an array
-  if (Array.isArray(data)) {
-    return data.map(item => {
-      if (typeof item === 'string') {
-        return normalizeTeamAbbr(item);
-      }
-      if (typeof item === 'object' && item !== null) {
-        // Handle {abbreviation: "BUF"} or {abbr: "KC"} or {team: "SF"}
-        const abbr = item.abbreviation || item.abbr || item.team || null;
-        return normalizeTeamAbbr(abbr);
-      }
-      return null;
-    }).filter(Boolean);
-  }
-
-  // If it's an object (not array)
-  if (typeof data === 'object' && data !== null) {
-    // Check for wrapper keys: {teams:[...]} or {activeTeams:[...]}
-    if (Array.isArray(data.teams)) {
-      return normalizeActiveTeams(data.teams);
-    }
-    if (Array.isArray(data.activeTeams)) {
-      return normalizeActiveTeams(data.activeTeams);
-    }
-    if (Array.isArray(data.active_teams)) {
-      return normalizeActiveTeams(data.active_teams);
-    }
-
-    // Otherwise treat keys as team abbreviations: {"BUF": true, "KC": {...}}
-    return Object.keys(data).map(key => normalizeTeamAbbr(key)).filter(Boolean);
-  }
-
-  return [];
+  return gameStateService.normalizeActiveTeams(activeTeamsJson);
 }
 
-// Helper: Get selectable teams from DB with caching
-// Returns { teams: string[], currentPlayoffWeek: number }
-// Fails closed after Wildcard if active_teams is missing/empty
 async function getSelectableTeams(dbPool) {
-  const now = Date.now();
-
-  // Return cached value if still valid
-  if (selectableTeamsCache.teams !== null &&
-      (now - selectableTeamsCache.lastFetch) < SELECTABLE_TEAMS_CACHE_MS) {
-    return {
-      teams: selectableTeamsCache.teams,
-      currentPlayoffWeek: selectableTeamsCache.currentPlayoffWeek
-    };
-  }
-
-  // Fetch from DB
-  const result = await dbPool.query(
-    'SELECT active_teams, current_playoff_week FROM game_settings LIMIT 1'
-  );
-
-  const row = result.rows[0] || {};
-  const currentPlayoffWeek = row.current_playoff_week || 1;
-  const normalizedTeams = normalizeActiveTeams(row.active_teams);
-
-  // Fail-closed after Wildcard: if active_teams is missing/empty, return error indicator
-  if (currentPlayoffWeek > 1 && normalizedTeams.length === 0) {
-    // Don't cache error state - allow retry
-    return {
-      teams: null,
-      currentPlayoffWeek: currentPlayoffWeek,
-      error: 'Server configuration error'
-    };
-  }
-
-  // During Wildcard (week 1): fallback to env/hardcoded if DB active_teams is empty
-  let teams;
-  if (normalizedTeams.length === 0) {
-    teams = FALLBACK_PLAYOFF_TEAMS.map(t => normalizeTeamAbbr(t));
-  } else {
-    teams = normalizedTeams;
-  }
-
-  // Update cache
-  selectableTeamsCache.teams = teams;
-  selectableTeamsCache.currentPlayoffWeek = currentPlayoffWeek;
-  selectableTeamsCache.lastFetch = now;
-
-  return { teams, currentPlayoffWeek };
+  return gameStateService.getSelectableTeams(dbPool);
 }
 
 // ==============================================
@@ -1394,20 +1300,9 @@ async function fetchGameSummary(gameId) {
 }
 
 // Get teams that have active picks this week
+// Wrapper that delegates to gameStateService with injected pool
 async function getActiveTeamsForWeek(weekNumber) {
-  try {
-    const result = await pool.query(`
-      SELECT DISTINCT p.team
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id::text
-      WHERE pk.week_number = $1 AND p.team IS NOT NULL
-    `, [weekNumber]);
-
-    return result.rows.map(r => r.team);
-  } catch (err) {
-    console.error('Error getting active teams:', err);
-    return [];
-  }
+  return gameStateService.getActiveTeamsForWeek(pool, weekNumber);
 }
 
 // Main live stats update function
@@ -1466,75 +1361,9 @@ async function updateLiveStats(weekNumber) {
 }
 
 // Calculate fantasy points from stats
+// Wrapper that delegates to scoringService with injected pool
 async function calculateFantasyPoints(stats) {
-  try {
-    const rulesResult = await pool.query(
-      'SELECT stat_name, points FROM scoring_rules WHERE is_active = true'
-    );
-
-    const rules = {};
-    for (const row of rulesResult.rows) {
-      rules[row.stat_name] = parseFloat(row.points);
-    }
-
-    let points = 0;
-
-    // Passing
-    points += (stats.pass_yd || 0) * (rules.pass_yd || 0);
-    points += (stats.pass_td || 0) * (rules.pass_td || 0);
-    points += (stats.pass_int || 0) * (rules.pass_int || 0);
-    points += (stats.pass_2pt || 0) * (rules.pass_2pt || 0);
-
-    // Rushing
-    points += (stats.rush_yd || 0) * (rules.rush_yd || 0);
-    points += (stats.rush_td || 0) * (rules.rush_td || 0);
-    points += (stats.rush_2pt || 0) * (rules.rush_2pt || 0);
-
-    // Receiving
-    points += (stats.rec || 0) * (rules.rec || 0);
-    points += (stats.rec_yd || 0) * (rules.rec_yd || 0);
-    points += (stats.rec_td || 0) * (rules.rec_td || 0);
-    points += (stats.rec_2pt || 0) * (rules.rec_2pt || 0);
-
-    // Fumbles
-    points += (stats.fum_lost || 0) * (rules.fum_lost || 0);
-
-    // Kicker stats - flat scoring
-    points += (stats.fg_made || 0) * 3;
-    points += (stats.xp_made || 0) * 1;
-    points += (stats.fg_missed || 0) * -1;
-    points += (stats.xp_missed || 0) * -1;
-
-    // Defense stats
-    if (stats.def_sack !== undefined) {
-      points += (stats.def_sack || 0) * (rules.def_sack || 1);
-      points += (stats.def_int || 0) * (rules.def_int || 2);
-      points += (stats.def_fum_rec || 0) * (rules.def_fum_rec || 2);
-      points += (stats.def_td || 0) * (rules.def_td || 6);
-      points += (stats.def_safety || 0) * (rules.def_safety || 2);
-      points += (stats.def_block || 0) * (rules.def_block || 4);
-      points += (stats.def_ret_td || 0) * (rules.def_ret_td || 6);
-
-      const ptsAllowed = stats.def_pts_allowed || 0;
-      if (ptsAllowed === 0) points += 20;
-      else if (ptsAllowed <= 6) points += 15;
-      else if (ptsAllowed <= 13) points += 10;
-      else if (ptsAllowed <= 20) points += 5;
-      else if (ptsAllowed <= 27) points += 0;
-      else if (ptsAllowed <= 34) points += -1;
-      else points += -4;
-    }
-
-    // Bonuses
-    if (stats.pass_yd >= 400) points += (rules.pass_yd_bonus || 0);
-    if (stats.rush_yd >= 150) points += (rules.rush_yd_bonus || 0);
-    if (stats.rec_yd >= 150) points += (rules.rec_yd_bonus || 0);
-
-    return parseFloat(points.toFixed(2));
-  } catch (err) {
-    console.error('Error calculating points:', err);
-    return 0;
-  }
+  return scoringService.calculateFantasyPoints(pool, stats);
 }
 
 // API ROUTES
@@ -1542,6 +1371,35 @@ async function calculateFantasyPoints(stats) {
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ==============================================
+// UNIVERSAL LINKS (iOS App Association)
+// ==============================================
+
+// Apple App Site Association for Universal Links
+// Served at /.well-known/apple-app-site-association (no file extension)
+app.get('/.well-known/apple-app-site-association', (req, res) => {
+  const aasa = {
+    applinks: {
+      apps: [],
+      details: [
+        {
+          appID: '24Z6R7U38A.com.iancarter.PlayoffChallenge',
+          paths: ['/join/*']
+        }
+      ]
+    }
+  };
+  res.setHeader('Content-Type', 'application/json');
+  res.json(aasa);
+});
+
+// Join link handler - redirects to App Store for iOS users without the app
+// iOS users with the app installed will be intercepted by Universal Links before this route
+app.get('/join/:token', (req, res) => {
+  const appStoreUrl = config.getAppStoreUrl();
+  res.redirect(302, appStoreUrl);
 });
 
 // Admin auth routes (no protection)
@@ -1556,6 +1414,15 @@ app.use('/api/admin/diagnostics', adminDiagnosticsRoutes);
 // Admin trends routes (protected by requireAdmin above)
 app.use('/api/admin/trends', adminTrendsRoutes);
 
+// Admin contest control routes (protected by requireAdmin above)
+app.use('/api/admin/contests', adminContestsRoutes);
+
+// Admin custom contest template routes (protected by requireAdmin above)
+app.use('/api/admin/custom-contests/templates', customContestTemplatesRoutes);
+
+// Custom contest routes (user-created contests)
+app.use('/api/custom-contests', customContestRoutes);
+
 // Update week active status (lock/unlock)
 app.post('/api/admin/update-week-status', async (req, res) => {
   try {
@@ -1565,14 +1432,8 @@ app.post('/api/admin/update-week-status', async (req, res) => {
       return res.status(400).json({ success: false, error: 'is_week_active must be a boolean' });
     }
 
-    const result = await pool.query(
-      'UPDATE game_settings SET is_week_active = $1 RETURNING *',
-      [is_week_active]
-    );
-
-    console.log(`Week lock status updated: is_week_active = ${is_week_active}`);
-
-    res.json({ success: true, message: is_week_active ? 'Week unlocked' : 'Week locked' });
+    const result = await adminService.updateWeekStatus(pool, is_week_active);
+    res.json(result);
   } catch (err) {
     console.error('Error updating week status:', err);
     res.status(500).json({ success: false, error: err.message });
@@ -1582,43 +1443,18 @@ app.post('/api/admin/update-week-status', async (req, res) => {
 // Verify week lock status - provides authoritative confirmation for admin verification
 app.get('/api/admin/verify-lock-status', async (req, res) => {
   try {
-    const gameStateResult = await pool.query(
-      `SELECT
-        is_week_active,
-        current_playoff_week,
-        playoff_start_week,
-        updated_at
-       FROM game_settings LIMIT 1`
-    );
+    const verification = await adminService.getLockStatusVerification(pool);
 
-    if (gameStateResult.rows.length === 0) {
+    if (!verification) {
       return res.status(500).json({
         success: false,
         error: 'Game settings not found'
       });
     }
 
-    const { is_week_active, current_playoff_week, playoff_start_week, updated_at } = gameStateResult.rows[0];
-    // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
-    const effectiveNflWeek = current_playoff_week > 0
-      ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
-      : null;
-
-    // Test that a picks write would actually be blocked
-    const lockEnforced = !is_week_active;
-
     res.json({
       success: true,
-      verification: {
-        isLocked: lockEnforced,
-        isWeekActive: is_week_active,
-        currentPlayoffWeek: current_playoff_week,
-        effectiveNflWeek: effectiveNflWeek,
-        lastUpdated: updated_at,
-        message: lockEnforced
-          ? 'Week is LOCKED. All pick modifications will be rejected by the API.'
-          : 'Week is UNLOCKED. Users can currently modify picks.'
-      }
+      verification
     });
   } catch (err) {
     console.error('Error verifying lock status:', err);
@@ -2402,31 +2238,12 @@ app.post('/api/admin/set-active-week', async (req, res) => {
       return res.status(400).json({ error: 'userId and weekNumber required' });
     }
 
-    // Verify user is admin
-    const userCheck = await pool.query(
-      'SELECT is_admin FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (userCheck.rows.length === 0 || !userCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Update the playoff_start_week setting
-    await pool.query(
-      `INSERT INTO game_settings (setting_key, setting_value, updated_by, updated_at)
-        VALUES ('playoff_start_week', $1, $2, NOW())
-        ON CONFLICT (setting_key) 
-        DO UPDATE SET setting_value = $1, updated_by = $2, updated_at = NOW()`,
-      [weekNumber.toString(), userId]
-    );
-
-    res.json({
-      success: true,
-      message: `Active week set to ${weekNumber}`,
-      weekNumber
-    });
+    const result = await adminService.setActiveWeek(pool, userId, weekNumber);
+    res.json(result);
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     console.error('Error setting active week:', err);
     res.status(500).json({ error: err.message });
   }
@@ -2440,80 +2257,16 @@ app.post('/api/admin/set-active-week', async (req, res) => {
 // This endpoint does NOT mutate any state. It only fetches and returns preview data.
 app.get('/api/admin/preview-week-transition', async (req, res) => {
   try {
-    // Get current game state
-    const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
-    );
-
-    if (gameStateResult.rows.length === 0) {
-      return res.status(500).json({ error: 'Game settings not found' });
-    }
-
-    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0];
-
-    // Validate preconditions (same as transition endpoint)
-    if (is_week_active) {
-      return res.status(400).json({
-        error: 'Week must be locked before previewing transition. Set is_week_active = false first.',
-        currentState: { is_week_active, current_playoff_week }
-      });
-    }
-
-    // Cannot advance beyond Super Bowl (capped offset 3). With Pro Bowl skip, this can be round 5.
-    const currentOffset = Math.min(current_playoff_week - 1, 3);
-    if (currentOffset >= 3) {
-      return res.status(400).json({
-        error: 'Cannot advance beyond Super Bowl (already at final round)',
-        currentState: { current_playoff_week, effectiveOffset: currentOffset }
-      });
-    }
-
-    // Derive initial target week using capped offset formula for consistency
-    const fromPlayoffWeek = current_playoff_week;
-    const initialToPlayoffWeek = current_playoff_week + 1;
-    const initialToWeekOffset = Math.min(initialToPlayoffWeek - 1, 3);
-    const initialToWeek = playoff_start_week + initialToWeekOffset;  // NFL week number (capped)
-
-    // Fetch ESPN data, automatically skipping Pro Bowl weeks entirely.
-    // PRO BOWL WEEK EXCLUSION: If ESPN returns only AFC/NFC events for a week,
-    // that entire week is skipped and we advance to the next postseason week.
-    // Pro Bowl data is never persisted or returned to the client.
-    let validWeekData;
-    try {
-      validWeekData = await fetchValidPostseasonWeek(initialToWeek, playoff_start_week);
-    } catch (espnErr) {
-      console.error('[admin] Preview: ESPN fetch failed:', espnErr.message);
-      return res.status(502).json({
-        error: 'Failed to fetch valid ESPN postseason data',
-        details: espnErr.message
-      });
-    }
-
-    const activeTeamsArray = Array.from(validWeekData.activeTeams).sort();
-
-    // Calculate capped effective week (same formula as getEffectiveWeekNumber and process-week-transition)
-    const toPlayoffWeek = validWeekData.playoffWeek;
-    const toWeekOffset = Math.min(toPlayoffWeek - 1, 3);
-    const effectiveNflWeek = playoff_start_week + toWeekOffset;
-
-    // Return preview data (no mutations)
-    // Note: toPlayoffWeek may differ from initial if Pro Bowl weeks were skipped
-    // effectiveNflWeek is the capped week where picks will be stored (may differ from ESPN's raw week)
-    res.json({
-      success: true,
-      preview: {
-        fromPlayoffWeek,
-        toPlayoffWeek,
-        nflWeek: effectiveNflWeek,  // Capped effective week (where picks will be stored)
-        espnNflWeek: validWeekData.nflWeek,  // Raw ESPN week (for reference)
-        eventCount: validWeekData.eventCount,
-        activeTeams: activeTeamsArray,
-        teamCount: activeTeamsArray.length,
-        skippedProBowlWeeks: validWeekData.skippedProBowlWeeks
-      }
-    });
-
+    const preview = await adminService.getWeekTransitionPreview(pool, fetchValidPostseasonWeek);
+    res.json({ success: true, preview });
   } catch (err) {
+    if (err.statusCode === 400) {
+      return res.status(400).json({ error: err.message, currentState: err.currentState });
+    }
+    if (err.message.includes('ESPN') || err.message.includes('postseason')) {
+      console.error('[admin] Preview: ESPN fetch failed:', err.message);
+      return res.status(502).json({ error: 'Failed to fetch valid ESPN postseason data', details: err.message });
+    }
     console.error('Error generating week transition preview:', err);
     res.status(500).json({ error: err.message });
   }
@@ -2527,7 +2280,6 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
 
   try {
     const { userId, previewConfirmed } = req.body;
-    // NOTE: fromWeek and toWeek are now IGNORED from client - derived from DB state
 
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
@@ -2541,201 +2293,24 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
       });
     }
 
-    // ========================================
-    // STEP 1: Validate preconditions (no transaction yet)
-    // ========================================
+    const result = await adminService.processWeekTransition(client, {
+      userId,
+      fetchValidPostseasonWeek,
+      getESPNScoreboardUrl
+    });
 
-    // Verify user is admin
-    const userCheck = await client.query(
-      'SELECT is_admin FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (userCheck.rows.length === 0 || !userCheck.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Get current game state - this is the SINGLE SOURCE OF TRUTH
-    const gameStateResult = await client.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
-    );
-
-    if (gameStateResult.rows.length === 0) {
-      return res.status(500).json({ error: 'Game settings not found' });
-    }
-
-    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0];
-
-    // PRECONDITION 1: Week must be locked
-    if (is_week_active) {
-      return res.status(400).json({
-        error: 'Week must be locked before advancing. Set is_week_active = false first.',
-        currentState: { is_week_active, current_playoff_week }
-      });
-    }
-
-    // PRECONDITION 2: Cannot advance beyond Super Bowl
-    // Super Bowl is the final round (capped offset 3). With Pro Bowl skip, this can be round 5.
-    const currentOffset = Math.min(current_playoff_week - 1, 3);
-    if (currentOffset >= 3) {
-      return res.status(400).json({
-        error: 'Cannot advance beyond Super Bowl (already at final round)',
-        currentState: { current_playoff_week, effectiveOffset: currentOffset }
-      });
-    }
-
-    // Derive initial target weeks from DB state
-    // Use capped offset formula for consistency with getEffectiveWeekNumber()
-    const fromPlayoffWeek = current_playoff_week;
-    const fromWeekOffset = Math.min(fromPlayoffWeek - 1, 3);
-    const fromWeek = playoff_start_week + fromWeekOffset;  // NFL week number (capped)
-    const initialToPlayoffWeek = current_playoff_week + 1;
-    const initialToWeekOffset = Math.min(initialToPlayoffWeek - 1, 3);
-    const initialToWeek = playoff_start_week + initialToWeekOffset;  // NFL week number (capped)
-
-    console.log(`[admin] Processing week transition: Playoff ${fromPlayoffWeek} -> ${initialToPlayoffWeek} (NFL ${fromWeek} -> ${initialToWeek})`);
-
-    // ========================================
-    // STEP 2: Fetch ESPN data BEFORE transaction (external call)
-    // PRO BOWL WEEK EXCLUSION: If ESPN returns only AFC/NFC events for a week,
-    // that entire week is skipped and we automatically advance to the next
-    // postseason week. Pro Bowl data is NEVER persisted.
-    // ========================================
-
-    let validWeekData;
-    try {
-      validWeekData = await fetchValidPostseasonWeek(initialToWeek, playoff_start_week);
-    } catch (espnErr) {
-      console.error('[admin] ESPN fetch failed:', espnErr.message);
-      return res.status(502).json({
-        error: 'Failed to fetch valid ESPN postseason data',
-        details: espnErr.message
-      });
-    }
-
-    // Use the effective week values (may differ from initial if Pro Bowl weeks were skipped)
-    const toPlayoffWeek = validWeekData.playoffWeek;
-    const activeTeams = validWeekData.activeTeams;
-
-    // CRITICAL: Calculate toWeek using the same capped formula as getEffectiveWeekNumber()
-    // This ensures picks are stored in the same week that clients will query.
-    // Without this, Pro Bowl skip causes ESPN to return week 20, but clients query week 19.
-    const toWeekOffset = Math.min(toPlayoffWeek - 1, 3);  // Cap at 3 (Super Bowl)
-    const toWeek = playoff_start_week + toWeekOffset;
-
-    if (validWeekData.skippedProBowlWeeks > 0) {
-      console.log(`[admin] Skipped ${validWeekData.skippedProBowlWeeks} Pro Bowl week(s). ESPN returned NFL week ${validWeekData.nflWeek}, using capped effective week ${toWeek}`);
-    }
-
-    // PRECONDITION 3: ESPN must return valid game data
-    // Expected team counts: Wild Card=12, Divisional=8, Conference=4, Super Bowl=2
-    const expectedTeamCounts = { 1: 12, 2: 8, 3: 4, 4: 2 };
-    const expectedCount = expectedTeamCounts[toPlayoffWeek];
-
-    if (activeTeams.size === 0) {
-      return res.status(400).json({
-        error: `ESPN returned no active teams for NFL week ${toWeek}. Cannot proceed with empty data.`,
-        espnUrl: getESPNScoreboardUrl(toWeek)
-      });
-    }
-
-    if (expectedCount && activeTeams.size !== expectedCount) {
-      console.warn(`[admin] WARNING: Expected ${expectedCount} teams for playoff week ${toPlayoffWeek}, got ${activeTeams.size}`);
-      // Log warning but don't block - playoff schedule can vary
-    }
-
-    console.log(`[admin] Active teams for NFL week ${toWeek}:`, Array.from(activeTeams));
-
-    // ========================================
-    // STEP 3: Begin transaction for all mutations
-    // ========================================
-
-    await client.query('BEGIN');
-
-    try {
-      // Get all picks from the current week
-      const picksResult = await client.query(`
-        SELECT pk.id, pk.user_id, pk.player_id, pk.position, pk.multiplier, pk.consecutive_weeks, p.team, p.full_name
-        FROM picks pk
-        JOIN players p ON pk.player_id = p.id
-        WHERE pk.week_number = $1
-      `, [fromWeek]);
-
-      let advancedCount = 0;
-      let eliminatedCount = 0;
-      const eliminated = [];
-      const activeTeamsArray = Array.from(activeTeams);
-
-      // Process each pick
-      for (const pick of picksResult.rows) {
-        const playerTeam = pick.team;
-        const isActive = activeTeams.has(playerTeam);
-
-        if (isActive) {
-          // Player's team is still active - increment multiplier
-          const newMultiplier = (pick.multiplier || 1) + 1;
-          const newConsecutiveWeeks = (pick.consecutive_weeks || 1) + 1;
-
-          // Create new pick for next week with incremented multiplier
-          await client.query(`
-            INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-            VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, false, NOW())
-            ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
-              multiplier = $5,
-              consecutive_weeks = $6
-          `, [pick.user_id, pick.player_id, toWeek, pick.position, newMultiplier, newConsecutiveWeeks]);
-
-          advancedCount++;
-        } else {
-          // Player's team is eliminated
-          eliminated.push({
-            userId: pick.user_id,
-            playerId: pick.player_id,
-            playerName: pick.full_name,
-            position: pick.position,
-            team: playerTeam
-          });
-          eliminatedCount++;
-        }
-      }
-
-      // Update game_settings atomically: active_teams AND current_playoff_week
-      await client.query(
-        'UPDATE game_settings SET active_teams = $1, current_playoff_week = $2',
-        [activeTeamsArray, toPlayoffWeek]
-      );
-
-      // Commit transaction
-      await client.query('COMMIT');
-
-      console.log(`[admin] Week transition COMMITTED: ${advancedCount} advanced, ${eliminatedCount} eliminated`);
-      console.log(`[admin] game_settings updated: current_playoff_week = ${toPlayoffWeek}, active_teams = [${activeTeamsArray.join(', ')}]`);
-
-      res.json({
-        success: true,
-        fromPlayoffWeek,
-        toPlayoffWeek,
-        fromWeek,
-        toWeek,
-        activeTeams: activeTeamsArray,
-        advancedCount,
-        eliminatedCount,
-        eliminated,
-        skippedProBowlWeeks: validWeekData.skippedProBowlWeeks,
-        newState: {
-          current_playoff_week: toPlayoffWeek,
-          effective_nfl_week: toWeek
-        }
-      });
-
-    } catch (txErr) {
-      // Rollback on ANY error within transaction
-      await client.query('ROLLBACK');
-      console.error('[admin] Week transition ROLLED BACK:', txErr.message);
-      throw txErr;
-    }
-
+    res.json(result);
   } catch (err) {
+    if (err.statusCode === 403) {
+      return res.status(403).json({ error: err.message });
+    }
+    if (err.statusCode === 400) {
+      return res.status(400).json({ error: err.message, currentState: err.currentState, espnUrl: err.espnUrl });
+    }
+    if (err.message.includes('ESPN') || err.message.includes('postseason')) {
+      console.error('[admin] ESPN fetch failed:', err.message);
+      return res.status(502).json({ error: 'Failed to fetch valid ESPN postseason data', details: err.message });
+    }
     console.error('Error processing week transition:', err);
     res.status(500).json({ error: err.message });
   } finally {
@@ -2769,36 +2344,12 @@ app.get('/api/picks/eliminated/:userId/:weekNumber', async (req, res) => {
       }
     }
 
-    // Get user's picks from PREVIOUS week
-    const prevWeek = parseInt(weekNumber) - 1;
-    const picksResult = await pool.query(`
-      SELECT pk.id, pk.user_id, pk.player_id, pk.position, pk.multiplier, p.team, p.full_name
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id
-      WHERE pk.user_id = $1 AND pk.week_number = $2
-    `, [userId, prevWeek]);
-
-    const eliminated = [];
-
-    for (const pick of picksResult.rows) {
-      const playerTeam = pick.team;
-      const isActive = activeTeams.has(playerTeam);
-
-      if (!isActive) {
-        eliminated.push({
-          pickId: pick.id,
-          playerId: pick.player_id,
-          playerName: pick.full_name,
-          position: pick.position,
-          team: playerTeam,
-          multiplier: pick.multiplier
-        });
-      }
-    }
+    // Get eliminated players via service
+    const eliminated = await picksService.getEliminatedPlayers(pool, userId, parseInt(weekNumber), activeTeams);
 
     res.json({
       weekNumber: parseInt(weekNumber),
-      previousWeek: prevWeek,
+      previousWeek: parseInt(weekNumber) - 1,
       activeTeams: Array.from(activeTeams),
       eliminated
     });
@@ -2820,29 +2371,17 @@ app.post('/api/picks/replace-player', async (req, res) => {
       });
     }
 
-    // Server-side week derivation for playoffs (same as pick submission)
+    // Fetch ESPN scoreboard to determine active teams
     const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
+      'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
     );
-    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0] || {};
-
-    // Week lockout check - block modifications when week is locked
-    if (!is_week_active) {
-      return res.status(403).json({
-        error: 'Picks are locked for this week. The submission window has closed.'
-      });
-    }
-
-    // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
+    const { current_playoff_week, playoff_start_week } = gameStateResult.rows[0] || {};
     const effectiveWeekNumber = current_playoff_week > 0
       ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
       : weekNumber;
 
-    // Verify the old player's team is actually eliminated
     const scoreboardResponse = await axios.get(getESPNScoreboardUrl(effectiveWeekNumber));
-
     const activeTeams = new Set();
-
     if (scoreboardResponse.data && scoreboardResponse.data.events) {
       for (const event of scoreboardResponse.data.events) {
         const competitors = event.competitions?.[0]?.competitors || [];
@@ -2855,141 +2394,34 @@ app.post('/api/picks/replace-player', async (req, res) => {
       }
     }
 
-    // Check old player's team
-    const oldPlayerResult = await pool.query(
-      'SELECT team, COALESCE(full_name, first_name || \' \' || last_name) AS full_name FROM players WHERE id = $1',
-      [oldPlayerId]
-    );
-
-    if (oldPlayerResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Old player not found' });
-    }
-
-    const oldPlayerTeam = oldPlayerResult.rows[0].team;
-    if (activeTeams.has(oldPlayerTeam)) {
-      return res.status(400).json({
-        error: `Cannot replace ${oldPlayerResult.rows[0].full_name} - their team (${oldPlayerTeam}) is still active`
-      });
-    }
-
-    // Get new player info
-    const newPlayerResult = await pool.query(
-      'SELECT team, COALESCE(full_name, first_name || \' \' || last_name) AS full_name, position, injury_status FROM players WHERE id = $1',
-      [newPlayerId]
-    );
-
-    if (newPlayerResult.rows.length === 0) {
-      return res.status(404).json({ error: 'New player not found' });
-    }
-
-    const newPlayer = newPlayerResult.rows[0];
-
-    // Validate new player is not on IR or otherwise unavailable
-    const ineligibleStatuses = ['IR', 'PUP', 'SUSP'];
-    const normalizedStatus = newPlayer.injury_status ? newPlayer.injury_status.toUpperCase().trim() : null;
-    if (normalizedStatus && ineligibleStatuses.includes(normalizedStatus)) {
-      return res.status(400).json({
-        error: `${newPlayer.full_name} is on ${newPlayer.injury_status} and cannot be selected.`
-      });
-    }
-
-    // Validate new player's team is selectable (uses DB-backed active_teams with caching)
+    // Get selectable teams
     const selectableResult = await getSelectableTeams(pool);
     if (selectableResult.error) {
       console.error(`[swap] ${selectableResult.error}: active_teams not set for playoff week ${selectableResult.currentPlayoffWeek}`);
       return res.status(500).json({ error: 'Server configuration error. Please contact support.' });
     }
-    const normalizedNewTeam = normalizeTeamAbbr(newPlayer.team);
-    if (!selectableResult.teams.includes(normalizedNewTeam)) {
-      return res.status(400).json({
-        error: `${newPlayer.full_name}'s team (${newPlayer.team}) has been eliminated. Only players from active teams are selectable.`
-      });
-    }
 
-    // Validate position limit
-    const positionLimit = await pool.query(
-      'SELECT required_count FROM position_requirements WHERE position = $1',
-      [position]
-    );
-
-    const maxPicks = positionLimit.rows[0]?.required_count || 2;
-
-    // Check current pick count for this position (excluding the old player)
-    const currentCount = await pool.query(`
-      SELECT COUNT(*) as count
-      FROM picks
-      WHERE user_id = $1
-        AND week_number = $2
-        AND position = $3
-        AND player_id != $4
-    `, [userId, effectiveWeekNumber, position, oldPlayerId]);
-
-    if (parseInt(currentCount.rows[0].count) >= maxPicks) {
-      return res.status(400).json({
-        error: `Position limit exceeded for ${position}. Maximum allowed: ${maxPicks}`
-      });
-    }
-
-    // Delete old pick if it exists for this week
-    await pool.query(
-      'DELETE FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
-      [userId, oldPlayerId, effectiveWeekNumber]
-    );
-
-    // Check for multiplier/consecutive_weeks carry from immediately previous playoff week
-    // If player was rostered in previous week, increment their multiplier and consecutive_weeks
-    let preservedMultiplier = 1;
-    let preservedConsecutiveWeeks = 1;
-    if (current_playoff_week > 1) {
-      const previousWeekNumber = effectiveWeekNumber - 1;
-      const prevPickResult = await pool.query(
-        'SELECT multiplier, consecutive_weeks FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
-        [userId, newPlayerId, previousWeekNumber]
-      );
-      if (prevPickResult.rows.length > 0) {
-        // Carry forward: current week = previous week + 1
-        preservedMultiplier = (prevPickResult.rows[0].multiplier || 1) + 1;
-        preservedConsecutiveWeeks = (prevPickResult.rows[0].consecutive_weeks || 1) + 1;
-        console.log(`[swap] Carrying multiplier ${preservedMultiplier} (prev ${prevPickResult.rows[0].multiplier}) and consecutive_weeks ${preservedConsecutiveWeeks} for player ${newPlayerId}`);
-      }
-    }
-
-    // Create new pick with carried values (or 1/1 if not found in previous week)
-    const newPickResult = await pool.query(`
-      INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, false, NOW())
-      ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
-        position = $4,
-        multiplier = $5,
-        consecutive_weeks = $6
-      RETURNING *
-    `, [userId, newPlayerId, effectiveWeekNumber, position, preservedMultiplier, preservedConsecutiveWeeks]);
-
-    // Log the swap to player_swaps table
-    await pool.query(`
-      INSERT INTO player_swaps (user_id, old_player_id, new_player_id, position, week_number, swapped_at)
-      VALUES ($1, $2, $3, $4, $5, NOW())
-    `, [userId, oldPlayerId, newPlayerId, position, effectiveWeekNumber]);
-
-    console.log(`[swap] User ${userId} replaced ${oldPlayerResult.rows[0].full_name} with ${newPlayerResult.rows[0].full_name} for week ${effectiveWeekNumber}`);
-
-    res.json({
-      success: true,
-      oldPlayer: {
-        id: oldPlayerId,
-        name: oldPlayerResult.rows[0].full_name,
-        team: oldPlayerTeam
-      },
-      newPlayer: {
-        id: newPlayerId,
-        name: newPlayerResult.rows[0].full_name,
-        team: newPlayerResult.rows[0].team
-      },
-      pick: newPickResult.rows[0]
+    const result = await picksService.executePlayerReplacement(pool, {
+      userId,
+      oldPlayerId,
+      newPlayerId,
+      position,
+      weekNumber,
+      activeTeams,
+      selectableTeams: selectableResult.teams,
+      normalizeTeamAbbr
     });
 
+    res.json(result);
   } catch (err) {
     console.error('Error replacing player:', err);
+    if (err.name === 'PicksError') {
+      const response = { error: err.message };
+      if (err.details) {
+        Object.assign(response, err.details);
+      }
+      return res.status(err.statusCode).json(response);
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -2997,52 +2429,7 @@ app.post('/api/picks/replace-player', async (req, res) => {
 // ==============================================
 // USER REGISTRATION / LOGIN
 // ==============================================
-
-// Restricted states (fantasy sports prohibited or heavily restricted)
-const RESTRICTED_STATES = ['NV', 'HI', 'ID', 'MT', 'WA'];
-
-// Helper: Log signup attempt for compliance auditing
-async function logSignupAttempt(appleId, email, name, attemptedState, ipState, blocked, blockedReason = null) {
-  try {
-    await pool.query(
-      `INSERT INTO signup_attempts
-        (apple_id, email, name, attempted_state, ip_state_verified, blocked, blocked_reason)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [appleId, email, name, attemptedState, ipState, blocked, blockedReason]
-    );
-  } catch (err) {
-    console.error('[COMPLIANCE] Error logging signup attempt:', err);
-    // Don't fail signup if logging fails
-  }
-}
-
-// Helper: Get IP state from request
-function getIPState(req) {
-  try {
-    const forwarded = req.headers['x-forwarded-for'];
-    const ip = forwarded ? forwarded.split(',')[0].trim() : req.connection.remoteAddress;
-
-    // Handle localhost/private IPs
-    if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
-      console.log('[COMPLIANCE] Local/private IP detected, skipping geolocation');
-      return null;
-    }
-
-    const geo = geoip.lookup(ip);
-    const state = geo?.region || null;
-
-    if (state) {
-      console.log(`[COMPLIANCE] IP ${ip} → State: ${state}`);
-    } else {
-      console.log(`[COMPLIANCE] IP ${ip} → State: unknown`);
-    }
-
-    return state;
-  } catch (err) {
-    console.error('[COMPLIANCE] Error in IP geolocation:', err);
-    return null;
-  }
-}
+// Business logic delegated to usersService
 
 app.post('/api/users', authLimiter, async (req, res) => {
   try {
@@ -3055,28 +2442,16 @@ app.post('/api/users', authLimiter, async (req, res) => {
     }
 
     // Try to find existing user first (allow returning users)
-    let result = await pool.query(
-      'SELECT * FROM users WHERE apple_id = $1 LIMIT 1',
-      [apple_id]
-    );
+    const existingUser = await usersService.findUserByAppleId(pool, apple_id);
 
-    if (result.rows.length > 0) {
-      const existingUser = result.rows[0];
+    if (existingUser) {
       console.log('Found existing user:', existingUser.id);
 
       // Update email/name if provided and currently NULL
       if ((email && !existingUser.email) || (name && !existingUser.name)) {
         console.log('Updating user with new email/name');
-        const updateResult = await pool.query(
-          `UPDATE users
-            SET email = COALESCE($1, email),
-                name = COALESCE($2, name),
-                updated_at = NOW()
-            WHERE id = $3
-            RETURNING *`,
-          [email || null, name || null, existingUser.id]
-        );
-        return res.json(updateResult.rows[0]);
+        const updatedUser = await usersService.updateUserEmailName(pool, existingUser.id, email, name);
+        return res.json(updatedUser);
       }
 
       return res.json(existingUser);
@@ -3090,14 +2465,17 @@ app.post('/api/users', authLimiter, async (req, res) => {
     }
 
     // Get IP-based state for audit trail
-    const ipState = getIPState(req);
+    const ipState = usersService.getIPState(req);
 
     // Check if state is restricted
-    if (RESTRICTED_STATES.includes(state.toUpperCase())) {
+    if (usersService.isRestrictedState(state)) {
       console.log(`[COMPLIANCE] Blocking signup from restricted state: ${state}`);
 
       // Log blocked attempt
-      await logSignupAttempt(apple_id, email, name, state.toUpperCase(), ipState, true, 'Restricted state');
+      await usersService.logSignupAttempt(pool, {
+        appleId: apple_id, email, name, attemptedState: state.toUpperCase(),
+        ipState, blocked: true, blockedReason: 'Restricted state'
+      });
 
       return res.status(403).json({
         error: 'Fantasy contests are not available in your state'
@@ -3111,42 +2489,18 @@ app.post('/api/users', authLimiter, async (req, res) => {
 
     // Create new user with compliance fields
     console.log('Creating new user with compliance data...');
-    // Username = email prefix (before @), never full email for privacy
-    let generatedUsername = email ? email.split('@')[0] : null;
-    if (!generatedUsername) {
-      generatedUsername = 'User_' + Math.random().toString(36).substring(2, 10);
-    }
-
-    const insert = await pool.query(
-      `INSERT INTO users (
-        id, apple_id, email, name, username,
-        state, ip_state_verified, state_certification_date,
-        eligibility_confirmed_at, age_verified, tos_version,
-        created_at, updated_at, paid
-      )
-      VALUES (
-        gen_random_uuid(), $1, $2, $3, $4,
-        $5, $6, NOW(),
-        NOW(), true, $7,
-        NOW(), NOW(), true
-      )
-      RETURNING *`,
-      [
-        apple_id,
-        email || null,
-        name || null,
-        generatedUsername,
-        state.toUpperCase(),
-        ipState,
-        tos_version || '2025-12-12'
-      ]
-    );
+    const newUser = await usersService.createAppleUser(pool, {
+      appleId: apple_id, email, name, state, ipState, tosVersion: tos_version
+    });
 
     // Log successful signup attempt
-    await logSignupAttempt(apple_id, email, name, state.toUpperCase(), ipState, false, null);
+    await usersService.logSignupAttempt(pool, {
+      appleId: apple_id, email, name, attemptedState: state.toUpperCase(),
+      ipState, blocked: false, blockedReason: null
+    });
 
-    console.log(`[COMPLIANCE] Created new user: ${insert.rows[0].id} (State: ${state})`);
-    res.json(insert.rows[0]);
+    console.log(`[COMPLIANCE] Created new user: ${newUser.id} (State: ${state})`);
+    res.json(newUser);
   } catch (err) {
     console.error('Error in /api/users:', err);
     res.status(500).json({ error: err.message });
@@ -3175,24 +2529,22 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     }
 
     // Check if email already exists
-    const existingUser = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email.toLowerCase()]
-    );
-
-    if (existingUser.rows.length > 0) {
+    if (await usersService.isEmailRegistered(pool, email)) {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
     // Get IP-based state for audit trail
-    const ipState = getIPState(req);
+    const ipState = usersService.getIPState(req);
 
     // Check if state is restricted
-    if (RESTRICTED_STATES.includes(state.toUpperCase())) {
+    if (usersService.isRestrictedState(state)) {
       console.log(`[COMPLIANCE] Blocking signup from restricted state: ${state}`);
 
       // Log blocked attempt
-      await logSignupAttempt(null, email, name, state.toUpperCase(), ipState, true, 'Restricted state');
+      await usersService.logSignupAttempt(pool, {
+        appleId: null, email, name, attemptedState: state.toUpperCase(),
+        ipState, blocked: true, blockedReason: 'Restricted state'
+      });
 
       return res.status(403).json({
         error: 'Fantasy contests are not available in your state'
@@ -3204,51 +2556,20 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       console.warn(`[COMPLIANCE] State mismatch - User claimed: ${state}, IP shows: ${ipState}`);
     }
 
-    // Hash password
-    const saltRounds = 10;
-    const password_hash = await bcrypt.hash(password, saltRounds);
-
-    // Generate username = email prefix (before @), never full email for privacy
-    let generatedUsername = email ? email.split('@')[0] : null;
-    if (!generatedUsername) {
-      generatedUsername = 'User_' + Math.random().toString(36).substring(2, 10);
-    }
-
     // Create new user
-    const insert = await pool.query(
-      `INSERT INTO users (
-        id, email, password_hash, name, username, auth_method,
-        state, ip_state_verified, state_certification_date,
-        eligibility_confirmed_at, age_verified, tos_version,
-        created_at, updated_at, paid
-      )
-      VALUES (
-        gen_random_uuid(), $1, $2, $3, $4, 'email',
-        $5, $6, NOW(),
-        NOW(), true, $7,
-        NOW(), NOW(), true
-      )
-      RETURNING *`,
-      [
-        email.toLowerCase(),
-        password_hash,
-        name || null,
-        generatedUsername,
-        state.toUpperCase(),
-        ipState,
-        tos_version || '2025-12-12'
-      ]
-    );
+    const newUser = await usersService.createEmailUser(pool, {
+      email, password, name, state, ipState, tosVersion: tos_version
+    });
 
     // Log successful signup
-    await logSignupAttempt(null, email, name, state.toUpperCase(), ipState, false, null);
+    await usersService.logSignupAttempt(pool, {
+      appleId: null, email, name, attemptedState: state.toUpperCase(),
+      ipState, blocked: false, blockedReason: null
+    });
 
-    console.log(`[AUTH] Created new email user: ${insert.rows[0].id} (State: ${state})`);
+    console.log(`[AUTH] Created new email user: ${newUser.id} (State: ${state})`);
 
-    // Return user (without password_hash)
-    const user = insert.rows[0];
-    delete user.password_hash;
-    res.json(user);
+    res.json(newUser);
   } catch (err) {
     console.error('Error in /api/auth/register:', err);
     res.status(500).json({ error: err.message });
@@ -3267,16 +2588,11 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
 
     // Find user by email
-    const result = await pool.query(
-      'SELECT * FROM users WHERE email = $1 LIMIT 1',
-      [email.toLowerCase()]
-    );
+    const user = await usersService.findUserByEmail(pool, email);
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
-
-    const user = result.rows[0];
 
     // Check if user has password_hash (might be Apple Sign In user)
     if (!user.password_hash) {
@@ -3284,7 +2600,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
 
     // Verify password
-    const validPassword = await bcrypt.compare(password, user.password_hash);
+    const validPassword = await usersService.verifyPassword(password, user.password_hash);
 
     if (!validPassword) {
       return res.status(401).json({ error: 'Invalid email or password' });
@@ -3306,16 +2622,17 @@ app.get('/api/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const result = await pool.query(
-      'SELECT * FROM users WHERE id = $1 LIMIT 1',
-      [userId]
-    );
+    if (!isValidUUID(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
 
-    if (result.rows.length === 0) {
+    const user = await usersService.findUserById(pool, userId);
+
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json(result.rows[0]);
+    res.json(user);
   } catch (err) {
     console.error('Error fetching user:', err);
     res.status(500).json({ error: err.message });
@@ -3328,92 +2645,40 @@ app.put('/api/users/:userId', async (req, res) => {
     const { userId } = req.params;
     const { username, email, phone, name } = req.body;
 
+    if (!isValidUUID(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
+
     console.log('PUT /api/users/:userId - Updating user:', { userId, username, email, phone, name });
 
     // Verify user exists
-    const userCheck = await pool.query(
-      'SELECT id FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (userCheck.rows.length === 0) {
+    const existingUser = await usersService.findUserById(pool, userId);
+    if (!existingUser) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Check username uniqueness if username is being updated
     if (username) {
-      const usernameCheck = await pool.query(
-        'SELECT id FROM users WHERE username = $1 AND id != $2',
-        [username, userId]
-      );
-
-      if (usernameCheck.rows.length > 0) {
+      const isAvailable = await usersService.isUsernameAvailable(pool, username, userId);
+      if (!isAvailable) {
         return res.status(400).json({ error: 'Username already taken' });
       }
 
-      // Validate username format (alphanumeric, underscore, dash, 3-30 chars)
-      const usernameRegex = /^[a-zA-Z0-9_-]{3,30}$/;
-      if (!usernameRegex.test(username)) {
-        return res.status(400).json({
-          error: 'Username must be 3-30 characters and contain only letters, numbers, underscores, and dashes'
-        });
+      // Validate username format
+      const validation = usersService.validateUsername(username);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
       }
     }
 
-    // Build dynamic update query based on provided fields
-    const updates = [];
-    const values = [];
-    let paramCount = 1;
-
-    if (username !== undefined) {
-      updates.push(`username = $${paramCount}`);
-      values.push(username);
-      paramCount++;
-    }
-
-    if (email !== undefined) {
-      updates.push(`email = $${paramCount}`);
-      values.push(email);
-      paramCount++;
-    }
-
-    if (phone !== undefined) {
-      updates.push(`phone = $${paramCount}`);
-      values.push(phone);
-      paramCount++;
-    }
-
-    if (name !== undefined) {
-      updates.push(`name = $${paramCount}`);
-      values.push(name);
-      paramCount++;
-    }
-
-    // Always update the updated_at timestamp
-    updates.push(`updated_at = NOW()`);
-
-    if (updates.length === 1) {
-      // Only updated_at would be updated, nothing else provided
+    // Check if there are fields to update
+    if (username === undefined && email === undefined && phone === undefined && name === undefined) {
       return res.status(400).json({ error: 'No fields to update' });
     }
 
-    // Add userId as the last parameter for WHERE clause
-    values.push(userId);
+    const user = await usersService.updateUserProfile(pool, userId, { username, email, phone, name });
 
-    const query = `
-      UPDATE users
-      SET ${updates.join(', ')}
-      WHERE id = $${paramCount}
-      RETURNING *
-    `;
-
-    const result = await pool.query(query, values);
-
-    console.log('User updated successfully:', result.rows[0].id);
-
-    // Remove password_hash from response (iOS User model doesn't have this field)
-    const user = result.rows[0];
-    delete user.password_hash;
+    console.log('User updated successfully:', user.id);
 
     res.json(user);
   } catch (err) {
@@ -3428,22 +2693,13 @@ app.put('/api/users/:userId/accept-tos', async (req, res) => {
     const { userId } = req.params;
     const { tos_version } = req.body;
 
-    const result = await pool.query(
-      `UPDATE users
-        SET tos_accepted_at = NOW(),
-            tos_version = $1,
-            updated_at = NOW()
-        WHERE id = $2
-        RETURNING *`,
-      [tos_version || '2025-12-12', userId]
-    );
+    const user = await usersService.acceptTos(pool, userId, tos_version);
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    console.log(`[COMPLIANCE] User ${userId} accepted TOS version ${tos_version}`);
-    res.json(result.rows[0]);
+    res.json(user);
   } catch (err) {
     console.error('Error accepting TOS:', err);
     res.status(500).json({ error: err.message });
@@ -3453,17 +2709,6 @@ app.put('/api/users/:userId/accept-tos', async (req, res) => {
 // ==============================================
 // ACCOUNT DELETION ENDPOINT
 // ==============================================
-
-// Shared helper for deleting a user and all related data
-// Accepts a client from pool.connect() - caller is responsible for BEGIN/COMMIT/ROLLBACK
-async function deleteUserById(client, userId) {
-  // Delete in order: picks, player_swaps, scores, then user
-  await client.query('DELETE FROM picks WHERE user_id = $1', [userId]);
-  await client.query('DELETE FROM player_swaps WHERE user_id = $1', [userId]);
-  await client.query('DELETE FROM scores WHERE user_id = $1', [userId]);
-  const result = await client.query('DELETE FROM users WHERE id = $1 RETURNING *', [userId]);
-  return result;
-}
 
 // DELETE /api/user - Permanently delete the authenticated user's account
 // This endpoint satisfies Apple App Review requirements for account deletion
@@ -3495,7 +2740,7 @@ app.delete('/api/user', async (req, res) => {
 
     console.log(`[ACCOUNT DELETION] Deleting user: ${userId}`);
 
-    await deleteUserById(client, userId);
+    await usersService.deleteUserById(client, userId);
     await client.query('COMMIT');
 
     console.log(`[ACCOUNT DELETION] User ${userId} permanently deleted`);
@@ -3773,10 +3018,8 @@ app.get('/api/players', async (req, res) => {
 });
 
 // ==============================================
-// V2 PICKS API - MUST BE DEFINED BEFORE /:userId ROUTES
+// PICKS API (v2 only - v1 routes removed)
 // ==============================================
-// These routes must come BEFORE /api/picks/:userId to prevent
-// "v2" from being captured as a userId parameter
 
 // GET /api/picks/v2 - Get normalized lineup for v2 clients
 app.get('/api/picks/v2', async (req, res) => {
@@ -3799,7 +3042,6 @@ app.get('/api/picks/v2', async (req, res) => {
     }
 
     // For reads: allow viewing historical weeks, default to server week when omitted
-    // Remap playoff week index (1-4) to NFL week (19-22)
     let effectiveWeek;
     if (weekNumber !== undefined) {
       effectiveWeek = await resolveActualWeekNumber(weekNumber, pool, 'PicksV2');
@@ -3807,63 +3049,17 @@ app.get('/api/picks/v2', async (req, res) => {
         return res.status(400).json({ error: 'Invalid weekNumber' });
       }
     } else {
-      // Default to server's effective week (already returns NFL week)
       effectiveWeek = await getEffectiveWeekNumber();
     }
 
-    // Get picks with player info
-    const picksResult = await pool.query(`
-      SELECT
-        pk.id AS pick_id,
-        pk.player_id,
-        pk.position,
-        pk.multiplier,
-        pk.locked,
-        pk.consecutive_weeks,
-        COALESCE(p.full_name, p.first_name || ' ' || p.last_name) AS full_name,
-        p.team,
-        p.sleeper_id,
-        p.image_url,
-        COALESCE(s.final_points, 0) AS final_points
-      FROM picks pk
-      JOIN players p
-        ON pk.player_id = p.id
-      LEFT JOIN scores s
-        ON s.player_id = pk.player_id
-      AND s.user_id = pk.user_id
-      AND s.week_number = pk.week_number
-      WHERE pk.user_id = $1
-        AND pk.week_number = $2
-      ORDER BY
-        CASE pk.position
-          WHEN 'QB' THEN 1
-          WHEN 'RB' THEN 2
-          WHEN 'WR' THEN 3
-          WHEN 'TE' THEN 4
-          WHEN 'K' THEN 5
-          WHEN 'DEF' THEN 6
-          ELSE 7
-        END;
-    `, [userId, effectiveWeek]);
-
-    // Get position limits
-    const settingsResult = await pool.query(
-      `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
-    );
-    const settings = settingsResult.rows[0] || {};
+    // Get picks and position limits via service
+    const { picks, positionLimits } = await picksService.getPicksV2(pool, userId, effectiveWeek);
 
     res.json({
       userId,
       weekNumber: effectiveWeek,
-      picks: picksResult.rows,
-      positionLimits: {
-        QB: settings.qb_limit || 1,
-        RB: settings.rb_limit || 2,
-        WR: settings.wr_limit || 2,
-        TE: settings.te_limit || 1,
-        K: settings.k_limit || 1,
-        DEF: settings.def_limit || 1
-      }
+      picks,
+      positionLimits
     });
   } catch (err) {
     console.error('Error in GET /api/picks/v2:', err);
@@ -3892,558 +3088,31 @@ app.post('/api/picks/v2', async (req, res) => {
       return res.status(400).json({ error: 'ops array is required and must not be empty' });
     }
 
-    // User validation
-    const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Week lockout check
-    const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
-    );
-    const { current_playoff_week, is_week_active } = gameStateResult.rows[0] || {};
-    if (!is_week_active) {
-      return res.status(403).json({
-        error: 'Picks are locked for this week. The submission window has closed.'
-      });
-    }
-
-    // Server is the single source of truth for active week
-    const effectiveWeek = await getEffectiveWeekNumber();
-
-    // Guard: reject if client sent a mismatched week (prevents future-week writes)
-    if (weekNumber && parseInt(weekNumber, 10) !== effectiveWeek) {
-      return res.status(409).json({
-        error: 'Week mismatch. The active playoff week has changed. Please refresh.',
-        serverWeek: effectiveWeek,
-        clientWeek: parseInt(weekNumber, 10)
-      });
-    }
-
-    // Get selectable teams (uses DB-backed active_teams with caching)
+    // Get selectable teams
     const selectableResult = await getSelectableTeams(pool);
     if (selectableResult.error) {
       console.error(`[picks/v2] ${selectableResult.error}: active_teams not set for playoff week ${selectableResult.currentPlayoffWeek}`);
       return res.status(500).json({ error: 'Server configuration error. Please contact support.' });
     }
-    const selectableTeams = selectableResult.teams;
 
-    // Build proposed operations with position info
-    const proposedOps = [];
-    for (const op of ops) {
-      if (op.action === 'add') {
-        // Get player info including team and injury status
-        const playerResult = await pool.query('SELECT position, team, injury_status, COALESCE(full_name, first_name || \' \' || last_name) AS full_name FROM players WHERE id = $1', [op.playerId]);
-        if (playerResult.rows.length === 0) {
-          return res.status(400).json({ error: `Player ${op.playerId} not found` });
-        }
-
-        const player = playerResult.rows[0];
-
-        // Validate player is not on IR or otherwise unavailable
-        const ineligibleStatuses = ['IR', 'PUP', 'SUSP'];
-        const normalizedStatus = player.injury_status ? player.injury_status.toUpperCase().trim() : null;
-        if (normalizedStatus && ineligibleStatuses.includes(normalizedStatus)) {
-          return res.status(400).json({
-            error: `${player.full_name || op.playerId} is on ${player.injury_status} and cannot be selected.`
-          });
-        }
-
-        // Validate player's team is selectable
-        const normalizedTeam = normalizeTeamAbbr(player.team);
-        if (!selectableTeams.includes(normalizedTeam)) {
-          return res.status(400).json({
-            error: `Player ${op.playerId}'s team (${player.team}) has been eliminated. Only players from active teams are selectable.`
-          });
-        }
-
-        proposedOps.push({ action: 'add', position: player.position, playerId: op.playerId });
-      } else if (op.action === 'remove') {
-        // Get pick position AND player_id (needed for swap detection)
-        const pickResult = await pool.query('SELECT position, player_id FROM picks WHERE id = $1', [op.pickId]);
-        if (pickResult.rows.length === 0) {
-          return res.status(400).json({ error: `Pick ${op.pickId} not found` });
-        }
-        proposedOps.push({ action: 'remove', position: pickResult.rows[0].position, pickId: op.pickId, playerId: pickResult.rows[0].player_id });
-      }
-    }
-
-    // Validate position limits
-    const validation = await validatePositionCounts(userId, effectiveWeek, proposedOps);
-    if (!validation.valid) {
-      return res.status(400).json({
-        error: 'Position limit exceeded',
-        details: validation.errors
-      });
-    }
-
-    // Execute operations within a transaction (for atomicity and swap logging)
-    const dbClient = await pool.connect();
-    const results = [];
-
-    try {
-      await dbClient.query('BEGIN');
-
-      // Track removals by position for swap detection
-      const removalsByPosition = new Map(); // position → { playerId, pickId }
-
-      for (const op of proposedOps) {
-        if (op.action === 'add') {
-          // Check for multiplier/consecutive_weeks carry from immediately previous playoff week
-          let preservedMultiplier = 1;
-          let preservedConsecutiveWeeks = 1;
-          if (current_playoff_week > 1) {
-            const previousWeekNumber = effectiveWeek - 1;
-            const prevPickResult = await dbClient.query(
-              'SELECT multiplier, consecutive_weeks FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
-              [userId, op.playerId, previousWeekNumber]
-            );
-            if (prevPickResult.rows.length > 0) {
-              // Carry forward: current week = previous week + 1
-              preservedMultiplier = (prevPickResult.rows[0].multiplier || 1) + 1;
-              preservedConsecutiveWeeks = (prevPickResult.rows[0].consecutive_weeks || 1) + 1;
-              console.log(`[picks/v2] Carrying multiplier ${preservedMultiplier} (prev ${prevPickResult.rows[0].multiplier}) and consecutive_weeks ${preservedConsecutiveWeeks} for player ${op.playerId}`);
-            }
-          }
-
-          const insertResult = await dbClient.query(`
-            INSERT INTO picks (user_id, player_id, position, week_number, multiplier, consecutive_weeks, locked)
-            VALUES ($1, $2, $3, $4, $5, $6, false)
-            RETURNING *
-          `, [userId, op.playerId, op.position, effectiveWeek, preservedMultiplier, preservedConsecutiveWeeks]);
-          results.push({ action: 'add', success: true, pick: insertResult.rows[0] });
-
-          // Check if this add corresponds to a removal at the same position (swap detection)
-          const removal = removalsByPosition.get(op.position);
-          if (removal && removal.playerId !== op.playerId) {
-            // This is a swap: log to player_swaps
-            await dbClient.query(`
-              INSERT INTO player_swaps (user_id, old_player_id, new_player_id, position, week_number, swapped_at)
-              VALUES ($1, $2, $3, $4, $5, NOW())
-            `, [userId, removal.playerId, op.playerId, op.position, effectiveWeek]);
-            console.log(`[picks/v2] Logged swap: user ${userId} replaced ${removal.playerId} with ${op.playerId} at ${op.position} for week ${effectiveWeek}`);
-          }
-        } else if (op.action === 'remove') {
-          await dbClient.query('DELETE FROM picks WHERE id = $1 AND user_id = $2', [op.pickId, userId]);
-          results.push({ action: 'remove', success: true, pickId: op.pickId });
-
-          // Track this removal for swap detection
-          removalsByPosition.set(op.position, { playerId: op.playerId, pickId: op.pickId });
-        }
-      }
-
-      await dbClient.query('COMMIT');
-    } catch (txErr) {
-      await dbClient.query('ROLLBACK');
-      throw txErr;
-    } finally {
-      dbClient.release();
-    }
-
-    // Return updated position counts
-    res.json({
-      success: true,
-      weekNumber: effectiveWeek,
-      operations: results,
-      positionCounts: validation.counts
+    const result = await picksService.executePicksV2Operations(pool, {
+      userId,
+      weekNumber,
+      ops,
+      selectableTeams: selectableResult.teams,
+      normalizeTeamAbbr
     });
+
+    res.json(result);
   } catch (err) {
     console.error('Error in POST /api/picks/v2:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ==============================================
-// LEGACY PICKS ROUTES (v1) - Keep for backward compatibility
-// ==============================================
-
-// Get user's picks
-app.get('/api/picks/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    // Fetch playoff_start_week for display field derivation
-    const settingsResult = await pool.query(
-      'SELECT playoff_start_week FROM game_settings LIMIT 1'
-    );
-    const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
-
-    const result = await pool.query(`
-      SELECT pk.*, p.full_name, p.position, p.team
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id
-      WHERE pk.user_id = $1
-      ORDER BY pk.week_number, pk.position
-    `, [userId]);
-
-    // Add display fields derived at response time
-    const picksWithDisplayFields = result.rows.map(pick => {
-      const isPlayoff = pick.week_number >= playoffStartWeek;
-      const playoffWeek = isPlayoff ? pick.week_number - playoffStartWeek + 1 : null;
-      return {
-        ...pick,
-        is_playoff: isPlayoff,
-        playoff_week: playoffWeek,
-        display_week: isPlayoff ? `Playoff Week ${playoffWeek}` : `Week ${pick.week_number}`
-      };
-    });
-
-    res.json(picksWithDisplayFields);
-  } catch (err) {
-    console.error('Error fetching picks:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Alternative route for picks (handles /api/picks/user/:userId)
-app.get('/api/picks/user/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    // Fetch playoff_start_week for display field derivation
-    const settingsResult = await pool.query(
-      'SELECT playoff_start_week FROM game_settings LIMIT 1'
-    );
-    const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
-
-    const result = await pool.query(`
-      SELECT pk.*, p.full_name, p.position, p.team, p.sleeper_id, p.image_url
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id
-      WHERE pk.user_id = $1
-      ORDER BY pk.week_number, pk.position
-    `, [userId]);
-
-    // Add display fields derived at response time
-    const picksWithDisplayFields = result.rows.map(pick => {
-      const isPlayoff = pick.week_number >= playoffStartWeek;
-      const playoffWeek = isPlayoff ? pick.week_number - playoffStartWeek + 1 : null;
-      return {
-        ...pick,
-        is_playoff: isPlayoff,
-        playoff_week: playoffWeek,
-        display_week: isPlayoff ? `Playoff Week ${playoffWeek}` : `Week ${pick.week_number}`
-      };
-    });
-
-    res.json(picksWithDisplayFields);
-  } catch (err) {
-    console.error('Error fetching picks:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Get user picks
-app.get('/api/picks', async (req, res) => {
-  try {
-    const { userId } = req.query;
-
-    if (!userId) {
-      return res.status(400).json({ error: 'userId required' });
-    }
-
-    // Fetch playoff_start_week for display field derivation
-    const settingsResult = await pool.query(
-      'SELECT playoff_start_week FROM game_settings LIMIT 1'
-    );
-    const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
-
-    const result = await pool.query(
-      `SELECT p.*, pl.full_name, pl.position as player_position, pl.team, pl.sleeper_id, pl.image_url
-        FROM picks p
-        LEFT JOIN players pl ON p.player_id = pl.id
-        WHERE p.user_id = $1
-        ORDER BY p.week_number, p.position`,
-      [userId]
-    );
-
-    // Add display fields derived at response time
-    const picksWithDisplayFields = result.rows.map(pick => {
-      const isPlayoff = pick.week_number >= playoffStartWeek;
-      const playoffWeek = isPlayoff ? pick.week_number - playoffStartWeek + 1 : null;
-      return {
-        ...pick,
-        is_playoff: isPlayoff,
-        playoff_week: playoffWeek,
-        display_week: isPlayoff ? `Playoff Week ${playoffWeek}` : `Week ${pick.week_number}`
-      };
-    });
-
-    res.json(picksWithDisplayFields);
-  } catch (err) {
-    console.error('Error getting picks:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Submit picks (supports single pick or batch)
-app.post('/api/picks', async (req, res) => {
-  try {
-    const { userId, playerId, weekNumber, position, multiplier, picks } = req.body;
-
-    // User validation
-    const userCheck = await pool.query(
-      'SELECT id FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Server-side week derivation for playoffs
-    // During playoffs, ignore client weekNumber and derive from game state
-    // This prevents misconfiguration bugs where picks land on wrong week
-    const gameStateResult = await pool.query(
-      'SELECT current_playoff_week, playoff_start_week, is_week_active FROM game_settings LIMIT 1'
-    );
-    const { current_playoff_week, playoff_start_week, is_week_active } = gameStateResult.rows[0] || {};
-
-    // Week lockout check - block picks when week is locked
-    if (!is_week_active) {
-      return res.status(403).json({
-        error: 'Picks are locked for this week. The submission window has closed.'
-      });
-    }
-
-    // Server is the single source of truth for active week (never trust client weekNumber)
-    // If in playoff mode, compute NFL week from playoff round
-    // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
-    // playoff_week 1 = Wild Card = offset 0, playoff_week 5 = Super Bowl = offset 3 (capped)
-    const effectiveWeekNumber = current_playoff_week > 0
-      ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
-      : (playoff_start_week > 0 ? playoff_start_week : 1);
-
-    // Guard: reject if client sent a mismatched week (prevents future-week writes)
-    if (weekNumber && parseInt(weekNumber, 10) !== effectiveWeekNumber) {
-      return res.status(409).json({
-        error: 'Week mismatch. The active playoff week has changed. Please refresh.',
-        serverWeek: effectiveWeekNumber,
-        clientWeek: parseInt(weekNumber, 10)
-      });
-    }
-
-    // Get selectable teams (uses DB-backed active_teams with caching)
-    const selectableResult = await getSelectableTeams(pool);
-    if (selectableResult.error) {
-      console.error(`[picks] ${selectableResult.error}: active_teams not set for playoff week ${selectableResult.currentPlayoffWeek}`);
-      return res.status(500).json({ error: 'Server configuration error. Please contact support.' });
-    }
-    const selectableTeams = selectableResult.teams;
-
-    // Support batch submission
-    if (picks && Array.isArray(picks)) {
-      const results = [];
-
-      for (const pick of picks) {
-        // Validate player's team is selectable and player is not on IR
-        const playerCheck = await pool.query(
-          'SELECT team, injury_status, COALESCE(full_name, first_name || \' \' || last_name) AS full_name FROM players WHERE id = $1',
-          [pick.playerId]
-        );
-        if (playerCheck.rows.length === 0) {
-          return res.status(404).json({ error: `Player not found: ${pick.playerId}` });
-        }
-        const player = playerCheck.rows[0];
-
-        // Validate player is not on IR or otherwise unavailable
-        const ineligibleStatuses = ['IR', 'PUP', 'SUSP'];
-        const normalizedStatus = player.injury_status ? player.injury_status.toUpperCase().trim() : null;
-        if (normalizedStatus && ineligibleStatuses.includes(normalizedStatus)) {
-          return res.status(400).json({
-            error: `${player.full_name || pick.playerId} is on ${player.injury_status} and cannot be selected.`
-          });
-        }
-
-        const normalizedTeam = normalizeTeamAbbr(player.team);
-        if (!selectableTeams.includes(normalizedTeam)) {
-          return res.status(400).json({
-            error: `Player ${pick.playerId}'s team (${player.team}) has been eliminated. Only players from active teams are selectable.`
-          });
-        }
-
-        // Validate position limit before inserting - read from game_settings
-        const settingsResult = await pool.query(
-          `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
-        );
-
-        const settings = settingsResult.rows[0] || {};
-        const positionToLimit = {
-          'QB': settings.qb_limit,
-          'RB': settings.rb_limit,
-          'WR': settings.wr_limit,
-          'TE': settings.te_limit,
-          'K': settings.k_limit,
-          'DEF': settings.def_limit
-        };
-
-        const maxPicks = positionToLimit[pick.position] || 2;
-
-        // Check current pick count for this position (excluding the current player if updating)
-        const currentCount = await pool.query(`
-          SELECT COUNT(*) as count
-          FROM picks
-          WHERE user_id = $1
-            AND week_number = $2
-            AND position = $3
-            AND player_id != $4
-        `, [userId, effectiveWeekNumber, pick.position, pick.playerId]);
-
-        if (parseInt(currentCount.rows[0].count) >= maxPicks) {
-          return res.status(400).json({
-            error: `Position limit exceeded for ${pick.position}. Maximum allowed: ${maxPicks}`
-          });
-        }
-
-        // Check for multiplier/consecutive_weeks carry from immediately previous playoff week
-        let preservedMultiplier = 1;
-        let preservedConsecutiveWeeks = 1;
-        if (current_playoff_week > 1) {
-          const previousWeekNumber = effectiveWeekNumber - 1;
-          const prevPickResult = await pool.query(
-            'SELECT multiplier, consecutive_weeks FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
-            [userId, pick.playerId, previousWeekNumber]
-          );
-          if (prevPickResult.rows.length > 0) {
-            // Carry forward: current week = previous week + 1
-            preservedMultiplier = (prevPickResult.rows[0].multiplier || 1) + 1;
-            preservedConsecutiveWeeks = (prevPickResult.rows[0].consecutive_weeks || 1) + 1;
-            console.log(`[picks] Carrying multiplier ${preservedMultiplier} (prev ${prevPickResult.rows[0].multiplier}) and consecutive_weeks ${preservedConsecutiveWeeks} for player ${pick.playerId}`);
-          }
-        }
-
-        const result = await pool.query(`
-          INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, false, NOW())
-          ON CONFLICT (user_id, player_id, week_number)
-          DO UPDATE SET
-            position = $4,
-            multiplier = $5,
-            consecutive_weeks = $6,
-            created_at = NOW()
-          RETURNING *
-        `, [userId, pick.playerId, effectiveWeekNumber, pick.position, preservedMultiplier, preservedConsecutiveWeeks]);
-
-        results.push(result.rows[0]);
+    if (err.name === 'PicksError') {
+      const response = { error: err.message };
+      if (err.details) {
+        Object.assign(response, err.details);
       }
-
-      return res.json({ success: true, picks: results });
+      return res.status(err.statusCode).json(response);
     }
-
-    // Single pick submission with UPSERT
-    // Validate player's team is selectable
-    const playerTeamCheck = await pool.query(
-      'SELECT team FROM players WHERE id = $1',
-      [playerId]
-    );
-    if (playerTeamCheck.rows.length === 0) {
-      return res.status(404).json({ error: `Player not found: ${playerId}` });
-    }
-    const normalizedTeam = normalizeTeamAbbr(playerTeamCheck.rows[0].team);
-    if (!selectableTeams.includes(normalizedTeam)) {
-      return res.status(400).json({
-        error: `Player ${playerId}'s team (${playerTeamCheck.rows[0].team}) has been eliminated. Only players from active teams are selectable.`
-      });
-    }
-
-    // Validate position limit before inserting - read from game_settings
-    const settingsResult = await pool.query(
-      `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
-    );
-
-    const settings = settingsResult.rows[0] || {};
-    const positionToLimit = {
-      'QB': settings.qb_limit,
-      'RB': settings.rb_limit,
-      'WR': settings.wr_limit,
-      'TE': settings.te_limit,
-      'K': settings.k_limit,
-      'DEF': settings.def_limit
-    };
-
-    const maxPicks = positionToLimit[position] || 2;
-
-    // Check current pick count for this position (excluding the current player if updating)
-    const currentCount = await pool.query(`
-      SELECT COUNT(*) as count
-      FROM picks
-      WHERE user_id = $1
-        AND week_number = $2
-        AND position = $3
-        AND player_id != $4
-    `, [userId, effectiveWeekNumber, position, playerId]);
-
-    if (parseInt(currentCount.rows[0].count) >= maxPicks) {
-      return res.status(400).json({
-        error: `Position limit exceeded for ${position}. Maximum allowed: ${maxPicks}`
-      });
-    }
-
-    // Check for multiplier/consecutive_weeks carry from immediately previous playoff week
-    let preservedMultiplier = 1;
-    let preservedConsecutiveWeeks = 1;
-    if (current_playoff_week > 1) {
-      const previousWeekNumber = effectiveWeekNumber - 1;
-      const prevPickResult = await pool.query(
-        'SELECT multiplier, consecutive_weeks FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
-        [userId, playerId, previousWeekNumber]
-      );
-      if (prevPickResult.rows.length > 0) {
-        // Carry forward: current week = previous week + 1
-        preservedMultiplier = (prevPickResult.rows[0].multiplier || 1) + 1;
-        preservedConsecutiveWeeks = (prevPickResult.rows[0].consecutive_weeks || 1) + 1;
-        console.log(`[picks] Carrying multiplier ${preservedMultiplier} (prev ${prevPickResult.rows[0].multiplier}) and consecutive_weeks ${preservedConsecutiveWeeks} for player ${playerId}`);
-      }
-    }
-
-    const result = await pool.query(`
-      INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, false, NOW())
-      ON CONFLICT (user_id, player_id, week_number)
-      DO UPDATE SET
-        position = $4,
-        multiplier = $5,
-        consecutive_weeks = $6,
-        created_at = NOW()
-      RETURNING *
-    `, [userId, playerId, effectiveWeekNumber, position, preservedMultiplier, preservedConsecutiveWeeks]);
-
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('Error creating pick:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Delete a pick
-app.delete('/api/picks/:pickId', async (req, res) => {
-  try {
-    const { pickId } = req.params;
-
-    // Week lockout check - block deletions when week is locked
-    const gameStateResult = await pool.query(
-      'SELECT is_week_active FROM game_settings LIMIT 1'
-    );
-    const { is_week_active } = gameStateResult.rows[0] || {};
-    if (!is_week_active) {
-      return res.status(403).json({
-        error: 'Picks are locked for this week. The submission window has closed.'
-      });
-    }
-
-    const result = await pool.query(
-      'DELETE FROM picks WHERE id = $1 RETURNING *',
-      [pickId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Pick not found' });
-    }
-
-    res.json({ success: true, deletedPick: result.rows[0] });
-  } catch (err) {
-    console.error('Error deleting pick:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -4503,6 +3172,68 @@ app.get('/api/game-config', async (req, res) => {
   } catch (err) {
     console.error('Error fetching game config:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ==============================================
+// LEGACY JOIN ROUTE (delegates to canonical endpoint)
+// ==============================================
+// DEPRECATED: Use /api/custom-contests/join/:token instead.
+// This route exists for backward compatibility with mobile clients.
+// It delegates to the same service with identical behavior and rate limiting.
+
+const { createCombinedJoinRateLimiter } = require('./middleware/joinRateLimit');
+const { logJoinSuccess, logJoinFailure } = require('./services/joinAuditService');
+const legacyJoinRateLimiter = createCombinedJoinRateLimiter();
+
+app.get('/api/join/:token', legacyJoinRateLimiter, async (req, res) => {
+  const { token } = req.params;
+  const ipAddress = req.ip || req.connection.remoteAddress;
+  const joinSource = req.query.source || 'legacy_join';
+  const userId = req.headers['x-user-id'] || null;
+
+  try {
+    const result = await customContestService.resolveJoinToken(pool, token);
+
+    if (result.valid) {
+      logJoinSuccess({
+        token,
+        contestId: result.contest.id,
+        userId,
+        ipAddress,
+        joinSource
+      });
+    } else {
+      logJoinFailure({
+        token,
+        errorCode: result.error_code,
+        contestId: result.contest?.id || null,
+        userId,
+        ipAddress,
+        joinSource,
+        extra: result.environment_mismatch ? {
+          token_environment: result.token_environment,
+          current_environment: result.current_environment
+        } : undefined
+      });
+    }
+
+    return res.json(result);
+  } catch (err) {
+    console.error('[Join Legacy] Unexpected error resolving token:', err.message);
+    logJoinFailure({
+      token,
+      errorCode: 'INTERNAL_ERROR',
+      userId,
+      ipAddress,
+      joinSource,
+      extra: { error: err.message }
+    });
+    return res.status(500).json({
+      valid: false,
+      error_code: 'INTERNAL_ERROR',
+      reason: 'Failed to resolve token'
+    });
   }
 });
 
@@ -5491,58 +4222,9 @@ async function getEffectiveWeekNumber() {
 }
 
 // Helper: Validate position counts for v2 API
+// Wrapper that delegates to picksService with injected pool
 async function validatePositionCounts(userId, weekNumber, proposedOps = []) {
-  // Get current position limits from game_settings
-  const settingsResult = await pool.query(
-    `SELECT qb_limit, rb_limit, wr_limit, te_limit, k_limit, def_limit FROM game_settings LIMIT 1`
-  );
-  const settings = settingsResult.rows[0] || {};
-  const limits = {
-    'QB': settings.qb_limit || 1,
-    'RB': settings.rb_limit || 2,
-    'WR': settings.wr_limit || 2,
-    'TE': settings.te_limit || 1,
-    'K': settings.k_limit || 1,
-    'DEF': settings.def_limit || 1
-  };
-
-  // Get current pick counts by position
-  const currentPicks = await pool.query(`
-    SELECT position, COUNT(*) as count
-    FROM picks
-    WHERE user_id = $1 AND week_number = $2
-    GROUP BY position
-  `, [userId, weekNumber]);
-
-  const counts = {};
-  for (const row of currentPicks.rows) {
-    counts[row.position] = parseInt(row.count, 10);
-  }
-
-  // Apply proposed operations
-  for (const op of proposedOps) {
-    const pos = op.position;
-    if (!counts[pos]) counts[pos] = 0;
-
-    if (op.action === 'add') {
-      counts[pos]++;
-    } else if (op.action === 'remove') {
-      counts[pos]--;
-    }
-  }
-
-  // Validate against limits
-  const errors = [];
-  for (const [pos, count] of Object.entries(counts)) {
-    if (count > limits[pos]) {
-      errors.push(`${pos}: ${count} exceeds limit of ${limits[pos]}`);
-    }
-    if (count < 0) {
-      errors.push(`${pos}: cannot have negative count`);
-    }
-  }
-
-  return { valid: errors.length === 0, errors, counts, limits };
+  return picksService.validatePositionCounts(pool, userId, weekNumber, proposedOps);
 }
 
 // ==============================================
@@ -5556,7 +4238,6 @@ app.get('/api/me/flags', async (req, res) => {
     const { userId } = req.query;
 
     // Require tos_required_flag capability (or allow for diagnostic purposes)
-    const client = getClientCapabilities(req);
     // Note: We allow this endpoint even for legacy clients for diagnostic purposes
     // but new clients should send tos_required_flag capability
 
@@ -5564,62 +4245,38 @@ app.get('/api/me/flags', async (req, res) => {
       return res.status(400).json({ error: 'userId is required' });
     }
 
-    // Get user's TOS status
-    const userResult = await pool.query(
-      'SELECT tos_accepted_at, tos_version FROM users WHERE id = $1',
-      [userId]
-    );
+    const tosStatus = await usersService.getUserTosStatus(pool, userId);
 
-    if (userResult.rows.length === 0) {
+    if (!tosStatus) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const user = userResult.rows[0];
-
-    // Get current TOS version from terms
-    let currentTermsVersion = null;
-    try {
-      const termsResult = await pool.query(`
-        SELECT updated_at FROM rules_content WHERE section = 'terms_of_service'
-      `);
-      if (termsResult.rows.length > 0) {
-        currentTermsVersion = termsResult.rows[0].updated_at.toISOString().split('T')[0];
-      }
-    } catch (termsErr) {
-      console.warn('[flags] Could not fetch current TOS version:', termsErr.message);
-      // Fail open - don't block if we can't determine version
-    }
-
-    // Determine if TOS is required
-    let requiresTos = false;
-    if (!user.tos_accepted_at) {
-      requiresTos = true;
-    } else if (currentTermsVersion && user.tos_version !== currentTermsVersion) {
-      requiresTos = true;
-    }
-
-    res.json({
-      requires_tos: requiresTos,
-      tos_version_required: currentTermsVersion,
-      tos_accepted_at: user.tos_accepted_at,
-      tos_version_accepted: user.tos_version
-    });
+    res.json(tosStatus);
   } catch (err) {
     console.error('Error in GET /api/me/flags:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Start server
-app.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  
-  // Start live stats polling if in production
-  if (process.env.NODE_ENV === 'production') {
-    setTimeout(startLiveStatsPolling, 5000); // Start after 5 seconds
-  }
-});
+// Start server only when run directly (not when required by tests)
+function startServer() {
+  return app.listen(PORT, async () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`APP_ENV: ${process.env.APP_ENV || '(not set)'}`);
+    console.log(`JOIN_BASE_URL: ${process.env.JOIN_BASE_URL || '(not set)'}`);
+
+    // Start live stats polling if in production
+    if (process.env.NODE_ENV === 'production') {
+      setTimeout(startLiveStatsPolling, 5000); // Start after 5 seconds
+    }
+  });
+}
+
+// Start server when executed directly
+if (require.main === module) {
+  startServer();
+}
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
@@ -5629,4 +4286,4 @@ process.on('SIGTERM', () => {
 });
 
 // Export for testing (does not affect production behavior)
-module.exports = { app, pool, calculateFantasyPoints };
+module.exports = { app, pool, calculateFantasyPoints, startServer };

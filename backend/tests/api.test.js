@@ -148,13 +148,16 @@ describe('API Behavior Tests', () => {
       expect([200, 404]).toContain(response.status);
     });
 
-    it('GET /api/picks/:userId with non-existent user should return empty array', async () => {
+    it('GET /api/picks/v2 with non-existent user should return empty picks array', async () => {
       const fakeUserId = '00000000-0000-0000-0000-000000000000';
-      const response = await request(app).get(`/api/picks/${fakeUserId}`);
+      const response = await request(app)
+        .get(`/api/picks/v2?userId=${fakeUserId}&weekNumber=1`)
+        .set('X-Client-Capabilities', 'picks_v2');
 
       expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
-      expect(response.body).toHaveLength(0);
+      expect(response.body).toHaveProperty('picks');
+      expect(Array.isArray(response.body.picks)).toBe(true);
+      expect(response.body.picks).toHaveLength(0);
     });
   });
 });
