@@ -40,7 +40,7 @@ const mockInstance = {
   lock_time: null,
   settlement_time: null,
   max_entries: 10,
-  creator_display_name: 'TestUser',
+  organizer_name: 'TestUser',
   entries_current: 3,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString()

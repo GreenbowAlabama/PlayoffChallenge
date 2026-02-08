@@ -421,7 +421,7 @@ async function resolveJoinToken(pool, token) {
       ct.scoring_strategy_key,
       ct.lock_strategy_key,
       ct.settlement_strategy_key,
-      COALESCE(u.username, u.name, 'Unknown') as creator_display_name,
+      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
     FROM contest_instances ci
     JOIN contest_templates ct ON ci.template_id = ct.id
@@ -444,25 +444,16 @@ async function resolveJoinToken(pool, token) {
 
   // Only OPEN + JOINABLE contests resolve as valid
   if (instance.status === 'open' && joinState === 'JOINABLE') {
+    // Shape the response identically to getContestInstance (canonical detail)
+    delete instance.name;
+    delete instance.template_name;
+
     return {
       valid: true,
       contest: {
-        id: instance.id,
-        template_id: instance.template_id,
-        contest_name: instance.contest_name,
-        max_entries: instance.max_entries,
-        template_name: instance.template_name,
-        template_sport: instance.template_sport,
-        entry_fee_cents: instance.entry_fee_cents,
-        payout_structure: instance.payout_structure,
-        status: instance.status,
-        start_time: instance.start_time,
-        lock_time: instance.lock_time,
+        ...instance,
         join_url: generateJoinUrl(token),
-        computedJoinState: joinState,
-        creatorName: instance.creator_display_name,
-        entriesCurrent: instance.entries_current,
-        maxEntries: instance.max_entries
+        computedJoinState: joinState
       }
     };
   }

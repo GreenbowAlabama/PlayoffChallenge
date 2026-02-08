@@ -126,7 +126,7 @@ describe('Custom Contest Routes', () => {
           join_token: token,
           status: 'open',
           max_entries: 10,
-          creator_display_name: 'TestUser',
+          organizer_name: 'TestUser',
           entries_current: 3
         })
       );
@@ -142,9 +142,9 @@ describe('Custom Contest Routes', () => {
       expect(response.body.contest.join_url).toContain('/join/');
       // Enriched fields
       expect(response.body.contest.computedJoinState).toBe('JOINABLE');
-      expect(response.body.contest.creatorName).toBe('TestUser');
-      expect(response.body.contest.entriesCurrent).toBe(3);
-      expect(response.body.contest.maxEntries).toBe(10);
+      expect(response.body.contest.organizer_name).toBe('TestUser');
+      expect(response.body.contest.entries_current).toBe(3);
+      expect(response.body.contest.max_entries).toBe(10);
     });
 
     it('should return invalid with error_code for environment mismatch', async () => {
@@ -211,7 +211,7 @@ describe('Custom Contest Routes', () => {
           join_token: token,
           status: 'open',
           max_entries: null,
-          creator_display_name: 'TestUser',
+          organizer_name: 'TestUser',
           entries_current: 0
         })
       );

@@ -130,7 +130,7 @@ describe('lock_time enforcement', () => {
       start_time: null,
       lock_time: null,
       max_entries: 10,
-      creator_display_name: 'TestUser',
+      organizer_name: 'TestUser',
       entries_current: 1
     };
 

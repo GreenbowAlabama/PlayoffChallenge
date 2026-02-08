@@ -759,7 +759,7 @@ describe('Custom Contest Service Unit Tests', () => {
   });
 
   describe('resolveJoinToken', () => {
-    // Enriched mock for resolveJoinToken (includes creator_display_name, entries_current)
+    // Enriched mock for resolveJoinToken (includes organizer_name, entries_current, template fields)
     const resolveTokenQueryPattern = /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/;
 
     it('should return valid contest info with enriched fields for valid token', async () => {
@@ -771,7 +771,7 @@ describe('Custom Contest Service Unit Tests', () => {
         template_name: mockTemplate.name,
         template_sport: mockTemplate.sport,
         max_entries: 10,
-        creator_display_name: 'TestOrganizer',
+        organizer_name: 'TestOrganizer',
         entries_current: 3
       };
 
@@ -784,14 +784,18 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(result.valid).toBe(true);
       expect(result.contest).toBeDefined();
       expect(result.contest.id).toBe(TEST_INSTANCE_ID);
-      expect(result.contest.template_name).toBe('NFL Playoff Challenge');
+      expect(result.contest.template_name).toBeUndefined();
       expect(result.contest.join_url).toContain('/join/');
       expect(result.contest.join_url).toContain(token);
-      // Enriched fields
+      // Enriched fields — snake_case, matching detail contract
       expect(result.contest.computedJoinState).toBe('JOINABLE');
-      expect(result.contest.creatorName).toBe('TestOrganizer');
-      expect(result.contest.entriesCurrent).toBe(3);
-      expect(result.contest.maxEntries).toBe(10);
+      expect(result.contest.organizer_name).toBe('TestOrganizer');
+      expect(result.contest.entries_current).toBe(3);
+      expect(result.contest.max_entries).toBe(10);
+      // camelCase aliases must NOT exist
+      expect(result.contest.creatorName).toBeUndefined();
+      expect(result.contest.entriesCurrent).toBeUndefined();
+      expect(result.contest.maxEntries).toBeUndefined();
     });
 
     it('should return CONTEST_ENV_MISMATCH for environment mismatch', async () => {
