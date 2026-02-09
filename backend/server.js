@@ -319,9 +319,11 @@ async function resolveActualWeekNumber(inputWeek, pool, logPrefix = 'WeekRemap')
   const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
 
   if (weekNum >= 1 && weekNum <= 5) {
-    // Treat as playoff index week (1=Wild Card, 2=Divisional, ..., 5=Super Bowl)
-    const resolved = playoffStartWeek + (weekNum - 1);
-    console.log(`[${logPrefix}] Week remap: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${resolved}`);
+    // Treat as playoff index week (1=Wild Card, 2=Divisional, ..., 4=Super Bowl)
+    // HOTFIX: Pro Bowl occupies NFL week 22, so Super Bowl (index 4+) skips it
+    const proBowlSkip = weekNum >= 4 ? 1 : 0;
+    const resolved = playoffStartWeek + (weekNum - 1) + proBowlSkip;
+    console.log(`[${logPrefix}] Week remap: received=${weekNum}, playoff_start_week=${playoffStartWeek}, proBowlSkip=${proBowlSkip}, resolved=${resolved}`);
     return resolved;
   } else if (weekNum >= 19) {
     // NFL week number (19-23), use as-is
@@ -5117,13 +5119,16 @@ app.get('/api/leaderboard', async (req, res) => {
       const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
 
       if (inputWeek >= 1 && inputWeek <= 5) {
-        // Treat as playoff index week (1=Wild Card, 2=Divisional, ..., 5=Super Bowl)
-        actualWeekNumber = playoffStartWeek + (inputWeek - 1);
-        console.log(`[Leaderboard] Week remap: received=${inputWeek}, playoff_start_week=${playoffStartWeek}, resolved=${actualWeekNumber}`);
+        // Treat as playoff index week (1=Wild Card, 2=Divisional, ..., 4=Super Bowl)
+        // HOTFIX: Pro Bowl occupies NFL week 22, so Super Bowl (index 4+) skips it
+        const proBowlSkip = inputWeek >= 4 ? 1 : 0;
+        actualWeekNumber = playoffStartWeek + (inputWeek - 1) + proBowlSkip;
+        console.log(`[Leaderboard] Week remap: received=${inputWeek}, playoff_start_week=${playoffStartWeek}, proBowlSkip=${proBowlSkip}, resolved=${actualWeekNumber}`);
       } else if (inputWeek >= 16 && inputWeek <= 19) {
         // iOS picker uses 16-19 for playoff rounds
-        // Remap: 16→19 (Wild Card), 17→20 (Divisional), 18→21 (Conference), 19→22 (Super Bowl)
-        actualWeekNumber = inputWeek + 3;
+        // Remap: 16→19 (Wild Card), 17→20 (Divisional), 18→21 (Conference), 19→23 (Super Bowl, skip Pro Bowl)
+        const pickerProBowlSkip = inputWeek === 19 ? 1 : 0;
+        actualWeekNumber = inputWeek + 3 + pickerProBowlSkip;
         console.log(`[Leaderboard] Week remap (iOS picker): received=${inputWeek}, resolved=${actualWeekNumber}`);
       } else if (inputWeek >= 20) {
         // Already an NFL week number (20-22), use as-is
