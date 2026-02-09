@@ -318,13 +318,13 @@ async function resolveActualWeekNumber(inputWeek, pool, logPrefix = 'WeekRemap')
   const settingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
   const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
 
-  if (weekNum >= 1 && weekNum <= 4) {
-    // Treat as playoff index week (1=Wild Card, 2=Divisional, etc.)
+  if (weekNum >= 1 && weekNum <= 5) {
+    // Treat as playoff index week (1=Wild Card, 2=Divisional, ..., 5=Super Bowl)
     const resolved = playoffStartWeek + (weekNum - 1);
     console.log(`[${logPrefix}] Week remap: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${resolved}`);
     return resolved;
   } else if (weekNum >= 19) {
-    // NFL week number (19-22), use as-is
+    // NFL week number (19-23), use as-is
     console.log(`[${logPrefix}] Week passthrough: received=${weekNum}, resolved=${weekNum} (literal NFL week)`);
     return weekNum;
   } else if (weekNum >= 16 && weekNum <= 18) {
@@ -1011,19 +1011,28 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
 async function savePlayerScoresToDatabase(weekNumber) {
   try {
     // Get teams we're tracking from picks
+    // HOTFIX: Query picks at both weekNumber and weekNumber-1 to handle week cap mismatch
+    // Super Bowl picks may be stored at week 22 (old cap) while scoring runs at week 23 (fixed cap)
+    const weekNumbers = weekNumber === 23 ? [weekNumber, 22] : [weekNumber];
+    const weekPlaceholders = weekNumbers.map((_, i) => `$${i + 1}`).join(', ');
+
     const trackedTeamsResult = await pool.query(`
       SELECT DISTINCT p.team
       FROM picks pk
       JOIN players p ON pk.player_id = p.id::text
-      WHERE pk.week_number = $1 AND p.team IS NOT NULL
-    `, [weekNumber]);
+      WHERE pk.week_number IN (${weekPlaceholders}) AND p.team IS NOT NULL
+    `, weekNumbers);
     const trackedTeams = new Set(trackedTeamsResult.rows.map(r => r.team?.trim()?.toUpperCase()).filter(Boolean));
 
     const picksResult = await pool.query(`
       SELECT pk.id as pick_id, pk.user_id, pk.player_id, pk.position, pk.multiplier
       FROM picks pk
-      WHERE pk.week_number = $1
-    `, [weekNumber]);
+      WHERE pk.week_number IN (${weekPlaceholders})
+    `, weekNumbers);
+
+    if (weekNumber === 23 && picksResult.rows.length > 0) {
+      console.log(`[HOTFIX] Found ${picksResult.rows.length} picks across weeks [${weekNumbers.join(', ')}] for scoring`);
+    }
 
     let savedCount = 0;
 
@@ -1033,6 +1042,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
         [pick.player_id]
       );
       if (playerRes.rows.length === 0) {
+        console.log(`[HOTFIX] Player not found in DB for pick player_id=${pick.player_id}, skipping but logging`);
         continue;
       }
 
@@ -1424,15 +1434,27 @@ async function updateLiveStats(weekNumber) {
     }
 
     // Step 2: Get teams we care about
-    const activeTeams = await getActiveTeamsForWeek(weekNumber);
+    let activeTeams = await getActiveTeamsForWeek(weekNumber);
+
+    // HOTFIX: If no picks found at this week (week cap mismatch), check previous week
+    if (activeTeams.length === 0 && weekNumber === 23) {
+      console.log(`[HOTFIX] No active teams at week ${weekNumber}, falling back to week 22 picks`);
+      activeTeams = await getActiveTeamsForWeek(22);
+    }
 
     // Step 3: Filter games to only those with our teams
-    const relevantGames = [];
-    for (const gameId of activeGameIds) {
-      const gameInfo = liveStatsCache.games.get(gameId);
-      if (gameInfo &&
-          (activeTeams.includes(gameInfo.homeTeam) || activeTeams.includes(gameInfo.awayTeam))) {
-        relevantGames.push(gameId);
+    // If still no active teams, process ALL games (Super Bowl = 1 game)
+    let relevantGames = [];
+    if (activeTeams.length === 0) {
+      relevantGames = Array.from(activeGameIds);
+      console.log(`[HOTFIX] No active teams found, processing all ${relevantGames.length} games`);
+    } else {
+      for (const gameId of activeGameIds) {
+        const gameInfo = liveStatsCache.games.get(gameId);
+        if (gameInfo &&
+            (activeTeams.includes(gameInfo.homeTeam) || activeTeams.includes(gameInfo.awayTeam))) {
+          relevantGames.push(gameId);
+        }
       }
     }
 
@@ -1599,9 +1621,9 @@ app.get('/api/admin/verify-lock-status', async (req, res) => {
     }
 
     const { is_week_active, current_playoff_week, playoff_start_week, updated_at } = gameStateResult.rows[0];
-    // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
+    // Cap offset at 4 (round 5 = Super Bowl = offset 4 = NFL week 23)
     const effectiveNflWeek = current_playoff_week > 0
-      ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
+      ? playoff_start_week + Math.min(current_playoff_week - 1, 4)
       : null;
 
     // Test that a picks write would actually be blocked
@@ -2833,9 +2855,9 @@ app.post('/api/picks/replace-player', async (req, res) => {
       });
     }
 
-    // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
+    // Cap offset at 4 (round 5 = Super Bowl = offset 4 = NFL week 23)
     const effectiveWeekNumber = current_playoff_week > 0
-      ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
+      ? playoff_start_week + Math.min(current_playoff_week - 1, 4)
       : weekNumber;
 
     // Verify the old player's team is actually eliminated
@@ -4209,10 +4231,9 @@ app.post('/api/picks', async (req, res) => {
 
     // Server is the single source of truth for active week (never trust client weekNumber)
     // If in playoff mode, compute NFL week from playoff round
-    // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
-    // playoff_week 1 = Wild Card = offset 0, playoff_week 5 = Super Bowl = offset 3 (capped)
+    // Cap offset at 4 (round 5 = Super Bowl = offset 4 = NFL week 23)
     const effectiveWeekNumber = current_playoff_week > 0
-      ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
+      ? playoff_start_week + Math.min(current_playoff_week - 1, 4)
       : (playoff_start_week > 0 ? playoff_start_week : 1);
 
     // Guard: reject if client sent a mismatched week (prevents future-week writes)
@@ -4647,14 +4668,14 @@ async function startLiveStatsPolling() {
   });
 
   // Get current playoff week and derive NFL week number
-  // FIX: Use NFL week numbers (19-22) for scoring, not playoff round (1-4)
-  // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
+  // FIX: Use NFL week numbers (19-23) for scoring, not playoff round (1-5)
+  // Cap offset at 4 to handle Pro Bowl skip (round 5 = Super Bowl = offset 4 = NFL week 23)
   const configResult = await pool.query(
     'SELECT current_playoff_week, playoff_start_week FROM game_settings LIMIT 1'
   );
   const { current_playoff_week, playoff_start_week } = configResult.rows[0] || {};
   const currentWeek = current_playoff_week > 0
-    ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
+    ? playoff_start_week + Math.min(current_playoff_week - 1, 4)
     : current_playoff_week || 1;
 
   console.log(`Starting live stats polling for week ${currentWeek}...`);
@@ -5052,8 +5073,8 @@ function getWeekNumberForRound(round) {
     'wildcard':   19,
     'divisional': 20,
     'conference': 21,
-    'superbowl':  22,
-    'super bowl': 22
+    'superbowl':  23,
+    'super bowl': 23
   };
 
   return roundToWeekMap[round.toLowerCase()] || null;
@@ -5095,8 +5116,8 @@ app.get('/api/leaderboard', async (req, res) => {
       const settingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
       const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
 
-      if (inputWeek >= 1 && inputWeek <= 4) {
-        // Treat as playoff index week (1=Wild Card, 2=Divisional, etc.)
+      if (inputWeek >= 1 && inputWeek <= 5) {
+        // Treat as playoff index week (1=Wild Card, 2=Divisional, ..., 5=Super Bowl)
         actualWeekNumber = playoffStartWeek + (inputWeek - 1);
         console.log(`[Leaderboard] Week remap: received=${inputWeek}, playoff_start_week=${playoffStartWeek}, resolved=${actualWeekNumber}`);
       } else if (inputWeek >= 16 && inputWeek <= 19) {
@@ -5173,7 +5194,7 @@ app.get('/api/leaderboard', async (req, res) => {
       // NOTE: 'points' and 'score' aliases added for iOS app compatibility
       const cumulativeSettingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
       const cumulativeStartWeek = cumulativeSettingsResult.rows[0]?.playoff_start_week || 19;
-      const cumulativeEndWeek = cumulativeStartWeek + 3; // 4 playoff rounds
+      const cumulativeEndWeek = cumulativeStartWeek + 4; // 5 playoff rounds (includes Super Bowl at +4)
 
       query = `
         SELECT
@@ -5474,10 +5495,10 @@ async function getEffectiveWeekNumber() {
   const { current_playoff_week, playoff_start_week } = gameStateResult.rows[0] || {};
 
   // Calculate from playoff state if in playoffs
-  // Cap offset at 3 to handle Pro Bowl skip (round 5 = Super Bowl = offset 3)
-  // This ensures: Wild Card=0, Divisional=1, Conference=2, Super Bowl=3
+  // Cap offset at 4 to handle Pro Bowl skip (round 5 = Super Bowl = offset 4 = NFL week 23)
+  // This ensures: Wild Card=0, Divisional=1, Conference=2, [Pro Bowl skip]=3, Super Bowl=4
   if (current_playoff_week > 0 && playoff_start_week > 0) {
-    const offset = Math.min(current_playoff_week - 1, 3);
+    const offset = Math.min(current_playoff_week - 1, 4);
     return playoff_start_week + offset;
   }
 
