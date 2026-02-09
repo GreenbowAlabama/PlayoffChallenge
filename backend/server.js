@@ -5258,8 +5258,8 @@ app.get('/api/leaderboard', async (req, res) => {
             JOIN players p ON pk.player_id = p.id
             LEFT JOIN scores s ON s.user_id = pk.user_id
               AND s.player_id = pk.player_id
-              AND s.week_number = pk.week_number
-            WHERE pk.user_id = $1 AND pk.week_number = $2
+              AND s.week_number = $2
+            WHERE pk.user_id = $1 AND pk.week_number IN ($2${actualWeekNumber === 23 ? ', 22' : ''})
             ORDER BY
               CASE pk.position
                 WHEN 'QB' THEN 1
