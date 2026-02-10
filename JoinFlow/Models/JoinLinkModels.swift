@@ -17,6 +17,14 @@ enum ContestStatus: String, Codable, Equatable {
     case settled
 }
 
+/// Backend-computed join state — single source of truth for joinability
+enum ComputedJoinState: String, Codable, Equatable {
+    case joinable = "JOINABLE"
+    case locked = "LOCKED"
+    case completed = "COMPLETED"
+    case unavailable = "UNAVAILABLE"
+}
+
 /// Summary of a contest for join preview
 struct ContestSummary: Codable, Equatable {
     let id: UUID
@@ -26,17 +34,18 @@ struct ContestSummary: Codable, Equatable {
     let filledSlots: Int
     let status: ContestStatus
     let lockTime: Date?
+    let computedJoinState: ComputedJoinState?
+    let creatorName: String?
 
-    /// Whether slot information is available from the backend.
-    /// When totalSlots is 0, it means backend didn't provide slot counts.
+    /// Whether the contest has a finite entry cap.
+    /// totalSlots <= 0 means unlimited entries.
     var hasSlotInfo: Bool { totalSlots > 0 }
 
     var slotsRemaining: Int { totalSlots - filledSlots }
 
-    /// A contest is full only if we have slot information AND no slots remain.
-    /// When slot info is missing (hasSlotInfo = false), we cannot determine
-    /// if the contest is full, so we return false to allow join attempts.
-    var isFull: Bool { hasSlotInfo && slotsRemaining <= 0 }
+    /// A contest is full only if it has a positive capacity AND filled slots meet or exceed it.
+    /// When totalSlots <= 0 (unlimited), the contest is never full.
+    var isFull: Bool { totalSlots > 0 && filledSlots >= totalSlots }
 
     /// Whether the contest is past its lock time
     var isLocked: Bool {
@@ -51,7 +60,9 @@ struct ContestSummary: Codable, Equatable {
         totalSlots: Int,
         filledSlots: Int,
         status: ContestStatus,
-        lockTime: Date? = nil
+        lockTime: Date? = nil,
+        computedJoinState: ComputedJoinState? = nil,
+        creatorName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -60,6 +71,8 @@ struct ContestSummary: Codable, Equatable {
         self.filledSlots = filledSlots
         self.status = status
         self.lockTime = lockTime
+        self.computedJoinState = computedJoinState
+        self.creatorName = creatorName
     }
 
     enum CodingKeys: String, CodingKey {
@@ -70,6 +83,8 @@ struct ContestSummary: Codable, Equatable {
         case filledSlots = "filled_slots"
         case status
         case lockTime = "lock_time"
+        case computedJoinState = "computed_join_state"
+        case creatorName = "creator_name"
     }
 }
 
@@ -80,10 +95,11 @@ struct EnvironmentMismatch: Equatable {
     let message: String
 }
 
-/// Result of resolving a join token via /api/join/:token
+/// Result of resolving a join token via /api/custom-contests/join/:token.
+/// Contains only routing data — contest metadata is fetched separately via GET /api/custom-contests/:id.
 struct ResolvedJoinLink: Equatable {
     let token: String
-    let contest: ContestSummary
+    let contestId: UUID
     let isValidForEnvironment: Bool
     let environmentMismatch: EnvironmentMismatch?
 }

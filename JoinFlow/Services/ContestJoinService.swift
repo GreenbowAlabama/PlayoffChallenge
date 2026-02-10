@@ -24,22 +24,22 @@ final class ContestJoinService: ContestJoining {
         }
     }
 
-    func joinContest(token: String, userId: UUID) async throws -> ContestJoinResult {
+    func joinContest(contestId: UUID, token: String, userId: UUID) async throws -> ContestJoinResult {
         guard !token.isEmpty else {
-            throw JoinLinkError.invalidToken
+            throw JoinLinkError.contestNotFound
         }
 
-        guard let url = URL(string: "\(baseURL)/api/contests/join") else {
-            throw JoinLinkError.invalidToken
+        guard let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)/join") else {
+            throw JoinLinkError.contestNotFound
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
 
         let body: [String: Any] = [
-            "token": token,
-            "user_id": userId.uuidString
+            "token": token
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
@@ -51,13 +51,13 @@ final class ContestJoinService: ContestJoining {
             }
 
             switch httpResponse.statusCode {
-            case 200, 201:
-                let decoded = try JSONDecoder().decode(JoinContestAPIResponse.self, from: data)
+            case 200...299:
+                let decoded: JoinContestAPIResponse? = data.isEmpty ? nil : try? JSONDecoder().decode(JoinContestAPIResponse.self, from: data)
                 return ContestJoinResult(
-                    contestId: decoded.contestId,
+                    contestId: decoded?.contestId ?? contestId,
                     userId: userId,
-                    joinedAt: decoded.joinedAt ?? Date(),
-                    message: decoded.message ?? "Successfully joined contest"
+                    joinedAt: decoded?.joinedAt ?? Date(),
+                    message: decoded?.message ?? "Successfully joined contest"
                 )
 
             case 409:
@@ -67,7 +67,7 @@ final class ContestJoinService: ContestJoining {
                 if let errorResponse = try? JSONDecoder().decode(JoinAPIErrorResponse.self, from: data) {
                     throw mapAPIError(errorResponse)
                 }
-                throw JoinLinkError.invalidToken
+                throw JoinLinkError.contestNotFound
 
             case 401:
                 throw JoinLinkError.notAuthenticated
@@ -97,8 +97,12 @@ final class ContestJoinService: ContestJoining {
             return .contestFull
         case "CONTEST_LOCKED":
             return .contestLocked
-        case "INVALID_TOKEN":
-            return .invalidToken
+        case "CONTEST_UNAVAILABLE":
+            return .contestUnavailable
+        case "CONTEST_COMPLETED":
+            return .contestCompleted
+        case "CONTEST_NOT_FOUND":
+            return .contestNotFound
         default:
             return .serverError(message: response.message)
         }
@@ -108,7 +112,7 @@ final class ContestJoinService: ContestJoining {
 // MARK: - API Response Types (internal)
 
 private struct JoinContestAPIResponse: Codable {
-    let contestId: UUID
+    let contestId: UUID?
     let message: String?
     let joinedAt: Date?
 

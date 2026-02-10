@@ -4,7 +4,7 @@ import Combine
 struct PlayerSelectionView: View {
     @EnvironmentObject var authService: AuthService
     @StateObject private var viewModel = PlayerSelectionViewModel()
-    
+
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
@@ -130,23 +130,22 @@ struct PlayerSelectionView: View {
 struct WeekPickerView: View {
     @Binding var selectedWeek: Int
     let currentWeek: Int
-    
+
     var weeks: [(Int, String)] {
         [
-            (currentWeek, "Current"),
-            (1, "Wild Card"),
-            (2, "Divisional"),
-            (3, "Conference"),
-            (4, "Super Bowl")
+            (16, "Wild Card"),
+            (17, "Divisional"),
+            (18, "Conference"),
+            (19, "Super Bowl")
         ]
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Playoff Week")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            
+
             Picker("Week", selection: $selectedWeek) {
                 ForEach(weeks, id: \.0) { week in
                     Text(week.1).tag(week.0)
@@ -162,7 +161,7 @@ struct LockedBanner: View {
     var body: some View {
         HStack {
             Image(systemName: "lock.fill")
-            Text("Lineup locked - Games have started")
+            Text("Lineup locked - previous round still in progress")
                 .font(.subheadline)
         }
         .foregroundColor(.white)
@@ -361,6 +360,7 @@ struct PlayerPickerSheet: View {
 class PlayerSelectionViewModel: ObservableObject {
     @Published var selectedWeek: Int = 10
     @Published var currentWeek: Int = 10
+    @Published var playoffStartWeek: Int = 0
     @Published var allPlayers: [Player] = []
     @Published var currentLineup: [Player] = []
     @Published var positionLimits = PositionLimits()
@@ -449,6 +449,9 @@ class PlayerSelectionViewModel: ObservableObject {
             
             print("DEBUG: Settings received - qbLimit: \(settingsResult.qbLimit ?? -1), rbLimit: \(settingsResult.rbLimit ?? -1), wrLimit: \(settingsResult.wrLimit ?? -1), teLimit: \(settingsResult.teLimit ?? -1), kLimit: \(settingsResult.kLimit ?? -1), defLimit: \(settingsResult.defLimit ?? -1)")
             print("DEBUG: currentPlayoffWeek from settings: \(settingsResult.currentPlayoffWeek)")
+
+            // Wire playoffStartWeek from settings for effective week calculation
+            self.playoffStartWeek = settingsResult.playoffStartWeek
             
             self.positionLimits = PositionLimits(
                 qb: settingsResult.qbLimit ?? 1,
@@ -486,18 +489,25 @@ class PlayerSelectionViewModel: ObservableObject {
             
             // Check if week is locked based on settings
             // Lock if: (1) viewing past weeks, or (2) current week is not active
-            if selectedWeek < currentWeek {
+            // Note: currentWeek is playoff round from backend (1-5, may skip Pro Bowl at 4)
+            // selectedWeek is NFL week (e.g., 16-19 for playoff weeks)
+            // Compute effective NFL week: playoffStartWeek + offset, capped at Super Bowl (offset 3)
+            // This handles Pro Bowl skip where backend sends round 5 for Super Bowl
+            let offset = min(currentWeek - 1, 3)  // Cap at 3 (Super Bowl is final tab)
+            let effectiveCurrentWeek = playoffStartWeek + offset
+
+            if selectedWeek < effectiveCurrentWeek {
                 // Past weeks are always locked
                 self.isLocked = true
-                print("DEBUG: Week \(selectedWeek) is locked (past week)")
-            } else if selectedWeek == currentWeek {
+                print("DEBUG: Week \(selectedWeek) is locked (past week, effective=\(effectiveCurrentWeek))")
+            } else if selectedWeek == effectiveCurrentWeek {
                 // Current week: check if active
                 self.isLocked = !(settingsResult.isWeekActive ?? true)
-                print("DEBUG: Week \(selectedWeek) locked status: \(self.isLocked) (isWeekActive: \(settingsResult.isWeekActive ?? true))")
+                print("DEBUG: Week \(selectedWeek) locked status: \(self.isLocked) (isWeekActive: \(settingsResult.isWeekActive ?? true), effective=\(effectiveCurrentWeek))")
             } else {
-                // Future weeks are editable
-                self.isLocked = false
-                print("DEBUG: Week \(selectedWeek) is unlocked (future week)")
+                // Future weeks are read-only - users cannot add picks ahead of time
+                self.isLocked = true
+                print("DEBUG: Week \(selectedWeek) is locked (future week, effective=\(effectiveCurrentWeek))")
             }
             
         } catch {
@@ -536,12 +546,17 @@ class PlayerSelectionViewModel: ObservableObject {
         
         do {
             // Submit all picks in the current lineup
+            // Compute effective NFL week for mutations
+            // currentWeek is playoff round from backend (1-5, may skip Pro Bowl at 4)
+            // Cap offset at 3 to handle Pro Bowl skip where backend sends round 5 for Super Bowl
+            let offset = min(currentWeek - 1, 3)
+            let effectiveWeek = playoffStartWeek + offset
             for player in currentLineup {
                 try await APIService.shared.submitPick(
                     userId: userId,
                     playerId: player.id,
                     position: player.position,
-                    weekNumber: selectedWeek
+                    weekNumber: effectiveWeek
                 )
             }
             

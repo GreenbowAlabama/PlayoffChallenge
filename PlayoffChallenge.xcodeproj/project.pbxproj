@@ -7,17 +7,82 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CC001A012F3A000100000001 /* CustomContestModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A002F3A000100000001 /* CustomContestModels.swift */; };
+		CC001A032F3A000100000002 /* CustomContestError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A022F3A000100000002 /* CustomContestError.swift */; };
+		CC001A052F3A000100000003 /* CustomContestValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A042F3A000100000003 /* CustomContestValidation.swift */; };
+		CC001A072F3A000100000004 /* CustomContestCreating.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A062F3A000100000004 /* CustomContestCreating.swift */; };
+		CC001A092F3A000100000005 /* CustomContestPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A082F3A000100000005 /* CustomContestPublishing.swift */; };
+		CC001A0E2F3A000100000009 /* CustomContestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A0D2F3A000100000009 /* CustomContestService.swift */; };
+		CC001A112F3A00010000000B /* CreateCustomContestViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A102F3A00010000000B /* CreateCustomContestViewModel.swift */; };
+		CC001A132F3A00010000000C /* CreateCustomContestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A122F3A00010000000C /* CreateCustomContestView.swift */; };
+		CC001A172F3B000100000001 /* ContestsLandingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A162F3B000100000001 /* ContestsLandingViewModel.swift */; };
+		CC001A192F3B000100000002 /* ContestsLandingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A182F3B000100000002 /* ContestsLandingView.swift */; };
+		CC001B012F3C000100000001 /* ContestTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B002F3C000100000001 /* ContestTemplate.swift */; };
+		CC001B032F3C000100000002 /* ContestTemplateValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B022F3C000100000002 /* ContestTemplateValidation.swift */; };
+		CC001B052F3C000100000003 /* ContestTemplateError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B042F3C000100000003 /* ContestTemplateError.swift */; };
+		CC001B072F3C000100000004 /* ScoringStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B062F3C000100000004 /* ScoringStrategy.swift */; };
+		CC001B092F3C000100000005 /* SettlementStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B082F3C000100000005 /* SettlementStrategy.swift */; };
 		EA345EBE2EA45CB700689C4E /* PlayoffChallengeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA345EBD2EA45CB700689C4E /* PlayoffChallengeApp.swift */; };
 		EA345EC02EA45CB700689C4E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA345EBF2EA45CB700689C4E /* ContentView.swift */; };
 		EA345EC22EA45CB900689C4E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EA345EC12EA45CB900689C4E /* Assets.xcassets */; };
+		EA98FE402F2D776C00CA4A36 /* JoinErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE3C2F2D776C00CA4A36 /* JoinErrorView.swift */; };
+		EA98FE412F2D776C00CA4A36 /* ContestJoining.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE312F2D776C00CA4A36 /* ContestJoining.swift */; };
+		EA98FE422F2D776C00CA4A36 /* JoinLinkError.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE2E2F2D776C00CA4A36 /* JoinLinkError.swift */; };
+		EA98FE432F2D776C00CA4A36 /* PendingJoinStoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE332F2D776C00CA4A36 /* PendingJoinStoring.swift */; };
+		EA98FE442F2D776C00CA4A36 /* DeepLinkCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE362F2D776C00CA4A36 /* DeepLinkCoordinator.swift */; };
+		EA98FE452F2D776C00CA4A36 /* JoinLinkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE2F2F2D776C00CA4A36 /* JoinLinkModels.swift */; };
+		EA98FE462F2D776C00CA4A36 /* ContestJoinService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE352F2D776C00CA4A36 /* ContestJoinService.swift */; };
+		EA98FE482F2D776C00CA4A36 /* PendingJoinManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE382F2D776C00CA4A36 /* PendingJoinManager.swift */; };
+		EA98FE492F2D776C00CA4A36 /* JoinLinkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE372F2D776C00CA4A36 /* JoinLinkService.swift */; };
+
+		EA98FE4B2F2D776C00CA4A36 /* JoinLinkResolving.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE322F2D776C00CA4A36 /* JoinLinkResolving.swift */; };
 		EAF21C572EA5D75E00B46D95 /* readme.md in Resources */ = {isa = PBXBuildFile; fileRef = EAF21C562EA5D75500B46D95 /* readme.md */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		EA98FE542F2D783900CA4A36 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EA345EB22EA45CB700689C4E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EA345EB92EA45CB700689C4E;
+			remoteInfo = PlayoffChallenge;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		CC001A002F3A000100000001 /* CustomContestModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomContestModels.swift; sourceTree = "<group>"; };
+		CC001A022F3A000100000002 /* CustomContestError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomContestError.swift; sourceTree = "<group>"; };
+		CC001A042F3A000100000003 /* CustomContestValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomContestValidation.swift; sourceTree = "<group>"; };
+		CC001A062F3A000100000004 /* CustomContestCreating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomContestCreating.swift; sourceTree = "<group>"; };
+		CC001A082F3A000100000005 /* CustomContestPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomContestPublishing.swift; sourceTree = "<group>"; };
+		CC001A0D2F3A000100000009 /* CustomContestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomContestService.swift; sourceTree = "<group>"; };
+		CC001A102F3A00010000000B /* CreateCustomContestViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateCustomContestViewModel.swift; sourceTree = "<group>"; };
+		CC001A122F3A00010000000C /* CreateCustomContestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateCustomContestView.swift; sourceTree = "<group>"; };
+		CC001A162F3B000100000001 /* ContestsLandingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestsLandingViewModel.swift; sourceTree = "<group>"; };
+		CC001A182F3B000100000002 /* ContestsLandingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestsLandingView.swift; sourceTree = "<group>"; };
+		CC001B002F3C000100000001 /* ContestTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestTemplate.swift; sourceTree = "<group>"; };
+		CC001B022F3C000100000002 /* ContestTemplateValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestTemplateValidation.swift; sourceTree = "<group>"; };
+		CC001B042F3C000100000003 /* ContestTemplateError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestTemplateError.swift; sourceTree = "<group>"; };
+		CC001B062F3C000100000004 /* ScoringStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoringStrategy.swift; sourceTree = "<group>"; };
+		CC001B082F3C000100000005 /* SettlementStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementStrategy.swift; sourceTree = "<group>"; };
 		EA345EBA2EA45CB700689C4E /* PlayoffChallenge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlayoffChallenge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA345EBD2EA45CB700689C4E /* PlayoffChallengeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayoffChallengeApp.swift; sourceTree = "<group>"; };
 		EA345EBF2EA45CB700689C4E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		EA345EC12EA45CB900689C4E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		EA98FE2E2F2D776C00CA4A36 /* JoinLinkError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkError.swift; sourceTree = "<group>"; };
+		EA98FE2F2F2D776C00CA4A36 /* JoinLinkModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkModels.swift; sourceTree = "<group>"; };
+		EA98FE312F2D776C00CA4A36 /* ContestJoining.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestJoining.swift; sourceTree = "<group>"; };
+		EA98FE322F2D776C00CA4A36 /* JoinLinkResolving.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkResolving.swift; sourceTree = "<group>"; };
+		EA98FE332F2D776C00CA4A36 /* PendingJoinStoring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingJoinStoring.swift; sourceTree = "<group>"; };
+		EA98FE352F2D776C00CA4A36 /* ContestJoinService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestJoinService.swift; sourceTree = "<group>"; };
+		EA98FE362F2D776C00CA4A36 /* DeepLinkCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkCoordinator.swift; sourceTree = "<group>"; };
+		EA98FE372F2D776C00CA4A36 /* JoinLinkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkService.swift; sourceTree = "<group>"; };
+		EA98FE382F2D776C00CA4A36 /* PendingJoinManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingJoinManager.swift; sourceTree = "<group>"; };
+		EA98FE3C2F2D776C00CA4A36 /* JoinErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinErrorView.swift; sourceTree = "<group>"; };
+
+		EA98FE502F2D783900CA4A36 /* PlayoffChallengeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlayoffChallengeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		EA98FE7D2F2DBCC100CA4A36 /* PlayoffChallenge.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = PlayoffChallenge.xctestplan; sourceTree = "<group>"; };
+		EAB5744A2F28203600767979 /* PlayoffChallenge-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "PlayoffChallenge-Info.plist"; sourceTree = "<group>"; };
 		EAF21C492EA483D800B46D95 /* PlayoffChallenge.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PlayoffChallenge.entitlements; sourceTree = "<group>"; };
 		EAF21C562EA5D75500B46D95 /* readme.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = readme.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -43,6 +108,11 @@
 			path = ViewModels;
 			sourceTree = "<group>";
 		};
+		EA98FE512F2D783900CA4A36 /* PlayoffChallengeTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PlayoffChallengeTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,15 +123,87 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EA98FE4D2F2D783900CA4A36 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		CC001A0A2F3A000100000006 /* CustomContests */ = {
+			isa = PBXGroup;
+			children = (
+				CC001A0B2F3A000100000007 /* Models */,
+				CC001A0C2F3A000100000008 /* Protocols */,
+				CC001A0F2F3A00010000000A /* Services */,
+				CC001A142F3A00010000000D /* ViewModels */,
+				CC001A152F3A00010000000E /* Views */,
+			);
+			path = CustomContests;
+			sourceTree = "<group>";
+		};
+		CC001A0B2F3A000100000007 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				CC001A002F3A000100000001 /* CustomContestModels.swift */,
+				CC001A022F3A000100000002 /* CustomContestError.swift */,
+				CC001A042F3A000100000003 /* CustomContestValidation.swift */,
+				CC001B002F3C000100000001 /* ContestTemplate.swift */,
+				CC001B022F3C000100000002 /* ContestTemplateValidation.swift */,
+				CC001B042F3C000100000003 /* ContestTemplateError.swift */,
+				CC001B062F3C000100000004 /* ScoringStrategy.swift */,
+				CC001B082F3C000100000005 /* SettlementStrategy.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		CC001A0C2F3A000100000008 /* Protocols */ = {
+			isa = PBXGroup;
+			children = (
+				CC001A062F3A000100000004 /* CustomContestCreating.swift */,
+				CC001A082F3A000100000005 /* CustomContestPublishing.swift */,
+			);
+			path = Protocols;
+			sourceTree = "<group>";
+		};
+		CC001A0F2F3A00010000000A /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				CC001A0D2F3A000100000009 /* CustomContestService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		CC001A142F3A00010000000D /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				CC001A102F3A00010000000B /* CreateCustomContestViewModel.swift */,
+				CC001A162F3B000100000001 /* ContestsLandingViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		CC001A152F3A00010000000E /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				CC001A122F3A00010000000C /* CreateCustomContestView.swift */,
+				CC001A182F3B000100000002 /* ContestsLandingView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
 		EA345EB12EA45CB700689C4E = {
 			isa = PBXGroup;
 			children = (
+				EA98FE7D2F2DBCC100CA4A36 /* PlayoffChallenge.xctestplan */,
+				EAB5744A2F28203600767979 /* PlayoffChallenge-Info.plist */,
 				EAF21C562EA5D75500B46D95 /* readme.md */,
 				EAF21C492EA483D800B46D95 /* PlayoffChallenge.entitlements */,
 				EA345ED42EA465B200689C4E /* Services */,
+				EA98FE512F2D783900CA4A36 /* PlayoffChallengeTests */,
 				EA345EBB2EA45CB700689C4E /* Products */,
 				EA345ECD2EA4645100689C4E /* Views */,
 				EA345ECE2EA4645F00689C4E /* Models */,
@@ -69,6 +211,8 @@
 				EA345EBF2EA45CB700689C4E /* ContentView.swift */,
 				EA345EBD2EA45CB700689C4E /* PlayoffChallengeApp.swift */,
 				EA345ED52EA465B600689C4E /* ViewModels */,
+				EA98FE3F2F2D776C00CA4A36 /* JoinFlow */,
+				CC001A0A2F3A000100000006 /* CustomContests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -76,8 +220,66 @@
 			isa = PBXGroup;
 			children = (
 				EA345EBA2EA45CB700689C4E /* PlayoffChallenge.app */,
+				EA98FE502F2D783900CA4A36 /* PlayoffChallengeTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		EA98FE302F2D776C00CA4A36 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				EA98FE2E2F2D776C00CA4A36 /* JoinLinkError.swift */,
+				EA98FE2F2F2D776C00CA4A36 /* JoinLinkModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		EA98FE342F2D776C00CA4A36 /* Protocols */ = {
+			isa = PBXGroup;
+			children = (
+				EA98FE312F2D776C00CA4A36 /* ContestJoining.swift */,
+				EA98FE322F2D776C00CA4A36 /* JoinLinkResolving.swift */,
+				EA98FE332F2D776C00CA4A36 /* PendingJoinStoring.swift */,
+			);
+			path = Protocols;
+			sourceTree = "<group>";
+		};
+		EA98FE392F2D776C00CA4A36 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				EA98FE352F2D776C00CA4A36 /* ContestJoinService.swift */,
+				EA98FE362F2D776C00CA4A36 /* DeepLinkCoordinator.swift */,
+				EA98FE372F2D776C00CA4A36 /* JoinLinkService.swift */,
+				EA98FE382F2D776C00CA4A36 /* PendingJoinManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		EA98FE3B2F2D776C00CA4A36 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		EA98FE3E2F2D776C00CA4A36 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				EA98FE3C2F2D776C00CA4A36 /* JoinErrorView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		EA98FE3F2F2D776C00CA4A36 /* JoinFlow */ = {
+			isa = PBXGroup;
+			children = (
+				EA98FE302F2D776C00CA4A36 /* Models */,
+				EA98FE342F2D776C00CA4A36 /* Protocols */,
+				EA98FE392F2D776C00CA4A36 /* Services */,
+				EA98FE3B2F2D776C00CA4A36 /* ViewModels */,
+				EA98FE3E2F2D776C00CA4A36 /* Views */,
+			);
+			path = JoinFlow;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -108,6 +310,29 @@
 			productReference = EA345EBA2EA45CB700689C4E /* PlayoffChallenge.app */;
 			productType = "com.apple.product-type.application";
 		};
+		EA98FE4F2F2D783900CA4A36 /* PlayoffChallengeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EA98FE562F2D783900CA4A36 /* Build configuration list for PBXNativeTarget "PlayoffChallengeTests" */;
+			buildPhases = (
+				EA98FE4C2F2D783900CA4A36 /* Sources */,
+				EA98FE4D2F2D783900CA4A36 /* Frameworks */,
+				EA98FE4E2F2D783900CA4A36 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EA98FE552F2D783900CA4A36 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				EA98FE512F2D783900CA4A36 /* PlayoffChallengeTests */,
+			);
+			name = PlayoffChallengeTests;
+			packageProductDependencies = (
+			);
+			productName = PlayoffChallengeTests;
+			productReference = EA98FE502F2D783900CA4A36 /* PlayoffChallengeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -115,11 +340,15 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2600;
+				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					EA345EB92EA45CB700689C4E = {
 						CreatedOnToolsVersion = 26.0.1;
+					};
+					EA98FE4F2F2D783900CA4A36 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = EA345EB92EA45CB700689C4E;
 					};
 				};
 			};
@@ -138,6 +367,7 @@
 			projectRoot = "";
 			targets = (
 				EA345EB92EA45CB700689C4E /* PlayoffChallenge */,
+				EA98FE4F2F2D783900CA4A36 /* PlayoffChallengeTests */,
 			);
 		};
 /* End PBXProject section */
@@ -152,6 +382,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EA98FE4E2F2D783900CA4A36 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -160,17 +397,59 @@
 			buildActionMask = 2147483647;
 			files = (
 				EA345EC02EA45CB700689C4E /* ContentView.swift in Sources */,
+				EA98FE402F2D776C00CA4A36 /* JoinErrorView.swift in Sources */,
+				EA98FE412F2D776C00CA4A36 /* ContestJoining.swift in Sources */,
+				EA98FE422F2D776C00CA4A36 /* JoinLinkError.swift in Sources */,
+				EA98FE432F2D776C00CA4A36 /* PendingJoinStoring.swift in Sources */,
+				EA98FE442F2D776C00CA4A36 /* DeepLinkCoordinator.swift in Sources */,
+				EA98FE452F2D776C00CA4A36 /* JoinLinkModels.swift in Sources */,
+				EA98FE462F2D776C00CA4A36 /* ContestJoinService.swift in Sources */,
+				EA98FE482F2D776C00CA4A36 /* PendingJoinManager.swift in Sources */,
+				EA98FE492F2D776C00CA4A36 /* JoinLinkService.swift in Sources */,
+
+				EA98FE4B2F2D776C00CA4A36 /* JoinLinkResolving.swift in Sources */,
 				EA345EBE2EA45CB700689C4E /* PlayoffChallengeApp.swift in Sources */,
+				CC001A012F3A000100000001 /* CustomContestModels.swift in Sources */,
+				CC001A032F3A000100000002 /* CustomContestError.swift in Sources */,
+				CC001A052F3A000100000003 /* CustomContestValidation.swift in Sources */,
+				CC001A072F3A000100000004 /* CustomContestCreating.swift in Sources */,
+				CC001A092F3A000100000005 /* CustomContestPublishing.swift in Sources */,
+				CC001A0E2F3A000100000009 /* CustomContestService.swift in Sources */,
+				CC001A112F3A00010000000B /* CreateCustomContestViewModel.swift in Sources */,
+				CC001A132F3A00010000000C /* CreateCustomContestView.swift in Sources */,
+				CC001A172F3B000100000001 /* ContestsLandingViewModel.swift in Sources */,
+				CC001A192F3B000100000002 /* ContestsLandingView.swift in Sources */,
+				CC001B012F3C000100000001 /* ContestTemplate.swift in Sources */,
+				CC001B032F3C000100000002 /* ContestTemplateValidation.swift in Sources */,
+				CC001B052F3C000100000003 /* ContestTemplateError.swift in Sources */,
+				CC001B072F3C000100000004 /* ScoringStrategy.swift in Sources */,
+				CC001B092F3C000100000005 /* SettlementStrategy.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EA98FE4C2F2D783900CA4A36 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		EA98FE552F2D783900CA4A36 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EA345EB92EA45CB700689C4E /* PlayoffChallenge */;
+			targetProxy = EA98FE542F2D783900CA4A36 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		EA345EC32EA45CB900689C4E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				API_BASE_URL = "https://playoffchallenge-production.up.railway.app";
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -235,6 +514,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				API_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -282,6 +562,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				OTHER_SWIFT_FLAGS = "-D TESTFLIGHT";
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
@@ -291,6 +572,7 @@
 		EA345EC62EA45CB900689C4E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				API_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PlayoffChallenge.entitlements;
@@ -300,17 +582,18 @@
 				DEVELOPMENT_TEAM = 24Z6R7U38A;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "PlayoffChallenge-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports-games";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.44;
 				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallenge;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "PlayoffChallenge App Store Profile";
@@ -340,17 +623,19 @@
 				DEVELOPMENT_TEAM = 24Z6R7U38A;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "PlayoffChallenge-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports-games";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.44;
+				OTHER_SWIFT_FLAGS = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallenge;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "PlayoffChallenge App Store Profile";
@@ -368,6 +653,170 @@
 			};
 			name = Release;
 		};
+		EA98FE572F2D783900CA4A36 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallengeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlayoffChallenge.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlayoffChallenge";
+			};
+			name = Debug;
+		};
+		EA98FE582F2D783900CA4A36 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallengeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlayoffChallenge.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlayoffChallenge";
+			};
+			name = Release;
+		};
+		EA98FE592F2D783900CA4A36 /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallengeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlayoffChallenge.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlayoffChallenge";
+			};
+			name = Staging;
+		};
+		EAB574482F281C7C00767979 /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				API_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 24Z6R7U38A;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				OTHER_SWIFT_FLAGS = "-D TESTFLIGHT";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Staging;
+		};
+		EAB574492F281C7C00767979 /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = PlayoffChallenge.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Distribution: Patrick Carter (24Z6R7U38A)";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 24Z6R7U38A;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "PlayoffChallenge-Info.plist";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports-games";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.44;
+				OTHER_SWIFT_FLAGS = "";
+				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallenge;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "PlayoffChallenge App Store Profile";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Staging;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -376,6 +825,7 @@
 			buildConfigurations = (
 				EA345EC32EA45CB900689C4E /* Debug */,
 				EA345EC42EA45CB900689C4E /* Release */,
+				EAB574482F281C7C00767979 /* Staging */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -385,6 +835,17 @@
 			buildConfigurations = (
 				EA345EC62EA45CB900689C4E /* Debug */,
 				EA345EC72EA45CB900689C4E /* Release */,
+				EAB574492F281C7C00767979 /* Staging */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EA98FE562F2D783900CA4A36 /* Build configuration list for PBXNativeTarget "PlayoffChallengeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EA98FE572F2D783900CA4A36 /* Debug */,
+				EA98FE582F2D783900CA4A36 /* Release */,
+				EA98FE592F2D783900CA4A36 /* Staging */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

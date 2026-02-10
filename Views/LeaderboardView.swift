@@ -7,22 +7,27 @@ struct LeaderboardView: View {
     @State private var currentWeek: Int = 12
     @State private var filterWeek: Int? = nil
 
-    // Map NFL weeks to playoff round names for testing
-    let playoffWeeks = [
-        (12, "Wild Card"),
-        (13, "Divisional"),
-        (14, "Conference"),
-        (15, "Super Bowl")
+    // V2: Leaderboard metadata from response headers
+    @State private var leaderboardMeta: LeaderboardMeta? = nil
+
+    // Playoff rounds mapped to current NFL weeks
+    // During regular season: weeks 16-18
+    // During playoffs: weeks 19-22
+    let playoffRounds = [
+        (16, "Wild Card"),
+        (17, "Divisional"),
+        (18, "Conference"),
+        (19, "Super Bowl")
     ]
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Week filter picker with playoff week names
+                // Week filter picker with playoff round names
                 Picker("Week", selection: $filterWeek) {
                     Text("All Weeks").tag(nil as Int?)
-                    ForEach(playoffWeeks, id: \.0) { week in
-                        Text(week.1).tag(week.0 as Int?)
+                    ForEach(playoffRounds, id: \.0) { round in
+                        Text(round.1).tag(round.0 as Int?)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -31,6 +36,11 @@ struct LeaderboardView: View {
                     Task {
                         await loadLeaderboard()
                     }
+                }
+
+                // V2: Pre-game message when capability headers indicate games haven't started
+                if let meta = leaderboardMeta, !meta.gamesStarted {
+                    PreGameBanner()
                 }
 
                 if isLoading {
@@ -58,7 +68,8 @@ struct LeaderboardView: View {
                                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                             expandedUserId = (expandedUserId == entry.id) ? nil : entry.id
                                         }
-                                    }
+                                    },
+                                    weekNumber: filterWeek ?? currentWeek
                                 )
                             }
                         }
@@ -81,13 +92,10 @@ struct LeaderboardView: View {
         do {
             let settings = try await APIService.shared.getSettings()
             currentWeek = settings.currentPlayoffWeek
-            // Default to "All Weeks" view
-            if filterWeek == nil {
-                filterWeek = nil
-            }
+            // Keep filterWeek as nil to default to "All Weeks" tab
         } catch {
             print("Failed to load current week: \(error)")
-            currentWeek = 12
+            currentWeek = 16 // Default to week 16 during regular season
         }
     }
 
@@ -95,21 +103,43 @@ struct LeaderboardView: View {
         isLoading = true
 
         do {
-            // Request picks to be included when filtering by specific week
-            let includePicks = filterWeek != nil
-            print("DEBUG: Loading leaderboard: weekNumber=\(String(describing: filterWeek)), includePicks=\(includePicks)")
-            entries = try await APIService.shared.getLeaderboard(
-                weekNumber: filterWeek,
-                includePicks: includePicks
-            )
+            let includePicks = true // Always include picks to show matchups and live scores
+
+            // Phase 2: Send explicit mode to disambiguate intent
+            // - "All Weeks" (filterWeek == nil): mode=cumulative, no weekNumber
+            // - Explicit round selection: mode=week with weekNumber
+            let fetchedEntries: [LeaderboardEntry]
+            let meta: LeaderboardMeta?
+
+            if let selectedRound = filterWeek {
+                // User explicitly selected a round (Wild Card, Divisional, etc.)
+                print("DEBUG: Loading leaderboard v2: weekNumber=\(selectedRound), mode=week, includePicks=\(includePicks)")
+                (fetchedEntries, meta) = try await APIService.shared.getLeaderboardV2(
+                    weekNumber: selectedRound,
+                    includePicks: includePicks,
+                    mode: "week"
+                )
+            } else {
+                // User selected "All Weeks" tab
+                print("DEBUG: Loading leaderboard v2: mode=cumulative, includePicks=\(includePicks)")
+                (fetchedEntries, meta) = try await APIService.shared.getLeaderboardV2(
+                    includePicks: includePicks,
+                    mode: "cumulative"
+                )
+            }
+
+            entries = fetchedEntries
+            leaderboardMeta = meta
+
             print("DEBUG: Loaded \(entries.count) entries")
+            if let meta = meta {
+                print("DEBUG: Leaderboard meta - gamesStarted: \(meta.gamesStarted)")
+            } else {
+                print("DEBUG: No leaderboard meta received (legacy response)")
+            }
+
             if let first = entries.first {
                 print("DEBUG: First entry has \(first.picks?.count ?? 0) picks")
-                if let picks = first.picks {
-                    for pick in picks {
-                        print("  - \(pick.position): \(pick.fullName) (\(pick.points) pts)")
-                    }
-                }
             }
         } catch {
             print("ERROR: Failed to load leaderboard: \(error)")
@@ -119,19 +149,49 @@ struct LeaderboardView: View {
     }
 }
 
+// MARK: - Pre-Game Banner
+// Shown when capability headers indicate games have not started yet
+struct PreGameBanner: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "clock.fill")
+                .foregroundColor(.blue)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Games haven't started yet")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
+                Text("Scores will update when games begin")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding()
+        .background(Color.blue.opacity(0.1))
+        .cornerRadius(12)
+        .padding(.horizontal)
+        .padding(.bottom, 8)
+    }
+}
+
 struct ExpandableLeaderboardRow: View {
     let rank: Int
     let entry: LeaderboardEntry
     let isExpanded: Bool
     let onTap: () -> Void
+    let weekNumber: Int
 
     private var displayName: String {
-        entry.name ?? entry.username ?? entry.email ?? "User"
+        // Leaderboards always show username, never the user's real name
+        entry.username ?? entry.email ?? "User"
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Main row
+            // Main row - tap to expand/collapse picks
             Button(action: onTap) {
                 HStack(spacing: 16) {
                     // Rank
@@ -168,16 +228,15 @@ struct ExpandableLeaderboardRow: View {
                             .foregroundColor(.secondary)
                     }
 
-                    // Chevron indicator
+                    // Chevron indicator for expand/collapse
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .rotationEffect(.degrees(0))
+                        .frame(width: 44, height: 44)
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 16)
                 .background(Color(.systemBackground))
-                .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
 
@@ -214,14 +273,12 @@ struct PickRowCard: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Player image
             PlayerImageView(
                 imageUrl: pick.imageUrl,
                 size: 44,
                 position: pick.position
             )
 
-            // Player info
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(pick.fullName)
@@ -250,7 +307,6 @@ struct PickRowCard: View {
 
             Spacer()
 
-            // Points
             VStack(alignment: .trailing, spacing: 2) {
                 if pick.points != 0 {
                     Text(String(format: "%.1f", pick.points))
@@ -287,18 +343,6 @@ struct PickRowCard: View {
         .background(Color(.systemBackground))
         .cornerRadius(10)
         .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
-    }
-
-    private func positionColor(_ position: String) -> Color {
-        switch position {
-        case "QB": return .blue
-        case "RB": return .green
-        case "WR": return .orange
-        case "TE": return .purple
-        case "K": return .red
-        case "DEF": return .indigo
-        default: return .gray
-        }
     }
 }
 

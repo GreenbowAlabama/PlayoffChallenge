@@ -2,7 +2,7 @@
 //  LineupView.swift
 //  PlayoffChallenge
 //
-//  Unified view combining player selection and picks display
+//  V2: Unified view using /api/picks/v2 as single source of truth
 //  Shows all 4 playoff weeks with live scoring integration
 //
 
@@ -17,7 +17,7 @@ struct LineupView: View {
         NavigationView {
             VStack(spacing: 0) {
                 // Week Selector (All 4 playoff weeks)
-                PlayoffWeekPicker(selectedWeek: $viewModel.selectedWeek, currentWeek: viewModel.currentWeek)
+                PlayoffWeekPicker(selectedWeek: $viewModel.selectedWeek, currentWeek: viewModel.currentWeek, playoffStartWeek: viewModel.playoffStartWeek)
                     .padding(.horizontal)
                     .padding(.top, 8)
 
@@ -32,28 +32,29 @@ struct LineupView: View {
                                 .frame(maxWidth: .infinity)
                                 .padding()
                         } else {
+                            // V2: Check if any slots have picks
+                            let hasAnyPicks = viewModel.slots.contains { !$0.isEmpty }
+
                             // Week Summary Card with live scores (only show if has picks)
-                            if !viewModel.picks.isEmpty {
-                                WeekSummaryCard(
+                            if hasAnyPicks {
+                                WeekSummaryCardV2(
                                     weekNumber: viewModel.selectedWeek,
                                     totalPoints: viewModel.totalPoints,
                                     isComplete: viewModel.isLineupComplete,
-                                    userId: viewModel.userId,
-                                    liveScores: viewModel.liveScores
+                                    slots: viewModel.slots
                                 )
                             } else {
                                 // Show empty state message above position sections
-                                EmptyWeekView(weekNumber: viewModel.selectedWeek)
+                                EmptyWeekView(weekNumber: viewModel.selectedWeek, playoffStartWeek: viewModel.playoffStartWeek)
                                     .padding(.bottom, 8)
                             }
 
-                            // Position Sections - always show (they handle empty state internally)
+                            // Position Sections - V2: uses slots as single source of truth
                             ForEach(["QB", "RB", "WR", "TE", "K", "DEF"], id: \.self) { position in
-                                LineupPositionSection(
+                                LineupPositionSectionV2(
                                     position: position,
                                     limit: viewModel.limitFor(position: position),
-                                    picks: viewModel.picksForPosition(position),
-                                    players: viewModel.playersForPosition(position),
+                                    slots: viewModel.filledSlotsForPosition(position),
                                     viewModel: viewModel
                                 )
                             }
@@ -62,28 +63,20 @@ struct LineupView: View {
                     .padding()
                 }
 
-                // Submit Button (only if not locked and has changes)
-                if !viewModel.isLocked && viewModel.hasChanges {
-                    Button(action: {
-                        Task {
-                            await viewModel.submitLineup()
-                        }
-                    }) {
-                        HStack {
-                            if viewModel.isSaving {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            }
-                            Text(viewModel.isSaving ? "Saving..." : "Save Lineup")
-                                .font(.headline)
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.green)
-                        .cornerRadius(12)
+                // V2: Show saving indicator overlay instead of submit button
+                // (Operations are now immediate, no batch submit needed)
+                if viewModel.isSaving {
+                    HStack {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        Text("Saving...")
+                            .font(.headline)
                     }
-                    .disabled(viewModel.isSaving)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .cornerRadius(12)
                     .padding()
                 }
             }
@@ -118,7 +111,7 @@ struct LineupView: View {
             }
             .sheet(isPresented: $viewModel.showingPlayerPicker) {
                 if let position = viewModel.selectedPosition {
-                    LineupPlayerPickerSheet(
+                    LineupPlayerPickerSheetV2(
                         position: position,
                         viewModel: viewModel
                     )
@@ -132,42 +125,42 @@ struct LineupView: View {
 struct PlayoffWeekPicker: View {
     @Binding var selectedWeek: Int
     let currentWeek: Int
+    let playoffStartWeek: Int
 
-    // Map NFL weeks to playoff round names
-    // Week 19 = Wild Card, Week 20 = Divisional, etc.
-    let playoffWeeks = [
-        (19, "Wild Card"),
-        (20, "Divisional"),
-        (21, "Conference"),
-        (22, "Super Bowl")
-    ]
+    // Compute playoff weeks dynamically from playoff_start_week
+    var playoffWeeks: [(Int, String)] {
+        [
+            (playoffStartWeek, "Wild Card"),
+            (playoffStartWeek + 1, "Divisional"),
+            (playoffStartWeek + 2, "Conference"),
+            (playoffStartWeek + 3, "Super Bowl")
+        ]
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Playoff Week")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            Picker("Week", selection: $selectedWeek) {
-                ForEach(playoffWeeks, id: \.0) { week in
-                    Text(week.1).tag(week.0)
-                }
+        // Match Leaderboard style: no label, just the picker
+        Picker("Week", selection: $selectedWeek) {
+            ForEach(playoffWeeks, id: \.0) { week in
+                Text(week.1).tag(week.0)
             }
-            .pickerStyle(.segmented)
         }
+        .pickerStyle(.segmented)
     }
 }
 
 // MARK: - Empty Week View
 struct EmptyWeekView: View {
     let weekNumber: Int
+    let playoffStartWeek: Int
 
+    // Compute week name from offset relative to playoff_start_week
     var weekName: String {
-        switch weekNumber {
-        case 12: return "Wild Card"
-        case 13: return "Divisional"
-        case 14: return "Conference"
-        case 15: return "Super Bowl"
+        let offset = weekNumber - playoffStartWeek
+        switch offset {
+        case 0: return "Wild Card"
+        case 1: return "Divisional"
+        case 2: return "Conference"
+        case 3: return "Super Bowl"
         default: return "Week \(weekNumber)"
         }
     }
@@ -192,178 +185,223 @@ struct EmptyWeekView: View {
     }
 }
 
-// MARK: - Lineup Position Section
-struct LineupPositionSection: View {
-    let position: String
-    let limit: Int
-    let picks: [Pick]
-    let players: [Player]  // Current lineup players for editing
-    @ObservedObject var viewModel: LineupViewModel
+// MARK: - Week Summary Card V2
+struct WeekSummaryCardV2: View {
+    let weekNumber: Int
+    let totalPoints: Double
+    let isComplete: Bool
+    let slots: [PickV2Slot]
+
+    var liveCount: Int {
+        slots.filter { $0.isLive == true }.count
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
+        VStack(spacing: 12) {
             HStack {
-                Text(position)
-                    .font(.headline)
-                    .foregroundColor(.blue)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Total Score")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                    if liveCount > 0 {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 6, height: 6)
+                            Text("\(liveCount) \(liveCount == 1 ? "game" : "games") in progress")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                    }
+                }
 
                 Spacer()
 
-                Text("\(players.count)/\(limit)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(String(format: "%.1f", totalPoints))
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(liveCount > 0 ? .red : .primary)
+                    Text("points")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
 
-            // Show picks with scores (if they exist) OR show editable players
-            if !picks.isEmpty {
-                // Display mode: show picks with scores
-                ForEach(picks) { pick in
-                    LineupPickRow(pick: pick, viewModel: viewModel)
+            if isComplete {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.subheadline)
+                    Text("Lineup complete")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.green)
+                    Spacer()
                 }
-            } else if !players.isEmpty {
-                // Edit mode: show selected players
-                ForEach(players) { player in
-                    LineupPlayerRow(player: player, viewModel: viewModel)
+            }
+        }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
+    }
+}
+
+// MARK: - Lineup Position Section V2
+struct LineupPositionSectionV2: View {
+    let position: String
+    let limit: Int
+    let slots: [PickV2Slot]  // V2: Filled slots only
+    @ObservedObject var viewModel: LineupViewModel
+
+    // Position display names
+    private var positionName: String {
+        switch position {
+        case "QB": return "Quarterback"
+        case "RB": return "Running Back"
+        case "WR": return "Wide Receiver"
+        case "TE": return "Tight End"
+        case "K": return "Kicker"
+        case "DEF": return "Defense"
+        default: return position
+        }
+    }
+
+    private var positionColor: Color {
+        switch position {
+        case "QB": return .blue
+        case "RB": return .green
+        case "WR": return .orange
+        case "TE": return .purple
+        case "K": return .red
+        case "DEF": return .indigo
+        default: return .gray
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Section header - outside card styling
+            HStack(alignment: .firstTextBaseline) {
+                HStack(spacing: 8) {
+                    // Position color indicator
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(positionColor)
+                        .frame(width: 4, height: 16)
+
+                    Text(positionName)
+                        .font(.headline)
+                        .foregroundColor(.primary)
                 }
+
+                Spacer()
+
+                Text("\(slots.count)/\(limit)")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.bottom, 4)
+
+            // V2: Show filled slots (single source of truth)
+            ForEach(slots) { slot in
+                LineupSlotRow(slot: slot, viewModel: viewModel)
             }
 
             // Empty slots (if can still add more)
-            if players.count < limit && !viewModel.isLocked {
-                ForEach(0..<(limit - players.count), id: \.self) { _ in
+            if slots.count < limit && !viewModel.isLocked {
+                ForEach(0..<(limit - slots.count), id: \.self) { _ in
                     EmptySlotButton(position: position, viewModel: viewModel)
                 }
             }
         }
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
     }
 }
 
-// MARK: - Lineup Player Row (simple display for editing)
-struct LineupPlayerRow: View {
-    let player: Player
+// MARK: - Lineup Slot Row V2 (unified display for picks with scores)
+// Styled to match PickRowCard from LeaderboardView
+struct LineupSlotRow: View {
+    let slot: PickV2Slot
     @ObservedObject var viewModel: LineupViewModel
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        HStack(spacing: 12) {
-            PlayerImageView(
-                imageUrl: player.imageUrl,
-                size: 50,
-                position: player.position
-            )
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(player.fullName)
-                    .font(.body)
-                    .fontWeight(.semibold)
-
-                HStack(spacing: 8) {
-                    Text(player.position)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    if let team = player.team {
-                        Text(team)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-
-            Spacer()
-
-            // Delete button
-            if !viewModel.isLocked {
-                Button(action: {
-                    viewModel.removePlayer(playerId: player.id, position: player.position)
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.red)
-                        .imageScale(.large)
-                }
-            }
-        }
-        .padding()
-        .background(colorScheme == .dark ? Color(.systemGray5) : Color.white)
-        .cornerRadius(8)
-        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-    }
-}
-
-// MARK: - Lineup Pick Row (with live scoring)
-struct LineupPickRow: View {
-    let pick: Pick
-    @ObservedObject var viewModel: LineupViewModel
-    @State private var playerScore: PlayerScore?
     @State private var showingDeleteAlert = false
-    @Environment(\.colorScheme) var colorScheme
-
-    var liveScore: LivePickScore? {
-        viewModel.liveScores[pick.id.uuidString]
-    }
 
     var displayPoints: Double {
-        if let live = liveScore {
-            return live.finalPoints
-        }
-        return playerScore?.finalPoints ?? 0
+        slot.finalPoints ?? 0
     }
 
     var displayBasePoints: Double {
-        if let live = liveScore {
-            return live.basePoints
-        }
-        return playerScore?.basePoints ?? 0
+        slot.basePoints ?? 0
     }
 
     var displayMultiplier: Double {
-        if let live = liveScore {
-            return live.multiplier
-        }
-        return playerScore?.multiplier ?? pick.multiplier ?? 1.0
+        slot.multiplier ?? 1.0
     }
 
     var isLive: Bool {
-        liveScore?.isLive ?? false
+        slot.isLive ?? false
     }
 
     var canDelete: Bool {
-        // Can delete if: week is current/future, not locked, and no score yet
-        viewModel.selectedWeek >= viewModel.currentWeek && !viewModel.isLocked && playerScore == nil && liveScore == nil
+        // Can delete if: week is CURRENT (not future), not locked, and no score yet
+        // Users can only modify picks for the active playoff week
+        // Note: currentWeek is playoff round from backend (1-5, may skip Pro Bowl at 4)
+        // Cap offset at 3 to handle Pro Bowl skip where backend sends round 5 for Super Bowl
+        let offset = min(viewModel.currentWeek - 1, 3)
+        let effectiveCurrentWeek = viewModel.playoffStartWeek + offset
+        return viewModel.selectedWeek == effectiveCurrentWeek && !viewModel.isLocked && !slot.locked && (slot.finalPoints ?? 0) == 0
     }
 
     var body: some View {
         HStack(spacing: 12) {
+            // Player image - match Leaderboard size (44)
             PlayerImageView(
-                imageUrl: pick.imageUrl,
-                size: 50,
-                position: pick.playerPosition ?? pick.position
+                imageUrl: slot.imageUrl,
+                size: 44,
+                position: slot.position
             )
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(pick.fullName ?? "Unknown Player")
+                HStack(spacing: 6) {
+                    Text(slot.fullName ?? "Unknown Player")
                         .font(.body)
-                        .fontWeight(.semibold)
+                        .fontWeight(.medium)
+                        .foregroundColor(.primary)
 
-                    // Multiplier Badge
                     MultiplierBadge(multiplier: displayMultiplier)
                 }
 
-                HStack(spacing: 8) {
-                    Text(pick.playerPosition ?? pick.position)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    if let team = pick.team {
-                        Text(team)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    // Matchup display - use MatchupView when opponent data available,
+                    // fall back to team-only display otherwise
+                    if let team = slot.team {
+                        if let opponent = slot.opponent, let isHome = slot.isHome {
+                            // Full matchup display (matches Leaderboard style)
+                            MatchupView(
+                                team: team,
+                                opponent: opponent,
+                                isHome: isHome,
+                                logoSize: 18
+                            )
+                        } else {
+                            // Fallback: team logo and abbreviation only
+                            HStack(spacing: 4) {
+                                TeamLogoView(teamAbbreviation: team, size: 18)
+                                Text(team)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
 
+                    // Locked indicator
+                    if slot.locked && !canDelete {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                    }
+
+                    // Live indicator
                     if isLive {
                         HStack(spacing: 3) {
                             Circle()
@@ -379,124 +417,137 @@ struct LineupPickRow: View {
 
             Spacer()
 
-            // Score display
-            if displayPoints > 0 || liveScore != nil {
-                VStack(alignment: .trailing, spacing: 4) {
+            // Score display - match Leaderboard style
+            VStack(alignment: .trailing, spacing: 2) {
+                if displayPoints != 0 || isLive {
                     Text(String(format: "%.1f", displayPoints))
                         .font(.title3)
                         .fontWeight(.bold)
-                        .foregroundColor(isLive ? .red : .primary)
+                        .foregroundColor(isLive ? .red : (displayPoints > 0 ? .green : .red))
 
-                    Text("pts")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-
-                    // Base points and multiplier breakdown
                     if displayMultiplier > 1.0 {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 2) {
                             Text(String(format: "%.1f", displayBasePoints))
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
-
-                            Image(systemName: "xmark")
-                                .font(.system(size: 8))
+                            Text("×")
+                                .font(.caption2)
                                 .foregroundColor(.secondary)
-
                             Text(String(format: "%.1fx", displayMultiplier))
                                 .font(.caption2)
-                                .fontWeight(.bold)
                                 .foregroundColor(.orange)
+                                .fontWeight(.semibold)
                         }
                     }
+                } else {
+                    // No score yet - match Leaderboard "−" style
+                    Text("−")
+                        .font(.title3)
+                        .foregroundColor(.gray)
+
+                    Text("No score")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
                 }
-            } else if !canDelete {
-                // No score yet, but locked
-                Text("Not scored")
-                    .font(.caption2)
-                    .foregroundColor(.gray)
             }
 
-            // Delete button
+            // Delete button - V2: calls removeSlot
             if canDelete {
                 Button(action: {
                     showingDeleteAlert = true
                 }) {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.red)
+                        .foregroundColor(.red.opacity(0.8))
                         .imageScale(.large)
                 }
             }
         }
-        .padding()
-        .background(colorScheme == .dark ? Color(.systemGray5) : Color.white)
-        .cornerRadius(8)
-        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-        .task {
-            await loadScore()
-        }
+        .padding(12)
+        .background(Color(.systemBackground))
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
         .alert("Remove Player?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Remove", role: .destructive) {
                 Task {
-                    await viewModel.removePlayer(pick: pick)
+                    // V2: Use removeSlot which calls the v2 API
+                    await viewModel.removeSlot(slot)
                 }
             }
         } message: {
-            Text("Are you sure you want to remove \(pick.fullName ?? "this player") from your lineup?")
-        }
-    }
-
-    private func loadScore() async {
-        guard let userId = viewModel.userId else { return }
-
-        do {
-            let scores = try await APIService.shared.getScores(
-                userId: userId,
-                weekNumber: pick.weekNumber
-            )
-
-            playerScore = scores.first { $0.playerId == pick.playerId }
-        } catch {
-            print("Failed to load score for \(pick.fullName ?? "player"): \(error)")
+            Text("Are you sure you want to remove \(slot.fullName ?? "this player") from your lineup?")
         }
     }
 }
 
 // MARK: - Empty Slot Button
+// Styled to feel like an intentional card, not a dashed placeholder
 struct EmptySlotButton: View {
     let position: String
     @ObservedObject var viewModel: LineupViewModel
-    @Environment(\.colorScheme) var colorScheme
+
+    private var positionColor: Color {
+        switch position {
+        case "QB": return .blue
+        case "RB": return .green
+        case "WR": return .orange
+        case "TE": return .purple
+        case "K": return .red
+        case "DEF": return .indigo
+        default: return .gray
+        }
+    }
 
     var body: some View {
         Button(action: {
             viewModel.openPlayerPicker(for: position)
         }) {
-            HStack(spacing: 8) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.title3)
-                    .foregroundColor(.blue)
+            HStack(spacing: 12) {
+                // Position placeholder circle - matches PlayerImageView style
+                ZStack {
+                    Circle()
+                        .fill(positionColor.opacity(0.15))
+                        .frame(width: 44, height: 44)
 
-                Text("Add \(position)")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(positionColor)
+                }
+                .overlay(
+                    Circle()
+                        .stroke(positionColor.opacity(0.3), lineWidth: 2)
+                )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Add \(position)")
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .foregroundColor(.primary)
+
+                    Text("Tap to select player")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
                 Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-            .padding()
-            .frame(maxWidth: .infinity, minHeight: 60)
-            .background(colorScheme == .dark ? Color(.systemGray5) : Color.white)
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.blue.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5]))
-            )
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .background(Color(.systemBackground))
+            .cornerRadius(10)
+            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
         }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
-// MARK: - Lineup Player Picker Sheet
-struct LineupPlayerPickerSheet: View {
+// MARK: - Lineup Player Picker Sheet V2
+// Polished styling to match overall app visual language
+struct LineupPlayerPickerSheetV2: View {
     let position: String
     @ObservedObject var viewModel: LineupViewModel
     @Environment(\.dismiss) var dismiss
@@ -520,36 +571,57 @@ struct LineupPlayerPickerSheet: View {
             List {
                 ForEach(filteredPlayers) { player in
                     Button(action: {
-                        viewModel.addPlayer(player)
-                        dismiss()
+                        // V2: Use async addPlayer which calls the v2 API
+                        Task {
+                            await viewModel.addPlayer(player)
+                            dismiss()
+                        }
                     }) {
                         HStack(spacing: 12) {
                             PlayerImageView(
                                 imageUrl: player.imageUrl,
-                                size: 50,
+                                size: 44,
                                 position: player.position
                             )
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(player.fullName)
                                     .font(.body)
+                                    .fontWeight(.medium)
                                     .foregroundColor(.primary)
 
-                                Text("\(player.position) - \(player.team ?? "FA")")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                HStack(spacing: 4) {
+                                    if let team = player.team {
+                                        TeamLogoView(teamAbbreviation: team, size: 16)
+                                        Text(team)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    } else {
+                                        Text("Free Agent")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
                             }
 
                             Spacer()
 
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundColor(.green)
+                            // Add button with clear affordance
+                            HStack(spacing: 4) {
+                                Text("Add")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                Image(systemName: "plus.circle.fill")
+                            }
+                            .foregroundColor(.green)
                         }
+                        .padding(.vertical, 4)
                     }
                 }
             }
-            .searchable(text: $searchText, prompt: "Search players")
-            .navigationTitle("Add \(position)")
+            .listStyle(.plain)
+            .searchable(text: $searchText, prompt: "Search by name or team")
+            .navigationTitle("Select \(position)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -565,25 +637,26 @@ struct LineupPlayerPickerSheet: View {
 // MARK: - View Model
 @MainActor
 class LineupViewModel: ObservableObject {
-    @Published var selectedWeek: Int = 19
-    @Published var currentWeek: Int = 19
-    @Published var picks: [Pick] = []
-    @Published var allPlayers: [Player] = []
-    @Published var currentLineup: [Player] = []  // Track selected players for editing
+    @Published var selectedWeek: Int = 0
+    @Published var currentWeek: Int = 0
+    @Published var playoffStartWeek: Int = 0
+
+    // V2: Single source of truth - slots from /api/picks/v2
+    @Published var slots: [PickV2Slot] = []
     @Published var positionLimits = LineupPositionLimits()
+
+    // Available players for selection (loaded once)
+    @Published var allPlayers: [Player] = []
+
     @Published var isLoading = false
     @Published var isSaving = false
     @Published var isLocked = false
-    @Published var hasChanges = false
     @Published var showError = false
     @Published var errorMessage: String?
     @Published var showingPlayerPicker = false
     @Published var selectedPosition: String?
-    @Published var liveScores: [String: LivePickScore] = [:]
 
     private(set) var userId: UUID?
-    private var originalPickIds: Set<String> = []
-    private var originalLineup: [Player] = []
     private var hasLoadedPlayersOnce = false
     private var refreshTimer: Timer?
 
@@ -597,45 +670,49 @@ class LineupViewModel: ObservableObject {
         do {
             let settings = try await APIService.shared.getSettings()
             currentWeek = settings.currentPlayoffWeek
+            playoffStartWeek = settings.playoffStartWeek
 
-            // Default to current week
-            if selectedWeek == 12 || selectedWeek == 10 {
-                selectedWeek = currentWeek
+            print("DEBUG SETTINGS: currentPlayoffWeek = \(currentWeek), playoffStartWeek = \(playoffStartWeek), selectedWeek = \(selectedWeek)")
+
+            // Default to current week if not yet initialized or out of valid range
+            let validWeekRange = playoffStartWeek...(playoffStartWeek + 3)
+            if selectedWeek == 0 || !validWeekRange.contains(selectedWeek) {
+                selectedWeek = playoffStartWeek
             }
         } catch {
             print("Failed to load current week: \(error)")
-            currentWeek = 12
+            currentWeek = 0
+            playoffStartWeek = 0
         }
     }
 
+    // V2: Available players excludes those already in slots
     var availablePlayers: [Player] {
-        let currentPickPlayerIds = Set(currentLineup.map { $0.id })
-        return allPlayers.filter { !currentPickPlayerIds.contains($0.id) }
+        let currentPlayerIds = Set(slots.compactMap { $0.playerId })
+        return allPlayers.filter { !currentPlayerIds.contains($0.id) }
     }
 
     var isLineupComplete: Bool {
-        playersForPosition("QB").count == positionLimits.qb &&
-        playersForPosition("RB").count == positionLimits.rb &&
-        playersForPosition("WR").count == positionLimits.wr &&
-        playersForPosition("TE").count == positionLimits.te &&
-        playersForPosition("K").count == positionLimits.k &&
-        playersForPosition("DEF").count == positionLimits.def
+        filledCountForPosition("QB") == positionLimits.qb &&
+        filledCountForPosition("RB") == positionLimits.rb &&
+        filledCountForPosition("WR") == positionLimits.wr &&
+        filledCountForPosition("TE") == positionLimits.te &&
+        filledCountForPosition("K") == positionLimits.k &&
+        filledCountForPosition("DEF") == positionLimits.def
     }
 
     var totalPoints: Double {
-        // Prioritize live scores
-        if !liveScores.isEmpty {
-            return liveScores.values.reduce(0) { $0 + $1.finalPoints }
-        }
-        return 0
+        slots.reduce(0) { $0 + ($1.finalPoints ?? 0) }
     }
 
-    func picksForPosition(_ position: String) -> [Pick] {
-        picks.filter { ($0.playerPosition ?? $0.position) == position }
+    // Filled slots for a position (for display)
+    func filledSlotsForPosition(_ position: String) -> [PickV2Slot] {
+        slots.filter { $0.position == position && !$0.isEmpty }
     }
 
-    func playersForPosition(_ position: String) -> [Player] {
-        currentLineup.filter { $0.position == position }
+    // Count of filled slots for a position
+    func filledCountForPosition(_ position: String) -> Int {
+        filledSlotsForPosition(position).count
     }
 
     func limitFor(position: String) -> Int {
@@ -650,17 +727,18 @@ class LineupViewModel: ObservableObject {
         }
     }
 
+    // V2: Load data using /api/picks/v2 as single source of truth
     func loadData(userId: UUID) async {
         self.userId = userId
         isLoading = true
 
-        print("DEBUG: Loading data for week \(selectedWeek)")
+        print("DEBUG: Loading v2 data for week \(selectedWeek)")
 
         do {
-            async let settings = APIService.shared.getSettings()
-            async let picksResponse = APIService.shared.getUserPicks(userId: userId)
+            // Load settings for lock status
+            let settings = try await APIService.shared.getSettings()
 
-            // Only load players once
+            // Only load players once (for player picker)
             if !hasLoadedPlayersOnce {
                 do {
                     print("Loading players from API...")
@@ -674,49 +752,53 @@ class LineupViewModel: ObservableObject {
                 }
             }
 
-            let (settingsResult, allPicks) = try await (settings, picksResponse)
+            // V2: Load lineup state from single source of truth
+            let lineupState = try await APIService.shared.getPicksV2(userId: userId, weekNumber: selectedWeek)
 
-            // Update position limits
+            // Update from v2 response
+            self.slots = lineupState.picks
             self.positionLimits = LineupPositionLimits(
-                qb: settingsResult.qbLimit ?? 1,
-                rb: settingsResult.rbLimit ?? 2,
-                wr: settingsResult.wrLimit ?? 3,
-                te: settingsResult.teLimit ?? 1,
-                k: settingsResult.kLimit ?? 1,
-                def: settingsResult.defLimit ?? 1
+                qb: lineupState.positionLimits.qb,
+                rb: lineupState.positionLimits.rb,
+                wr: lineupState.positionLimits.wr,
+                te: lineupState.positionLimits.te,
+                k: lineupState.positionLimits.k,
+                def: lineupState.positionLimits.def
             )
 
-            // Filter picks for selected week
-            self.picks = allPicks.filter { $0.weekNumber == selectedWeek }
-            print("DEBUG: Loaded \(self.picks.count) picks for week \(selectedWeek)")
-
-            // Convert picks to lineup players
-            self.currentLineup = picks.compactMap { pick in
-                allPlayers.first(where: { $0.id == pick.playerId })
-            }
-            print("DEBUG: Loaded \(self.currentLineup.count) players into currentLineup")
-
-            // Store original state
-            self.originalPickIds = Set(picks.map { $0.id.uuidString })
-            self.originalLineup = currentLineup
+            print("DEBUG: Loaded \(self.slots.count) slots for week \(selectedWeek)")
 
             // Check lock status
-            if selectedWeek < currentWeek {
+            // Only the CURRENT week can be edited (when active)
+            // Past weeks and future weeks are always read-only
+            // Note: currentWeek is playoff round from backend (1-5, may skip Pro Bowl at 4)
+            // selectedWeek is NFL week (e.g., 16-19 for playoff weeks)
+            // Compute effective NFL week: playoffStartWeek + offset, capped at Super Bowl (offset 3)
+            // This handles Pro Bowl skip where backend sends round 5 for Super Bowl
+            let offset = min(currentWeek - 1, 3)  // Cap at 3 (Super Bowl is final tab)
+            let effectiveCurrentWeek = playoffStartWeek + offset
+
+            if selectedWeek < effectiveCurrentWeek {
                 self.isLocked = true
-                print("DEBUG: Week \(selectedWeek) is locked (past week)")
-            } else if selectedWeek == currentWeek {
-                self.isLocked = !(settingsResult.isWeekActive ?? true)
-                print("DEBUG: Week \(selectedWeek) locked: \(self.isLocked)")
+                print("DEBUG: Week \(selectedWeek) is locked (past week, effective=\(effectiveCurrentWeek))")
+            } else if selectedWeek == effectiveCurrentWeek {
+                self.isLocked = !(settings.isWeekActive ?? true)
+                print("DEBUG: Week \(selectedWeek) locked: \(self.isLocked) (effective=\(effectiveCurrentWeek))")
             } else {
-                self.isLocked = false
-                print("DEBUG: Week \(selectedWeek) is unlocked (future week)")
+                // Future weeks are read-only - users cannot add picks ahead of time
+                self.isLocked = true
+                print("DEBUG: Week \(selectedWeek) is locked (future week, effective=\(effectiveCurrentWeek))")
             }
 
-            // Load live scores
-            await loadLiveScores()
-
         } catch {
-            print("ERROR loading data: \(error)")
+            // Silently ignore cancellation - this is expected when pull-to-refresh
+            // or navigation triggers a new load while one is in progress
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                print("DEBUG: Load cancelled (expected during refresh)")
+                isLoading = false
+                return
+            }
+            print("ERROR loading v2 data: \(error)")
             errorMessage = "Failed to load data: \(error.localizedDescription)"
             showError = true
         }
@@ -724,26 +806,12 @@ class LineupViewModel: ObservableObject {
         isLoading = false
     }
 
-    func loadLiveScores() async {
-        do {
-            let response = try await APIService.shared.getLiveScores(weekNumber: selectedWeek)
-
-            var scoresMap: [String: LivePickScore] = [:]
-            for pick in response.picks {
-                scoresMap[pick.pickId] = pick
-            }
-
-            self.liveScores = scoresMap
-            print("DEBUG: Loaded \(scoresMap.count) live scores for week \(selectedWeek)")
-        } catch {
-            print("Failed to load live scores: \(error)")
-        }
-    }
-
     func startAutoRefresh() {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                await self?.loadLiveScores()
+                guard let self = self, let userId = self.userId else { return }
+                // Refresh lineup state (includes live scores in v2)
+                await self.loadData(userId: userId)
             }
         }
     }
@@ -758,83 +826,68 @@ class LineupViewModel: ObservableObject {
         showingPlayerPicker = true
     }
 
-    func addPlayer(_ player: Player) {
-        let positionCount = playersForPosition(player.position).count
+    // V2: Add player via operation-based API
+    func addPlayer(_ player: Player) async {
+        guard let userId = userId else { return }
+
+        let positionCount = filledCountForPosition(player.position)
         let limit = limitFor(position: player.position)
 
         guard positionCount < limit else { return }
 
-        currentLineup.append(player)
-        checkForChanges()
-    }
-
-    func removePlayer(playerId: String, position: String) {
-        // Find the corresponding pick
-        guard let pick = picks.first(where: { $0.playerId == playerId && ($0.playerPosition ?? $0.position) == position }) else {
-            // If no pick found, just remove from currentLineup (shouldn't happen in normal flow)
-            currentLineup.removeAll { $0.id == playerId && $0.position == position }
-            checkForChanges()
-            return
-        }
-
-        Task {
-            await removePlayer(pick: pick)
-        }
-    }
-
-    func removePlayer(pick: Pick) async {
-        guard let userId = userId else { return }
-
-        do {
-            // Delete from backend
-            try await APIService.shared.deletePick(pickId: pick.id, userId: userId)
-
-            // Remove from local arrays
-            currentLineup.removeAll { $0.id == pick.playerId }
-            picks.removeAll { $0.id == pick.id }
-
-            checkForChanges()
-        } catch {
-            errorMessage = "Failed to remove player: \(error.localizedDescription)"
-            showError = true
-        }
-    }
-
-    func submitLineup() async {
-        guard let userId = userId else { return }
-
         isSaving = true
 
         do {
-            // Submit all current lineup players
-            for player in currentLineup {
-                try await APIService.shared.submitPick(
-                    userId: userId,
-                    playerId: player.id,
-                    position: player.position,
-                    weekNumber: selectedWeek
-                )
-            }
+            // Compute effective NFL week for mutations
+            // currentWeek is playoff round from backend (1-5, may skip Pro Bowl at 4)
+            // Cap offset at 3 to handle Pro Bowl skip where backend sends round 5 for Super Bowl
+            let offset = min(currentWeek - 1, 3)
+            let effectiveWeek = playoffStartWeek + offset
+            let _ = try await APIService.shared.addPickV2(
+                userId: userId,
+                weekNumber: effectiveWeek,
+                playerId: player.id,
+                position: player.position
+            )
 
-            // Update original state
-            originalLineup = currentLineup
-            hasChanges = false
-
-            // Reload picks to get updated data with multipliers, etc.
+            // Reload to get updated state
             await loadData(userId: userId)
 
         } catch {
-            errorMessage = "Failed to save lineup: \(error.localizedDescription)"
+            errorMessage = "Failed to add player: \(error.localizedDescription)"
             showError = true
         }
 
         isSaving = false
     }
 
-    private func checkForChanges() {
-        let currentPlayerIds = Set(currentLineup.map { $0.id })
-        let originalPlayerIds = Set(originalLineup.map { $0.id })
-        hasChanges = currentPlayerIds != originalPlayerIds
+    // V2: Remove player via operation-based API
+    func removeSlot(_ slot: PickV2Slot) async {
+        guard let userId = userId, let pickId = slot.pickId else { return }
+
+        isSaving = true
+
+        do {
+            // Compute effective NFL week for mutations
+            // currentWeek is playoff round from backend (1-5, may skip Pro Bowl at 4)
+            // Cap offset at 3 to handle Pro Bowl skip where backend sends round 5 for Super Bowl
+            let offset = min(currentWeek - 1, 3)
+            let effectiveWeek = playoffStartWeek + offset
+            let _ = try await APIService.shared.removePickV2(
+                userId: userId,
+                weekNumber: effectiveWeek,
+                pickId: pickId
+            )
+
+            // Reload to get updated state
+            await loadData(userId: userId)
+
+        } catch {
+            errorMessage = "Failed to remove player: \(error.localizedDescription)"
+            showError = true
+        }
+
+        isSaving = false
     }
 }
 

@@ -56,14 +56,16 @@ struct JoinErrorView: View {
 
     private var iconName: String {
         switch error {
-        case .invalidToken, .tokenExpired:
-            return "link.badge.plus"
         case .networkError:
             return "wifi.exclamationmark"
         case .environmentMismatch:
             return "exclamationmark.triangle"
         case .contestNotFound:
             return "magnifyingglass"
+        case .contestUnavailable:
+            return "exclamationmark.circle"
+        case .contestCompleted:
+            return "checkmark.seal"
         case .contestLocked:
             return "lock.fill"
         case .contestFull:
@@ -83,7 +85,7 @@ struct JoinErrorView: View {
         switch error {
         case .alreadyJoined:
             return .green
-        case .contestFull, .contestLocked, .contestCancelled:
+        case .contestFull, .contestLocked, .contestCancelled, .contestUnavailable, .contestCompleted:
             return .orange
         default:
             return .red
@@ -97,8 +99,8 @@ struct JoinErrorView: View {
 struct JoinErrorView_Previews: PreviewProvider {
     static var previews: some View {
         Group {
-            JoinErrorView(error: .invalidToken) {}
-                .previewDisplayName("Invalid Token")
+            JoinErrorView(error: .contestNotFound) {}
+                .previewDisplayName("Contest Not Found")
 
             JoinErrorView(error: .contestFull) {}
                 .previewDisplayName("Contest Full")

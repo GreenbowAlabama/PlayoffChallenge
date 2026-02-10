@@ -11,13 +11,15 @@ struct CustomContestDraft: Codable, Equatable, Identifiable {
     let status: ContestStatus
     let createdAt: Date
     let joinToken: String?
+    let settleTime: Date?
 
     enum ContestStatus: String, Codable, Equatable {
-        case draft
-        case open
-        case locked
-        case completed
-        case cancelled
+        case scheduled = "SCHEDULED"
+        case locked = "LOCKED"
+        case live = "LIVE"
+        case complete = "COMPLETE"
+        case cancelled = "CANCELLED"
+        case error = "ERROR"
     }
 
     enum CodingKeys: String, CodingKey {
@@ -27,15 +29,17 @@ struct CustomContestDraft: Codable, Equatable, Identifiable {
         case status
         case createdAt = "created_at"
         case joinToken = "join_token"
+        case settleTime = "settle_time"
     }
 
     init(
         id: UUID = UUID(),
         name: String,
         settings: CustomContestSettings,
-        status: ContestStatus = .draft,
+        status: ContestStatus = .scheduled,
         createdAt: Date = Date(),
-        joinToken: String? = nil
+        joinToken: String? = nil,
+        settleTime: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -43,6 +47,7 @@ struct CustomContestDraft: Codable, Equatable, Identifiable {
         self.status = status
         self.createdAt = createdAt
         self.joinToken = joinToken
+        self.settleTime = settleTime
     }
 }
 

@@ -45,7 +45,7 @@ struct CreateCustomContestView: View {
 
     private var lockTimeSection: some View {
         Section {
-            Toggle("Entries close", isOn: $lockTimeEnabled)
+            Toggle("Contest locks", isOn: $lockTimeEnabled)
                 .onChange(of: lockTimeEnabled) { _, enabled in
                     viewModel.lockTime = enabled ? Date().addingTimeInterval(3600) : nil
                 }
@@ -62,7 +62,7 @@ struct CreateCustomContestView: View {
                 )
             }
         } footer: {
-            Text("Optional. After this time, new entries are disabled.")
+            Text("Optional. After this time, the contest locks and new entries are not accepted.")
                 .font(.caption)
         }
     }

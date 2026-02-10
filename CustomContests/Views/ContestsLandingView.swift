@@ -8,7 +8,6 @@
 import SwiftUI
 
 struct ContestsLandingView: View {
-    @EnvironmentObject var authService: AuthService
     @EnvironmentObject var deepLinkCoordinator: DeepLinkCoordinator
     @ObservedObject var viewModel: ContestsLandingViewModel
 
@@ -48,7 +47,8 @@ struct ContestsLandingView: View {
                 handleNavigationIntent(intent)
             }
             .sheet(isPresented: $showCreateContest) {
-                if let userId = authService.currentUser?.id {
+                if let userIdString = UserDefaults.standard.string(forKey: "userId"),
+                   let userId = UUID(uuidString: userIdString) {
                     let service = CustomContestService()
                     CreateCustomContestView(
                         viewModel: CreateCustomContestViewModel(
@@ -93,10 +93,8 @@ struct ContestsLandingView: View {
             pendingJoinChecker: PendingJoinManager()
         )
     )
-    .environmentObject(AuthService())
     .environmentObject(DeepLinkCoordinator(
         joinLinkResolver: JoinLinkService(),
-        contestJoiner: ContestJoinService(),
         pendingJoinStore: PendingJoinManager()
     ))
 }

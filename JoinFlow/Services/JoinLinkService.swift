@@ -3,13 +3,13 @@
 //  PlayoffChallenge
 //
 //  Production implementation of JoinLinkResolving.
-//  Adapter wrapping APIService.shared for GET /api/join/:token
+//  Adapter wrapping APIService.shared for GET /api/custom-contests/join/:token
 //
 
 import Foundation
 
 /// Production implementation of JoinLinkResolving.
-/// Wraps the /api/join/:token endpoint via APIService.
+/// Wraps the /api/custom-contests/join/:token endpoint via APIService.
 final class JoinLinkService: JoinLinkResolving {
     private let baseURL: String
     private let currentEnvironment: String
@@ -29,11 +29,11 @@ final class JoinLinkService: JoinLinkResolving {
 
     func resolve(token: String) async throws -> ResolvedJoinLink {
         guard !token.isEmpty else {
-            throw JoinLinkError.invalidToken
+            throw JoinLinkError.contestNotFound
         }
 
-        guard let url = URL(string: "\(baseURL)/api/join/\(token)") else {
-            throw JoinLinkError.invalidToken
+        guard let url = URL(string: "\(baseURL)/api/custom-contests/join/\(token)") else {
+            throw JoinLinkError.contestNotFound
         }
 
         do {
@@ -55,10 +55,10 @@ final class JoinLinkService: JoinLinkResolving {
                 if let errorResponse = try? JSONDecoder().decode(APIErrorResponse.self, from: data) {
                     throw mapAPIError(errorResponse)
                 }
-                throw JoinLinkError.invalidToken
+                throw JoinLinkError.contestNotFound
 
             case 410:
-                throw JoinLinkError.tokenExpired
+                throw JoinLinkError.contestUnavailable
 
             default:
                 throw JoinLinkError.serverError(message: "Server returned \(httpResponse.statusCode)")
@@ -84,17 +84,17 @@ final class JoinLinkService: JoinLinkResolving {
             // Map error codes to specific errors
             if let errorCode = response.errorCode {
                 switch errorCode {
-                case "INVALID_TOKEN":
-                    throw JoinLinkError.invalidToken
-                case "EXPIRED_TOKEN":
-                    throw JoinLinkError.tokenExpired
-                case "NOT_FOUND":
+                case "CONTEST_NOT_FOUND":
                     throw JoinLinkError.contestNotFound
+                case "CONTEST_UNAVAILABLE":
+                    throw JoinLinkError.contestUnavailable
+                case "CONTEST_COMPLETED":
+                    throw JoinLinkError.contestCompleted
                 case "CONTEST_LOCKED":
                     throw JoinLinkError.contestLocked
                 case "CONTEST_FULL":
                     throw JoinLinkError.contestFull
-                case "ENVIRONMENT_MISMATCH":
+                case "CONTEST_ENV_MISMATCH":
                     let tokenEnv = response.tokenEnvironment ?? "unknown"
                     let currentEnv = response.currentEnvironment ?? currentEnvironment
                     throw JoinLinkError.environmentMismatch(expected: tokenEnv, actual: currentEnv)
@@ -106,43 +106,10 @@ final class JoinLinkService: JoinLinkResolving {
             throw JoinLinkError.serverError(message: response.reason ?? "Invalid join link")
         }
 
-        // Valid response must have contest info
+        // Valid response must have contest info with an ID for routing
         guard let contestInfo = response.contest else {
             throw JoinLinkError.serverError(message: "Server returned valid response without contest data")
         }
-
-        // Convert entry fee from cents to dollars (default to free if not provided)
-        let entryFeeInDollars = Double(contestInfo.entryFeeCents ?? 0) / 100.0
-
-        // Prefer custom contest name over template name
-        let contestName = contestInfo.name ?? contestInfo.templateName ?? "Contest"
-
-        // Use actual slot counts from backend when available
-        let totalSlots = contestInfo.maxEntries ?? 0
-        let filledSlots = contestInfo.currentEntries ?? 0
-
-        // Parse lock_time from ISO-8601 string
-        var lockTime: Date?
-        if let lockTimeString = contestInfo.lockTime {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            lockTime = formatter.date(from: lockTimeString)
-            if lockTime == nil {
-                // Retry without fractional seconds
-                formatter.formatOptions = [.withInternetDateTime]
-                lockTime = formatter.date(from: lockTimeString)
-            }
-        }
-
-        let contest = ContestSummary(
-            id: contestInfo.id,
-            name: contestName,
-            entryFee: entryFeeInDollars,
-            totalSlots: totalSlots,
-            filledSlots: filledSlots,
-            status: ContestStatus(rawValue: contestInfo.status) ?? .open,
-            lockTime: lockTime
-        )
 
         // Check for environment mismatch even on valid responses
         var mismatch: EnvironmentMismatch?
@@ -156,20 +123,25 @@ final class JoinLinkService: JoinLinkResolving {
             )
         }
 
+        // Only extract contestId — all metadata fetched via GET /api/custom-contests/:id
         return ResolvedJoinLink(
             token: token,
-            contest: contest,
+            contestId: contestInfo.id,
             isValidForEnvironment: mismatch == nil,
             environmentMismatch: mismatch
         )
     }
 
+    // TODO: Add CONTEST_ENV_MISMATCH handling once APIErrorResponse carries
+    // tokenEnvironment and currentEnvironment fields.
     private func mapAPIError(_ response: APIErrorResponse) -> JoinLinkError {
         switch response.code {
-        case "INVALID_TOKEN":
-            return .invalidToken
-        case "TOKEN_EXPIRED":
-            return .tokenExpired
+        case "CONTEST_NOT_FOUND":
+            return .contestNotFound
+        case "CONTEST_UNAVAILABLE":
+            return .contestUnavailable
+        case "CONTEST_COMPLETED":
+            return .contestCompleted
         case "CONTEST_LOCKED":
             return .contestLocked
         case "CONTEST_FULL":
@@ -182,7 +154,7 @@ final class JoinLinkService: JoinLinkResolving {
 
 // MARK: - API Response Types (internal)
 
-/// Matches the actual backend `/api/join/:token` response structure
+/// Matches the actual backend `/api/custom-contests/join/:token` response structure
 private struct JoinLinkAPIResponse: Codable {
     let valid: Bool
     let contest: ContestInfo?
@@ -205,6 +177,8 @@ private struct JoinLinkAPIResponse: Codable {
         let status: String
         let startTime: String?
         let lockTime: String?
+        let computedJoinState: String?
+        let creatorName: String?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -219,6 +193,8 @@ private struct JoinLinkAPIResponse: Codable {
             case status
             case startTime = "start_time"
             case lockTime = "lock_time"
+            case computedJoinState = "computed_join_state"
+            case creatorName = "creator_name"
         }
     }
 

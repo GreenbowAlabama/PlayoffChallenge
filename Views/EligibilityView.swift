@@ -6,7 +6,6 @@ struct EligibilityView: View {
 
     let appleId: String
     let email: String?
-    let name: String?
 
     @State private var selectedState: String = ""
     @State private var age18Confirmed = false
@@ -150,7 +149,7 @@ struct EligibilityView: View {
             let user = try await APIService.shared.getOrCreateUser(
                 appleId: appleId,
                 email: email,
-                name: name,
+                name: nil,
                 state: selectedState,
                 eligibilityCertified: true,
                 tosVersion: "2025-12-12"
@@ -159,6 +158,7 @@ struct EligibilityView: View {
             await MainActor.run {
                 authService.currentUser = user
                 authService.isAuthenticated = true
+                authService.needsUsernameSetup = true
                 authService.pendingAppleCredential = nil
                 UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
                 dismiss()
@@ -180,6 +180,6 @@ struct EligibilityView: View {
 }
 
 #Preview {
-    EligibilityView(appleId: "test123", email: "test@test.com", name: "Test User")
+    EligibilityView(appleId: "test123", email: "test@test.com")
         .environmentObject(AuthService())
 }

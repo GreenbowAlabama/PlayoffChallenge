@@ -203,7 +203,8 @@ struct LeaderboardEntry: Codable, Identifiable {
     let picks: [LeaderboardPick]?
 
     var displayName: String {
-        name ?? username ?? email ?? "Unknown"
+        // Leaderboards always show username, never the user's real name
+        username ?? email ?? "Unknown"
     }
 
     enum CodingKeys: String, CodingKey {
@@ -313,6 +314,7 @@ struct GameSettings: Codable {
     let kLimit: Int?
     let defLimit: Int?
     let currentPlayoffWeek: Int
+    let playoffStartWeek: Int
     let isWeekActive: Bool?
 
     enum CodingKeys: String, CodingKey {
@@ -328,6 +330,7 @@ struct GameSettings: Codable {
         case kLimit = "k_limit"
         case defLimit = "def_limit"
         case currentPlayoffWeek = "current_playoff_week"
+        case playoffStartWeek = "playoff_start_week"
         case isWeekActive = "is_week_active"
     }
 
@@ -349,6 +352,7 @@ struct GameSettings: Codable {
         kLimit = try c.decodeIfPresent(Int.self, forKey: .kLimit)
         defLimit = try c.decodeIfPresent(Int.self, forKey: .defLimit)
         currentPlayoffWeek = (try? c.decode(Int.self, forKey: .currentPlayoffWeek)) ?? 10
+        playoffStartWeek = (try? c.decode(Int.self, forKey: .playoffStartWeek)) ?? 0
         isWeekActive = try c.decodeIfPresent(Bool.self, forKey: .isWeekActive)
     }
 }

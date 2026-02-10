@@ -47,6 +47,7 @@ struct MyPicksView: View {
             .navigationTitle("My Picks")
             .task {
                 if let userId = authService.currentUser?.id {
+                    await viewModel.loadCurrentWeek()
                     await viewModel.loadPicks(userId: userId)
                     await viewModel.loadLiveScores()
                 }
@@ -82,9 +83,10 @@ struct WeekSelector: View {
 
     var body: some View {
         Picker("Week", selection: $selectedWeek) {
-            // Show Week 12 and 13 for testing (simulating Wild Card and Divisional)
-            Text("Week 12").tag(12)
-            Text("Week 13").tag(13)
+            Text("Wild Card").tag(16)
+            Text("Divisional").tag(17)
+            Text("Conference").tag(18)
+            Text("Super Bowl").tag(19)
         }
         .pickerStyle(.segmented)
     }
@@ -374,8 +376,9 @@ struct PickRow: View {
                 }
             }
             
-            // Delete button (only for current/future weeks, not locked, and only if no score)
-            if viewModel.selectedWeek >= viewModel.currentWeek && !pick.locked && playerScore == nil && liveScore == nil {
+            // Delete button (only for CURRENT week, not locked, and only if no score)
+            // Users can only modify picks for the active playoff week
+            if viewModel.selectedWeek == viewModel.currentWeek && !pick.locked && playerScore == nil && liveScore == nil {
                 Button(action: {
                     showingDeleteAlert = true
                 }) {
@@ -428,7 +431,7 @@ struct PickRow: View {
 @MainActor
 class MyPicksViewModel: ObservableObject {
     @Published var picks: [Pick] = []
-    @Published var selectedWeek: Int = 10
+    @Published var selectedWeek: Int = 16
     @Published var isLoading = false
     @Published var currentWeek: Int = 10
     @Published var liveScores: [String: LivePickScore] = [:]

@@ -7,160 +7,167 @@ struct ProfileView: View {
     @State private var showSaveSuccess = false
     @State private var showError = false
     @State private var errorMessage = ""
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
+
+    private var appVersionString: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "Version \(version) (\(build))"
+    }
 
     var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("Account")) {
-                    HStack {
-                        Text("Username")
-                        Spacer()
-                        TextField("Username", text: $viewModel.editableUsername)
-                            .multilineTextAlignment(.trailing)
-                            .autocapitalization(.none)
-                            .textInputAutocapitalization(.never)
-                    }
+        Form {
+            Section(header: Text("Account")) {
+                HStack {
+                    Text("Username")
+                    Spacer()
+                    TextField("Username", text: $viewModel.editableUsername)
+                        .multilineTextAlignment(.trailing)
+                        .autocapitalization(.none)
+                        .textInputAutocapitalization(.never)
+                }
 
-                    HStack {
-                        Text("Email")
-                        Spacer()
-                        TextField("Email (optional)", text: $viewModel.editableEmail)
-                            .multilineTextAlignment(.trailing)
-                            .autocapitalization(.none)
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.emailAddress)
-                    }
+                HStack {
+                    Text("Email")
+                    Spacer()
+                    TextField("Email (optional)", text: $viewModel.editableEmail)
+                        .multilineTextAlignment(.trailing)
+                        .autocapitalization(.none)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.emailAddress)
+                }
 
-                    HStack {
-                        Text("Phone")
-                        Spacer()
-                        TextField("Phone (optional)", text: $viewModel.editablePhone)
-                            .multilineTextAlignment(.trailing)
-                            .keyboardType(.phonePad)
-                    }
+                HStack {
+                    Text("Phone")
+                    Spacer()
+                    TextField("Phone (optional)", text: $viewModel.editablePhone)
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.phonePad)
+                }
 
-                    if viewModel.hasChanges {
-                        Button(action: {
-                            Task {
-                                do {
-                                    try await viewModel.saveChanges()
-                                    showSaveSuccess = true
-                                } catch {
-                                    errorMessage = error.localizedDescription
-                                    showError = true
-                                }
-                            }
-                        }) {
-                            HStack {
-                                Spacer()
-                                if viewModel.isSaving {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle())
-                                } else {
-                                    Text("Save Changes")
-                                        .fontWeight(.semibold)
-                                }
-                                Spacer()
-                            }
-                        }
-                        .disabled(viewModel.isSaving)
-                    }
+                HStack {
+                    Text("Name")
+                    Spacer()
+                    TextField("Name (optional)", text: $viewModel.editableName)
+                        .multilineTextAlignment(.trailing)
                 }
-                
-                Section(header: Text("Payment Status")) {
-                    HStack {
-                        Text("Status")
-                        Spacer()
-                        if viewModel.hasPaid {
-                            HStack {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                                Text("Paid")
-                                    .foregroundColor(.green)
-                            }
-                        } else {
-                            HStack {
-                                Image(systemName: "exclamationmark.circle.fill")
-                                    .foregroundColor(.orange)
-                                Text("Pending")
-                                    .foregroundColor(.orange)
-                            }
-                        }
-                    }
-                    
-                    if !viewModel.hasPaid {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Payment Instructions")
-                                .font(.headline)
-                            
-                            Text("Send $\(String(format: "%.0f", viewModel.entryAmount)) via:")
-                                .font(.subheadline)
-                            
-                            Text("Venmo, Cash App, or Zelle")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            
-                            Text("Include in memo:")
-                                .font(.caption)
-                                .padding(.top, 4)
-                            
-                            Text("PlayoffChallenge-\(viewModel.displayUsername)")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.blue)
-                        }
-                        .padding(.vertical, 8)
-                    }
-                }
-                
-                // Show Admin button if user is admin
-                if authService.isAdmin {
-                    Section {
-                        NavigationLink(destination: AdminView()) {
-                            Label("Admin Panel", systemImage: "gear")
-                        }
-                    }
-                }
-                
-                Section(header: Text("App Info")) {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text("1.0.0")
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
-                Section {
+
+                if viewModel.hasChanges {
                     Button(action: {
-                        authService.signOut()
+                        Task {
+                            do {
+                                try await viewModel.saveChanges()
+                                showSaveSuccess = true
+                            } catch {
+                                errorMessage = error.localizedDescription
+                                showError = true
+                            }
+                        }
                     }) {
-                        Text("Sign Out")
-                            .foregroundColor(.red)
+                        HStack {
+                            Spacer()
+                            if viewModel.isSaving {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle())
+                            } else {
+                                Text("Save Changes")
+                                    .fontWeight(.semibold)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(viewModel.isSaving)
+                }
+            }
+
+            Section(header: Text("App Info")) {
+                HStack {
+                    Text("Version")
+                    Spacer()
+                    Text(appVersionString)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Section {
+                Button(action: {
+                    authService.signOut()
+                }) {
+                    Text("Sign Out")
+                        .foregroundColor(.red)
+                }
+            }
+
+            Section {
+                Button(action: {
+                    showDeleteConfirmation = true
+                }) {
+                    HStack {
+                        if isDeleting {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle())
+                            Spacer()
+                            Text("Deleting...")
+                                .foregroundColor(.red)
+                        } else {
+                            Text("Delete Account")
+                                .foregroundColor(.red)
+                        }
                     }
                 }
+                .disabled(isDeleting)
             }
-            .navigationTitle("Profile")
-            .task {
-                if let userId = authService.currentUser?.id {
-                    await viewModel.loadUserData(userId: userId)
+        }
+        .navigationTitle("Profile")
+        .task {
+            if let userId = authService.currentUser?.id {
+                await viewModel.loadUserData(userId: userId)
+            }
+        }
+        .refreshable {
+            if let userId = authService.currentUser?.id {
+                await viewModel.loadUserData(userId: userId)
+            }
+        }
+        .alert("Profile Updated", isPresented: $showSaveSuccess) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Your profile has been saved successfully.")
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
+        .alert("Delete Account", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                Task {
+                    await deleteAccount()
                 }
             }
-            .refreshable {
-                if let userId = authService.currentUser?.id {
-                    await viewModel.loadUserData(userId: userId)
-                }
-            }
-            .alert("Profile Updated", isPresented: $showSaveSuccess) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text("Your profile has been saved successfully.")
-            }
-            .alert("Error", isPresented: $showError) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(errorMessage)
-            }
+        } message: {
+            Text("This action permanently deletes your account and cannot be undone.")
+        }
+    }
+
+    private func deleteAccount() async {
+        guard let userId = authService.currentUser?.id else {
+            errorMessage = "No user logged in"
+            showError = true
+            return
+        }
+
+        isDeleting = true
+
+        do {
+            try await APIService.shared.deleteAccount(userId: userId)
+            authService.signOut()
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+            isDeleting = false
         }
     }
 }
@@ -176,10 +183,12 @@ class ProfileViewModel: ObservableObject {
     @Published var editableUsername: String = ""
     @Published var editableEmail: String = ""
     @Published var editablePhone: String = ""
+    @Published var editableName: String = ""
 
     private var originalUsername: String = ""
     private var originalEmail: String = ""
     private var originalPhone: String = ""
+    private var originalName: String = ""
 
     var displayUsername: String {
         // Priority: fetched user data -> name -> email -> username -> placeholder
@@ -196,7 +205,8 @@ class ProfileViewModel: ObservableObject {
     var hasChanges: Bool {
         editableUsername != originalUsername ||
         editableEmail != originalEmail ||
-        editablePhone != originalPhone
+        editablePhone != originalPhone ||
+        editableName != originalName
     }
 
     func loadUserData(userId: UUID) async {
@@ -211,15 +221,13 @@ class ProfileViewModel: ObservableObject {
             self.editableUsername = response.username ?? ""
             self.editableEmail = response.email ?? ""
             self.editablePhone = response.phone ?? ""
+            self.editableName = response.name ?? ""
 
             // Store original values
             self.originalUsername = response.username ?? ""
             self.originalEmail = response.email ?? ""
             self.originalPhone = response.phone ?? ""
-
-            // Also fetch entry amount from settings
-            let settings = try await APIService.shared.getSettings()
-            self.entryAmount = settings.entryAmount
+            self.originalName = response.name ?? ""
         } catch {
             print("Failed to load user data: \(error)")
         }
@@ -239,7 +247,8 @@ class ProfileViewModel: ObservableObject {
                 userId: userId,
                 username: editableUsername.isEmpty ? nil : editableUsername,
                 email: editableEmail.isEmpty ? nil : editableEmail,
-                phone: editablePhone.isEmpty ? nil : editablePhone
+                phone: editablePhone.isEmpty ? nil : editablePhone,
+                name: editableName.isEmpty ? nil : editableName
             )
 
             // Update local state
@@ -247,6 +256,7 @@ class ProfileViewModel: ObservableObject {
             self.originalUsername = updatedUser.username ?? ""
             self.originalEmail = updatedUser.email ?? ""
             self.originalPhone = updatedUser.phone ?? ""
+            self.originalName = updatedUser.name ?? ""
 
             isSaving = false
         } catch {
@@ -257,6 +267,8 @@ class ProfileViewModel: ObservableObject {
 }
 
 #Preview {
-    ProfileView()
-        .environmentObject(AuthService())
+    NavigationStack {
+        ProfileView()
+            .environmentObject(AuthService())
+    }
 }

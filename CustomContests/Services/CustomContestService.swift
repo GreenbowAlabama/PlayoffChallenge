@@ -15,6 +15,14 @@ struct ContestCreationInput {
     let name: String
     let entryFeeCents: Int
     let maxEntries: Int
+    let lockTime: Date?
+
+    init(name: String, entryFeeCents: Int, maxEntries: Int, lockTime: Date? = nil) {
+        self.name = name
+        self.entryFeeCents = entryFeeCents
+        self.maxEntries = maxEntries
+        self.lockTime = lockTime
+    }
 }
 
 /// Production service for custom contest creation and publishing.
@@ -46,11 +54,14 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         let template = try await fetchDefaultTemplate(userId: userId)
 
         // Step 2: Create contest instance
+        let contestName = input.name.isEmpty ? template.name : input.name
         let contestId = try await createContestInstance(
             templateId: template.id,
+            name: contestName,
             entryFeeCents: input.entryFeeCents,
             payoutStructure: template.defaultPayoutStructure,
-            userId: userId
+            userId: userId,
+            lockTime: input.lockTime
         )
 
         // Step 3: Publish to make joinable
@@ -58,9 +69,9 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
 
         return CreatedContest(
             id: publishResult.contestId,
-            name: input.name.isEmpty ? template.name : input.name,
+            name: contestName,
             entryFeeCents: input.entryFeeCents,
-            status: "open",
+            status: "SCHEDULED",
             joinToken: publishResult.joinToken,
             joinURL: publishResult.joinURL
         )
@@ -79,7 +90,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
+        request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -112,22 +123,28 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
 
     private func createContestInstance(
         templateId: UUID,
+        name: String,
         entryFeeCents: Int,
         payoutStructure: [String: Any],
-        userId: UUID
+        userId: UUID,
+        lockTime: Date? = nil
     ) async throws -> UUID {
         let url = URL(string: "\(baseURL)/api/custom-contests")!
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
+        request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "template_id": templateId.uuidString,
+            "contest_name": name,
             "entry_fee_cents": entryFeeCents,
             "payout_structure": payoutStructure
         ]
+        if let lockTime {
+            body["lock_time"] = ISO8601DateFormatter().string(from: lockTime)
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -176,7 +193,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
+        request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
 
         let requestBody = CreateContestRequest(name: name, settings: settings, lockTime: lockTime)
 
@@ -190,7 +207,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
 
             enum CodingKeys: String, CodingKey {
                 case userId = "user_id"
-                case name
+                case name = "contest_name"
                 case maxEntries = "max_entries"
                 case entryFee = "entry_fee"
                 case isPrivate = "is_private"
@@ -212,6 +229,12 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         )
 
         request.httpBody = try JSONEncoder().encode(wrapper)
+
+        // DEBUG: Log outgoing payload to verify contest_name is present
+        if let bodyData = request.httpBody,
+           let bodyString = String(data: bodyData, encoding: .utf8) {
+            print("[CreateDraft] Outgoing JSON: \(bodyString)")
+        }
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -244,7 +267,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
+        request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: request)
 

@@ -10,13 +10,13 @@ import Foundation
 /// Explicit, user-displayable errors for join flow
 enum JoinLinkError: Error, Equatable, LocalizedError {
     // Resolution errors
-    case invalidToken
-    case tokenExpired
     case networkError(underlying: String)
     case environmentMismatch(expected: String, actual: String)
 
-    // Contest state errors
+    // Contest state errors (aligned with backend codes)
     case contestNotFound
+    case contestUnavailable
+    case contestCompleted
     case contestLocked
     case contestFull
     case contestCancelled
@@ -28,16 +28,16 @@ enum JoinLinkError: Error, Equatable, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidToken:
-            return "This invite link is invalid or malformed."
-        case .tokenExpired:
-            return "This invite link has expired."
         case .networkError(let underlying):
             return "Network error: \(underlying)"
         case .environmentMismatch(let expected, let actual):
             return "This link is for \(expected), but you're using the \(actual) app."
         case .contestNotFound:
             return "This contest could not be found."
+        case .contestUnavailable:
+            return "This contest is not available."
+        case .contestCompleted:
+            return "This contest has already ended."
         case .contestLocked:
             return "This contest is no longer accepting entries."
         case .contestFull:
@@ -56,14 +56,16 @@ enum JoinLinkError: Error, Equatable, LocalizedError {
     /// User-friendly title for error display
     var title: String {
         switch self {
-        case .invalidToken, .tokenExpired:
-            return "Invalid Link"
         case .networkError:
             return "Connection Error"
         case .environmentMismatch:
             return "Wrong App Version"
         case .contestNotFound:
             return "Contest Not Found"
+        case .contestUnavailable:
+            return "Contest Unavailable"
+        case .contestCompleted:
+            return "Contest Ended"
         case .contestLocked, .contestFull, .contestCancelled:
             return "Contest Unavailable"
         case .alreadyJoined:

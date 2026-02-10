@@ -16,5 +16,5 @@ protocol ContestJoining {
     ///   - userId: The authenticated user's ID
     /// - Returns: Success confirmation with contest details
     /// - Throws: JoinLinkError if join fails
-    func joinContest(token: String, userId: UUID) async throws -> ContestJoinResult
+    func joinContest(contestId: UUID, token: String, userId: UUID) async throws -> ContestJoinResult
 }

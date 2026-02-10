@@ -4,6 +4,7 @@
 //
 //  V2 - Matching Actual Database Schema
 //  With Debug Logging (No Emojis)
+//  TOS gating via capability-based flags endpoint
 //
 
 import SwiftUI
@@ -17,8 +18,9 @@ class AuthService: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var needsToAcceptTOS = false
+    @Published var needsUsernameSetup = false
     @Published var pendingAppleCredential: (appleId: String, email: String?, name: String?)? = nil
-    
+
     init() {
         print("AuthService: Initializing...")
         if let userIdString = UserDefaults.standard.string(forKey: "userId"),
@@ -31,9 +33,13 @@ class AuthService: ObservableObject {
             print("AuthService: No saved userId found")
         }
     }
-    
+
     func handleAppleIDCredential(credential: ASAuthorizationAppleIDCredential) async {
         print("AuthService: Starting Apple authentication...")
+        print(
+          "API_BASE_URL:",
+          Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") ?? "MISSING"
+        )
         isLoading = true
         errorMessage = nil
 
@@ -82,11 +88,8 @@ class AuthService: ObservableObject {
                 UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
                 print("AuthService: Saved userId to UserDefaults")
 
-                // Check if user needs to accept TOS
-                if !user.hasAcceptedTOS {
-                    print("AuthService: User needs to accept TOS")
-                    self.needsToAcceptTOS = true
-                }
+                // V2: Check TOS requirement via flags endpoint (capability-based)
+                await checkTOSFlags(userId: user.id)
 
                 print("AuthService: isAuthenticated = \(self.isAuthenticated)")
                 print("AuthService: Authentication complete!")
@@ -106,12 +109,12 @@ class AuthService: ObservableObject {
             isLoading = false
         }
     }
-    
+
     func loadUser(userId: UUID) async {
         print("AuthService: Loading user \(userId)...")
         isLoading = true
         errorMessage = nil
-        
+
         do {
             let user = try await APIService.shared.getUser(userId: userId)
             print("AuthService: User loaded successfully")
@@ -119,16 +122,36 @@ class AuthService: ObservableObject {
             self.currentUser = user
             self.isAuthenticated = true
             print("AuthService: isAuthenticated = \(self.isAuthenticated)")
+
+            // V2: Check TOS requirement via flags endpoint (capability-based)
+            await checkTOSFlags(userId: user.id)
+
         } catch {
             print("AuthService ERROR: Failed to load user: \(error)")
             errorMessage = error.localizedDescription
             signOut()
         }
-        
+
         isLoading = false
     }
 
-    // MARK: - Email/Password Authentication (TestFlight Only)
+    // MARK: - V2 TOS Flags
+
+    /// Checks TOS requirement via capability-based flags endpoint.
+    /// This is the only source of truth for TOS gating in v2.
+    func checkTOSFlags(userId: UUID) async {
+        do {
+            let flags = try await APIService.shared.getUserFlags(userId: userId)
+            self.needsToAcceptTOS = flags.requiresTos
+            print("AuthService: TOS required = \(self.needsToAcceptTOS)")
+        } catch {
+            // Fail open to avoid blocking users on transient errors
+            print("AuthService: Failed to load TOS flags, defaulting to no gate: \(error)")
+            self.needsToAcceptTOS = false
+        }
+    }
+
+    // MARK: - Email/Password Authentication (Debug Only)
 
     #if DEBUG
     func loginWithEmail(email: String, password: String) async {
@@ -148,11 +171,8 @@ class AuthService: ObservableObject {
             UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
             print("AuthService: Saved userId to UserDefaults")
 
-            // Check if user needs to accept TOS
-            if !user.hasAcceptedTOS {
-                print("AuthService: User needs to accept TOS")
-                self.needsToAcceptTOS = true
-            }
+            // V2: Check TOS requirement via flags endpoint (capability-based)
+            await checkTOSFlags(userId: user.id)
 
             print("AuthService: isAuthenticated = \(self.isAuthenticated)")
             print("AuthService: Login complete!")
@@ -185,15 +205,13 @@ class AuthService: ObservableObject {
 
             self.currentUser = user
             self.isAuthenticated = true
+            self.needsUsernameSetup = true
 
             UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
             print("AuthService: Saved userId to UserDefaults")
 
-            // New users always need to accept TOS
-            if !user.hasAcceptedTOS {
-                print("AuthService: User needs to accept TOS")
-                self.needsToAcceptTOS = true
-            }
+            // V2: Check TOS requirement via flags endpoint (capability-based)
+            await checkTOSFlags(userId: user.id)
 
             print("AuthService: isAuthenticated = \(self.isAuthenticated)")
             print("AuthService: Registration complete!")
@@ -212,17 +230,18 @@ class AuthService: ObservableObject {
         print("AuthService: Signing out...")
         currentUser = nil
         isAuthenticated = false
+        needsToAcceptTOS = false
         UserDefaults.standard.removeObject(forKey: "userId")
     }
-    
+
     var isAdmin: Bool {
         return currentUser?.isAdmin ?? false
     }
-    
+
     var hasPaid: Bool {
         return currentUser?.paid ?? false
     }
-    
+
     var displayName: String {
         return currentUser?.username ?? "User"
     }
@@ -230,38 +249,38 @@ class AuthService: ObservableObject {
 
 struct SignInWithAppleButton: UIViewRepresentable {
     @EnvironmentObject var authService: AuthService
-    
+
     func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
         let button = ASAuthorizationAppleIDButton(type: .signIn, style: .black)
         button.addTarget(context.coordinator, action: #selector(Coordinator.handleTap), for: .touchUpInside)
         return button
     }
-    
+
     func updateUIView(_ uiView: ASAuthorizationAppleIDButton, context: Context) {}
-    
+
     func makeCoordinator() -> Coordinator {
         Coordinator(authService: authService)
     }
-    
+
     class Coordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
         let authService: AuthService
-        
+
         init(authService: AuthService) {
             self.authService = authService
         }
-        
+
         @objc func handleTap() {
             print("SignInButton: Button tapped")
             let appleIDProvider = ASAuthorizationAppleIDProvider()
             let request = appleIDProvider.createRequest()
             request.requestedScopes = [.fullName, .email]
-            
+
             let authorizationController = ASAuthorizationController(authorizationRequests: [request])
             authorizationController.delegate = self
             authorizationController.presentationContextProvider = self
             authorizationController.performRequests()
         }
-        
+
         func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
             print("SignInButton: Authorization succeeded")
             if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
@@ -270,14 +289,14 @@ struct SignInWithAppleButton: UIViewRepresentable {
                 }
             }
         }
-        
+
         func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
             print("SignInButton ERROR: Authorization failed: \(error)")
             Task { @MainActor in
                 authService.errorMessage = error.localizedDescription
             }
         }
-        
+
         func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
             guard let scene = UIApplication.shared.connectedScenes
                 .compactMap({ $0 as? UIWindowScene })

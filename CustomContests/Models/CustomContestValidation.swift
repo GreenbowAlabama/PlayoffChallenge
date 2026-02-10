@@ -37,7 +37,7 @@ enum CustomContestValidation {
     /// Validates whether a draft can be published.
     /// - Returns: nil if eligible, or the appropriate error if not.
     static func validatePublishEligibility(_ draft: CustomContestDraft) -> CustomContestError? {
-        guard draft.status == .draft else {
+        guard draft.status == .scheduled else {
             return .notInDraftState
         }
         // Validate contained data

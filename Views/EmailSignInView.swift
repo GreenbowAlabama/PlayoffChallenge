@@ -2,8 +2,7 @@
 //  EmailSignInView.swift
 //  PlayoffChallenge
 //
-//  Email/Password Authentication (TestFlight Only)
-//  This file will be removed before App Store launch
+//  Email/Password Authentication (Debug Only)
 //
 
 import SwiftUI
@@ -94,7 +93,6 @@ struct EmailEligibilityView: View {
     let email: String
     let password: String
 
-    @State private var name: String = ""
     @State private var selectedState: String = ""
     @State private var age18Confirmed = false
     @State private var notRestrictedStateConfirmed = false
@@ -141,9 +139,6 @@ struct EmailEligibilityView: View {
                 Spacer()
 
                 VStack(alignment: .leading, spacing: 20) {
-                    TextField("Your Name (Optional)", text: $name)
-                        .textFieldStyle(.roundedBorder)
-
                     Text("State of Residence")
                         .font(.headline)
 
@@ -202,7 +197,7 @@ struct EmailEligibilityView: View {
                         await authService.registerWithEmail(
                             email: email,
                             password: password,
-                            name: name.isEmpty ? nil : name,
+                            name: nil,
                             state: selectedState,
                             eligibilityCertified: true
                         )
