@@ -850,7 +850,6 @@ module.exports = {
   computeJoinState,
 
   // Constants
-  VALID_STATUSES,
   VALID_ENV_PREFIXES,
   JOIN_ERROR_CODES,
 };

@@ -17,6 +17,7 @@ const ADMIN_TRANSITIONS = {
   cancelled: []
 };
 
+
 /**
  * Write an audit record for an admin action.
  *
