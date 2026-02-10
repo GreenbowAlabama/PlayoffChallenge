@@ -239,8 +239,7 @@ async function createContestInstance(pool, organizerId, input) {
   const timeUpdates = {
     lock_time: input.lock_time,
     start_time: input.start_time,
-    end_time: input.end_time,
-    settle_time: input.settlement_time
+    end_time: input.end_time
   };
   validateContestTimeInvariants({ existing: {}, updates: timeUpdates });
 
@@ -255,9 +254,8 @@ async function createContestInstance(pool, organizerId, input) {
       status,
       start_time,
       lock_time,
-      end_time,
-      settlement_time
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      end_time
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING *`,
     [
       input.template_id,
@@ -266,11 +264,10 @@ async function createContestInstance(pool, organizerId, input) {
       maxEntries,
       input.entry_fee_cents,
       JSON.stringify(input.payout_structure),
-      'draft',
+      'SCHEDULED',
       input.start_time ?? null,
       input.lock_time ?? null,
-      input.end_time ?? null,
-      input.settlement_time ?? null
+      input.end_time ?? null
     ]
   );
 
