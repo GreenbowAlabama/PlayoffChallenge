@@ -544,36 +544,23 @@ async function resolveJoinToken(pool, token) {
 async function getContestInstancesForOrganizer(pool, organizerId) {
   const result = await pool.query(
     `SELECT
-      ci.*,
-      ci.contest_name,
-      ci.max_entries,
-      ci.lock_time,
+      ci.id,
       ci.status,
-      ct.name as template_name,
-      ct.sport as template_sport,
+      ct.name AS template_name,
+      ct.sport AS template_sport,
       ct.template_type,
-      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
-      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
+      ci.created_at,
+      ci.lock_time,
+      ci.join_token,
+      ci.max_entries,
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int AS entries_current
     FROM contest_instances ci
     JOIN contest_templates ct ON ci.template_id = ct.id
-    LEFT JOIN users u ON u.id = ci.organizer_id
     WHERE ci.organizer_id = $1
     ORDER BY ci.created_at DESC`,
     [organizerId]
   );
-  return result.rows.map(row => {
-    // Enforce instance-owned fields; hard-delete template leakage
-    row.contest_name = row.contest_name;
-    row.max_entries = row.max_entries;
-    delete row.name;
-    delete row.template_name;
-
-    return {
-      ...row,
-      join_url: row.join_token ? generateJoinUrl(row.join_token) : null,
-      computedJoinState: computeJoinState(row)
-    };
-  });
+  return result.rows;
 }
 
 /**
