@@ -37,7 +37,15 @@ function isValidUUID(str) {
  * Validates UUID format to prevent invalid IDs from reaching database queries.
  */
 function extractUserId(req, res, next) {
-  const userId = req.headers['x-user-id'];
+  let userId;
+  const authHeader = req.headers['authorization'];
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    userId = authHeader.substring(7, authHeader.length);
+  } else {
+    userId = req.headers['x-user-id'];
+  }
+
   if (!userId) {
     return res.status(401).json({ error: 'Authentication required' });
   }
