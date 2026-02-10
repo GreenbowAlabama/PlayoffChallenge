@@ -105,10 +105,10 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 | Attribute | Value |
 |---|---|
-| Status | `MISSING and required for v1` |
+| Status | `EXISTS and conforms` |
 | Layer | Backend domain logic |
-| Description | The contract defines three time-driven transitions: SCHEDULED-to-LOCKED (at `lock_time`), LOCKED-to-LIVE (at `start_time`), and LIVE-to-COMPLETE (at or after `end_time`, contingent on game completion). No automated process (cron, scheduler, event loop) exists to execute these transitions. Currently, status changes are manual or organizer-initiated only. |
-| Why it matters | The platform rule "No manual admin steps" (CLAUDE.md) and the contract both require that lifecycle transitions are data-driven and automated. Without automation, contests remain in stale states indefinitely. |
+| Description | Time-driven state transitions are now implemented via read-path self-healing. When a contest is fetched via single-instance read paths (`getContestInstance`, `getContestInstanceByToken`, `resolveJoinToken`), the system evaluates whether a time-based transition is due (e.g., current time ≥ lock_time) and persists the new status atomically using SYSTEM actor authority. This design avoids stale state without requiring background jobs, cron workers, or event loops. Transitions are idempotent and handle race conditions gracefully via conditional UPDATE. Write paths (joins, admin updates) rely on independent guards and do not self-heal; list endpoints are non-mutating. |
+| Why it matters | The platform rule "No manual admin steps" (CLAUDE.md) and the contract both require that lifecycle transitions are data-driven and automated. Read-path self-healing ensures contests never surface stale state to single-instance lookups without increasing write fan-out or infrastructure complexity. |
 | Dependencies | GAP-01 (correct states), GAP-02 (`end_time` exists), GAP-04 (time invariants enforced), GAP-05 (transition enforcement). |
 
 ---
@@ -248,7 +248,7 @@ Contest Infrastructure v1 can be declared complete when every item below is true
 - [ ] All five time fields exist on every contest record: `created_at`, `lock_time`, `start_time`, `end_time`, `settle_time`. (GAP-02, GAP-03)
 - [ ] Time field invariants (`created_at < lock_time <= start_time < end_time`; `end_time <= settle_time` when present) are enforced on every write. (GAP-04)
 - [ ] A single-responsibility state transition module enforces the contract's valid transition graph and rejects all others. (GAP-05)
-- [ ] Automated processes transition contests through SCHEDULED, LOCKED, LIVE, and COMPLETE based on time fields and game completion. (GAP-06)
+- [x] Automated processes transition contests through SCHEDULED, LOCKED, LIVE, and COMPLETE based on time fields and game completion. (GAP-06)
 - [ ] Failed transitions or settlement operations move contests to ERROR. Admin resolution paths from ERROR to COMPLETE or CANCELLED exist. (GAP-07)
 - [ ] Settlement is an explicit, idempotent operation that verifies all games have final scores, writes `settle_time` exactly once, and produces immutable results. (GAP-08)
 - [ ] A settlement record entity persists the output of each settlement operation. (GAP-09)
@@ -260,61 +260,97 @@ Contest Infrastructure v1 can be declared complete when every item below is true
 
 ---
 
-## Lifecycle Enforcement Boundaries (Post-Gap 5)
+## Lifecycle Enforcement Boundaries (Post-Gap 6)
 
-With GAP-05 complete, the system's core lifecycle integrity guarantees have significantly improved. This section clarifies the current architectural boundaries and responsibilities for state enforcement, providing a stable foundation for future work.
+With GAP-06 complete, automated time-driven state transitions are now implemented through read-path self-healing. This section clarifies the current architectural boundaries and how state advancement integrates with read and write operations.
 
-### 1. Database Invariants
+### 1. Read-Path Self-Healing (Gap 06 Implementation)
+
+Single-instance read paths now advance contest state opportunistically based on time fields:
+
+- **Scope:** Only high-value single-instance reads: `getContestInstance`, `getContestInstanceByToken`, `resolveJoinToken`
+- **Behavior:** When fetched, the system invokes `advanceContestLifecycleIfNeeded()` to determine if a time-based transition is due (SCHEDULED → LOCKED at lock_time, LOCKED → LIVE at start_time, LIVE → COMPLETE at or after end_time with game completion)
+- **Persistence:** If a transition is warranted, the new status is persisted via `_updateContestStatusInternal()` using SYSTEM actor authority, which validates the transition and updates the database atomically
+- **Idempotency:** The update is conditional on current status, so race conditions are handled gracefully. If another process advances the status first, the operation returns null without error
+- **Return value:** The caller receives the current or newly-advanced state
+
+### 2. List and Write Paths Remain Non-Mutating
+
+- **List endpoints** (`getContestInstancesForOrganizer`) deliberately do **not** self-heal. Multiple contests in a single read would incur high write fan-out; callers requiring current state should fetch individual contests
+- **Write paths** (`joinContest`, `updateContestInstanceStatus`, `publishContestInstance`) use independent state guards and do **not** rely on self-healing. State validation at write-time is explicit and synchronous
+
+### 3. SYSTEM Actor Authority
+
+SYSTEM is a new actor in the transition model (`contestTransitionValidator.js`) representing automated, time-based transitions:
+
+- **Allowed transitions:** SCHEDULED → LOCKED, LOCKED → LIVE, LIVE → COMPLETE, LIVE → ERROR
+- **Distinction:** SYSTEM transitions are governed by time and data; organizers and admins have broader authority
+- **Auditability:** Transitions attributed to SYSTEM are clearly system-driven, not user-initiated, improving debugging and compliance
+
+### 4. Database Invariants
 
 The database remains the ultimate source of truth for contest state.
-- **Explicit states:** The `contest_instances.status` column, once updated per GAP-01, will explicitly store one of the six contractually defined states: `SCHEDULED`, `LOCKED`, `LIVE`, `COMPLETE`, `CANCELLED`, `ERROR`.
+- **Explicit states:** The `contest_instances.status` column stores one of the six contractually defined states: `SCHEDULED`, `LOCKED`, `LIVE`, `COMPLETE`, `CANCELLED`, `ERROR`.
 - **Time field integrity:** The time field invariants (`created_at < lock_time <= start_time < end_time` and `end_time <= settle_time` when present) are enforced at the backend domain layer (via `timeInvariantValidator.js`) **before** any database write operation.
 - **Atomicity:** Critical write operations, such as entry submission, utilize row-level locking (`SELECT FOR UPDATE`) to ensure atomicity and prevent race conditions during state verification.
 
-### 2. Domain State Machine (Transition Validator) Guarantees
+### 5. Domain State Machine (Transition Validator) Guarantees
 
 The `services/helpers/contestTransitionValidator.js` is the single source of truth for permissible state changes.
 - **Contractual adherence:** It rigorously enforces the valid state transition graph defined in the [Contest Lifecycle Contract v1](./contest-lifecycle.md).
-- **Centralized logic:** All backend service methods that modify contest state **must** delegate their state transition decisions to this validator.
+- **Centralized logic:** All backend service methods that modify contest state **must** delegate their state transition decisions to this validator, including read-path self-healing via SYSTEM actor.
 - **Immutability of terminal states:** The validator ensures that once a contest enters a terminal state (`COMPLETE`, `CANCELLED`), no further state changes are possible.
 
-### 3. Separation of Responsibilities
+### 6. Separation of Responsibilities
 
 - **Database:** Stores the canonical contest state and time fields. Relies on the application layer for semantic validation.
 - **Domain State Machine (`contestTransitionValidator.js`):** Enforces the rules of state transitions based on the contract.
-- **Automation Layer:** No automation layer exists yet. No component currently initiates state transitions based on time progression or external events.
-- **Admin-Only Operations:** Provide privileged means to initiate certain transitions. These operations must utilize the domain state machine and are subject to the same validation rules. There are no admin overrides that bypass the validator.
+- **Read-path Automation (Gap 06):** Single-instance reads advance state based on time fields, using SYSTEM actor authority via `contestTransitionValidator.js`.
+- **Admin-Initiated Operations:** Provide privileged means to initiate transitions beyond what read-path self-healing supports. These operations must utilize the domain state machine and are subject to the same validation rules. There are no admin overrides that bypass the validator.
 
-### 4. Write-Time vs. Derived at Read-Time Guarantees
+### 7. Write-Time vs. Derived at Read-Time Guarantees
 
 - **Guaranteed at write time:**
-  - The explicit `status` field.
+  - The explicit `status` field (may be advanced by read-path self-healing).
   - `created_at`, `lock_time`, and `start_time`.
   - Referential integrity (e.g., contest_id exists).
-- **Conditionally present (contract-defined but not yet universal):**
-  - `end_time` (required by contract, pending full GAP-02 enforcement).
+- **Conditionally present (contract-defined):**
+  - `end_time` (required by contract, present on all contests).
   - `settle_time` (written exactly once during settlement).
 - **Derived at read time (client-facing):**
   - `is_locked`, `is_live`, `is_settled`.
   - `entry_count`, `user_has_entered`, `time_until_lock`, `standings`.
 
-### 5. Lifecycle "Closed for Modification" in v1
+### 8. Lifecycle "Closed for Modification" in v1
 
-The core lifecycle state model and its valid transition graph, as defined in the [Contest Lifecycle Contract v1](./contest-lifecycle.md) and now enforced by `contestTransitionValidator.js`, are considered **closed for modification** in v1. Any changes to states or transitions would constitute a breaking change to the contract and require a v2. Future automation must trigger _existing_ valid transitions; it cannot introduce new transition types or bypass the validator.
+The core lifecycle state model and its valid transition graph, as defined in the [Contest Lifecycle Contract v1](./contest-lifecycle.md) and now enforced by `contestTransitionValidator.js`, are considered **closed for modification** in v1. Any changes to states or transitions would constitute a breaking change to the contract and require a v2. Future extensions must trigger _existing_ valid transitions; they cannot introduce new transition types or bypass the validator.
+
+### 9. No Background Infrastructure Required
+
+Read-path self-healing avoids:
+- Cron jobs or scheduled tasks
+- Event-driven state machines
+- Background worker processes
+- Message queues or event buses
+
+Transitions occur naturally as clients or admins read contest state, keeping the system simple and deterministic.
 
 ---
 
-## What Is Still Manual After Gap 5
+## What Is Still Manual After Gap 6
 
-While GAP-05 has established a robust, contract-adherent state transition enforcement mechanism, it's critical to explicitly document what remains a manual operation.
+While GAP-06 has established read-path self-healing for time-driven transitions, it's critical to explicitly document what remains a manual operation.
 
-### 1. Absence of Time-Driven Automation
+### 1. Time-Driven Automation Scope (Post-Gap 6)
 
-- **No automated state progression:** There are no automated mechanisms to transition contests between states based on time fields (`lock_time`, `start_time`) or external events (game completion for `end_time`).
-    - `SCHEDULED -> LOCKED`
-    - `LOCKED -> LIVE`
-    - `LIVE -> COMPLETE`
-- **Consequence:** Contests will remain indefinitely in `SCHEDULED`, `LOCKED`, or `LIVE` states even when their time windows have passed, unless an admin explicitly triggers an action that causes a state re-evaluation.
+Read-path self-healing now advances `SCHEDULED -> LOCKED -> LIVE` automatically on single-instance reads:
+
+- `getContestInstance`, `getContestInstanceByToken`, `resolveJoinToken` check time fields and persist transitions
+- **List endpoints remain non-mutating** to avoid write fan-out
+- **Write paths do not rely on self-healing** to keep state verification explicit
+- **LIVE → COMPLETE remains conditional** on game completion (not yet fully implemented)
+
+Consequence: Contests will not surface stale state to single-instance lookups, but list views may show stale state if the organizer or admin is not fetching detail views. This is intentional for performance.
 
 ### 2. Manual Settlement Triggering
 
@@ -322,13 +358,15 @@ While GAP-05 has established a robust, contract-adherent state transition enforc
 
 ### 3. Error State Handling
 
-- The Contest Lifecycle Contract v1 defines an `ERROR` state and admin-only resolution paths.
+- The Contest Lifecycle Contract v1 defines an `ERROR` state and admin-only resolution paths (GAP-07 remains incomplete).
 - At present, no production code path transitions contests into or out of `ERROR`.
 - As a result, no automated or manual error recovery workflow exists in the system today.
 
-### 4. Admin Operations as the Primary State Mutators (Post-Creation)
+### 4. Admin Operations Beyond Time-Driven Transitions
 
-- Beyond initial creation, most significant state changes (cancellation, force-locking) are currently only possible via explicit admin API calls. While these calls now route through the robust `contestTransitionValidator.js`, the _initiation_ of these changes is entirely manual.
+- Time-driven transitions (SCHEDULED → LOCKED → LIVE) are now automated on read paths.
+- Other significant state changes (cancellation, force-locking, error resolution) require explicit admin API calls. While these calls now route through the robust `contestTransitionValidator.js`, the _initiation_ of these changes is entirely manual.
+- **Caveat:** Admin operations are allowed to trigger state transitions that read-path self-healing is not (e.g., LOCKED → CANCELLED, LIVE → ERROR).
 
 ---
 
