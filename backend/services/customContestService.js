@@ -264,7 +264,7 @@ async function createContestInstance(pool, organizerId, input) {
       maxEntries,
       input.entry_fee_cents,
       JSON.stringify(input.payout_structure),
-      'SCHEDULED',
+      'draft',
       input.start_time ?? null,
       input.lock_time ?? null,
       input.end_time ?? null
@@ -661,14 +661,9 @@ async function publishContestInstance(pool, instanceId, organizerId) {
   }
 
   // Verify ownership (case-insensitive UUID comparison)
-  console.log('[Publish] Verifying ownership...');
-  console.log(`[Publish] DB organizer_id: ${existing.organizer_id} (type: ${typeof existing.organizer_id})`);
-  console.log(`[Publish] Req organizerId: ${organizerId} (type: ${typeof organizerId})`);
   if (existing.organizer_id.toLowerCase() !== organizerId.toLowerCase()) {
-    console.error('[Publish] Ownership check FAILED');
     throw new Error('Only the organizer can publish contest');
   }
-  console.log('[Publish] Ownership check PASSED');
 
   // Idempotency: if already open, return as-is without any modifications
   if (existing.status === 'open') {
@@ -680,9 +675,7 @@ async function publishContestInstance(pool, instanceId, organizerId) {
   }
 
   // Only draft contests can be published
-  console.log(`[Publish] Current contest status: ${existing.status}`);
   if (existing.status !== 'draft') {
-    console.error(`[Publish] Invalid status for publish: ${existing.status}`);
     throw new Error(`Cannot transition from '${existing.status}' to 'open'`);
   }
 
