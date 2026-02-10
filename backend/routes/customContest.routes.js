@@ -39,19 +39,32 @@ function isValidUUID(str) {
 function extractUserId(req, res, next) {
   let userId;
   const authHeader = req.headers['authorization'];
+  const xUserId = req.headers['x-user-id'];
+
+  // Detailed logging for debugging
+  console.log('[Auth] ENTER extractUserId middleware');
+  console.log('[Auth] req.method:', req.method);
+  console.log('[Auth] req.url:', req.originalUrl);
+  console.log('[Auth] Authorization Header:', authHeader);
+  console.log('[Auth] X-User-Id Header:', xUserId);
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
     userId = authHeader.substring(7, authHeader.length);
+    console.log('[Auth] Extracted userId from Bearer token:', userId);
+  } else if (xUserId) {
+    userId = xUserId;
+    console.log('[Auth] Extracted userId from X-User-Id header:', userId);
   } else {
-    userId = req.headers['x-user-id'];
-  }
-
-  if (!userId) {
+    console.log('[Auth] No user ID found in headers.');
     return res.status(401).json({ error: 'Authentication required' });
   }
+
   if (!isValidUUID(userId)) {
+    console.log('[Auth] Invalid UUID format for userId:', userId);
     return res.status(400).json({ error: 'Invalid user ID format' });
   }
+
+  console.log('[Auth] Successfully validated userId:', userId);
   req.userId = userId;
   next();
 }
