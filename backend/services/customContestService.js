@@ -680,7 +680,9 @@ async function publishContestInstance(pool, instanceId, organizerId) {
   }
 
   // Only draft contests can be published
+  console.log(`[Publish] Current contest status: ${existing.status}`);
   if (existing.status !== 'draft') {
+    console.error(`[Publish] Invalid status for publish: ${existing.status}`);
     throw new Error(`Cannot transition from '${existing.status}' to 'open'`);
   }
 
