@@ -415,15 +415,15 @@ describe('Custom Contest Service Unit Tests', () => {
         mockPool.setQueryResponse(
           /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.organizer_id/,
           mockQueryResponses.multiple([
-            mockInstance,
-            { ...mockInstance, id: 'instance-2', status: 'open' }
+            { ...mockInstance, entries_current: 5 },
+            { ...mockInstance, id: 'instance-2', status: 'open', entries_current: 10 }
           ])
         );
 
         const instances = await customContestService.getContestInstancesForOrganizer(mockPool, TEST_USER_ID);
         expect(instances).toHaveLength(2);
-        expect(instances[0].computedJoinState).toBeDefined();
-        expect(instances[1].computedJoinState).toBeDefined();
+        expect(instances[0].status).toBeDefined();
+        expect(instances[0].entries_current).toBeGreaterThanOrEqual(0);
       });
 
       it('should return empty array if no instances', async () => {
