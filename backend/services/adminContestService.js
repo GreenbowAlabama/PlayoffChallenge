@@ -7,6 +7,8 @@
  * - Audit logging for all mutations
  */
 
+const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
+
 const ADMIN_TRANSITIONS = {
   draft: [],
   open: ['draft', 'cancelled'],
@@ -203,7 +205,7 @@ async function updateLockTime(pool, contestId, lockTime, adminUserId, reason) {
     await client.query('BEGIN');
 
     const lockResult = await client.query(
-      'SELECT id, status, lock_time FROM contest_instances WHERE id = $1 FOR UPDATE',
+      'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestId]
     );
 
@@ -213,6 +215,12 @@ async function updateLockTime(pool, contestId, lockTime, adminUserId, reason) {
     }
 
     const contest = lockResult.rows[0];
+
+    // Validate time invariants before update
+    validateContestTimeInvariants({
+      existing: contest,
+      updates: { lock_time: lockTime }
+    });
 
     const updateResult = await client.query(
       'UPDATE contest_instances SET lock_time = $1, updated_at = NOW() WHERE id = $2 RETURNING *',

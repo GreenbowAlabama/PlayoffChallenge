@@ -12,6 +12,7 @@
 const crypto = require('crypto');
 const config = require('../config');
 const { computeJoinState } = require('./helpers/contestState');
+const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
 
 const VALID_STATUSES = ['draft', 'open', 'locked', 'settled', 'cancelled'];
 const VALID_ENV_PREFIXES = ['dev', 'test', 'stg', 'prd'];
@@ -234,6 +235,15 @@ async function createContestInstance(pool, organizerId, input) {
   // Note: join_token is generated at publish time, not creation time
   // Database constraint requires join_token to be NULL for draft status
 
+  // Validate time invariants before insert
+  const timeUpdates = {
+    lock_time: input.lock_time,
+    start_time: input.start_time,
+    end_time: input.end_time,
+    settle_time: input.settlement_time
+  };
+  validateContestTimeInvariants({ existing: {}, updates: timeUpdates });
+
   const result = await pool.query(
     `INSERT INTO contest_instances (
       template_id,
@@ -245,8 +255,9 @@ async function createContestInstance(pool, organizerId, input) {
       status,
       start_time,
       lock_time,
+      end_time,
       settlement_time
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     RETURNING *`,
     [
       input.template_id,
@@ -258,6 +269,7 @@ async function createContestInstance(pool, organizerId, input) {
       'draft',
       input.start_time ?? null,
       input.lock_time ?? null,
+      input.end_time ?? null,
       input.settlement_time ?? null
     ]
   );
