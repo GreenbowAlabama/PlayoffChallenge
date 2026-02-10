@@ -45,10 +45,10 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 | Attribute | Value |
 |---|---|
-| Status | `EXISTS but violates contract` |
+| Status | `EXISTS and conforms` |
 | Layer | Database |
-| Description | The `contest_instances.status` column uses a five-value CHECK constraint: `draft`, `open`, `locked`, `settled`, `cancelled`. The contract defines six states: `SCHEDULED`, `LOCKED`, `LIVE`, `COMPLETE`, `CANCELLED`, `ERROR`. The values `draft` and `open` have no contract equivalent. The contract states `LIVE` and `ERROR` are missing entirely. `settled` maps loosely to `COMPLETE` but the naming is inconsistent. |
-| Why it matters | Every other gap depends on the state enum. The valid state transition graph, time-driven transitions, error handling, settlement triggering, derived fields, sorting rules, and admin operations all reference the six-state model. Nothing can conform until the stored states match the contract. |
+| Description | The `contest_instances.status` column now stores exactly the six contract-defined lifecycle states: `SCHEDULED`, `LOCKED`, `LIVE`, `COMPLETE`, `CANCELLED`, and `ERROR`. Legacy values (`draft`, `open`, `settled`) have been removed, and no mapping or aliasing layer exists. |
+| Why it matters | The lifecycle state model now conforms exactly to the Contest Lifecycle Contract v1, unblocking valid transition enforcement, time-driven progression, error handling, settlement, derived fields, sorting rules, and admin operations. |
 | Dependencies | None. This is the root dependency. |
 
 ---
@@ -57,10 +57,10 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 | Attribute | Value |
 |---|---|
-| Status | `MISSING and required for v1` |
+| Status | `EXISTS and conforms` |
 | Layer | Database |
-| Description | The `contest_instances` table has `created_at`, `lock_time`, `start_time`, and `settlement_time`, but no `end_time` column. The contract requires `end_time` as a first-class field representing when the last game concludes. It governs the LIVE-to-COMPLETE transition and is used in My Contests sorting for LIVE contests. |
-| Why it matters | Without `end_time`, the system cannot determine when a contest is eligible for completion. The time field invariant `created_at < lock_time <= start_time < end_time` cannot be enforced. My Contests sorting for LIVE contests (by `end_time` ascending) is impossible. |
+| Description | The `contest_instances` table now includes `end_time` as a first-class column representing when the final underlying game concludes. This field is used directly for lifecycle eligibility, invariant enforcement, and LIVE contest sorting as defined by the contract. |
+| Why it matters | With `end_time` present, lifecycle time invariants can be fully enforced and the system can correctly determine when contests are eligible to transition from LIVE to COMPLETE. |
 | Dependencies | None. |
 
 ---
@@ -69,10 +69,10 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 | Attribute | Value |
 |---|---|
-| Status | `EXISTS but violates contract` |
+| Status | `EXISTS and conforms` |
 | Layer | Database |
-| Description | The schema uses `settlement_time`. The contract specifies `settle_time`. While this is a naming difference, the contract is authoritative and all derived field logic, invariant checks, and API responses reference `settle_time`. |
-| Why it matters | API responses, derived field computation, and invariant enforcement must use consistent naming. Misalignment between stored column name and contract field name creates ambiguity in every layer above the database. |
+| Description | `settle_time` is now the canonical field name across the database schema, domain logic, and API responses. Any prior use of `settlement_time` has been removed and no aliasing or translation remains. |
+| Why it matters | Consistent naming eliminates ambiguity across layers and ensures invariant enforcement, derived field computation, and API contracts align exactly with the Contest Lifecycle Contract v1. |
 | Dependencies | None. |
 
 ---
