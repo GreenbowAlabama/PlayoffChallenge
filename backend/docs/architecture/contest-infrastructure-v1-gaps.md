@@ -89,14 +89,14 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 ---
 
-### GAP-05: Valid state transition enforcement is incomplete
+### GAP-05: Valid state transition enforcement is complete
 
 | Attribute | Value |
 |---|---|
-| Status | `EXISTS but violates contract` |
+| Status | `EXISTS and conforms` |
 | Layer | Backend domain logic |
-| Description | Transition maps exist in `customContestService.js` and `adminContestService.js`, but they enforce the current five-state model, not the contract's six-state model. Transitions involving LIVE and ERROR are absent. The admin transition map allows `open -> draft`, which has no contract equivalent. No centralized state machine module exists; transition logic is duplicated across services. |
-| Why it matters | The contract defines a specific transition graph. Invalid transitions must be rejected. Without a single-responsibility transition enforcer aligned to the contract, state integrity cannot be guaranteed. |
+| Description | A centralized, single-responsibility state machine now enforces the contract's six-state model. The `contestTransitionValidator.js` helper validates all state changes against the legal transition graph defined in the Contest Lifecycle Contract v1. All state-mutating logic in `customContestService.js` and `adminContestService.js` now delegates to this validator, ensuring that no invalid transitions can occur and removing logic duplication. The system now fully rejects transitions not explicitly defined in the contract. |
+| Why it matters | The contract defines a specific transition graph. Invalid transitions must be rejected. With a single-responsibility transition enforcer aligned to the contract, state integrity is guaranteed. This provides a foundational guarantee for all time-driven and admin-driven state changes. |
 | Dependencies | GAP-01 (state enum must match contract first). |
 
 ---
@@ -257,6 +257,78 @@ Contest Infrastructure v1 can be declared complete when every item below is true
 - [ ] My Contests sorting follows the six-tier contract sort order. ERROR contests are hidden from non-admin users. (GAP-12)
 - [ ] All six admin operations (create, update time fields, cancel, force-lock, trigger settlement, resolve error) exist and enforce the same validation as automated processes. (GAP-13)
 - [ ] Every state transition (automated and manual) is recorded in an audit trail with timestamp and reason. (GAP-14, GAP-15)
+
+---
+
+## Lifecycle Enforcement Boundaries (Post-Gap 5)
+
+With GAP-05 complete, the system's core lifecycle integrity guarantees have significantly improved. This section clarifies the current architectural boundaries and responsibilities for state enforcement, providing a stable foundation for future work.
+
+### 1. Database Invariants
+
+The database remains the ultimate source of truth for contest state.
+- **Explicit states:** The `contest_instances.status` column, once updated per GAP-01, will explicitly store one of the six contractually defined states: `SCHEDULED`, `LOCKED`, `LIVE`, `COMPLETE`, `CANCELLED`, `ERROR`.
+- **Time field integrity:** The time field invariants (`created_at < lock_time <= start_time < end_time` and `end_time <= settle_time` when present) are enforced at the backend domain layer (via `timeInvariantValidator.js`) **before** any database write operation.
+- **Atomicity:** Critical write operations, such as entry submission, utilize row-level locking (`SELECT FOR UPDATE`) to ensure atomicity and prevent race conditions during state verification.
+
+### 2. Domain State Machine (Transition Validator) Guarantees
+
+The `services/helpers/contestTransitionValidator.js` is the single source of truth for permissible state changes.
+- **Contractual adherence:** It rigorously enforces the valid state transition graph defined in the [Contest Lifecycle Contract v1](./contest-lifecycle.md).
+- **Centralized logic:** All backend service methods that modify contest state **must** delegate their state transition decisions to this validator.
+- **Immutability of terminal states:** The validator ensures that once a contest enters a terminal state (`COMPLETE`, `CANCELLED`), no further state changes are possible.
+
+### 3. Separation of Responsibilities
+
+- **Database:** Stores the canonical contest state and time fields. Relies on the application layer for semantic validation.
+- **Domain State Machine (`contestTransitionValidator.js`):** Enforces the rules of state transitions based on the contract.
+- **Automation Layer:** No automation layer exists yet. No component currently initiates state transitions based on time progression or external events.
+- **Admin-Only Operations:** Provide privileged means to initiate certain transitions. These operations must utilize the domain state machine and are subject to the same validation rules. There are no admin overrides that bypass the validator.
+
+### 4. Write-Time vs. Derived at Read-Time Guarantees
+
+- **Guaranteed at write time:**
+  - The explicit `status` field.
+  - `created_at`, `lock_time`, and `start_time`.
+  - Referential integrity (e.g., contest_id exists).
+- **Conditionally present (contract-defined but not yet universal):**
+  - `end_time` (required by contract, pending full GAP-02 enforcement).
+  - `settle_time` (written exactly once during settlement).
+- **Derived at read time (client-facing):**
+  - `is_locked`, `is_live`, `is_settled`.
+  - `entry_count`, `user_has_entered`, `time_until_lock`, `standings`.
+
+### 5. Lifecycle "Closed for Modification" in v1
+
+The core lifecycle state model and its valid transition graph, as defined in the [Contest Lifecycle Contract v1](./contest-lifecycle.md) and now enforced by `contestTransitionValidator.js`, are considered **closed for modification** in v1. Any changes to states or transitions would constitute a breaking change to the contract and require a v2. Future automation must trigger _existing_ valid transitions; it cannot introduce new transition types or bypass the validator.
+
+---
+
+## What Is Still Manual After Gap 5
+
+While GAP-05 has established a robust, contract-adherent state transition enforcement mechanism, it's critical to explicitly document what remains a manual operation.
+
+### 1. Absence of Time-Driven Automation
+
+- **No automated state progression:** There are no automated mechanisms to transition contests between states based on time fields (`lock_time`, `start_time`) or external events (game completion for `end_time`).
+    - `SCHEDULED -> LOCKED`
+    - `LOCKED -> LIVE`
+    - `LIVE -> COMPLETE`
+- **Consequence:** Contests will remain indefinitely in `SCHEDULED`, `LOCKED`, or `LIVE` states even when their time windows have passed, unless an admin explicitly triggers an action that causes a state re-evaluation.
+
+### 2. Manual Settlement Triggering
+
+- The act of triggering settlement for a `COMPLETE` contest (per GAP-08) is still a manual admin operation.
+
+### 3. Error State Handling
+
+- The Contest Lifecycle Contract v1 defines an `ERROR` state and admin-only resolution paths.
+- At present, no production code path transitions contests into or out of `ERROR`.
+- As a result, no automated or manual error recovery workflow exists in the system today.
+
+### 4. Admin Operations as the Primary State Mutators (Post-Creation)
+
+- Beyond initial creation, most significant state changes (cancellation, force-locking) are currently only possible via explicit admin API calls. While these calls now route through the robust `contestTransitionValidator.js`, the _initiation_ of these changes is entirely manual.
 
 ---
 
