@@ -14,7 +14,7 @@ const config = require('../config');
 const { computeJoinState } = require('./helpers/contestState');
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
 
-const VALID_STATUSES = ['draft', 'open', 'locked', 'settled', 'cancelled'];
+const VALID_STATUSES = ['SCHEDULED', 'LOCKED', 'LIVE', 'COMPLETE', 'CANCELLED', 'ERROR'];
 const VALID_ENV_PREFIXES = ['dev', 'test', 'stg', 'prd'];
 
 /**
@@ -229,11 +229,9 @@ async function createContestInstance(pool, organizerId, input) {
     throw new Error('max_entries must be a positive integer');
   }
 
-  // CONTRACT CHECK: normalized values before insert
-  console.log(`CONTRACT CHECK createContestInstance: contestName="${contestName}", maxEntries=${maxEntries}`);
+
 
   // Note: join_token is generated at publish time, not creation time
-  // Database constraint requires join_token to be NULL for draft status
 
   // Validate time invariants before insert
   const timeUpdates = {
@@ -264,7 +262,7 @@ async function createContestInstance(pool, organizerId, input) {
       maxEntries,
       input.entry_fee_cents,
       JSON.stringify(input.payout_structure),
-      'draft',
+      'SCHEDULED',
       input.start_time ?? null,
       input.lock_time ?? null,
       input.end_time ?? null
@@ -313,8 +311,7 @@ async function getContestInstance(pool, instanceId) {
   delete row.name;
   delete row.template_name;
 
-  // CONTRACT CHECK: values returned from getContestInstance
-  console.log(`CONTRACT CHECK getContestInstance: contest_name="${row.contest_name}", max_entries=${row.max_entries}`);
+
 
   return {
     ...row,
@@ -451,8 +448,8 @@ async function resolveJoinToken(pool, token) {
 
   const joinState = computeJoinState(instance);
 
-  // Only OPEN + JOINABLE contests resolve as valid
-  if (instance.status === 'open' && joinState === 'JOINABLE') {
+  // Only SCHEDULED + JOINABLE contests resolve as valid
+  if (instance.status === 'SCHEDULED' && joinState === 'JOINABLE') {
     // Shape the response identically to getContestInstance (canonical detail)
     delete instance.name;
     delete instance.template_name;
@@ -467,8 +464,8 @@ async function resolveJoinToken(pool, token) {
     };
   }
 
-  // Open but past lock_time
-  if (instance.status === 'open' && joinState === 'LOCKED') {
+  // SCHEDULED but past lock_time
+  if (instance.status === 'SCHEDULED' && joinState === 'LOCKED') {
     return {
       valid: false,
       error_code: JOIN_ERROR_CODES.CONTEST_LOCKED,
@@ -483,20 +480,7 @@ async function resolveJoinToken(pool, token) {
     };
   }
 
-  if (instance.status === 'draft') {
-    // Draft → CONTEST_UNAVAILABLE (collapsed from NOT_PUBLISHED)
-    return {
-      valid: false,
-      error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE,
-      reason: 'Contest has not been published yet',
-      environment_mismatch: false,
-      contest: {
-        id: instance.id,
-        status: instance.status,
-        computedJoinState: joinState
-      }
-    };
-  }
+
 
   if (instance.status === 'locked') {
     return {
@@ -513,7 +497,7 @@ async function resolveJoinToken(pool, token) {
     };
   }
 
-  if (instance.status === 'settled') {
+  if (instance.status === 'COMPLETE') {
     return {
       valid: false,
       error_code: JOIN_ERROR_CODES.CONTEST_COMPLETED,
@@ -619,15 +603,16 @@ async function updateContestInstanceStatus(pool, instanceId, organizerId, newSta
 
   // Validate status transitions
   const validTransitions = {
-    draft: ['open', 'cancelled'],
-    open: ['locked', 'cancelled'],
-    locked: ['settled', 'cancelled'],
-    settled: [],
-    cancelled: []
+    SCHEDULED: ['LOCKED', 'CANCELLED'],
+    LOCKED: ['LIVE', 'CANCELLED'],
+    LIVE: ['COMPLETE', 'ERROR'],
+    COMPLETE: [],
+    CANCELLED: [],
+    ERROR: ['COMPLETE', 'CANCELLED']
   };
 
   const allowedNext = validTransitions[existing.status];
-  if (!allowedNext.includes(newStatus)) {
+  if (!allowedNext || !allowedNext.includes(newStatus)) {
     throw new Error(`Cannot transition from '${existing.status}' to '${newStatus}'`);
   }
 
@@ -665,8 +650,8 @@ async function publishContestInstance(pool, instanceId, organizerId) {
     throw new Error('Only the organizer can publish contest');
   }
 
-  // Idempotency: if already open, return as-is without any modifications
-  if (existing.status === 'open') {
+  // Idempotency: if a join token already exists, it's already "published".
+  if (existing.join_token) {
     return {
       ...existing,
       join_url: generateJoinUrl(existing.join_token),
@@ -674,18 +659,17 @@ async function publishContestInstance(pool, instanceId, organizerId) {
     };
   }
 
-  // Only draft contests can be published
-  if (existing.status !== 'draft') {
-    throw new Error(`Cannot transition from '${existing.status}' to 'open'`);
+  // Only SCHEDULED contests can be published (i.e., made joinable)
+  if (existing.status !== 'SCHEDULED') {
+    throw new Error(`Cannot publish a contest with status '${existing.status}'. Only 'SCHEDULED' contests can be published.`);
   }
 
-  // Ensure join_token exists (required by database constraint for non-draft status)
-  // If draft has no token (edge case), generate one during publish
-  const joinToken = existing.join_token || generateJoinToken();
+  // Generate the join token
+  const joinToken = generateJoinToken();
 
-  // Perform atomic update: set status to open and ensure join_token is set
+  // Perform atomic update: set the join_token
   const result = await pool.query(
-    `UPDATE contest_instances SET status = 'open', join_token = $1, updated_at = NOW() WHERE id = $2 AND LOWER(organizer_id::text) = LOWER($3) RETURNING *`,
+    `UPDATE contest_instances SET join_token = $1, updated_at = NOW() WHERE id = $2 AND LOWER(organizer_id::text) = LOWER($3) RETURNING *`,
     [joinToken, instanceId, organizerId]
   );
 
@@ -729,49 +713,19 @@ async function joinContest(pool, contestInstanceId, userId) {
   try {
     await client.query('BEGIN');
 
-    // Lock the contest row to serialize concurrent joins
+    // 1. Lock the row and get data
     const contestResult = await client.query(
-      'SELECT id, status, max_entries, lock_time FROM contest_instances WHERE id = $1 FOR UPDATE',
+      'SELECT id, status, max_entries, lock_time, join_token FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestInstanceId]
     );
 
     if (contestResult.rows.length === 0) {
       await client.query('ROLLBACK');
-      return {
-        joined: false,
-        error_code: JOIN_ERROR_CODES.CONTEST_NOT_FOUND,
-        reason: 'Contest not found'
-      };
+      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_NOT_FOUND, reason: 'Contest not found' };
     }
-
     const contest = contestResult.rows[0];
 
-    // Only open contests can be joined
-    if (contest.status !== 'open') {
-      await client.query('ROLLBACK');
-
-      if (contest.status === 'draft') {
-        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest has not been published yet' };
-      }
-      if (contest.status === 'locked') {
-        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest is locked' };
-      }
-      if (contest.status === 'settled') {
-        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_COMPLETED, reason: 'Contest is settled' };
-      }
-      if (contest.status === 'cancelled') {
-        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is cancelled' };
-      }
-      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_NOT_FOUND, reason: 'Contest is not in a joinable state' };
-    }
-
-    // Enforce lock_time: if lock_time has passed, the join window is closed
-    if (contest.lock_time !== null && new Date() >= new Date(contest.lock_time)) {
-      await client.query('ROLLBACK');
-      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest join window has closed' };
-    }
-
-    // Capacity-checked insert: only succeeds if under max_entries
+    // 2. Attempt INSERT to check for ALREADY_JOINED and CONTEST_FULL first
     const insertResult = await client.query(
       `WITH capacity AS (
         SELECT max_entries,
@@ -789,30 +743,47 @@ async function joinContest(pool, contestInstanceId, userId) {
 
     if (insertResult.rowCount === 0) {
       await client.query('ROLLBACK');
-      return {
-        joined: false,
-        error_code: JOIN_ERROR_CODES.CONTEST_FULL,
-        reason: 'Contest has reached maximum participants'
-      };
+      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_FULL, reason: 'Contest has reached maximum participants' };
     }
 
+    // 3. Now that user has been added, validate the contest state.
+    // If these checks fail, we rollback the INSERT.
+    if (contest.status !== 'SCHEDULED' || !contest.join_token) {
+      await client.query('ROLLBACK');
+      // Refine reasons for UNAVAILABLE based on the specific non-SCHEDULED status
+      if (!contest.join_token) {
+        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is not joinable (no join token)' };
+      }
+      if (contest.status === 'LOCKED') {
+        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest is locked' };
+      }
+      if (contest.status === 'COMPLETE') {
+        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_COMPLETED, reason: 'Contest is complete' };
+      }
+      if (contest.status === 'CANCELLED') {
+        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is cancelled' };
+      }
+      if (contest.status === 'LIVE' || contest.status === 'ERROR') { // LIVE and ERROR are also not joinable
+        return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: `Contest is in state '${contest.status}' and not joinable` };
+      }
+      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is not in a joinable state' };
+    }
+
+    // 4. Enforce lock_time
+    if (contest.lock_time !== null && new Date() >= new Date(contest.lock_time)) {
+      await client.query('ROLLBACK');
+      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest join window has closed' };
+    }
+
+    // 5. All checks passed.
     await client.query('COMMIT');
-    return {
-      joined: true,
-      participant: insertResult.rows[0]
-    };
+    return { joined: true, participant: insertResult.rows[0] };
+
   } catch (err) {
     await client.query('ROLLBACK');
-
-    // Map PG unique violation to ALREADY_JOINED
     if (err.code === '23505') {
-      return {
-        joined: false,
-        error_code: JOIN_ERROR_CODES.ALREADY_JOINED,
-        reason: 'User has already joined this contest'
-      };
+      return { joined: false, error_code: JOIN_ERROR_CODES.ALREADY_JOINED, reason: 'User has already joined this contest' };
     }
-
     throw err;
   } finally {
     client.release();

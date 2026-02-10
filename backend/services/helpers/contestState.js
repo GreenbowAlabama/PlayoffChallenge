@@ -29,12 +29,13 @@ const JOIN_STATES = {
 function computeJoinState(instanceRow, now = new Date()) {
   const { status, lock_time } = instanceRow;
 
-  if (status === 'settled') return JOIN_STATES.COMPLETED;
-  if (status === 'cancelled') return JOIN_STATES.UNAVAILABLE;
-  if (status === 'draft') return JOIN_STATES.UNAVAILABLE;
-  if (status === 'locked') return JOIN_STATES.LOCKED;
+  if (status === 'COMPLETE') return JOIN_STATES.COMPLETED;
+  if (status === 'CANCELLED') return JOIN_STATES.UNAVAILABLE;
+  if (status === 'LOCKED') return JOIN_STATES.LOCKED;
+  if (status === 'LIVE') return JOIN_STATES.UNAVAILABLE; // LIVE contests are not joinable
+  if (status === 'ERROR') return JOIN_STATES.UNAVAILABLE; // ERROR contests are not joinable
 
-  if (status === 'open') {
+  if (status === 'SCHEDULED') {
     if (lock_time !== null && lock_time !== undefined && now >= new Date(lock_time)) {
       return JOIN_STATES.LOCKED;
     }

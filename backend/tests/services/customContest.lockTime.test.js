@@ -36,10 +36,15 @@ describe('lock_time enforcement', () => {
         /SELECT[\s\S]*FROM contest_instances[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({
           id: TEST_INSTANCE_ID,
-          status: 'open',
+          status: 'SCHEDULED',
+          join_token: 'dev_some_token',
           max_entries: 10,
           lock_time: pastLockTime
         })
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.single({}) // Simulate successful insert to proceed to lock_time check
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -55,7 +60,8 @@ describe('lock_time enforcement', () => {
         /SELECT[\s\S]*FROM contest_instances[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({
           id: TEST_INSTANCE_ID,
-          status: 'open',
+          status: 'SCHEDULED',
+          join_token: 'dev_some_token',
           max_entries: null,
           lock_time: futureLockTime
         })
@@ -78,7 +84,8 @@ describe('lock_time enforcement', () => {
         /SELECT[\s\S]*FROM contest_instances[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({
           id: TEST_INSTANCE_ID,
-          status: 'open',
+          status: 'SCHEDULED',
+          join_token: 'dev_some_token',
           max_entries: null,
           lock_time: null
         })
@@ -103,7 +110,8 @@ describe('lock_time enforcement', () => {
         /SELECT[\s\S]*FROM contest_instances[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({
           id: TEST_INSTANCE_ID,
-          status: 'open',
+          status: 'SCHEDULED',
+          join_token: 'dev_some_token',
           max_entries: 10,
           lock_time: pastLockTime
         })
@@ -118,10 +126,10 @@ describe('lock_time enforcement', () => {
   });
 
   describe('resolveJoinToken — lock_time', () => {
-    const mockOpenInstance = {
+    const mockScheduledInstance = {
       id: TEST_INSTANCE_ID,
       template_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      status: 'open',
+      status: 'SCHEDULED',
       join_token: 'dev_abc123def456abc123def456abc123',
       template_name: 'NFL Playoff Challenge',
       template_sport: 'NFL',
@@ -134,13 +142,13 @@ describe('lock_time enforcement', () => {
       entries_current: 1
     };
 
-    it('should return CONTEST_LOCKED when open contest has past lock_time', async () => {
+    it('should return CONTEST_LOCKED when SCHEDULED contest has past lock_time', async () => {
       const pastLockTime = new Date(Date.now() - 60000).toISOString();
       const token = 'dev_abc123def456abc123def456abc123';
 
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockOpenInstance, lock_time: pastLockTime })
+        mockQueryResponses.single({ ...mockScheduledInstance, lock_time: pastLockTime })
       );
 
       const result = await customContestService.resolveJoinToken(mockPool, token);
@@ -150,13 +158,13 @@ describe('lock_time enforcement', () => {
       expect(result.contest.lock_time).toBe(pastLockTime);
     });
 
-    it('should return valid when open contest has future lock_time', async () => {
+    it('should return valid when SCHEDULED contest has future lock_time', async () => {
       const futureLockTime = new Date(Date.now() + 3600000).toISOString();
       const token = 'dev_abc123def456abc123def456abc123';
 
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockOpenInstance, lock_time: futureLockTime })
+        mockQueryResponses.single({ ...mockScheduledInstance, lock_time: futureLockTime })
       );
 
       const result = await customContestService.resolveJoinToken(mockPool, token);
@@ -164,12 +172,12 @@ describe('lock_time enforcement', () => {
       expect(result.contest.id).toBe(TEST_INSTANCE_ID);
     });
 
-    it('should return valid when open contest has NULL lock_time', async () => {
+    it('should return valid when SCHEDULED contest has NULL lock_time', async () => {
       const token = 'dev_abc123def456abc123def456abc123';
 
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockOpenInstance, lock_time: null })
+        mockQueryResponses.single({ ...mockScheduledInstance, lock_time: null })
       );
 
       const result = await customContestService.resolveJoinToken(mockPool, token);

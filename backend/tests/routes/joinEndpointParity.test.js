@@ -28,7 +28,7 @@ const mockInstance = {
   organizer_id: TEST_USER_ID,
   entry_fee_cents: 2500,
   payout_structure: { first: 70, second: 20, third: 10 },
-  status: 'open',
+  status: 'SCHEDULED',
   join_token: 'dev_abc123def456abc123def456abc123',
   template_name: 'NFL Playoff Challenge',
   template_sport: 'NFL',
@@ -174,17 +174,18 @@ describe('Join Endpoint Parity', () => {
       expect(canonical.body.error_code).toBe('CONTEST_NOT_FOUND');
     });
 
-    it('should return identical responses for draft contest', async () => {
-      const token = 'dev_draft1234567890123456789012';
+    it('should return identical responses for unpublished contest (no join token)', async () => {
+      const token = 'dev_unpublished1234567890123';
       const { canonical } = await assertParity(token, () => {
+        // Unpublished means no join token, so query returns empty
         mockPool.setQueryResponse(
           /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-          mockQueryResponses.single({ ...mockInstance, join_token: token, status: 'draft' })
+          mockQueryResponses.empty()
         );
       });
 
       expect(canonical.body.valid).toBe(false);
-      expect(canonical.body.error_code).toBe('CONTEST_UNAVAILABLE');
+      expect(canonical.body.error_code).toBe('CONTEST_NOT_FOUND');
     });
 
     it('should return identical responses for locked contest', async () => {

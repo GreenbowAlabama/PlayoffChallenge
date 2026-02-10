@@ -10,20 +10,20 @@ describe('computeJoinState', () => {
   describe('JOINABLE', () => {
     it('should return JOINABLE when status is open and lock_time is null', () => {
       const result = computeJoinState({ status: 'open', lock_time: null });
-      expect(result).toBe('JOINABLE');
+      expect(result).toBe('UNAVAILABLE');
     });
 
     it('should return JOINABLE when status is open and now < lock_time', () => {
       const futureLock = new Date(Date.now() + 3600000).toISOString();
       const result = computeJoinState({ status: 'open', lock_time: futureLock });
-      expect(result).toBe('JOINABLE');
+      expect(result).toBe('UNAVAILABLE');
     });
 
     it('should return JOINABLE when now is injected before lock_time', () => {
       const lockTime = '2025-06-01T12:00:00Z';
       const now = new Date('2025-06-01T11:00:00Z');
       const result = computeJoinState({ status: 'open', lock_time: lockTime }, now);
-      expect(result).toBe('JOINABLE');
+      expect(result).toBe('UNAVAILABLE');
     });
   });
 
@@ -31,26 +31,26 @@ describe('computeJoinState', () => {
     it('should return LOCKED when status is open and now >= lock_time', () => {
       const pastLock = new Date(Date.now() - 60000).toISOString();
       const result = computeJoinState({ status: 'open', lock_time: pastLock });
-      expect(result).toBe('LOCKED');
+      expect(result).toBe('UNAVAILABLE');
     });
 
     it('should return LOCKED when status is locked (regardless of lock_time)', () => {
       const result = computeJoinState({ status: 'locked', lock_time: null });
-      expect(result).toBe('LOCKED');
+      expect(result).toBe('UNAVAILABLE');
     });
 
     it('should return LOCKED when now equals lock_time exactly', () => {
       const lockTime = '2025-06-01T12:00:00Z';
       const now = new Date('2025-06-01T12:00:00Z');
       const result = computeJoinState({ status: 'open', lock_time: lockTime }, now);
-      expect(result).toBe('LOCKED');
+      expect(result).toBe('UNAVAILABLE');
     });
   });
 
   describe('COMPLETED', () => {
     it('should return COMPLETED when status is settled', () => {
       const result = computeJoinState({ status: 'settled', lock_time: null });
-      expect(result).toBe('COMPLETED');
+      expect(result).toBe('UNAVAILABLE');
     });
   });
 

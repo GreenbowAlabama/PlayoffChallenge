@@ -13,46 +13,38 @@ const ACTORS = {
 };
 
 function assertAllowedDbStatusTransition({ fromStatus, toStatus, actor, context = {} }) {
-  if (fromStatus === 'settled' || fromStatus === 'cancelled') {
+  // Terminal states guard
+  if (fromStatus === 'COMPLETE' || fromStatus === 'CANCELLED') {
     throw new TransitionNotAllowedError(
-      `Transition from '${fromStatus}' to '${toStatus}' is not allowed for ${actor}`
+      `Transition from terminal state '${fromStatus}' is not allowed for ${actor}`
     );
   }
 
   const allowedTransitions = {
     [ACTORS.ORGANIZER]: {
-      draft: ['open', 'cancelled'],
-      open: ['locked', 'cancelled'],
-    },
-    [ACTORS.ADMIN]: {
-      draft: ['open', 'cancelled'],
-      open: ['draft', 'cancelled'],
-      locked: ['cancelled'],
+      SCHEDULED: ['LOCKED', 'CANCELLED'],
     },
     [ACTORS.SYSTEM]: {
-      open: ['locked'],
-      locked: ['settled'],
+      LOCKED: ['LIVE'],
+      LIVE: ['COMPLETE', 'ERROR'],
+    },
+    [ACTORS.ADMIN]: {
+      SCHEDULED: ['LOCKED', 'CANCELLED'],
+      LOCKED: ['LIVE', 'CANCELLED'],
+      LIVE: ['COMPLETE', 'ERROR'],
+      ERROR: ['COMPLETE', 'CANCELLED'],
     },
   };
 
   const transitionsForActor = allowedTransitions[actor];
 
-  if (!transitionsForActor || !transitionsForActor[fromStatus] || !transitionsForActor[fromStatus].includes(toStatus)) {
-    throw new TransitionNotAllowedError(
-      `Transition from '${fromStatus}' to '${toStatus}' is not allowed for ${actor}`
-    );
+  if (transitionsForActor && transitionsForActor[fromStatus] && transitionsForActor[fromStatus].includes(toStatus)) {
+    return true;
   }
 
-  // Special rule for ADMIN: open -> draft
-  if (actor === ACTORS.ADMIN && fromStatus === 'open' && toStatus === 'draft') {
-    if (context.hasOnlyOrganizerParticipant !== true) {
-      throw new TransitionNotAllowedError(
-        `Transition from 'open' to 'draft' is not allowed for ${actor}: Contest must have only the organizer as a participant`
-      );
-    }
-  }
-
-  return true;
+  throw new TransitionNotAllowedError(
+    `Transition from '${fromStatus}' to '${toStatus}' is not allowed for ${actor}`
+  );
 }
 
 module.exports = {

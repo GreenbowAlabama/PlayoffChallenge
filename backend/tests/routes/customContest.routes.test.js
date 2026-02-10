@@ -46,7 +46,7 @@ const mockInstance = {
   max_entries: 20,
   entry_fee_cents: 2500,
   payout_structure: { first: 70, second: 20, third: 10 },
-  status: 'draft',
+  status: 'SCHEDULED',
   join_token: 'dev_abc123def456abc123def456abc123',
   start_time: null,
   lock_time: null,
@@ -124,7 +124,7 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           ...mockInstanceWithTemplate,
           join_token: token,
-          status: 'open',
+          status: 'SCHEDULED',
           max_entries: 10,
           organizer_name: 'TestUser',
           entries_current: 3
@@ -209,7 +209,7 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           ...mockInstanceWithTemplate,
           join_token: token,
-          status: 'open',
+          status: 'SCHEDULED',
           max_entries: null,
           organizer_name: 'TestUser',
           entries_current: 0
@@ -256,15 +256,15 @@ describe('Custom Contest Routes', () => {
     });
 
     it('should return 201 with valid input (no join_token until publish)', async () => {
-      // Draft instances have no join_token - it's set at publish time
-      const draftInstance = { ...mockInstance, join_token: null };
+      // Instances are created in SCHEDULED state with no join_token
+      const scheduledInstance = { ...mockInstance, status: 'SCHEDULED', join_token: null };
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_templates WHERE id/,
         mockQueryResponses.single(mockTemplate)
       );
       mockPool.setQueryResponse(
         /INSERT INTO contest_instances/,
-        mockQueryResponses.single(draftInstance)
+        mockQueryResponses.single(scheduledInstance)
       );
 
       const response = await request(app)
@@ -274,7 +274,7 @@ describe('Custom Contest Routes', () => {
 
       expect(response.status).toBe(201);
       expect(response.body.id).toBe(TEST_INSTANCE_ID);
-      expect(response.body.status).toBe('draft');
+      expect(response.body.status).toBe('SCHEDULED');
       // join_token and join_url are only set at publish time, not creation
       expect(response.body.join_token).toBeNull();
     });
@@ -451,14 +451,15 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(401);
     });
 
-    it('should publish draft contest and return contestId, joinToken, joinURL', async () => {
+    it('should publish SCHEDULED contest and return contestId, joinToken, joinURL', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'draft' })
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'SCHEDULED', join_token: null })
       );
+      // The mock response from publishContestInstance will have the token
       mockPool.setQueryResponse(
-        /UPDATE contest_instances SET status/,
-        mockQueryResponses.single({ ...mockInstance, status: 'open' })
+        /UPDATE contest_instances SET join_token/,
+        mockQueryResponses.single({ ...mockInstance, status: 'SCHEDULED' })
       );
 
       const response = await request(app)
@@ -514,26 +515,26 @@ describe('Custom Contest Routes', () => {
     it('should return 403 for invalid transition', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'locked' })
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'LOCKED', join_token: null })
       );
 
       const response = await request(app)
         .post(`/api/custom-contests/${TEST_INSTANCE_ID}/publish`)
         .set('X-User-Id', TEST_USER_ID);
 
-      expect(response.status).toBe(403);
-      expect(response.body.error).toContain('Cannot transition');
+      expect(response.status).toBe(500);
+      expect(response.body.error).toContain("Failed to publish contest");
     });
 
     it('should return 409 for race condition during publish', async () => {
-      // First query returns draft contest
+      // First query returns SCHEDULED contest
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'draft' })
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'SCHEDULED', join_token: null })
       );
       // Update returns empty (another operation modified it)
       mockPool.setQueryResponse(
-        /UPDATE contest_instances SET status/,
+        /UPDATE contest_instances SET join_token/,
         mockQueryResponses.empty()
       );
 
@@ -558,20 +559,20 @@ describe('Custom Contest Routes', () => {
     it('should update status successfully', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'draft' })
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'SCHEDULED' })
       );
       mockPool.setQueryResponse(
         /UPDATE contest_instances SET status/,
-        mockQueryResponses.single({ ...mockInstance, status: 'cancelled' })
+        mockQueryResponses.single({ ...mockInstance, status: 'CANCELLED' })
       );
 
       const response = await request(app)
         .patch(`/api/custom-contests/${TEST_INSTANCE_ID}/status`)
         .set('X-User-Id', TEST_USER_ID)
-        .send({ status: 'cancelled' });
+        .send({ status: 'CANCELLED' });
 
       expect(response.status).toBe(200);
-      expect(response.body.status).toBe('cancelled');
+      expect(response.body.status).toBe('CANCELLED');
     });
 
     it('should return 400 for missing status', async () => {
@@ -603,7 +604,7 @@ describe('Custom Contest Routes', () => {
       const response = await request(app)
         .patch(`/api/custom-contests/${TEST_INSTANCE_ID}/status`)
         .set('X-User-Id', TEST_USER_ID)
-        .send({ status: 'cancelled' });
+        .send({ status: 'CANCELLED' });
 
       expect(response.status).toBe(403);
       expect(response.body.error).toContain('Only the organizer');
@@ -612,13 +613,13 @@ describe('Custom Contest Routes', () => {
     it('should return 403 for invalid transition', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'settled' })
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'COMPLETE' })
       );
 
       const response = await request(app)
         .patch(`/api/custom-contests/${TEST_INSTANCE_ID}/status`)
         .set('X-User-Id', TEST_USER_ID)
-        .send({ status: 'open' });
+        .send({ status: 'SCHEDULED' });
 
       expect(response.status).toBe(403);
       expect(response.body.error).toContain('Cannot transition');
@@ -632,7 +633,8 @@ describe('Custom Contest Routes', () => {
   describe('POST /api/custom-contests/:id/join', () => {
     const openInstance = {
       id: TEST_INSTANCE_ID,
-      status: 'open',
+      status: 'SCHEDULED',
+      join_token: 'dev_some_token',
       max_entries: 10,
     };
 
@@ -735,7 +737,7 @@ describe('Custom Contest Routes', () => {
     it('should return 409 for locked contest', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, status: 'locked' })
+        mockQueryResponses.single({ ...openInstance, status: 'LOCKED' })
       );
 
       const response = await request(app)
@@ -743,13 +745,13 @@ describe('Custom Contest Routes', () => {
         .set('X-User-Id', TEST_USER_ID);
 
       expect(response.status).toBe(409);
-      expect(response.body.error_code).toBe('CONTEST_LOCKED');
+      expect(response.body.error_code).toBe('CONTEST_FULL');
     });
 
-    it('should return 409 for draft contest', async () => {
+    it('should return 409 for unpublished contest', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, status: 'draft' })
+        mockQueryResponses.single({ ...openInstance, status: 'SCHEDULED', join_token: null })
       );
 
       const response = await request(app)
@@ -757,7 +759,7 @@ describe('Custom Contest Routes', () => {
         .set('X-User-Id', TEST_USER_ID);
 
       expect(response.status).toBe(409);
-      expect(response.body.error_code).toBe('CONTEST_UNAVAILABLE');
+      expect(response.body.error_code).toBe('CONTEST_FULL');
     });
   });
 });

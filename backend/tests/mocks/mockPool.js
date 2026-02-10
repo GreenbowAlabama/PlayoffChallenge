@@ -40,6 +40,7 @@ function createMockPool() {
       }
 
       // Check for pattern matches
+
       for (const [pattern, response] of queryResponses.entries()) {
         if (pattern instanceof RegExp && pattern.test(sql)) {
           if (response instanceof Error) throw response;
