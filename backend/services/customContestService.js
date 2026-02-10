@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const config = require('../config');
 const { computeJoinState } = require('./helpers/contestState');
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
-const { advanceContestLifecycleIfNeeded } = require('./helpers/contestLifecycleAdvancer');
+const { advanceContestLifecycleIfNeeded, attemptSystemTransitionWithErrorRecovery } = require('./helpers/contestLifecycleAdvancer');
 
 const VALID_STATUSES = ['SCHEDULED', 'LOCKED', 'LIVE', 'COMPLETE', 'CANCELLED', 'ERROR'];
 const VALID_ENV_PREFIXES = ['dev', 'test', 'stg', 'prd'];
@@ -310,9 +310,13 @@ async function getContestInstance(pool, instanceId) {
   // Advance contest lifecycle if needed (read-path self-healing)
   const newStatus = advanceContestLifecycleIfNeeded(row);
   if (newStatus) {
-    // A transition is due, update the database
-    // Use the internal helper to update status. This returns the updated row or null if no actual change occurred.
-    const updatedRow = await _updateContestStatusInternal(pool, row.id, newStatus);
+    // Attempt transition with ERROR recovery (GAP-07)
+    const updatedRow = await attemptSystemTransitionWithErrorRecovery(
+      pool,
+      row,
+      newStatus,
+      updateContestStatusForSystem
+    );
     if (updatedRow) {
       row = updatedRow; // Use the newly updated row for the response
     }
@@ -376,8 +380,13 @@ async function getContestInstanceByToken(pool, token) {
   // Advance contest lifecycle if needed (read-path self-healing)
   const newStatus = advanceContestLifecycleIfNeeded(row);
   if (newStatus) {
-    // A transition is due, update the database
-    const updatedRow = await _updateContestStatusInternal(pool, row.id, newStatus);
+    // Attempt transition with ERROR recovery (GAP-07)
+    const updatedRow = await attemptSystemTransitionWithErrorRecovery(
+      pool,
+      row,
+      newStatus,
+      updateContestStatusForSystem
+    );
     if (updatedRow) {
       row = updatedRow; // Use the newly updated row for the response
     }
@@ -474,8 +483,13 @@ async function resolveJoinToken(pool, token) {
   // Advance contest lifecycle if needed (read-path self-healing)
   const newStatus = advanceContestLifecycleIfNeeded(instance);
   if (newStatus) {
-    // A transition is due, update the database
-    const updatedInstance = await _updateContestStatusInternal(pool, instance.id, newStatus);
+    // Attempt transition with ERROR recovery (GAP-07)
+    const updatedInstance = await attemptSystemTransitionWithErrorRecovery(
+      pool,
+      instance,
+      newStatus,
+      updateContestStatusForSystem
+    );
     if (updatedInstance) {
       instance = updatedInstance; // Use the newly updated instance for further processing
     }
@@ -810,6 +824,18 @@ async function joinContest(pool, contestInstanceId, userId) {
   } finally {
     client.release();
   }
+}
+
+/**
+ * Thin wrapper for SYSTEM-driven status transitions.
+ * Routes to _updateContestStatusInternal with SYSTEM actor authority.
+ *
+ * Used as updateFn callback for attemptSystemTransitionWithErrorRecovery.
+ * Ensures all SYSTEM transitions flow through the same internal primitive
+ * and are subject to transition validation + audit recording.
+ */
+async function updateContestStatusForSystem(pool, contestId, targetStatus) {
+  return _updateContestStatusInternal(pool, contestId, targetStatus);
 }
 
 /**
