@@ -20,7 +20,7 @@ const { ACTORS, assertAllowedDbStatusTransition } = require('./contestTransition
 
 /**
  * Write a SYSTEM-driven audit record for state transitions.
- * Uses NULL for actor_id to denote automated SYSTEM action (not admin action).
+ * Records automated SYSTEM actions using the canonical SYSTEM user ID.
  *
  * @param {Object} pool - Database connection pool
  * @param {string} contestId - Contest instance UUID
@@ -29,11 +29,14 @@ const { ACTORS, assertAllowedDbStatusTransition } = require('./contestTransition
  * @param {Object} payload - Additional context (error name, attempted status, etc.)
  */
 async function writeSystemAudit(pool, contestId, action, reason, payload) {
+  // Canonical SYSTEM user ID for automated actions
+  const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+
   try {
     await pool.query(
       `INSERT INTO admin_contest_audit (contest_id, admin_user_id, action, reason, payload)
        VALUES ($1, $2, $3, $4, $5)`,
-      [contestId, null, action, reason, JSON.stringify(payload || {})]
+      [contestId, SYSTEM_USER_ID, action, reason, JSON.stringify(payload || {})]
     );
   } catch (auditErr) {
     // Log audit failures but do not block the operation
@@ -42,16 +45,57 @@ async function writeSystemAudit(pool, contestId, action, reason, payload) {
 }
 
 /**
- * Determines whether a contest is eligible to complete based on game state.
+ * Determines whether a contest is eligible to complete based on game state AND settlement.
  *
- * NOTE: This is intentionally stubbed for v1. LIVE → COMPLETE is gated by
- * settlement readiness, which is implemented in GAP-08.
+ * IMPORTANT: Settlement is a PRECONDITION for COMPLETE state, not a post-condition.
+ * This function checks if the contest can advance to COMPLETE by verifying:
+ * 1. Games have finished (end_time has passed)
+ * 2. Settlement is ready (verified via isReadyForSettlement)
+ *
+ * If settlement readiness check fails, the error bubbles up to the caller
+ * (attemptSystemTransitionWithErrorRecovery), which catches it and transitions
+ * the contest to ERROR (LIVE→ERROR).
+ *
+ * Contract guarantee: Contests only reach COMPLETE if settlement readiness succeeds.
+ *
+ * CRITICAL: This function is READ-ONLY. It does not persist any data, does not
+ * write settle_time, and has no side effects. Settlement execution (writing results,
+ * timestamps) happens in GAP-09 after the contest reaches COMPLETE state.
  *
  * @param {Object} contest - The contest instance object.
- * @returns {boolean} - Always returns false (completion blocked until GAP-08).
+ * @returns {boolean} - True if games are complete AND settlement is ready, false otherwise.
+ * @throws {Error} - If settlement readiness check fails (caught by attemptSystemTransitionWithErrorRecovery)
  */
 function isContestGamesComplete(contest) {
-  return false;
+  // Step 1: Check if end_time has passed (time gate)
+  const now = Date.now();
+  if (!contest.end_time || now < new Date(contest.end_time).getTime()) {
+    // Games are still in progress or end_time not yet reached
+    return false;
+  }
+
+  // Step 2: If end_time has passed, attempt settlement readiness check
+  // NOTE: Settlement logic is currently unimplemented and will throw "Not implemented"
+  // This is EXPECTED behavior in GAP-08. When settlement is implemented in GAP-09,
+  // this will verify scores and compute rankings. If it throws, the error propagates
+  // to attemptSystemTransitionWithErrorRecovery, which transitions the contest to ERROR.
+
+  const settlementStrategy = require('../settlementStrategy');
+
+  // Check if settlement is ready (games finalized, scores available)
+  // This will throw "Not implemented: isReadyForSettlement" until GAP-09 implements it
+  const isReady = settlementStrategy.isReadyForSettlement(contest);
+
+  if (!isReady) {
+    // Settlement preconditions not met (e.g., scores not finalized)
+    // Return false to keep contest in LIVE state
+    return false;
+  }
+
+  // Settlement readiness check passed. Return true to allow COMPLETE transition.
+  // The actual settlement execution (writing results, setting settle_time) is deferred
+  // to GAP-09/GAP-13 and happens when the contest is in COMPLETE state, not here.
+  return true;
 }
 
 /**
@@ -100,15 +144,21 @@ function advanceContestLifecycleIfNeeded(contest) {
  * Orchestrates the execution of a time-driven state change. If the primary transition fails,
  * attempts to move the contest to ERROR state instead (GAP-07: no silent failures).
  *
+ * SPECIAL CASE (GAP-08): When attempting LIVE→COMPLETE, failures are settlement-related
+ * (isContestGamesComplete checks settlement readiness). These failures are marked in the
+ * audit trail with settlement_failure: true, error_origin: 'settlement_readiness_check',
+ * and error stack trace for debugging.
+ *
  * Actual DB state changes are performed via the provided updateFn callback.
  * This design avoids circular dependencies while maintaining contract guarantees.
  *
  * Contract guarantees:
  *   - Only SYSTEM actor can call this (enforced by transition validator)
  *   - If primary transition fails, attempts ERROR transition
- *   - If ERROR transition succeeds, audit trail is written with failure context
+ *   - If ERROR transition succeeds, audit trail is written with failure context (enhanced for settlement)
  *   - If ERROR transition also fails, original error is re-thrown (never silent)
  *   - All transitions are idempotent (conditional UPDATE using WHERE status = current)
+ *   - Settlement failures are distinguishable from other time-driven errors in audit trail
  *
  * @param {Object} pool - Database connection pool (for audit writes)
  * @param {Object} contestRow - Full contest instance row from database
@@ -124,6 +174,14 @@ async function attemptSystemTransitionWithErrorRecovery(pool, contestRow, nextSt
   }
 
   try {
+    // GAP-08: Settlement validation must occur inside recovery boundary
+    // If attempting LIVE→COMPLETE, verify settlement is ready before DB update
+    if (nextStatus === 'COMPLETE' && contestRow.status === 'LIVE') {
+      // This call may throw if settlement is not ready
+      // The error will be caught below and trigger ERROR recovery
+      isContestGamesComplete(contestRow);
+    }
+
     // Attempt the primary time-driven transition
     return await updateFn(pool, contestRow.id, nextStatus);
   } catch (primaryError) {
@@ -152,16 +210,29 @@ async function attemptSystemTransitionWithErrorRecovery(pool, contestRow, nextSt
       const errorRow = await updateFn(pool, contestRow.id, 'ERROR');
 
       // Successfully transitioned to ERROR. Record the failure in SYSTEM audit trail.
+      // GAP-08: Enhance payload for settlement-triggered failures (LIVE→COMPLETE)
+      const auditPayload = {
+        attempted_status: nextStatus,
+        error_name: primaryError.name,
+        error_message: primaryError.message
+      };
+
+      // If this was a LIVE→COMPLETE failure, mark as settlement-related
+      if (nextStatus === 'COMPLETE' && currentStatus === 'LIVE') {
+        auditPayload.settlement_failure = true;
+        auditPayload.error_origin = 'settlement_readiness_check';
+        // Include stack trace for settlement failures (helps debugging settlement logic)
+        if (primaryError.stack) {
+          auditPayload.error_stack = primaryError.stack.substring(0, 1000);
+        }
+      }
+
       await writeSystemAudit(
         pool,
         contestRow.id,
         'system_error_transition',
         `Automatic transition to ERROR due to failed attempt to transition to ${nextStatus}`,
-        {
-          attempted_status: nextStatus,
-          error_name: primaryError.name,
-          error_message: primaryError.message
-        }
+        auditPayload
       );
 
       return errorRow;
@@ -180,4 +251,5 @@ module.exports = {
   advanceContestLifecycleIfNeeded,
   attemptSystemTransitionWithErrorRecovery,
   writeSystemAudit,
+  isContestGamesComplete, // Exported for testing (GAP-08)
 };

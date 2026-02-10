@@ -904,6 +904,7 @@ module.exports = {
   getContestInstanceByToken,
   getContestInstancesForOrganizer,
   updateContestInstanceStatus,
+  updateContestStatusForSystem,
   publishContestInstance,
   joinContest,
 

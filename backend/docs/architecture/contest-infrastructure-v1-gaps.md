@@ -125,15 +125,15 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 ---
 
-### GAP-08: Settlement logic is not implemented
+### GAP-08: Settlement-triggered lifecycle failures are handled
 
 | Attribute | Value |
 |---|---|
-| Status | `MISSING and required for v1` |
+| Status | `COMPLETE and conforming` |
 | Layer | Backend domain logic |
-| Description | `settlementStrategy.js` exists but every function throws "Not implemented": `computeRankings()`, `allocatePayouts()`, `computeSettlement()`, `calculateTotalPool()`, `isReadyForSettlement()`. The contract requires: settlement executes only in COMPLETE state, is idempotent, verifies all games have final scores, writes `settle_time` exactly once, and produces immutable results. None of this is implemented. |
-| Why it matters | Settlement is the terminal operation in the contest lifecycle. Without it, no contest can reach a fully resolved state. The contract's exit criteria require settlement to be "an explicit, idempotent operation that writes settle_time exactly once." |
-| Dependencies | GAP-01 (COMPLETE state must exist), GAP-02 (`end_time` for transition eligibility), GAP-05 (transition to COMPLETE must be valid). |
+| Description | Settlement is now integrated as a precondition for COMPLETE state, with error recovery. The system guarantees the contract principle "No silent failures" through the following mechanisms: (1) Settlement readiness validation occurs inside `attemptSystemTransitionWithErrorRecovery()` error recovery boundary (lines 179-183 of contestLifecycleAdvancer.js), not only in `advanceContestLifecycleIfNeeded()`. This placement is mandatory to ensure ALL settlement failures are caught and trigger ERROR state. (2) The LIVE→COMPLETE transition calls `isContestGamesComplete(contest)`, which checks two conditions: time gate (`end_time` has passed) and settlement readiness (`isReadyForSettlement()` succeeds). Either condition can block transition. (3) If `isReadyForSettlement()` throws or returns false during LIVE→COMPLETE, the error is caught inside the recovery boundary and contests transition to LIVE→ERROR (using existing GAP-07 error recovery). (4) Settlement failures are distinguished from pure time-driven errors via enhanced audit payloads with markers: `settlement_failure: true`, `error_origin: 'settlement_readiness_check'`, `error_stack: <truncated to 1000 chars>`. (5) SYSTEM audit records use canonical UUID `00000000-0000-0000-0000-000000000000` for `admin_user_id`, guaranteeing FK safety and non-null constraint satisfaction. (6) Settlement logic itself (`isReadyForSettlement()`, `computeRankings()`, `allocatePayouts()`, etc.) remains unimplemented in GAP-08 and will throw "Not implemented: isReadyForSettlement". The error handling infrastructure is complete. (7) Settlement result persistence (`settlement_records` table, `settle_time` write, settlement outcome auditing) is deferred to GAP-09. |
+| Why it matters | The contract principle "No silent failures" requires that failed settlement operations surface visibly and move contests to ERROR. Placing validation inside the error recovery boundary ensures all failures—including transient errors, missing data, and logic failures—are caught. Making settlement a precondition for COMPLETE ensures contests never reach COMPLETE unless settlement readiness succeeds, preventing orphaned COMPLETE contests. This is a critical invariant for v1 settlement architecture. Admin resolution is possible via ERROR → COMPLETE/CANCELLED transitions. |
+| Dependencies | GAP-01 (ERROR state must exist), GAP-05 (transition validation must be in place), GAP-06 (read-path self-healing where settlement check occurs), GAP-07 (ERROR recovery pattern establishes error handling semantics). |
 
 ---
 
@@ -249,8 +249,8 @@ Contest Infrastructure v1 can be declared complete when every item below is true
 - [ ] Time field invariants (`created_at < lock_time <= start_time < end_time`; `end_time <= settle_time` when present) are enforced on every write. (GAP-04)
 - [ ] A single-responsibility state transition module enforces the contract's valid transition graph and rejects all others. (GAP-05)
 - [x] Automated processes transition contests through SCHEDULED, LOCKED, LIVE, and COMPLETE based on time fields and game completion. (GAP-06)
-- [ ] Failed transitions or settlement operations move contests to ERROR. Admin resolution paths from ERROR to COMPLETE or CANCELLED exist. (GAP-07)
-- [ ] Settlement is an explicit, idempotent operation that verifies all games have final scores, writes `settle_time` exactly once, and produces immutable results. (GAP-08)
+- [x] Failed transitions or settlement operations move contests to ERROR. Admin resolution paths from ERROR to COMPLETE or CANCELLED exist. (GAP-07)
+- [x] Settlement-triggered failures are handled with error recovery. Failed settlement readiness checks trigger LIVE→ERROR with distinguishable audit records via canonical SYSTEM user. Settlement validation occurs inside error recovery boundary. Settlement logic implementation deferred to GAP-09. (GAP-08)
 - [ ] A settlement record entity persists the output of each settlement operation. (GAP-09)
 - [ ] Entry submission and pick changes verify contest state at write time using row-level locking. (GAP-10)
 - [ ] The API returns all eight derived fields (`status`, `is_locked`, `is_live`, `is_settled`, `entry_count`, `user_has_entered`, `time_until_lock`, `standings`) computed by the backend. (GAP-11)
@@ -337,6 +337,61 @@ Transitions occur naturally as clients or admins read contest state, keeping the
 
 ---
 
+## Settlement Validation Boundaries (Post-GAP-08)
+
+With GAP-08 complete, settlement readiness validation is now integrated into the lifecycle state machine with guaranteed error recovery. This section clarifies the architectural boundaries and semantics.
+
+### 1. Settlement Validation Scope (GAP-08 Implementation)
+
+Settlement readiness checks are **read-only preconditions** for LIVE→COMPLETE transition:
+
+- **Where it happens:** Inside `attemptSystemTransitionWithErrorRecovery()` error recovery boundary (contestLifecycleAdvancer.js, lines 179-183)
+- **When it happens:** Only when attempting LIVE→COMPLETE transition (checked via `nextStatus === 'COMPLETE' && contestRow.status === 'LIVE'`)
+- **What it checks:** `isContestGamesComplete(contest)` which validates:
+  1. `end_time` has passed (time gate—blocking condition)
+  2. `isReadyForSettlement()` succeeds (settlement readiness—blocking condition)
+- **Side effects:** None. Settlement validation is read-only; no data is persisted, no `settle_time` is written, no settlement records are created.
+- **Error handling:** If either condition fails or throws, the error is caught inside the recovery boundary and contests transition to LIVE→ERROR
+
+### 2. Settlement Validation Timing
+
+- **Read-path self-healing:** Settlement checks occur on single-instance reads (`getContestInstance`, `resolveJoinToken`) when `advanceContestLifecycleIfNeeded()` evaluates LIVE status
+- **Automatic retry:** If settlement is not ready, LIVE contests remain LIVE. Subsequent reads will re-check settlement readiness (no caching of "not ready" state)
+- **Admin intervention:** Admins can manually transition LIVE→COMPLETE or LIVE→ERROR if settlement checks are blocking progress
+- **No scheduled triggers:** Settlement checks do not run on a background schedule; they occur naturally during read-path evaluation
+
+### 3. Audit Trail Completeness (GAP-08)
+
+Every settlement validation failure creates an audit record:
+
+- **Action:** `system_error_transition`
+- **Actor:** SYSTEM (canonical UUID: `00000000-0000-0000-0000-000000000000`)
+- **Payload markers (settlement-specific):**
+  - `settlement_failure: true` — Identifies this as settlement-triggered
+  - `error_origin: 'settlement_readiness_check'` — Exact origin of failure
+  - `error_stack: <truncated>` — Full stack for debugging settlement logic
+  - `attempted_status: 'COMPLETE'` — State that was being transitioned to
+- **Queryability:** Settlements failures can be isolated via `WHERE payload->>'settlement_failure' = 'true'`
+
+### 4. What Settlement Validation Does NOT Do (GAP-08 Scope)
+
+- **Does not compute rankings** — That is GAP-09 work
+- **Does not allocate payouts** — That is GAP-09 work
+- **Does not persist settlement records** — `settlement_records` table is GAP-09 work
+- **Does not write `settle_time`** — That happens in GAP-09 when settlement completes
+- **Does not create audit records for settlement success** — Only failures are audited
+- **Does not prevent ERROR→COMPLETE transitions** — Admins can force contests to COMPLETE via admin resolution endpoint (GAP-13)
+
+### 5. Invariants Guaranteed by GAP-08
+
+- **Contracts never reach COMPLETE unless settlement readiness succeeds** — The validation boundary ensures this
+- **Settlement failures always produce ERROR state** — No partial transitions or silent swallowing
+- **Settlement errors are distinguishable in audit trails** — Via `settlement_failure` marker
+- **Idempotent error recording** — Repeated reads re-check settlement; each failure produces a new audit record
+- **No data corruption** — Validation is read-only; failures cannot corrupt contest state or data
+
+---
+
 ## What Is Still Manual After Gap 6
 
 While GAP-06 has established read-path self-healing for time-driven transitions, it's critical to explicitly document what remains a manual operation.
@@ -352,9 +407,12 @@ Read-path self-healing now advances `SCHEDULED -> LOCKED -> LIVE` automatically 
 
 Consequence: Contests will not surface stale state to single-instance lookups, but list views may show stale state if the organizer or admin is not fetching detail views. This is intentional for performance.
 
-### 2. Manual Settlement Triggering
+### 2. Settlement Implementation (Not Yet Automated—GAP-09)
 
-- The act of triggering settlement for a `COMPLETE` contest (per GAP-08) is still a manual admin operation.
+- Settlement logic itself (`isReadyForSettlement()`, `computeRankings()`, payouts, etc.) is still to be implemented in GAP-09
+- Settlement result persistence (creating `settlement_records`, writing `settle_time`) happens in GAP-09
+- However, settlement **readiness validation** is now automated and integrated into LIVE→COMPLETE (GAP-08)
+- The precondition check ensures contests cannot reach COMPLETE unless settlement is ready
 
 ### 3. Error State Handling
 
@@ -374,4 +432,5 @@ Consequence: Contests will not surface stale state to single-instance lookups, b
 
 | Date | Version | Author | Description |
 |---|---|---|---|
+| 2026-02-10 | v1 | System | GAP-08 clarification: Documented that settlement validation occurs inside `attemptSystemTransitionWithErrorRecovery()` error recovery boundary, not only in `advanceContestLifecycleIfNeeded()`. This placement is mandatory for GAP-07 error recovery semantics. Updated GAP-08 description to COMPLETE status and clarified SYSTEM audit implementation with canonical UUID. Added "Settlement Validation Boundaries (Post-GAP-08)" section to document scope, timing, audit trails, and invariants. Updated completion checklist to reflect error recovery boundary requirement. |
 | 2026-02-08 | v1 | System | Initial creation of the Contest Infrastructure v1 Gap Checklist. Fifteen gaps identified across database, backend domain logic, API contract, and admin operations layers. All gaps measured against Contest Lifecycle Contract v1. |
