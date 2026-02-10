@@ -137,15 +137,15 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 ---
 
-### GAP-09: Settlement record entity does not exist
+### GAP-09: Settlement Logic Implementation
 
 | Attribute | Value |
 |---|---|
-| Status | `MISSING and required for v1` |
-| Layer | Database |
-| Description | The contract's Safe Schema Map defines a Settlement Record Entity with identifier, contest reference, timestamp, and per-entry results. No corresponding table or storage exists in the schema. |
-| Why it matters | Settlement results must be persisted and immutable. Without a settlement record, there is no way to audit what settlement produced, no way to enforce immutability, and no idempotency anchor. |
-| Dependencies | GAP-08 (settlement logic must exist to produce records). |
+| Status | `EXISTS and conforms` |
+| Layer | Backend domain logic and database |
+| Description | Settlement execution is fully implemented with deterministic computation and persistent results. The `settlement_records` table exists with contest_instance_id (UNIQUE FK), settled_at timestamp, results (JSONB), results_sha256 hash, settlement_version, participant_count, and total_pool_cents. Backend implements: (1) `isReadyForSettlement()` — verifies all participants have scores for all 4 playoff weeks using single SQL query; (2) `computeRankings()` — competition ranking (ties at same position); (3) `allocatePayouts()` — percentage-based payout allocation with tie splitting; (4) `canonicalizeJson()` — deterministic hashing for result verification; (5) `executeSettlement()` — full transactional settlement with SELECT FOR UPDATE lock, idempotency check, consistency validation, atomic insert/update, and SYSTEM audit record. Settlement executes BEFORE LIVE→COMPLETE status update; if it throws, error recovery transitions contest to ERROR. All logic is deterministic and replayable from same inputs. 28 comprehensive tests cover unit functions, integration, idempotency, concurrency, ties, and error handling. |
+| Why it matters | Settlement results must be persisted and immutable. With settlement execution complete, contests can now transition to COMPLETE state only after verified, deterministic settlement. Results are traceable via settlement_records (single source of truth) and SHA-256 hashes. Idempotency prevents duplicate entries. Error integration with GAP-08 ensures no silent failures. |
+| Dependencies | GAP-08 (error recovery boundary for settlement), database schema (settlement_records table already applied). |
 
 ---
 

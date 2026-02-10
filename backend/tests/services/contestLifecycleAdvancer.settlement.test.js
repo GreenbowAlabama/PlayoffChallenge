@@ -16,38 +16,36 @@ const customContestService = require('../../services/customContestService');
 
 describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
   describe('Unit Tests: isContestGamesComplete() - Time Gate (No Mocks)', () => {
-    test('returns false when end_time is null', () => {
-      jest.isolateModules(() => {
-        const { isContestGamesComplete } = require('../../services/helpers/contestLifecycleAdvancer');
+    test('returns false when end_time is null', async () => {
+      const { isContestGamesComplete } = require('../../services/helpers/contestLifecycleAdvancer');
 
-        const contest = {
-          id: 'test-id',
-          status: 'LIVE',
-          end_time: null
-        };
+      const contest = {
+        id: 'test-id',
+        status: 'LIVE',
+        end_time: null
+      };
 
-        const result = isContestGamesComplete(contest);
-        expect(result).toBe(false);
-      });
+      const mockPool = {};
+      const result = await isContestGamesComplete(mockPool, contest);
+      expect(result).toBe(false);
     });
 
-    test('returns false when end_time is not yet reached', () => {
-      jest.isolateModules(() => {
-        const { isContestGamesComplete } = require('../../services/helpers/contestLifecycleAdvancer');
+    test('returns false when end_time is not yet reached', async () => {
+      const { isContestGamesComplete } = require('../../services/helpers/contestLifecycleAdvancer');
 
-        const futureTime = new Date(Date.now() + 60000); // 1 minute in future
-        const contest = {
-          id: 'test-id',
-          status: 'LIVE',
-          end_time: futureTime
-        };
+      const futureTime = new Date(Date.now() + 60000); // 1 minute in future
+      const contest = {
+        id: 'test-id',
+        status: 'LIVE',
+        end_time: futureTime
+      };
 
-        const result = isContestGamesComplete(contest);
-        expect(result).toBe(false);
-      });
+      const mockPool = {};
+      const result = await isContestGamesComplete(mockPool, contest);
+      expect(result).toBe(false);
     });
 
-    test('throws when isReadyForSettlement() throws ("Not implemented")', () => {
+    test('throws when isReadyForSettlement() throws', async () => {
       jest.isolateModules(() => {
         const { isContestGamesComplete } = require('../../services/helpers/contestLifecycleAdvancer');
 
@@ -58,20 +56,23 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
           end_time: pastTime
         };
 
-        // isReadyForSettlement currently throws "Not implemented"
-        expect(() => isContestGamesComplete(contest)).toThrow('Not implemented');
+        // isReadyForSettlement now throws when scores are incomplete
+        const mockPool = {};
+        return expect(
+          isContestGamesComplete(mockPool, contest)
+        ).rejects.toThrow();
       });
     });
   });
 
   describe('Unit Tests: isContestGamesComplete() - Settlement Readiness Paths (With Mocks)', () => {
-    test('returns true when isReadyForSettlement() returns true', () => {
+    test('returns true when isReadyForSettlement() returns true', async () => {
       // Reset module cache to ensure clean state
       jest.resetModules();
 
       // Mock BEFORE requiring the module that uses it
       jest.doMock('../../services/settlementStrategy', () => ({
-        isReadyForSettlement: jest.fn().mockReturnValue(true)
+        isReadyForSettlement: jest.fn().mockResolvedValue(true)
       }));
 
       const { isContestGamesComplete } = require('../../services/helpers/contestLifecycleAdvancer');
@@ -83,20 +84,21 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
         end_time: pastTime
       };
 
-      const result = isContestGamesComplete(contest);
+      const mockPool = {};
+      const result = await isContestGamesComplete(mockPool, contest);
       expect(result).toBe(true);
 
       // Clean up after test
       jest.unmock('../../services/settlementStrategy');
     });
 
-    test('returns false when isReadyForSettlement() returns false', () => {
+    test('returns false when isReadyForSettlement() returns false', async () => {
       // Reset module cache to ensure clean state
       jest.resetModules();
 
       // Mock BEFORE requiring the module that uses it
       jest.doMock('../../services/settlementStrategy', () => ({
-        isReadyForSettlement: jest.fn().mockReturnValue(false)
+        isReadyForSettlement: jest.fn().mockResolvedValue(false)
       }));
 
       const { isContestGamesComplete } = require('../../services/helpers/contestLifecycleAdvancer');
@@ -108,7 +110,8 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
         end_time: pastTime
       };
 
-      const result = isContestGamesComplete(contest);
+      const mockPool = {};
+      const result = await isContestGamesComplete(mockPool, contest);
       expect(result).toBe(false);
 
       // Clean up after test

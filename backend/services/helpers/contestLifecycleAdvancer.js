@@ -62,11 +62,12 @@ async function writeSystemAudit(pool, contestId, action, reason, payload) {
  * write settle_time, and has no side effects. Settlement execution (writing results,
  * timestamps) happens in GAP-09 after the contest reaches COMPLETE state.
  *
+ * @param {Object} pool - Database connection pool
  * @param {Object} contest - The contest instance object.
- * @returns {boolean} - True if games are complete AND settlement is ready, false otherwise.
+ * @returns {Promise<boolean>} - True if games are complete AND settlement is ready, false otherwise.
  * @throws {Error} - If settlement readiness check fails (caught by attemptSystemTransitionWithErrorRecovery)
  */
-function isContestGamesComplete(contest) {
+async function isContestGamesComplete(pool, contest) {
   // Step 1: Check if end_time has passed (time gate)
   const now = Date.now();
   if (!contest.end_time || now < new Date(contest.end_time).getTime()) {
@@ -74,17 +75,14 @@ function isContestGamesComplete(contest) {
     return false;
   }
 
-  // Step 2: If end_time has passed, attempt settlement readiness check
-  // NOTE: Settlement logic is currently unimplemented and will throw "Not implemented"
-  // This is EXPECTED behavior in GAP-08. When settlement is implemented in GAP-09,
-  // this will verify scores and compute rankings. If it throws, the error propagates
-  // to attemptSystemTransitionWithErrorRecovery, which transitions the contest to ERROR.
+  // Step 2: If end_time has passed, verify settlement readiness
+  // This will throw if settlement is not ready, and the error propagates
+  // to attemptSystemTransitionWithErrorRecovery, which transitions to ERROR.
 
   const settlementStrategy = require('../settlementStrategy');
 
-  // Check if settlement is ready (games finalized, scores available)
-  // This will throw "Not implemented: isReadyForSettlement" until GAP-09 implements it
-  const isReady = settlementStrategy.isReadyForSettlement(contest);
+  // Check if settlement is ready (all participants have scores for all weeks)
+  const isReady = await settlementStrategy.isReadyForSettlement(pool, contest.id);
 
   if (!isReady) {
     // Settlement preconditions not met (e.g., scores not finalized)
@@ -94,12 +92,20 @@ function isContestGamesComplete(contest) {
 
   // Settlement readiness check passed. Return true to allow COMPLETE transition.
   // The actual settlement execution (writing results, setting settle_time) is deferred
-  // to GAP-09/GAP-13 and happens when the contest is in COMPLETE state, not here.
+  // to GAP-09 and happens when the contest is in COMPLETE state, not here.
   return true;
 }
 
 /**
  * Determines the next logical status for a contest based on time and game completion.
+ *
+ * PURE FUNCTION: No database access, no side effects. This is used for read-path
+ * self-healing to suggest the next state. The actual validation happens in
+ * attemptSystemTransitionWithErrorRecovery where pool is available.
+ *
+ * For LIVE→COMPLETE transition, this suggests COMPLETE based on end_time only.
+ * Settlement readiness validation happens inside the error recovery boundary
+ * (in attemptSystemTransitionWithErrorRecovery), not here.
  *
  * @param {Object} contest - The contest instance object (fully loaded from DB).
  * @returns {string|null} - The new status if a transition is due, otherwise null.
@@ -121,8 +127,9 @@ function advanceContestLifecycleIfNeeded(contest) {
       return null;
 
     case 'LIVE':
-      // LIVE -> COMPLETE is purely based on game completion, not end_time
-      if (isContestGamesComplete(contest)) {
+      // Suggest COMPLETE if end_time has passed
+      // Settlement readiness validation happens in attemptSystemTransitionWithErrorRecovery
+      if (contest.end_time && now >= new Date(contest.end_time).getTime()) {
         return 'COMPLETE';
       }
       return null;
@@ -179,7 +186,7 @@ async function attemptSystemTransitionWithErrorRecovery(pool, contestRow, nextSt
     if (nextStatus === 'COMPLETE' && contestRow.status === 'LIVE') {
       // This call may throw if settlement is not ready
       // The error will be caught below and trigger ERROR recovery
-      isContestGamesComplete(contestRow);
+      await isContestGamesComplete(pool, contestRow);
     }
 
     // Attempt the primary time-driven transition

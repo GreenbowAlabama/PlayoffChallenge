@@ -875,6 +875,25 @@ async function _updateContestStatusInternal(pool, contestId, newStatus) {
     actor: contestTransitionValidator.ACTORS.SYSTEM
   });
 
+  // GAP-09: Execute settlement BEFORE status update for LIVE→COMPLETE
+  // Settlement must succeed before we transition to COMPLETE, otherwise error recovery
+  // will move the contest to ERROR state (GAP-08).
+  if (newStatus === 'COMPLETE' && existingContestStatus === 'LIVE') {
+    const settlementStrategy = require('./settlementStrategy');
+
+    // Fetch full contest instance for settlement
+    const contestResult = await pool.query(
+      'SELECT * FROM contest_instances WHERE id = $1',
+      [contestId]
+    );
+    const contestInstance = contestResult.rows[0];
+
+    // Execute settlement (throws on failure, caught by error recovery)
+    await settlementStrategy.executeSettlement(contestInstance, pool);
+
+    // Settlement succeeded, safe to update status
+  }
+
   // Attempt to update the status, but only if the status is still the one we validated against.
   // This handles race conditions where another process might have already updated the status.
   const result = await pool.query(

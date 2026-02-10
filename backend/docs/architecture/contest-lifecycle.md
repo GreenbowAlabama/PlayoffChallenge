@@ -385,27 +385,64 @@ When any Claude session works on code related to contests, the following constra
 
 ---
 
-## GAP-09 Preparation Notes
+## GAP-09 Settlement Execution
 
-### Invariants Guaranteed by GAP-08
+### Implementation Complete
 
-With GAP-08 complete, the system now guarantees:
+GAP-09 (Settlement Logic Implementation) is now complete. It builds on GAP-08's error handling infrastructure and implements the full settlement computation and persistence layer.
 
-1. **No silent settlement failures:** Settlement errors during LIVE→COMPLETE transition move contests to ERROR
-2. **Audit trail completeness:** Settlement failures are logged with distinguishable payloads
-3. **Error distinction:** Settlement failures can be programmatically filtered via `payload->>'settlement_failure' = 'true'`
-4. **Admin resolution paths:** ERROR contests from settlement failures can be resolved to COMPLETE or CANCELLED
-5. **Infrastructure readiness:** Settlement is integrated into lifecycle state machine
+### What GAP-09 Implements
 
-### What GAP-09 Will Implement
+**Settlement Readiness Validation**
+- `isReadyForSettlement(pool, contestInstanceId)` — Verifies all contest participants have final scores for all 4 playoff weeks
+- Single SQL query with `COUNT(DISTINCT week_number)` to detect missing scores
+- Throws error with detailed participant information if any scores are missing
 
-GAP-09 (Settlement Logic Implementation) will build on GAP-08's error handling foundation:
+**Ranking and Payout Computation (Pure Functions)**
+- `computeRankings(scores)` — Competition ranking (1, 1, 3 for ties, not dense)
+- `allocatePayouts(rankings, payoutStructure, totalPoolCents)` — Percentage-based payout allocation with tie splitting
+- `calculateTotalPool(contestInstance, participantCount)` — Calculates total prize pool from entry fees
 
-- Implement `isReadyForSettlement()` with actual game score validation
-- Implement `computeRankings()`, `allocatePayouts()`, and related functions
-- Create `settlement_records` table to persist immutable settlement results
-- Write `settle_time` timestamp on successful settlement
-- Add foreign key constraints and referential integrity
+**Deterministic Hashing**
+- `canonicalizeJson(obj)` — Deep recursive key sorting for deterministic SHA-256 hashing
+- Ensures settlement results are reproducible and verifiable
+
+**Settlement Execution**
+- `executeSettlement(contestInstance, pool)` — Full transactional settlement with:
+  - Row-level lock (`SELECT FOR UPDATE`) to prevent concurrent attempts
+  - Idempotency check: returns existing settlement if already executed
+  - Consistency validation: detects orphaned `settle_time` without records
+  - Score fetching and ranking computation
+  - Atomic insert into `settlement_records` table
+  - Single write to `contest_instances.settle_time`
+  - SYSTEM audit record with result hash and metadata
+
+**Lifecycle Integration**
+- Settlement executes BEFORE status update for LIVE→COMPLETE transitions
+- If settlement throws, error recovery catches it and transitions contest to ERROR
+- Status only changes to COMPLETE after successful settlement
+
+### Invariants Guaranteed
+
+1. **No silent settlement failures:** Settlement errors move contests to ERROR (via GAP-08 recovery)
+2. **Immutable results:** `settlement_records` is the single source of truth, with SHA-256 hashing for verification
+3. **Deterministic:** Same contest data always produces same rankings and payouts
+4. **Idempotent:** Repeated settlement calls return existing record, no duplicates
+5. **Isolated:** Row-level locks prevent concurrent settlement attempts
+6. **Atomic:** All writes succeed or all rollback, no partial settlement
+
+### Testing
+
+28 comprehensive tests covering:
+- Unit tests for ranking, payout, and hashing functions
+- Integration tests for settlement execution
+- Idempotency verification
+- Concurrent attempt handling
+- Tie scenario correctness
+- Error and edge case handling
+- Audit trail verification
+
+All tests pass successfully.
 
 ### Assumptions GAP-09 Can Make
 
