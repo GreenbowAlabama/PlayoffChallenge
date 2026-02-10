@@ -176,7 +176,7 @@ describe('Custom Contest Routes', () => {
       const token = 'dev_locked12345678901234567890';
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'locked' })
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'LOCKED' })
       );
 
       const response = await request(app)
@@ -191,7 +191,7 @@ describe('Custom Contest Routes', () => {
       const token = 'dev_cancelled123456789012345';
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'cancelled' })
+        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'CANCELLED' })
       );
 
       const response = await request(app)

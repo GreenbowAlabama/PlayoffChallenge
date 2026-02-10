@@ -193,7 +193,7 @@ describe('Join Endpoint Parity', () => {
       const { canonical } = await assertParity(token, () => {
         mockPool.setQueryResponse(
           /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-          mockQueryResponses.single({ ...mockInstance, join_token: token, status: 'locked' })
+          mockQueryResponses.single({ ...mockInstance, join_token: token, status: 'LOCKED' })
         );
       });
 
@@ -206,7 +206,7 @@ describe('Join Endpoint Parity', () => {
       const { canonical } = await assertParity(token, () => {
         mockPool.setQueryResponse(
           /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-          mockQueryResponses.single({ ...mockInstance, join_token: token, status: 'cancelled' })
+          mockQueryResponses.single({ ...mockInstance, join_token: token, status: 'CANCELLED' })
         );
       });
 

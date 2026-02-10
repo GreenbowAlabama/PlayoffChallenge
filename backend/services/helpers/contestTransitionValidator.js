@@ -25,6 +25,7 @@ function assertAllowedDbStatusTransition({ fromStatus, toStatus, actor, context 
       SCHEDULED: ['LOCKED', 'CANCELLED'],
     },
     [ACTORS.SYSTEM]: {
+      SCHEDULED: ['LOCKED'],
       LOCKED: ['LIVE'],
       LIVE: ['COMPLETE', 'ERROR'],
     },

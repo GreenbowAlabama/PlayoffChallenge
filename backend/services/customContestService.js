@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const config = require('../config');
 const { computeJoinState } = require('./helpers/contestState');
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
+const { advanceContestLifecycleIfNeeded } = require('./helpers/contestLifecycleAdvancer');
 
 const VALID_STATUSES = ['SCHEDULED', 'LOCKED', 'LIVE', 'COMPLETE', 'CANCELLED', 'ERROR'];
 const VALID_ENV_PREFIXES = ['dev', 'test', 'stg', 'prd'];
@@ -302,8 +303,22 @@ async function getContestInstance(pool, instanceId) {
     WHERE ci.id = $1`,
     [instanceId]
   );
-  const row = result.rows[0];
+  let row = result.rows[0]; // Use let because 'row' might be reassigned
+
   if (!row) return null;
+
+  // Advance contest lifecycle if needed (read-path self-healing)
+  const newStatus = advanceContestLifecycleIfNeeded(row);
+  if (newStatus) {
+    // A transition is due, update the database
+    // Use the internal helper to update status. This returns the updated row or null if no actual change occurred.
+    const updatedRow = await _updateContestStatusInternal(pool, row.id, newStatus);
+    if (updatedRow) {
+      row = updatedRow; // Use the newly updated row for the response
+    }
+    // If updatedRow is null, it means another process already advanced it,
+    // so we proceed with the current 'row' (which might be slightly stale but acceptable)
+  }
 
   // Enforce instance-owned fields; hard-delete template leakage
   row.contest_name = row.contest_name;
@@ -355,8 +370,18 @@ async function getContestInstanceByToken(pool, token) {
     WHERE ci.join_token = $1`,
     [token]
   );
-  const row = result.rows[0];
+  let row = result.rows[0]; // Use let because 'row' might be reassigned
   if (!row) return null;
+
+  // Advance contest lifecycle if needed (read-path self-healing)
+  const newStatus = advanceContestLifecycleIfNeeded(row);
+  if (newStatus) {
+    // A transition is due, update the database
+    const updatedRow = await _updateContestStatusInternal(pool, row.id, newStatus);
+    if (updatedRow) {
+      row = updatedRow; // Use the newly updated row for the response
+    }
+  }
 
   // Enforce instance-owned fields; hard-delete template leakage
   row.contest_name = row.contest_name;
@@ -435,7 +460,7 @@ async function resolveJoinToken(pool, token) {
     WHERE ci.join_token = $1`,
     [token]
   );
-  const instance = result.rows[0];
+  let instance = result.rows[0]; // Use let because 'instance' might be reassigned
 
   if (!instance) {
     return {
@@ -444,6 +469,16 @@ async function resolveJoinToken(pool, token) {
       reason: 'Contest not found for this token',
       environment_mismatch: false
     };
+  }
+
+  // Advance contest lifecycle if needed (read-path self-healing)
+  const newStatus = advanceContestLifecycleIfNeeded(instance);
+  if (newStatus) {
+    // A transition is due, update the database
+    const updatedInstance = await _updateContestStatusInternal(pool, instance.id, newStatus);
+    if (updatedInstance) {
+      instance = updatedInstance; // Use the newly updated instance for further processing
+    }
   }
 
   const joinState = computeJoinState(instance);
@@ -482,7 +517,7 @@ async function resolveJoinToken(pool, token) {
 
 
 
-  if (instance.status === 'locked') {
+  if (instance.status === 'LOCKED') {
     return {
       valid: false,
       error_code: JOIN_ERROR_CODES.CONTEST_LOCKED,
@@ -511,7 +546,7 @@ async function resolveJoinToken(pool, token) {
     };
   }
 
-  if (instance.status === 'cancelled') {
+  if (instance.status === 'CANCELLED') {
     return {
       valid: false,
       error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE,
@@ -775,6 +810,61 @@ async function joinContest(pool, contestInstanceId, userId) {
   } finally {
     client.release();
   }
+}
+
+/**
+ * Internal helper to update a contest's status directly in the database.
+ * This function bypasses organizerId checks and should only be used for
+ * automated or internally validated transitions.
+ *
+ * It ensures the transition is valid via contestTransitionValidator.
+ * It is idempotent and concurrency-safe.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} contestId - UUID of the contest instance
+ * @param {string} newStatus - The new status to set
+ * @returns {Promise<Object|null>} The updated contest instance row from the database, or null if no update occurred (e.g., status already changed).
+ * @throws {Error} If the contest is not found or the transition is invalid.
+ */
+async function _updateContestStatusInternal(pool, contestId, newStatus) {
+  const contestTransitionValidator = require('./helpers/contestTransitionValidator');
+
+  // Fetch the current contest status for transition validation
+  const currentStatusResult = await pool.query(
+    `SELECT status FROM contest_instances WHERE id = $1`,
+    [contestId]
+  );
+
+  if (currentStatusResult.rows.length === 0) {
+    // If contest not found, this is an error, it should exist to be transitioned.
+    throw new Error(`Contest instance with ID ${contestId} not found for status transition.`);
+  }
+  const existingContestStatus = currentStatusResult.rows[0].status;
+
+  // Validate the potential transition using the central validator
+  // This will throw if the transition is invalid
+  contestTransitionValidator.assertAllowedDbStatusTransition({
+    fromStatus: existingContestStatus,
+    toStatus: newStatus,
+    actor: contestTransitionValidator.ACTORS.SYSTEM
+  });
+
+  // Attempt to update the status, but only if the status is still the one we validated against.
+  // This handles race conditions where another process might have already updated the status.
+  const result = await pool.query(
+    `UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *`,
+    [newStatus, contestId, existingContestStatus]
+  );
+
+  if (result.rows.length === 0) {
+    // No rows were updated. This means either:
+    // 1. The status was already newStatus (harmless idempotency)
+    // 2. The status was changed by another concurrent process to something else (another valid transition or error)
+    // In either case, we return null to indicate no change was made by THIS operation.
+    return null;
+  }
+
+  return result.rows[0];
 }
 
 module.exports = {

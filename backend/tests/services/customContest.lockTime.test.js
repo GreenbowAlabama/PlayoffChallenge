@@ -145,16 +145,28 @@ describe('lock_time enforcement', () => {
     it('should return CONTEST_LOCKED when SCHEDULED contest has past lock_time', async () => {
       const pastLockTime = new Date(Date.now() - 60000).toISOString();
       const token = 'dev_abc123def456abc123def456abc123';
+      const instanceWithPastLock = { ...mockScheduledInstance, lock_time: pastLockTime };
 
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockScheduledInstance, lock_time: pastLockTime })
+        mockQueryResponses.single(instanceWithPastLock)
+      );
+
+      // Lifecycle self-healing: advancer detects past lock_time and triggers
+      // _updateContestStatusInternal, which issues these two queries:
+      mockPool.setQueryResponse(
+        /SELECT status FROM contest_instances WHERE id/,
+        mockQueryResponses.single({ status: 'SCHEDULED' })
+      );
+      mockPool.setQueryResponse(
+        /UPDATE contest_instances SET status/,
+        mockQueryResponses.single({ ...instanceWithPastLock, status: 'LOCKED' })
       );
 
       const result = await customContestService.resolveJoinToken(mockPool, token);
       expect(result.valid).toBe(false);
       expect(result.error_code).toBe('CONTEST_LOCKED');
-      expect(result.reason).toBe('Contest join window has closed');
+      expect(result.reason).toBe('Contest is locked and no longer accepting participants');
       expect(result.contest.lock_time).toBe(pastLockTime);
     });
 

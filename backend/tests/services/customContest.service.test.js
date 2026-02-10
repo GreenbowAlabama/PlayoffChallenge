@@ -843,7 +843,7 @@ describe('Custom Contest Service Unit Tests', () => {
 
       const result = await customContestService.resolveJoinToken(mockPool, token);
       expect(result.valid).toBe(false);
-      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_NOT_FOUND);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_UNAVAILABLE);
 
     });
 
@@ -887,7 +887,7 @@ describe('Custom Contest Service Unit Tests', () => {
 
       const result = await customContestService.resolveJoinToken(mockPool, token);
       expect(result.valid).toBe(false);
-      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_NOT_FOUND);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_LOCKED);
 
     });
 
