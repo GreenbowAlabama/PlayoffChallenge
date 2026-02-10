@@ -685,7 +685,7 @@ async function publishContestInstance(pool, instanceId, organizerId) {
 
   // Perform atomic update: set status to open and ensure join_token is set
   const result = await pool.query(
-    `UPDATE contest_instances SET status = 'open', join_token = $1, updated_at = NOW() WHERE id = $2 AND organizer_id = $3 RETURNING *`,
+    `UPDATE contest_instances SET status = 'open', join_token = $1, updated_at = NOW() WHERE id = $2 AND LOWER(organizer_id::text) = LOWER($3) RETURNING *`,
     [joinToken, instanceId, organizerId]
   );
 
