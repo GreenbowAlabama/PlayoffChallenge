@@ -661,9 +661,14 @@ async function publishContestInstance(pool, instanceId, organizerId) {
   }
 
   // Verify ownership (case-insensitive UUID comparison)
+  console.log('[Publish] Verifying ownership...');
+  console.log(`[Publish] DB organizer_id: ${existing.organizer_id} (type: ${typeof existing.organizer_id})`);
+  console.log(`[Publish] Req organizerId: ${organizerId} (type: ${typeof organizerId})`);
   if (existing.organizer_id.toLowerCase() !== organizerId.toLowerCase()) {
+    console.error('[Publish] Ownership check FAILED');
     throw new Error('Only the organizer can publish contest');
   }
+  console.log('[Publish] Ownership check PASSED');
 
   // Idempotency: if already open, return as-is without any modifications
   if (existing.status === 'open') {
