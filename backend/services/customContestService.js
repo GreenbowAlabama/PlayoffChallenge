@@ -11,12 +11,95 @@
 
 const crypto = require('crypto');
 const config = require('../config');
-const { computeJoinState } = require('./helpers/contestState');
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
 const { advanceContestLifecycleIfNeeded, attemptSystemTransitionWithErrorRecovery } = require('./helpers/contestLifecycleAdvancer');
+const { mapContestToApiResponse } = require('./helpers/contestApiResponseMapper');
 
-const VALID_STATUSES = ['SCHEDULED', 'LOCKED', 'LIVE', 'COMPLETE', 'CANCELLED', 'ERROR'];
+// Function to compare two numbers with a fixed precision (e.g., 2 decimal places)
+const areScoresEqual = (score1, score2, precision = 2) => {
+  if (typeof score1 !== 'number' || typeof score2 !== 'number') {
+    return false; // Or throw an error, depending on desired strictness
+  }
+  return score1.toFixed(precision) === score2.toFixed(precision);
+};
+
+// Helper to get raw scores for participants in a contest, then compute ranks in JS
+async function _getLiveStandings(pool, contestInstanceId) {
+  const result = await pool.query(
+    `
+    SELECT
+        cp.user_id,
+        COALESCE(u.username, u.name, 'Unknown') AS user_display_name,
+        SUM(COALESCE(s.final_points, 0))::numeric AS total_score
+    FROM contest_participants cp
+    LEFT JOIN picks p ON cp.contest_instance_id = p.contest_instance_id AND cp.user_id = p.user_id
+    LEFT JOIN scores s ON p.player_id = s.player_id AND p.week_number = s.week_number AND p.user_id = s.user_id
+    LEFT JOIN users u ON cp.user_id = u.id
+    WHERE cp.contest_instance_id = $1
+    GROUP BY cp.user_id, user_display_name
+    ORDER BY total_score DESC, cp.user_id ASC
+    `,
+    [contestInstanceId]
+  );
+
+  const scoresWithDisplayNames = result.rows.map(row => ({
+    user_id: row.user_id,
+    user_display_name: row.user_display_name,
+    total_score: Number(row.total_score) // Ensure it's a number
+  }));
+
+  // Now, compute ranks based on these scores, similar to settlementStrategy's computeRankings
+  const rankedScores = [];
+  let currentRank = 1;
+  scoresWithDisplayNames.forEach((entry, index) => {
+    if (index > 0 && !areScoresEqual(entry.total_score, scoresWithDisplayNames[index - 1].total_score)) {
+      currentRank = index + 1;
+    }
+    rankedScores.push({ ...entry, rank: currentRank });
+  });
+
+  return rankedScores;
+}
+
+// Helper to get complete standings from settlement_records and normalize their shape
+async function _getCompleteStandings(pool, contestInstanceId) {
+  const result = await pool.query(
+    `SELECT results FROM settlement_records WHERE contest_instance_id = $1`,
+    [contestInstanceId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error(`Invariant Violation: settlement_records entry missing for COMPLETE contest ${contestInstanceId}.`);
+  }
+
+  const settlementResults = result.rows[0].results; // This is a JSONB object from the DB
+  if (!settlementResults || !Array.isArray(settlementResults.rankings)) {
+    throw new Error(`Invariant Violation: settlement_records.results.rankings for contest ${contestInstanceId} is not an array or is malformed.`);
+  }
+
+  // Fetch all user display names in one go to avoid N+1 queries
+  const userIds = settlementResults.rankings.map(r => r.user_id);
+  const usersResult = await pool.query(
+    `SELECT id, COALESCE(username, name, 'Unknown') AS user_display_name FROM users WHERE id = ANY($1::uuid[])`,
+    [userIds]
+  );
+  const userDisplayNames = new Map(usersResult.rows.map(u => [u.id, u.user_display_name]));
+
+  // Normalize shape to match LIVE standings (user_id, user_display_name, total_score, rank)
+  const normalizedStandings = settlementResults.rankings.map(ranking => ({
+    user_id: ranking.user_id,
+    user_display_name: userDisplayNames.get(ranking.user_id) || 'Unknown', // Fallback if user not found
+    total_score: Number(ranking.score), // Map 'score' to 'total_score' and ensure numeric
+    rank: ranking.rank
+  }));
+
+  return normalizedStandings;
+}
+
 const VALID_ENV_PREFIXES = ['dev', 'test', 'stg', 'prd'];
+
+// Valid contest lifecycle statuses
+const VALID_STATUSES = ['SCHEDULED', 'LOCKED', 'LIVE', 'COMPLETE', 'CANCELLED', 'ERROR'];
 
 /**
  * Two-tier error taxonomy:
@@ -281,36 +364,41 @@ async function createContestInstance(pool, organizerId, input) {
  * @param {string} instanceId - UUID of the contest instance
  * @returns {Promise<Object|null>} Contest instance with template info, or null
  */
-async function getContestInstance(pool, instanceId) {
+async function getContestInstance(pool, instanceId, requestingUserId = null) {
   const result = await pool.query(
     `SELECT
-      ci.*,
-      ci.contest_name,
-      ci.max_entries,
-      ci.lock_time,
+      ci.id,
+      ci.template_id,
+      ci.organizer_id,
+      ci.entry_fee_cents,
+      ci.payout_structure,
       ci.status,
-      ct.name as template_name,
-      ct.sport as template_sport,
-      ct.template_type,
-      ct.scoring_strategy_key,
-      ct.lock_strategy_key,
-      ct.settlement_strategy_key,
+      ci.start_time,
+      ci.lock_time,
+      ci.created_at,
+      ci.updated_at,
+      ci.join_token,
+      ci.max_entries,
+      ci.contest_name,
+      ci.end_time,
+      ci.settle_time,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
-      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
+      ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered
     FROM contest_instances ci
-    JOIN contest_templates ct ON ci.template_id = ct.id
     LEFT JOIN users u ON u.id = ci.organizer_id
     WHERE ci.id = $1`,
-    [instanceId]
+    requestingUserId ? [instanceId, requestingUserId] : [instanceId]
   );
-  let row = result.rows[0]; // Use let because 'row' might be reassigned
+  let row = result.rows[0];
 
   if (!row) return null;
+
+  const currentTimestamp = Date.now();
 
   // Advance contest lifecycle if needed (read-path self-healing)
   const newStatus = advanceContestLifecycleIfNeeded(row);
   if (newStatus) {
-    // Attempt transition with ERROR recovery (GAP-07)
     const updatedRow = await attemptSystemTransitionWithErrorRecovery(
       pool,
       row,
@@ -318,25 +406,19 @@ async function getContestInstance(pool, instanceId) {
       updateContestStatusForSystem
     );
     if (updatedRow) {
-      row = updatedRow; // Use the newly updated row for the response
+      row = updatedRow;
     }
-    // If updatedRow is null, it means another process already advanced it,
-    // so we proceed with the current 'row' (which might be slightly stale but acceptable)
   }
 
-  // Enforce instance-owned fields; hard-delete template leakage
-  row.contest_name = row.contest_name;
-  row.max_entries = row.max_entries;
-  delete row.name;
-  delete row.template_name;
+  // Fetch standings if required
+  if (row.status === 'LIVE') {
+    row.standings = await _getLiveStandings(pool, row.id);
+  } else if (row.status === 'COMPLETE') {
+    row.standings = await _getCompleteStandings(pool, row.id);
+  }
 
-
-
-  return {
-    ...row,
-    join_url: row.join_token ? generateJoinUrl(row.join_token) : null,
-    computedJoinState: computeJoinState(row)
-  };
+  // Map to API response format using the mapper
+  return mapContestToApiResponse(row, { currentTimestamp });
 }
 
 /**
@@ -346,7 +428,7 @@ async function getContestInstance(pool, instanceId) {
  * @param {string} token - Join token
  * @returns {Promise<Object|null>} Contest instance with template info, or null
  */
-async function getContestInstanceByToken(pool, token) {
+async function getContestInstanceByToken(pool, token, requestingUserId = null) {
   // Validate token first (fail-fast)
   const validation = validateJoinToken(token);
   if (!validation.valid) {
@@ -355,32 +437,37 @@ async function getContestInstanceByToken(pool, token) {
 
   const result = await pool.query(
     `SELECT
-      ci.*,
-      ci.contest_name,
-      ci.max_entries,
-      ci.lock_time,
+      ci.id,
+      ci.template_id,
+      ci.organizer_id,
+      ci.entry_fee_cents,
+      ci.payout_structure,
       ci.status,
-      ct.name as template_name,
-      ct.sport as template_sport,
-      ct.template_type,
-      ct.scoring_strategy_key,
-      ct.lock_strategy_key,
-      ct.settlement_strategy_key,
+      ci.start_time,
+      ci.lock_time,
+      ci.created_at,
+      ci.updated_at,
+      ci.join_token,
+      ci.max_entries,
+      ci.contest_name,
+      ci.end_time,
+      ci.settle_time,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
-      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
+      ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered
     FROM contest_instances ci
-    JOIN contest_templates ct ON ci.template_id = ct.id
     LEFT JOIN users u ON u.id = ci.organizer_id
     WHERE ci.join_token = $1`,
-    [token]
+    requestingUserId ? [token, requestingUserId] : [token]
   );
-  let row = result.rows[0]; // Use let because 'row' might be reassigned
+  let row = result.rows[0];
   if (!row) return null;
+
+  const currentTimestamp = Date.now();
 
   // Advance contest lifecycle if needed (read-path self-healing)
   const newStatus = advanceContestLifecycleIfNeeded(row);
   if (newStatus) {
-    // Attempt transition with ERROR recovery (GAP-07)
     const updatedRow = await attemptSystemTransitionWithErrorRecovery(
       pool,
       row,
@@ -388,21 +475,19 @@ async function getContestInstanceByToken(pool, token) {
       updateContestStatusForSystem
     );
     if (updatedRow) {
-      row = updatedRow; // Use the newly updated row for the response
+      row = updatedRow;
     }
   }
 
-  // Enforce instance-owned fields; hard-delete template leakage
-  row.contest_name = row.contest_name;
-  row.max_entries = row.max_entries;
-  delete row.name;
-  delete row.template_name;
+  // Fetch standings if required
+  if (row.status === 'LIVE') {
+    row.standings = await _getLiveStandings(pool, row.id);
+  } else if (row.status === 'COMPLETE') {
+    row.standings = await _getCompleteStandings(pool, row.id);
+  }
 
-  return {
-    ...row,
-    join_url: generateJoinUrl(row.join_token),
-    computedJoinState: computeJoinState(row)
-  };
+  // Map to API response format using the mapper
+  return mapContestToApiResponse(row, { currentTimestamp });
 }
 
 /**
@@ -454,22 +539,30 @@ async function resolveJoinToken(pool, token) {
   // Enriched query: include organizer name and current participant count
   const result = await pool.query(
     `SELECT
-      ci.*,
-      ct.name as template_name,
-      ct.sport as template_sport,
-      ct.template_type,
-      ct.scoring_strategy_key,
-      ct.lock_strategy_key,
-      ct.settlement_strategy_key,
+      ci.id,
+      ci.template_id,
+      ci.organizer_id,
+      ci.entry_fee_cents,
+      ci.payout_structure,
+      ci.status,
+      ci.start_time,
+      ci.lock_time,
+      ci.created_at,
+      ci.updated_at,
+      ci.join_token,
+      ci.max_entries,
+      ci.contest_name,
+      ci.end_time,
+      ci.settle_time,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
-      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entries_current
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
+      FALSE AS user_has_entered -- Pre-auth endpoint, user_has_entered is always false
     FROM contest_instances ci
-    JOIN contest_templates ct ON ci.template_id = ct.id
     LEFT JOIN users u ON ci.organizer_id = u.id
     WHERE ci.join_token = $1`,
     [token]
   );
-  let instance = result.rows[0]; // Use let because 'instance' might be reassigned
+  let instance = result.rows[0];
 
   if (!instance) {
     return {
@@ -480,10 +573,21 @@ async function resolveJoinToken(pool, token) {
     };
   }
 
+  // Fail closed: reject unknown statuses before mapper call
+  if (!VALID_STATUSES.includes(instance.status)) {
+    return {
+      valid: false,
+      error_code: JOIN_ERROR_CODES.CONTEST_NOT_FOUND,
+      reason: 'Contest is not in a joinable state',
+      environment_mismatch: false
+    };
+  }
+
+  const currentTimestamp = Date.now();
+
   // Advance contest lifecycle if needed (read-path self-healing)
   const newStatus = advanceContestLifecycleIfNeeded(instance);
   if (newStatus) {
-    // Attempt transition with ERROR recovery (GAP-07)
     const updatedInstance = await attemptSystemTransitionWithErrorRecovery(
       pool,
       instance,
@@ -495,81 +599,58 @@ async function resolveJoinToken(pool, token) {
     }
   }
 
-  const joinState = computeJoinState(instance);
+  // Map the instance to the API response format to get derived fields
+  const mappedContest = mapContestToApiResponse(instance, { currentTimestamp });
 
-  // Only SCHEDULED + JOINABLE contests resolve as valid
-  if (instance.status === 'SCHEDULED' && joinState === 'JOINABLE') {
-    // Shape the response identically to getContestInstance (canonical detail)
-    delete instance.name;
-    delete instance.template_name;
-
+  // Only SCHEDULED (not locked) contests resolve as valid for joining
+  if (mappedContest.status === 'SCHEDULED' && !mappedContest.is_locked) {
     return {
       valid: true,
       contest: {
-        ...instance,
-        join_url: generateJoinUrl(token),
-        computedJoinState: joinState
+        ...mappedContest,
+        join_url: generateJoinUrl(token)
       }
     };
   }
 
-  // SCHEDULED but past lock_time
-  if (instance.status === 'SCHEDULED' && joinState === 'LOCKED') {
-    return {
-      valid: false,
-      error_code: JOIN_ERROR_CODES.CONTEST_LOCKED,
-      reason: 'Contest join window has closed',
-      environment_mismatch: false,
-      contest: {
-        id: instance.id,
-        status: instance.status,
-        lock_time: instance.lock_time,
-        computedJoinState: joinState
-      }
-    };
-  }
-
-
-
-  if (instance.status === 'LOCKED') {
-    return {
-      valid: false,
-      error_code: JOIN_ERROR_CODES.CONTEST_LOCKED,
-      reason: 'Contest is locked and no longer accepting participants',
-      environment_mismatch: false,
-      contest: {
-        id: instance.id,
-        status: instance.status,
-        lock_time: instance.lock_time,
-        computedJoinState: joinState
-      }
-    };
-  }
-
-  if (instance.status === 'COMPLETE') {
-    return {
-      valid: false,
-      error_code: JOIN_ERROR_CODES.CONTEST_COMPLETED,
-      reason: 'Contest is settled and no longer accepting participants',
-      environment_mismatch: false,
-      contest: {
-        id: instance.id,
-        status: instance.status,
-        computedJoinState: joinState
-      }
-    };
-  }
-
-  if (instance.status === 'CANCELLED') {
+  // Handle other states (check explicit terminal states before generic locked check)
+  if (mappedContest.status === 'CANCELLED') {
     return {
       valid: false,
       error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE,
       reason: 'Contest is cancelled and no longer accepting participants',
       environment_mismatch: false,
       contest: {
-        id: instance.id,
-        status: instance.status,
-        computedJoinState: joinState
+        id: mappedContest.id,
+        status: mappedContest.status
+      }
+    };
+  }
+
+  if (mappedContest.status === 'COMPLETE') {
+    return {
+      valid: false,
+      error_code: JOIN_ERROR_CODES.CONTEST_COMPLETED,
+      reason: 'Contest is settled and no longer accepting participants',
+      environment_mismatch: false,
+      contest: {
+        id: mappedContest.id,
+        status: mappedContest.status
+      }
+    };
+  }
+
+  if (mappedContest.is_locked) {
+    return {
+      valid: false,
+      error_code: JOIN_ERROR_CODES.CONTEST_LOCKED,
+      reason: 'Contest join window has closed',
+      environment_mismatch: false,
+      contest: {
+        id: mappedContest.id,
+        status: mappedContest.status,
+        lock_time: mappedContest.lock_time,
+        is_locked: mappedContest.is_locked
       }
     };
   }
@@ -594,22 +675,58 @@ async function getContestInstancesForOrganizer(pool, organizerId) {
   const result = await pool.query(
     `SELECT
       ci.id,
+      ci.template_id,
+      ci.organizer_id,
+      ci.entry_fee_cents,
+      ci.payout_structure,
       ci.status,
-      ct.name AS template_name,
-      ct.sport AS template_sport,
-      ct.template_type,
-      ci.created_at,
+      ci.start_time,
       ci.lock_time,
+      ci.created_at,
+      ci.updated_at,
       ci.join_token,
       ci.max_entries,
-      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int AS entries_current
+      ci.contest_name,
+      ci.end_time,
+      ci.settle_time,
+      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
+      EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $1) AS user_has_entered
     FROM contest_instances ci
-    JOIN contest_templates ct ON ci.template_id = ct.id
+    LEFT JOIN users u ON u.id = ci.organizer_id
     WHERE ci.organizer_id = $1
     ORDER BY ci.created_at DESC`,
     [organizerId]
   );
-  return result.rows;
+
+  const currentTimestamp = Date.now();
+  const processedContests = [];
+
+  for (let row of result.rows) {
+    // Advance contest lifecycle if needed (read-path self-healing)
+    const newStatus = advanceContestLifecycleIfNeeded(row);
+    if (newStatus) {
+      const updatedRow = await attemptSystemTransitionWithErrorRecovery(
+        pool,
+        row,
+        newStatus,
+        updateContestStatusForSystem
+      );
+      if (updatedRow) {
+        row = updatedRow;
+      }
+    }
+
+    // Fetch standings if required
+    if (row.status === 'LIVE') {
+      row.standings = await _getLiveStandings(pool, row.id);
+    } else if (row.status === 'COMPLETE') {
+      row.standings = await _getCompleteStandings(pool, row.id);
+    }
+    processedContests.push(mapContestToApiResponse(row, { currentTimestamp }));
+  }
+
+  return processedContests;
 }
 
 /**
@@ -676,7 +793,7 @@ async function updateContestInstanceStatus(pool, instanceId, organizerId, newSta
  */
 async function publishContestInstance(pool, instanceId, organizerId) {
   // Fetch current state
-  const existing = await getContestInstance(pool, instanceId);
+  const existing = await getContestInstance(pool, instanceId, organizerId);
   if (!existing) {
     throw new Error('Contest instance not found');
   }
@@ -690,8 +807,7 @@ async function publishContestInstance(pool, instanceId, organizerId) {
   if (existing.join_token) {
     return {
       ...existing,
-      join_url: generateJoinUrl(existing.join_token),
-      computedJoinState: computeJoinState(existing)
+      join_url: generateJoinUrl(existing.join_token)
     };
   }
 
@@ -723,8 +839,7 @@ async function publishContestInstance(pool, instanceId, organizerId) {
   const instance = result.rows[0];
   return {
     ...instance,
-    join_url: generateJoinUrl(instance.join_token),
-    computedJoinState: computeJoinState(instance)
+    join_url: generateJoinUrl(instance.join_token)
   };
 }
 
@@ -938,7 +1053,6 @@ module.exports = {
   validatePayoutStructureAgainstTemplate,
 
   // State helpers
-  computeJoinState,
 
   // Constants
   VALID_ENV_PREFIXES,

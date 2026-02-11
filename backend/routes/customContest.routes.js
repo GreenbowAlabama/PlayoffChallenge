@@ -345,7 +345,7 @@ router.post('/:id/publish', async (req, res) => {
     if (err.message.includes('not found')) {
       return res.status(404).json({ error: err.message });
     }
-    if (err.message.includes('Only the organizer') || err.message.includes('Cannot transition')) {
+    if (err.message.includes('Only the organizer') || err.message.includes('Cannot transition') || err.message.includes('Cannot publish')) {
       return res.status(403).json({ error: err.message });
     }
     if (err.message.includes('was modified by another operation')) {

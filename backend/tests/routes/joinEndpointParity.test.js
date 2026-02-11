@@ -37,11 +37,11 @@ const mockInstance = {
   lock_strategy_key: 'first_game_kickoff',
   settlement_strategy_key: 'final_standings',
   start_time: null,
-  lock_time: null,
-  settlement_time: null,
+  lock_time: new Date(Date.now() + 3600 * 1000).toISOString(),
+  settle_time: null,
   max_entries: 10,
-  organizer_name: 'TestUser',
-  entries_current: 3,
+  entry_count: 3,
+  user_has_entered: false,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString()
 };

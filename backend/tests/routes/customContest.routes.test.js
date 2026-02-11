@@ -126,8 +126,10 @@ describe('Custom Contest Routes', () => {
           join_token: token,
           status: 'SCHEDULED',
           max_entries: 10,
-          organizer_name: 'TestUser',
-          entries_current: 3
+          entry_count: 3,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString(),
+          settle_time: null
         })
       );
 
@@ -140,11 +142,12 @@ describe('Custom Contest Routes', () => {
       expect(response.body.contest.id).toBe(TEST_INSTANCE_ID);
       expect(response.body.contest.join_url).toBeDefined();
       expect(response.body.contest.join_url).toContain('/join/');
-      // Enriched fields
-      expect(response.body.contest.computedJoinState).toBe('JOINABLE');
-      expect(response.body.contest.organizer_name).toBe('TestUser');
-      expect(response.body.contest.entries_current).toBe(3);
+      // Derived fields from mapper
+      expect(response.body.contest.entry_count).toBe(3);
       expect(response.body.contest.max_entries).toBe(10);
+      expect(response.body.contest.is_locked).toBe(false);
+      expect(response.body.contest.is_live).toBe(false);
+      expect(response.body.contest.is_settled).toBe(false);
     });
 
     it('should return invalid with error_code for environment mismatch', async () => {
@@ -176,7 +179,15 @@ describe('Custom Contest Routes', () => {
       const token = 'dev_locked12345678901234567890';
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'LOCKED' })
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          join_token: token,
+          status: 'LOCKED',
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() - 1000).toISOString(),
+          settle_time: null
+        })
       );
 
       const response = await request(app)
@@ -191,7 +202,15 @@ describe('Custom Contest Routes', () => {
       const token = 'dev_cancelled123456789012345';
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.join_token/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, join_token: token, status: 'CANCELLED' })
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          join_token: token,
+          status: 'CANCELLED',
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: null,
+          settle_time: null
+        })
       );
 
       const response = await request(app)
@@ -211,8 +230,10 @@ describe('Custom Contest Routes', () => {
           join_token: token,
           status: 'SCHEDULED',
           max_entries: null,
-          organizer_name: 'TestUser',
-          entries_current: 0
+          entry_count: 0,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString(),
+          settle_time: null
         })
       );
 
@@ -367,8 +388,13 @@ describe('Custom Contest Routes', () => {
 
     it('should return organizer contests', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.organizer_id/,
-        mockQueryResponses.multiple([mockInstanceWithTemplate])
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.organizer_id/,
+        mockQueryResponses.multiple([{
+          ...mockInstanceWithTemplate,
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        }])
       );
 
       const response = await request(app)
@@ -382,7 +408,7 @@ describe('Custom Contest Routes', () => {
 
     it('should return empty array if no contests', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.organizer_id/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.organizer_id/,
         mockQueryResponses.empty()
       );
 
@@ -405,8 +431,13 @@ describe('Custom Contest Routes', () => {
 
     it('should return contest instance', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single(mockInstanceWithTemplate)
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        })
       );
 
       const response = await request(app)
@@ -430,7 +461,7 @@ describe('Custom Contest Routes', () => {
 
     it('should return 404 for nonexistent contest', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
         mockQueryResponses.empty()
       );
 
@@ -453,13 +484,24 @@ describe('Custom Contest Routes', () => {
 
     it('should publish SCHEDULED contest and return contestId, joinToken, joinURL', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'SCHEDULED', join_token: null })
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          join_token: null,
+          entry_count: 0,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        })
       );
       // The mock response from publishContestInstance will have the token
       mockPool.setQueryResponse(
         /UPDATE contest_instances SET join_token/,
         mockQueryResponses.single({ ...mockInstance, status: 'SCHEDULED' })
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_participants/,
+        mockQueryResponses.single({})
       );
 
       const response = await request(app)
@@ -486,7 +528,7 @@ describe('Custom Contest Routes', () => {
 
     it('should return 404 for nonexistent contest', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
         mockQueryResponses.empty()
       );
 
@@ -500,8 +542,14 @@ describe('Custom Contest Routes', () => {
 
     it('should return 403 if not organizer', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, organizer_id: OTHER_USER_ID })
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          organizer_id: OTHER_USER_ID,
+          entry_count: 0,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        })
       );
 
       const response = await request(app)
@@ -514,23 +562,37 @@ describe('Custom Contest Routes', () => {
 
     it('should return 403 for invalid transition', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'LOCKED', join_token: null })
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'LOCKED',
+          join_token: null,
+          entry_count: 0,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        })
       );
 
       const response = await request(app)
         .post(`/api/custom-contests/${TEST_INSTANCE_ID}/publish`)
         .set('X-User-Id', TEST_USER_ID);
 
-      expect(response.status).toBe(500);
-      expect(response.body.error).toContain("Failed to publish contest");
+      expect(response.status).toBe(403);
+      expect(response.body.error).toContain("Only 'SCHEDULED' contests can be published");
     });
 
     it('should return 409 for race condition during publish', async () => {
       // First query returns SCHEDULED contest
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'SCHEDULED', join_token: null })
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          join_token: null,
+          entry_count: 0,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        })
       );
       // Update returns empty (another operation modified it)
       mockPool.setQueryResponse(
@@ -558,8 +620,18 @@ describe('Custom Contest Routes', () => {
 
     it('should update status successfully', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'SCHEDULED' })
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        })
+      );
+      mockPool.setQueryResponse(
+        /SELECT status FROM contest_instances WHERE id/,
+        mockQueryResponses.single({ status: 'SCHEDULED' })
       );
       mockPool.setQueryResponse(
         /UPDATE contest_instances SET status/,
@@ -597,8 +669,14 @@ describe('Custom Contest Routes', () => {
 
     it('should return 403 if not organizer', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, organizer_id: OTHER_USER_ID })
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          organizer_id: OTHER_USER_ID,
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        })
       );
 
       const response = await request(app)
@@ -612,8 +690,29 @@ describe('Custom Contest Routes', () => {
 
     it('should return 403 for invalid transition', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*JOIN contest_templates ct[\s\S]*WHERE ci\.id/,
-        mockQueryResponses.single({ ...mockInstanceWithTemplate, status: 'COMPLETE' })
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'COMPLETE',
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date().toISOString(),
+          settle_time: new Date().toISOString()
+        })
+      );
+      mockPool.setQueryResponse(
+        /SELECT status FROM contest_instances WHERE id/,
+        mockQueryResponses.single({ status: 'COMPLETE' })
+      );
+      mockPool.setQueryResponse(
+        /SELECT results FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.single({
+          results: { rankings: [{ user_id: TEST_USER_ID, score: 100, rank: 1 }], payouts: [] }
+        })
+      );
+      mockPool.setQueryResponse(
+        /SELECT id, COALESCE\(username, name, 'Unknown'\) AS user_display_name FROM users WHERE id = ANY/,
+        mockQueryResponses.multiple([{ id: TEST_USER_ID, user_display_name: 'TestUser' }])
       );
 
       const response = await request(app)
