@@ -129,6 +129,16 @@ Clients receive contest data through the API. The following fields are derived b
 
 Clients render what the API returns. If a field is absent, the client must treat it as unavailable — not as a default value.
 
+### Mapper Invariants and Validation
+
+All derived fields are validated by the backend response mapper.
+
+- `entry_count` must be numeric.
+- `user_has_entered` must be boolean.
+- SCHEDULED requires non-null `lock_time`.
+- `standings` returned only for LIVE or COMPLETE.
+- Unknown `status` values trigger fail-closed join behavior.
+
 ---
 
 ## Authoritative API Contract
@@ -264,7 +274,7 @@ This contract is considered fully implemented when:
 2. All state transitions conform to the valid transition graph.
 3. All five time fields are present on every contest record and satisfy the stated invariants.
 4. Settlement is an explicit, idempotent operation that writes `settle_time` exactly once.
-5. The API returns all derived fields as specified, computed by the backend.
+5. The API returns all eight derived fields (status, is_locked, is_live, is_settled, entry_count, user_has_entered, time_until_lock, standings) computed by the backend and enforced by mapper invariants.
 6. The "My Contests" sort order matches the defined rules.
 7. Admin operations enforce the same validation as automated processes.
 8. No client computes, infers, or derives lifecycle state.

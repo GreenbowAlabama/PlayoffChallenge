@@ -180,27 +180,46 @@ note: scoped to write-time lifecycle enforcement for pick writes |
 
 ---
 
-### GAP-11: Derived fields are not computed or returned by the API
+### GAP-11: Derived fields are computed and returned by the API
 
 | Attribute | Value |
 |---|---|
-| Status | `MISSING and required for v1` |
+| Status | `CLOSED` |
 | Layer | API contract |
-| Description | The contract specifies eight derived fields: `status`, `is_locked`, `is_live`, `is_settled`, `entry_count`, `user_has_entered`, `time_until_lock`, `standings`. Currently: `status` is returned but uses non-contract values. A `computedJoinState` helper exists but computes a different set of values (JOINABLE, LOCKED, COMPLETED, UNAVAILABLE) not aligned to the contract. `entries_current` exists but is not named `entry_count`. The remaining fields (`is_locked`, `is_live`, `is_settled`, `user_has_entered`, `time_until_lock`, `standings`) are not computed or returned. |
-| Why it matters | The contract principle "Backend is the source of truth" requires that clients receive all lifecycle information from the API. Without these fields, clients must compute state locally, which the contract explicitly forbids. |
-| Dependencies | GAP-01 (status values must be correct), GAP-02 (`end_time` needed for some computations), GAP-08 (standings require scoring). |
+| Description | All eight derived fields are computed by the backend and returned in API responses. (1) `status` is returned from the database as one of the six contract-defined values. (2) `is_locked` is computed as `status !== 'SCHEDULED'`. (3) `is_live` is computed as `status === 'LIVE'`. (4) `is_settled` is computed as `settle_time !== null`. (5) `entry_count` is returned as a numeric count of contest participants. (6) `user_has_entered` is returned as a boolean computed per-request. (7) `time_until_lock` is computed server-side as seconds until `lock_time` (null if already locked). (8) `standings` is computed and returned only when `is_live` or status is COMPLETE. A centralized response mapper (`contestApiResponseMapper.js`) enforces invariants: `entry_count` must be numeric, `user_has_entered` must be boolean, SCHEDULED contests must have valid `lock_time`. Unknown status values trigger fail-closed behavior in `resolveJoinToken`. Legacy helpers (`computedJoinState`) and derived field names (`entries_current`, `organizer_name`) have been removed. All route tests and parity tests conform to mapper output. |
+| Why it matters | The contract principle "Backend is the source of truth" requires that clients receive lifecycle information from the API without computing state locally. With derived fields fully implemented and validated, clients rely exclusively on backend authority. |
+| Dependencies | GAP-01, GAP-02, GAP-09 |
 
 ---
 
-### GAP-12: My Contests sorting does not conform to contract
+### GAP-12: My Contests sorting must conform to contract and use database-layer ordering
 
 | Attribute | Value |
 |---|---|
 | Status | `EXISTS but violates contract` |
-| Layer | API contract |
-| Description | The current My Contests query sorts by `created_at DESC`. The contract defines a six-tier sort: LIVE by `end_time` asc, LOCKED by `start_time` asc, SCHEDULED by `lock_time` asc, COMPLETE by `settle_time` desc, CANCELLED by `created_at` desc, ERROR hidden from non-admins. |
-| Why it matters | Sort order determines what users see first. The contract prioritizes actionable contests (LIVE, then LOCKED, then SCHEDULED) over historical ones. The current sort mixes all states together. |
-| Dependencies | GAP-01 (correct states for sort tiers), GAP-02 (`end_time` for LIVE tier sorting), GAP-11 (derived fields support the same API layer). |
+| Layer | API contract and database query |
+| Description | The My Contests endpoint currently sorts by `created_at DESC`. The contract requires a six-tier sort performed at the SQL layer. Sorting must use persisted columns only, not derived fields. Tier order: (1) LIVE by `end_time ASC`; (2) LOCKED by `start_time ASC`; (3) SCHEDULED by `lock_time ASC`; (4) COMPLETE by `settle_time DESC`; (5) CANCELLED by `created_at DESC`; (6) ERROR excluded from non-admin views. Sorting must occur in SQL ORDER BY using CASE logic. Pagination must remain deterministic. |
+| Why it matters | Sorting defines user experience. Database-layer sorting guarantees consistency and stable pagination across clients. |
+| Dependencies | GAP-01, GAP-02, GAP-03, GAP-11 |
+
+---
+
+## Implementation Guardrails for GAP-12
+
+### Database-Level Sorting Only
+Sorting must occur in SQL ORDER BY using a CASE tier assignment.
+
+### Persisted Columns Only
+Do not sort by derived fields (`is_live`, `is_locked`, etc.).
+
+### ERROR Visibility
+ERROR contests excluded for non-admin users at query time.
+
+### No Self-Healing in List Queries
+List endpoints do not trigger lifecycle advancement.
+
+### Deterministic Pagination
+ORDER BY tier, then time column, then contest_id.
 
 ---
 
@@ -272,7 +291,7 @@ Contest Infrastructure v1 can be declared complete when every item below is true
 - [x] Settlement-triggered failures are handled with error recovery. Failed settlement readiness checks trigger LIVE→ERROR with distinguishable audit records via canonical SYSTEM user. Settlement validation occurs inside error recovery boundary. Settlement logic implementation deferred to GAP-09. (GAP-08)
 - [ ] A settlement record entity persists the output of each settlement operation. (GAP-09)
 - [ ] Entry submission and pick changes verify contest state at write time using row-level locking. (GAP-10)
-- [ ] The API returns all eight derived fields (`status`, `is_locked`, `is_live`, `is_settled`, `entry_count`, `user_has_entered`, `time_until_lock`, `standings`) computed by the backend. (GAP-11)
+- [x] The API returns all eight derived fields (`status`, `is_locked`, `is_live`, `is_settled`, `entry_count`, `user_has_entered`, `time_until_lock`, `standings`) computed by the backend. (GAP-11)
 - [ ] My Contests sorting follows the six-tier contract sort order. ERROR contests are hidden from non-admin users. (GAP-12)
 - [ ] All six admin operations (create, update time fields, cancel, force-lock, trigger settlement, resolve error) exist and enforce the same validation as automated processes. (GAP-13)
 - [ ] Every state transition (automated and manual) is recorded in an audit trail with timestamp and reason. (GAP-14, GAP-15)
@@ -353,6 +372,25 @@ Read-path self-healing avoids:
 - Message queues or event buses
 
 Transitions occur naturally as clients or admins read contest state, keeping the system simple and deterministic.
+
+### Derived Fields and Mapper Invariants (Post-GAP 11)
+
+With GAP-11 complete, all client-facing API responses include derived fields computed by the backend. The response mapper enforces strict invariants.
+
+#### Mapper Enforcement Rules
+
+- `entry_count` must be a non-negative integer.
+- `user_has_entered` must be boolean.
+- SCHEDULED contests must have non-null `lock_time`.
+- `standings` are only returned for LIVE or COMPLETE contests.
+- Unknown `status` values trigger fail-closed behavior in `resolveJoinToken`.
+
+Derived fields are presentation-level. They are computed after database reads and do not exist as persisted columns.
+
+Legacy fields removed:
+- `computedJoinState`
+- `entries_current`
+- `organizer_name`
 
 ---
 
