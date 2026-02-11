@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const config = require('../config');
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
 const { advanceContestLifecycleIfNeeded, attemptSystemTransitionWithErrorRecovery } = require('./helpers/contestLifecycleAdvancer');
-const { mapContestToApiResponse } = require('./helpers/contestApiResponseMapper');
+const { mapContestToApiResponse, mapContestToApiResponseForList } = require('./helpers/contestApiResponseMapper');
 
 // Function to compare two numbers with a fixed precision (e.g., 2 decimal places)
 const areScoresEqual = (score1, score2, precision = 2) => {
@@ -1027,6 +1027,109 @@ async function _updateContestStatusInternal(pool, contestId, newStatus) {
   return result.rows[0];
 }
 
+/**
+ * Get My Contests (GAP-12)
+ *
+ * Returns contests the user has entered, plus SCHEDULED contests open for entry.
+ * Implements exact contract sorting: 6-tier sort by status, then status-specific time field.
+ * Non-mutating: does NOT trigger lifecycle advancement.
+ * Fails closed on ERROR: non-admin users never see ERROR contests.
+ *
+ * This is a metadata-only list endpoint: no standings, no per-row queries.
+ * Standings retrieval belongs in contest detail endpoints.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} userId - UUID of requesting user
+ * @param {boolean} isAdmin - Whether user has admin privileges (from server auth context, not client)
+ * @param {number} limit - Results limit (default 50, clamped to [1, 200])
+ * @param {number} offset - Results offset (default 0, clamped to >= 0)
+ * @returns {Promise<Array>} Array of contest objects sorted by contract rules
+ */
+async function getContestsForUser(pool, userId, isAdmin = false, limit = 50, offset = 0) {
+  // Clamp pagination parameters
+  const limitValue = parseInt(limit, 10);
+  const offsetValue = parseInt(offset, 10);
+  const safeLimit = Math.max(1, Math.min(200, isNaN(limitValue) ? 50 : limitValue));
+  const safeOffset = Math.max(0, isNaN(offsetValue) ? 0 : offsetValue);
+
+  const result = await pool.query(
+    `
+    SELECT
+      ci.id,
+      ci.template_id,
+      ci.organizer_id,
+      ci.entry_fee_cents,
+      ci.payout_structure,
+      ci.status,
+      ci.start_time,
+      ci.lock_time,
+      ci.created_at,
+      ci.updated_at,
+      ci.join_token,
+      ci.max_entries,
+      ci.contest_name,
+      ci.end_time,
+      ci.settle_time,
+      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
+      EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $1) AS user_has_entered,
+      CASE ci.status
+        WHEN 'LIVE' THEN 0
+        WHEN 'LOCKED' THEN 1
+        WHEN 'SCHEDULED' THEN 2
+        WHEN 'COMPLETE' THEN 3
+        WHEN 'CANCELLED' THEN 4
+        WHEN 'ERROR' THEN 5
+        ELSE 99
+      END AS tier,
+      CASE WHEN ci.status = 'LIVE' THEN ci.end_time END AS live_end_time,
+      CASE WHEN ci.status = 'LOCKED' THEN ci.start_time END AS locked_start_time,
+      CASE WHEN ci.status = 'SCHEDULED' THEN ci.lock_time END AS scheduled_lock_time,
+      CASE WHEN ci.status = 'COMPLETE' THEN ci.settle_time END AS complete_settle_time,
+      CASE WHEN ci.status = 'CANCELLED' THEN ci.created_at END AS cancelled_created_at,
+      CASE WHEN ci.status = 'ERROR' THEN ci.created_at END AS error_created_at
+    FROM contest_instances ci
+    LEFT JOIN users u ON u.id = ci.organizer_id
+    WHERE
+      (
+        EXISTS (
+          SELECT 1 FROM contest_participants cp
+          WHERE cp.contest_instance_id = ci.id
+          AND cp.user_id = $1
+        )
+        OR ci.status = 'SCHEDULED'
+      )
+      AND (
+        $2 = true
+        OR ci.status != 'ERROR'
+      )
+    ORDER BY
+      tier ASC,
+      live_end_time ASC NULLS LAST,
+      locked_start_time ASC NULLS LAST,
+      scheduled_lock_time ASC NULLS LAST,
+      complete_settle_time DESC NULLS LAST,
+      cancelled_created_at DESC NULLS LAST,
+      error_created_at DESC NULLS LAST,
+      ci.id ASC
+    LIMIT $3
+    OFFSET $4
+    `,
+    [userId, isAdmin, safeLimit, safeOffset]
+  );
+
+  const currentTimestamp = Date.now();
+
+  // Map each row to list API response format.
+  // Uses mapContestToApiResponseForList which omits standings (metadata-only).
+  // No lifecycle advancement, no per-row queries (non-mutating).
+  const processedContests = result.rows.map(row =>
+    mapContestToApiResponseForList(row, { currentTimestamp })
+  );
+
+  return processedContests;
+}
+
 module.exports = {
   // Template functions
   getTemplate,
@@ -1037,6 +1140,7 @@ module.exports = {
   getContestInstance,
   getContestInstanceByToken,
   getContestInstancesForOrganizer,
+  getContestsForUser,
   updateContestInstanceStatus,
   updateContestStatusForSystem,
   publishContestInstance,

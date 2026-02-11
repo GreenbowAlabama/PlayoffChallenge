@@ -156,6 +156,24 @@ The "My Contests" view returns all contests the requesting user has entered, plu
 5. CANCELLED contests last, sorted by `created_at` descending.
 6. ERROR contests are not shown to non-admin users.
 
+#### Implementation Notes (GAP-12 CLOSED)
+
+**Endpoint:** `GET /api/contests/my`
+
+**Scope:** Contests where user is a participant (`EXISTS in contest_participants`) OR status = SCHEDULED.
+
+**Data Layer (SQL):** Sorting is entirely SQL-driven using CASE tier assignment (tier 0-5). Each tier has its own time column (CASE-scoped), preventing inactive tiers from affecting sort order. NULLS LAST prevents null values from disrupting deterministic ordering. Final tie-breaker: `ci.id ASC`.
+
+**Response Layer:** Uses `mapContestToApiResponseForList` mapper (list-focused, metadata-only). This mapper deliberately omits standings to avoid N+1 query patterns. Clients fetch standings separately from detail endpoints if needed. This is a CQRS-style read model separation: detail endpoints use `mapContestToApiResponse` (strict standings invariant), list endpoints use `mapContestToApiResponseForList` (no standings requirement).
+
+**Pagination:** Clamped limit [1, 200] default 50; offset >= 0 default 0. Deterministic due to SQL ORDER BY.
+
+**Non-Mutating:** This endpoint does NOT trigger lifecycle advancement. Single-instance reads handle self-healing via read-path advancement. Stale SCHEDULED contests (past lock_time) may appear in the list; write-time validation will catch them on join attempt.
+
+**ERROR Handling:** WHERE clause uses `($isAdmin = true OR ci.status != 'ERROR')` to fail-closed: non-admin users never see ERROR contests, even if they entered them. This avoids exposing internal failures in user-facing UI. Admin operations (GAP-13) will handle ERROR visibility and recovery.
+
+**Authentication:** `req.user` must be populated by upstream centralized auth middleware. `isAdmin` derived from `req.user.isAdmin === true`, never from client headers.
+
 ### Contest Detail
 
 Returns the full contest object including all derived fields listed above. The response shape is identical regardless of lifecycle state; field presence varies as described in the derived fields section.
@@ -502,5 +520,6 @@ All tests pass successfully.
 
 | Date | Version | Author | Description |
 |---|---|---|---|
+| 2026-02-11 | v1 | System | GAP-12 CLOSED: "Contest List (My Contests)" section now fully implemented. Endpoint GET /api/contests/my returns contests user entered or SCHEDULED contests open for entry. Six-tier sorting enforced at SQL layer with CASE tier assignment and tier-scoped time columns. ERROR contests hidden from non-admin users (fail-closed policy). Metadata-only list response (no standings, deterministic and scalable). Dedicated `mapContestToApiResponseForList` mapper enforces list-specific invariants, separating read model concerns from detail endpoints. Non-mutating list endpoint (no self-healing). Pagination deterministic: limit [1,200] default 50, offset >= 0 default 0. Updated "Contest List (My Contests)" section with implementation notes documenting endpoint, SQL sorting strategy, error visibility, read model separation, pagination, non-mutating behavior, and authentication requirements. |
 | 2026-02-10 | v1 | System | GAP-08 complete and documented: (1) Settlement validation location clarified—occurs inside `attemptSystemTransitionWithErrorRecovery()` error recovery boundary, not only in `advanceContestLifecycleIfNeeded()`. (2) SYSTEM audit implementation documented with canonical UUID `00000000-0000-0000-0000-000000000000`. (3) Audit payload contracts defined for settlement failures: `settlement_failure: true`, `error_origin: 'settlement_readiness_check'`, full error stack. (4) Error recovery semantics guaranteed: failed settlement checks trigger LIVE→ERROR with distinguishable audit records. Settlement logic implementation remains deferred to GAP-09. |
 | 2026-02-08 | v1 | System | Initial creation of the Contest Lifecycle Contract. All sections defined. This is the authoritative v1 baseline. |

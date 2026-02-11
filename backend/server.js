@@ -12,6 +12,7 @@ const adminTrendsRoutes = require('./routes/admin.trends.routes');
 const adminContestsRoutes = require('./routes/admin.contests.routes');
 const customContestRoutes = require('./routes/customContest.routes');
 const customContestTemplatesRoutes = require('./routes/customContestTemplates.routes');
+const contestsRoutes = require('./routes/contests.routes');
 const jobsService = require('./services/adminJobs.service');
 const scoringService = require('./services/scoringService');
 const gameStateService = require('./services/gameStateService');
@@ -1422,6 +1423,9 @@ app.use('/api/admin/custom-contests/templates', customContestTemplatesRoutes);
 
 // Custom contest routes (user-created contests)
 app.use('/api/custom-contests', customContestRoutes);
+
+// User-scoped contest routes (My Contests - GAP-12)
+app.use('/api/contests', contestsRoutes);
 
 // Update week active status (lock/unlock)
 app.post('/api/admin/update-week-status', async (req, res) => {

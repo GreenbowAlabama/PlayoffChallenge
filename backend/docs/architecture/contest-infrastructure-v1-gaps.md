@@ -196,30 +196,79 @@ note: scoped to write-time lifecycle enforcement for pick writes |
 
 | Attribute | Value |
 |---|---|
-| Status | `EXISTS but violates contract` |
+| Status | `CLOSED` |
 | Layer | API contract and database query |
-| Description | The My Contests endpoint currently sorts by `created_at DESC`. The contract requires a six-tier sort performed at the SQL layer. Sorting must use persisted columns only, not derived fields. Tier order: (1) LIVE by `end_time ASC`; (2) LOCKED by `start_time ASC`; (3) SCHEDULED by `lock_time ASC`; (4) COMPLETE by `settle_time DESC`; (5) CANCELLED by `created_at DESC`; (6) ERROR excluded from non-admin views. Sorting must occur in SQL ORDER BY using CASE logic. Pagination must remain deterministic. |
-| Why it matters | Sorting defines user experience. Database-layer sorting guarantees consistency and stable pagination across clients. |
+| Description | **Implementation Complete.** New endpoint `GET /api/contests/my` returns contests the user has entered plus SCHEDULED contests open for entry. Six-tier sorting fully implemented at SQL layer: (1) LIVE by `end_time ASC`; (2) LOCKED by `start_time ASC`; (3) SCHEDULED by `lock_time ASC`; (4) COMPLETE by `settle_time DESC`; (5) CANCELLED by `created_at DESC`; (6) ERROR excluded from non-admin users (fail-closed). Sorting uses CASE tier assignment with tier-scoped time columns and NULLS LAST handling. Deterministic tie-breaker: `ci.id ASC`. Non-mutating list endpoint (no lifecycle advancement). Metadata-only response (no standings, avoiding N+1 queries). Uses dedicated `mapContestToApiResponseForList` mapper to separate list and detail read models. Pagination: limit [1, 200] default 50; offset >= 0 default 0. Authentication via centralized `req.user` context. Admin status derived from server auth, never from client headers. |
+| Why it matters | Sorting defines user experience. Database-layer sorting guarantees consistency and stable pagination. CQRS-style separation of list and detail read models ensures scalable, non-mutating list endpoints. |
 | Dependencies | GAP-01, GAP-02, GAP-03, GAP-11 |
 
 ---
 
-## Implementation Guardrails for GAP-12
+## Implementation Notes for GAP-12 (Completed)
 
-### Database-Level Sorting Only
-Sorting must occur in SQL ORDER BY using a CASE tier assignment.
+### Endpoint
+- **Route:** `GET /api/contests/my`
+- **Path:** `/api/contests` (separate from `/api/custom-contests`)
+- **Authentication:** Requires `req.user` from centralized auth middleware
+- **Scope:** Contests user has entered OR status = SCHEDULED
 
-### Persisted Columns Only
-Do not sort by derived fields (`is_live`, `is_locked`, etc.).
+### SQL Sorting Strategy
+- **Tier Assignment:** CASE statement mapping status to tier (0-5, with ERROR = 5)
+- **Tier-Scoped Time Columns:** Each tier has its own time column (only active tier is non-null)
+  - LIVE: `end_time ASC`
+  - LOCKED: `start_time ASC`
+  - SCHEDULED: `lock_time ASC`
+  - COMPLETE: `settle_time DESC`
+  - CANCELLED: `created_at DESC`
+  - ERROR: `created_at DESC`
+- **NULLS LAST:** Prevents nulls from affecting sort order
+- **Tie-Breaker:** `ci.id ASC` for deterministic pagination
+- **Example ORDER BY:**
+  ```sql
+  ORDER BY
+    tier ASC,
+    live_end_time ASC NULLS LAST,
+    locked_start_time ASC NULLS LAST,
+    scheduled_lock_time ASC NULLS LAST,
+    complete_settle_time DESC NULLS LAST,
+    cancelled_created_at DESC NULLS LAST,
+    error_created_at DESC NULLS LAST,
+    ci.id ASC
+  ```
 
-### ERROR Visibility
-ERROR contests excluded for non-admin users at query time.
+### ERROR Visibility (Fail-Closed)
+- **Non-Admin:** WHERE clause excludes ERROR: `($isAdmin = true OR ci.status != 'ERROR')`
+- **Admin:** ERROR contests included in results
+- **Design Principle:** Hide internal failure states from non-admin users; admin tooling (GAP-13) handles visibility and recovery
 
-### No Self-Healing in List Queries
-List endpoints do not trigger lifecycle advancement.
+### Read Model Separation (CQRS)
+Two dedicated mappers for two different surfaces:
+1. **Detail Mapper:** `mapContestToApiResponse` — Strict invariants, standings required, used by detail endpoints
+2. **List Mapper:** `mapContestToApiResponseForList` — Metadata-only, no standings, deterministic, used by `/api/contests/my`
 
-### Deterministic Pagination
-ORDER BY tier, then time column, then contest_id.
+Rationale: List endpoints avoid N+1 queries (no standings fetching). Clients fetch standings separately from detail endpoints if needed.
+
+### Pagination
+- **Default Limit:** 50 (clamped to [1, 200])
+- **Default Offset:** 0 (clamped to >= 0)
+- **Determinism:** Stable pagination guaranteed by ORDER BY tier, time, id
+
+### Non-Mutating Behavior
+- List endpoint does NOT call `advanceContestLifecycleIfNeeded`
+- No read-path self-healing in list queries (single-instance reads handle that)
+- Consequence: Stale SCHEDULED contests (past lock_time but not yet transitioned) may appear in list; write-time validation will catch them on join
+
+---
+
+## GAP-13 Setup Notes (Admin Operations)
+
+The role-based access control pattern implemented in GAP-12 will be reused for GAP-13:
+
+1. **Admin Status Derivation:** All admin operations will derive `isAdmin` from `req.user.isAdmin` (server auth context), never from client headers.
+2. **WHERE Clause Pattern:** Admin operations that differ by role (e.g., cancel any contest vs. only own contests) will use conditional WHERE clauses similar to the ERROR visibility pattern.
+3. **Centralized Auth Dependency:** GAP-13 will assume `req.user` is populated by upstream auth middleware. No custom auth logic in route handlers.
+4. **Transaction Safety:** Admin state-changing operations (cancel, force-lock, resolve error) should use row-level locking (`SELECT FOR UPDATE`) to prevent concurrent conflicts, following the pattern established in settlement execution (GAP-09).
+5. **Audit Integration:** Admin operations will write audit records to `admin_contest_audit` table with SYSTEM or user actor identity, following established patterns in `adminContestService.js`.
 
 ---
 
@@ -489,5 +538,6 @@ Consequence: Contests will not surface stale state to single-instance lookups, b
 
 | Date | Version | Author | Description |
 |---|---|---|---|
+| 2026-02-11 | v1 | System | GAP-12 CLOSED: Implemented GET /api/contests/my endpoint with full 6-tier sorting contract. New `mapContestToApiResponseForList` mapper separates list and detail read models (CQRS). SQL-driven sorting with CASE tier assignment, tier-scoped time columns, NULLS LAST, and deterministic tie-breaker. Non-mutating list endpoint (no self-healing). Fail-closed ERROR visibility with role-based access control. Pagination with clamped limits [1,200] default 50. Centralized auth via req.user. Added comprehensive route tests validating SQL query structure and parameter handling. Updated contest-lifecycle.md with implementation notes. Added GAP-13 setup notes for admin operations role-based access pattern reuse. |
 | 2026-02-10 | v1 | System | GAP-08 clarification: Documented that settlement validation occurs inside `attemptSystemTransitionWithErrorRecovery()` error recovery boundary, not only in `advanceContestLifecycleIfNeeded()`. This placement is mandatory for GAP-07 error recovery semantics. Updated GAP-08 description to COMPLETE status and clarified SYSTEM audit implementation with canonical UUID. Added "Settlement Validation Boundaries (Post-GAP-08)" section to document scope, timing, audit trails, and invariants. Updated completion checklist to reflect error recovery boundary requirement. |
 | 2026-02-08 | v1 | System | Initial creation of the Contest Infrastructure v1 Gap Checklist. Fifteen gaps identified across database, backend domain logic, API contract, and admin operations layers. All gaps measured against Contest Lifecycle Contract v1. |
