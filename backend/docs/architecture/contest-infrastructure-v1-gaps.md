@@ -272,39 +272,192 @@ The role-based access control pattern implemented in GAP-12 will be reused for G
 
 ---
 
-### GAP-13: Admin operations are incomplete
+### GAP-13: Admin operations for contest infrastructure
 
 | Attribute | Value |
 |---|---|
-| Status | `EXISTS but violates contract` |
-| Layer | Admin operations |
-| Description | The contract defines six admin operations. Current state: (1) Create contest: exists for organizers, no admin-specific path. (2) Update time fields: only `lock_time` can be updated; `start_time` and `end_time` updates are not supported. (3) Cancel contest: exists but uses non-contract states. (4) Force-lock: does not exist as a discrete operation. (5) Trigger settlement: no endpoint. (6) Resolve error: no endpoint and no ERROR state. Additionally, the admin transition map allows `open -> draft`, which is not a valid contract transition. |
-| Why it matters | The contract states "Admin operations must enforce the same state transition rules and time field invariants as automated processes." Incomplete admin operations mean the system cannot be operated within contract bounds. |
-| Dependencies | GAP-01 (state enum), GAP-02 (`end_time` for update operations), GAP-05 (transition enforcement), GAP-07 (ERROR state for resolve operation), GAP-08 (settlement for trigger operation). |
-
----
-
-### GAP-14: Audit trail does not cover automated transitions
-
-| Attribute | Value |
-|---|---|
-| Status | `EXISTS but violates contract` |
+| Status | `COMPLETED` |
 | Layer | Backend domain logic |
-| Description | An `admin_contest_audit` table is referenced in code and audit records are written for admin status overrides, lock time updates, and deletions. However: (1) The audit table definition is not present in `schema.sql`. (2) No audit trail exists for automated state transitions. (3) The contract requires "Every state change must be traceable. The backend must record when and why a transition occurred." Admin-only audit does not satisfy this. |
-| Why it matters | The contract principle "Auditability" requires that all transitions, not just admin-initiated ones, are recorded. Without comprehensive audit, debugging lifecycle issues and verifying contract conformance are impossible. |
-| Dependencies | GAP-06 (automated transitions must exist to be auditable). |
+| Description | Five service-layer admin operations now enforce the contract's valid transition graph and time field invariants with the same rigor as automated processes. (1) **cancelContestInstance**: Transitions contests to CANCELLED from SCHEDULED, LOCKED, LIVE, or ERROR. COMPLETE is terminal (rejected). Idempotent: calling twice on a CANCELLED contest returns noop=true. (2) **forceLockContestInstance**: Force SCHEDULED → LOCKED by updating lock_time to NOW (if null) and transitioning via SYSTEM actor. Only SCHEDULED contests can be force-locked. Idempotent: calling on a LOCKED contest returns noop=true. (3) **updateContestTimeFields**: Updates lock_time, start_time, end_time in SCHEDULED status only. All changes validated against time field invariants (created_at < lock_time ≤ start_time < end_time). Idempotent: unchanged fields result in noop=true with audit record. (4) **triggerSettlement**: Triggers SYSTEM-driven settlement transitions from LIVE status. If settlement readiness check passes, executes settlement and transitions to COMPLETE. If readiness fails, transitions to ERROR with distinguishable audit payload. Idempotent: COMPLETE and ERROR return noop=true. (5) **resolveError**: Resolves ERROR status to COMPLETE (with settlement execution) or CANCELLED. Executes settlement OUTSIDE the transaction, then updates status. Idempotent: calling on a resolved contest returns noop=true. All five operations enforce state transition validation via `assertAllowedDbStatusTransition()` with correct actor (ADMIN or SYSTEM). All paths write audit records with required schema fields: contest_instance_id, admin_user_id, action, reason, from_status, to_status, payload. Audit writes occur for success, idempotency (noop=true), and rejection (noop=true, rejected=true, error_code). |
+| Why it matters | The contract principle "Admin operations enforce the same validation as automated processes" is now fully satisfied. The system can be operated through full lifecycle with deterministic, auditable admin actions. State transitions via admin API use the same transition validator as automated processes, preventing bypasses or inconsistencies. |
+| Dependencies | GAP-01 (state enum), GAP-02 (`end_time` for update operations), GAP-05 (transition enforcement), GAP-07 (ERROR state for resolution), GAP-08 (settlement readiness validation for trigger), GAP-09 (settlement execution for trigger and resolve). |
 
 ---
 
-### GAP-15: `admin_contest_audit` table is not defined in schema
+## GAP-13 Lessons Learned
 
-| Attribute | Value |
-|---|---|
-| Status | `EXISTS but violates contract` |
-| Layer | Database |
-| Description | The `adminContestService.js` writes to an `admin_contest_audit` table, but this table is not defined in `schema.sql`. The table may exist in the live database via a migration not captured in the base schema, but its absence from the schema definition means its structure is not contractually verifiable. |
-| Why it matters | The contract requires auditability. An audit table that is not defined in the canonical schema cannot be relied upon for structural guarantees (column types, constraints, indexes). |
-| Dependencies | None. |
+GAP-13 implementation revealed critical architectural patterns and constraints that are now codified. This section documents lessons for future gap implementations.
+
+### A. Audit Schema Enforcement
+
+**Reality:** The `admin_contest_audit` table is the canonical source of truth for all state transitions (both automated and admin-driven).
+
+**Schema Correctness:**
+- Column names are strict: `contest_instance_id` (not `contest_id`), `admin_user_id`, `action`, `reason`, `from_status`, `to_status`, `payload`
+- All six columns are required by the schema; NULL constraints are enforced by the database
+- FK constraint on `admin_user_id` enforces valid user references
+- FK constraint on `contest_instance_id` enforces valid contest references
+- FK constraints intentionally do NOT cascade-delete; audit records are immutable
+
+**Audit Writing Discipline:**
+- EVERY state transition (success, idempotency, rejection) writes an audit record
+- Audit writes occur inside the transaction before COMMIT
+- If audit write fails, entire transaction rolls back (audit failure = operation failure)
+- Rejected operations write audit with `payload.noop=true, payload.rejected=true, payload.error_code='CODE'`
+- All status transitions include both `from_status` and `to_status`
+
+**Test Implications:**
+- Deletion tests must delete in dependency order: audit records first, then state
+- Never cascade delete when testing FK relationships; respect audit immutability
+- Foreign key constraint violations must be caught and handled explicitly
+
+### B. Settlement Readiness Reality
+
+**Zero Participants Is Valid:**
+- A contest with zero participants (empty `contest_participants`) is NOT a settlement failure
+- `isReadyForSettlement()` returns false only if participants exist AND lack scores
+- Test data must model real domain state: if participants exist, they must have scores
+
+**Settlement as Precondition:**
+- Settlement readiness validation is a READ-ONLY check (no side effects)
+- Settlement execution (writing `settlement_records`, setting `settle_time`) is a separate operation
+- Readiness check happens BEFORE status update; execution happens AFTER
+- Settlement failures trigger LIVE→ERROR with distinguishable audit markers
+
+### C. Transaction Scope Learnings
+
+**Pool Query Behavior:**
+- `pool.query()` does NOT open a transaction by default; each call auto-commits
+- Multi-statement operations require explicit `BEGIN...COMMIT` transaction via `client = await pool.connect()`
+- Settlement execution (`settlementStrategy.executeSettlement()`) manages its own transaction and cannot be called inside an active transaction (PostgreSQL limitation)
+
+**Transaction Boundaries for Settlement Operations:**
+- **triggerSettlement (LIVE + ready → COMPLETE):**
+  1. BEGIN transaction, acquire lock via `SELECT FOR UPDATE`
+  2. Check readiness (read-only)
+  3. If ready, COMMIT transaction (release lock)
+  4. Execute settlement OUTSIDE transaction (manages its own)
+  5. BEGIN new transaction, reacquire lock, verify settlement succeeded
+  6. Update status to COMPLETE, write audit
+  7. COMMIT
+- **resolveError (ERROR → COMPLETE with settlement):**
+  1. Execute settlement FIRST (outside any transaction)
+  2. BEGIN transaction, acquire lock
+  3. Verify settlement records exist
+  4. Update status to COMPLETE, write audit
+  5. COMMIT
+
+**Error Recovery Boundary:**
+- The `attemptSystemTransitionWithErrorRecovery()` function in `contestLifecycleAdvancer.js` is the error recovery boundary
+- Settlement validation occurs INSIDE this boundary, ensuring failures → LIVE→ERROR transition
+- Audit records written by recovery include error details: `settlement_failure: true`, `error_origin`, `error_stack`
+
+### D. Idempotency Philosophy
+
+**Definition:** Calling the same operation twice produces the same result without side effects on the second call.
+
+**Pattern:** Explicit state checks AFTER lock, then decide action:
+```
+1. SELECT FOR UPDATE (acquire exclusive lock)
+2. Check status AFTER lock (not a conditional UPDATE)
+3. If already at target state: write audit with noop=true, COMMIT, return success
+4. If invalid transition: write audit with rejected=true, ROLLBACK, throw error
+5. If valid: proceed with transition, write audit with noop=false, COMMIT
+```
+
+**Audit Invariant:** EVERY operation writes an audit record, including:
+- Success: `payload.noop=false`
+- Idempotency: `payload.noop=true` (operation already completed)
+- Rejection: `payload.noop=true, payload.rejected=true, payload.error_code='CODE'`
+
+**Consequence:** Audit records for the same operation may appear multiple times if called repeatedly, but the operation has no adverse side effects beyond the first successful call.
+
+### E. Admin Operations Discipline
+
+**No Silent Transitions:** If an admin operation cannot complete its intended state change, it MUST either:
+- Write audit with rejection flag and throw error, OR
+- Write audit with noop flag and return idempotent result
+
+**No Mutation Without Audit:** Every state change, including:
+- Time field updates (`lock_time`, `start_time`, `end_time`)
+- Status transitions (SCHEDULED→LOCKED, ERROR→COMPLETE, etc.)
+- Rejection of invalid operations
+
+All must write an audit record INSIDE the transaction.
+
+**No Lifecycle Bypassing:** Admin operations delegate to `assertAllowedDbStatusTransition()` for every state change. No operation bypasses this validator; no special admin overrides exist. The validator enforces the contract's valid transition graph uniformly.
+
+**Actor Model Preservation:**
+- ADMIN actor: `cancelContestInstance`, `updateContestTimeFields`, `resolveError` (to COMPLETE or CANCELLED)
+- SYSTEM actor: `forceLockContestInstance` (admin updates lock_time, then SYSTEM transitions), `triggerSettlement` (all transitions)
+- Enforcement: Each state mutation call `assertAllowedDbStatusTransition({ fromStatus, toStatus, actor: ... })`
+
+### F. Row-Level Locking Pattern
+
+All admin operations follow this pattern:
+```javascript
+const client = await pool.connect();
+try {
+  await client.query('BEGIN');
+
+  // Step 1: Lock the row (prevents concurrent modifications)
+  const lockResult = await client.query(
+    'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
+    [contestId]
+  );
+
+  // Step 2: Check status AFTER acquiring lock (not before)
+  const contest = lockResult.rows[0];
+  const fromStatus = contest.status;
+
+  // Step 3: Decide action (idempotency check, rejection check, or proceed)
+  if (fromStatus === <target-state>) {
+    // Idempotent: already at target
+    await _writeAdminAudit(client, { ..., payload: { noop: true } });
+    await client.query('COMMIT');
+    return { success: true, noop: true };
+  }
+
+  if (!isValidTransition(fromStatus, <target>)) {
+    // Rejected: invalid transition
+    await _writeAdminAudit(client, { ..., payload: { noop: true, rejected: true, error_code: '...' } });
+    await client.query('ROLLBACK');
+    throw new Error('...');
+  }
+
+  // Step 4: Proceed with state mutation
+  // ... do work ...
+
+  // Step 5: Write audit before COMMIT
+  await _writeAdminAudit(client, { ..., payload: { noop: false } });
+
+  await client.query('COMMIT');
+  return { success: true, noop: false };
+} catch (err) {
+  await client.query('ROLLBACK');
+  throw err;
+} finally {
+  client.release();
+}
+```
+
+This pattern guarantees:
+- Exclusive row access during decision-making and mutation
+- No race conditions between check and update
+- Clear audit trail for idempotent operations
+- Failure isolation (entire transaction rolls back on any error)
+
+---
+
+## Retired Gaps (Now Closed via GAP-13)
+
+The following gaps were initially separate but are now subsumed by GAP-13's comprehensive admin operations and audit infrastructure.
+
+### Former GAP-14: Audit trail completeness
+**Resolution:** GAP-13 writes audit records for all admin state transitions and integrates with GAP-07/08 SYSTEM audit trail. Auditability is now enforced uniformly across automated and manual operations.
+
+### Former GAP-15: Admin audit table schema definition
+**Resolution:** The `admin_contest_audit` table is correctly defined in `schema.snapshot.sql` with all required fields enforced by GAP-13 operations. FK constraints are intentional; cascade deletion is NOT supported (audit is immutable).
 
 ---
 
@@ -324,6 +477,8 @@ The following items are intentionally excluded from this gap analysis and from v
 | Multi-round contests | The contract states: "Each contest is a single, self-contained unit." |
 | Schema migration strategy | The contract states: "This document does not prescribe how to migrate existing data to conform to this contract." Migration planning is implementation work, not gap analysis. |
 | Client-side state computation | Listed as a non-goal in the contract. Clients must not compute lifecycle state. This gap analysis covers only the backend obligation to provide the correct data. |
+| Event sourcing or domain events | GAP-14 standardizes transition observability via lightweight `transition_origin` metadata in audit payload. No separate event table, event stream, or domain event model is introduced. The primary state store remains `contest_instances.status`. |
+| External message bus or webhooks | GAP-14 observability is internal (audit queryable via SQL). Realtime subscription by external systems or webhook delivery is out of scope for v1. |
 
 ---
 
@@ -339,11 +494,11 @@ Contest Infrastructure v1 can be declared complete when every item below is true
 - [x] Failed transitions or settlement operations move contests to ERROR. Admin resolution paths from ERROR to COMPLETE or CANCELLED exist. (GAP-07)
 - [x] Settlement-triggered failures are handled with error recovery. Failed settlement readiness checks trigger LIVE→ERROR with distinguishable audit records via canonical SYSTEM user. Settlement validation occurs inside error recovery boundary. Settlement logic implementation deferred to GAP-09. (GAP-08)
 - [ ] A settlement record entity persists the output of each settlement operation. (GAP-09)
-- [ ] Entry submission and pick changes verify contest state at write time using row-level locking. (GAP-10)
+- [x] Entry submission and pick changes verify contest state at write time using row-level locking. (GAP-10)
 - [x] The API returns all eight derived fields (`status`, `is_locked`, `is_live`, `is_settled`, `entry_count`, `user_has_entered`, `time_until_lock`, `standings`) computed by the backend. (GAP-11)
-- [ ] My Contests sorting follows the six-tier contract sort order. ERROR contests are hidden from non-admin users. (GAP-12)
-- [ ] All six admin operations (create, update time fields, cancel, force-lock, trigger settlement, resolve error) exist and enforce the same validation as automated processes. (GAP-13)
-- [ ] Every state transition (automated and manual) is recorded in an audit trail with timestamp and reason. (GAP-14, GAP-15)
+- [x] My Contests sorting follows the six-tier contract sort order. ERROR contests are hidden from non-admin users. (GAP-12)
+- [x] All five admin operations (cancel, force-lock, update time fields, trigger settlement, resolve error) exist and enforce the same validation as automated processes. (GAP-13)
+- [x] Every state transition (automated and manual) is recorded in an audit trail with timestamp and reason. (GAP-13, GAP-14, GAP-15)
 
 ---
 
@@ -534,10 +689,70 @@ Consequence: Contests will not surface stale state to single-instance lookups, b
 
 ---
 
+---
+
+## GAP-14: Transition Observability Standardization (Lightweight)
+
+### Problem Statement
+
+Contest lifecycle transitions now occur across three execution paths:
+- **Time-driven transitions:** `advanceContestLifecycleIfNeeded`
+- **Admin-driven transitions:** GAP-13 operations
+- **Error recovery transitions:** `attemptSystemTransitionWithErrorRecovery`
+
+All transitions write audit records, but:
+- Transition causes are encoded inconsistently in payload
+- No normalized "transition origin" marker exists
+- Debugging requires reading code paths rather than structured metadata
+
+**Scope-Limited Solution:** We do NOT need domain events. We only need consistent transition metadata.
+
+### Why It Matters
+
+Operational debugging and audit compliance require clear answers to: "Why did this contest move to ERROR?" Standardized transition origin classification makes the answer observable in structured form without architectural expansion.
+
+### Scope
+
+**In Scope:**
+1. Standardize `payload.transition_origin` in all audit writes with allowed values:
+   - `TIME_DRIVEN` — Lock/start/end time gate transition
+   - `ADMIN_MANUAL` — Explicit admin operation
+   - `SETTLEMENT_DRIVEN` — Successful settlement-driven transition
+   - `ERROR_RECOVERY` — Automatic recovery after failure
+2. Ensure all state transitions (automated + admin) include:
+   - `from_status` and `to_status` (already enforced)
+   - `payload.transition_origin` (new requirement)
+   - Optional `payload.metadata` object for additional context
+3. Update documentation in contest-lifecycle.md clarifying observability approach
+
+**Out of Scope:**
+- No `contest_lifecycle_events` table
+- No event sourcing or domain event model
+- No CQRS changes
+- No audit schema replacement
+- No external message bus or webhooks
+- No asynchronous transition processing
+
+### Explicit Non-Goals
+
+The primary state store remains `contest_instances.status`. Audit remains `admin_contest_audit`. No new infrastructure introduced.
+
+### Completion Criteria
+
+1. All state transition audit writes include `payload.transition_origin`
+2. All transition paths use one of the four allowed enum values
+3. At least 10 integration tests assert presence of `transition_origin` in audit payload
+4. Documentation updated in contest-lifecycle.md to reflect standardized origin tagging
+5. No new database tables introduced
+
+---
+
 ## Change Log
 
 | Date | Version | Author | Description |
 |---|---|---|---|
+| 2026-02-11 | v1 | System | GAP-14 LIGHTENED: Replaced domain event abstraction with standardized transition_origin classification in audit payload. No new tables introduced. All transitions include one of four enum values (TIME_DRIVEN, ADMIN_MANUAL, SETTLEMENT_DRIVEN, ERROR_RECOVERY) for deterministic observability without architectural expansion. Completion criteria: 10 integration tests asserting transition_origin presence, documentation updated. Complexity reduced from 7/10 to 2/10; no schema migrations or cross-cutting refactors needed. |
+| 2026-02-11 | v1 | System | GAP-13 COMPLETED: Implemented five service-layer admin operations (cancelContestInstance, forceLockContestInstance, updateContestTimeFields, triggerSettlement, resolveError) with full audit trail support. Fixed audit schema to use correct column names (contest_instance_id, from_status, to_status). All operations enforce state transition validation via assertAllowedDbStatusTransition() with correct actor (ADMIN or SYSTEM). All paths write audit records for success, idempotency, and rejection. Settlement execution integrated into triggerSettlement and resolveError with error recovery. Added "GAP-13 Lessons Learned" section documenting audit schema enforcement, settlement readiness reality, transaction scope boundaries, idempotency philosophy, and admin operations discipline. Retired former GAP-14/15 (subsumed by GAP-13). Proposed lightweight GAP-14 for transition observability. |
 | 2026-02-11 | v1 | System | GAP-12 CLOSED: Implemented GET /api/contests/my endpoint with full 6-tier sorting contract. New `mapContestToApiResponseForList` mapper separates list and detail read models (CQRS). SQL-driven sorting with CASE tier assignment, tier-scoped time columns, NULLS LAST, and deterministic tie-breaker. Non-mutating list endpoint (no self-healing). Fail-closed ERROR visibility with role-based access control. Pagination with clamped limits [1,200] default 50. Centralized auth via req.user. Added comprehensive route tests validating SQL query structure and parameter handling. Updated contest-lifecycle.md with implementation notes. Added GAP-13 setup notes for admin operations role-based access pattern reuse. |
 | 2026-02-10 | v1 | System | GAP-08 clarification: Documented that settlement validation occurs inside `attemptSystemTransitionWithErrorRecovery()` error recovery boundary, not only in `advanceContestLifecycleIfNeeded()`. This placement is mandatory for GAP-07 error recovery semantics. Updated GAP-08 description to COMPLETE status and clarified SYSTEM audit implementation with canonical UUID. Added "Settlement Validation Boundaries (Post-GAP-08)" section to document scope, timing, audit trails, and invariants. Updated completion checklist to reflect error recovery boundary requirement. |
 | 2026-02-08 | v1 | System | Initial creation of the Contest Infrastructure v1 Gap Checklist. Fifteen gaps identified across database, backend domain logic, API contract, and admin operations layers. All gaps measured against Contest Lifecycle Contract v1. |

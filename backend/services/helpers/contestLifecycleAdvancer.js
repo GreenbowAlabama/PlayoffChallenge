@@ -19,28 +19,31 @@
 const { ACTORS, assertAllowedDbStatusTransition } = require('./contestTransitionValidator');
 
 /**
- * Write a SYSTEM-driven audit record for state transitions.
+ * Write a SYSTEM-driven audit record for state transitions (GAP-13 compliant).
  * Records automated SYSTEM actions using the canonical SYSTEM user ID.
+ * Uses correct schema column names and required status transition fields.
  *
  * @param {Object} pool - Database connection pool
- * @param {string} contestId - Contest instance UUID
+ * @param {string} contestInstanceId - Contest instance UUID
+ * @param {string} fromStatus - Previous status
+ * @param {string} toStatus - New status (always 'ERROR' for recovery)
  * @param {string} action - Action type (e.g., 'system_error_transition')
  * @param {string} reason - Human-readable reason for the transition
  * @param {Object} payload - Additional context (error name, attempted status, etc.)
  */
-async function writeSystemAudit(pool, contestId, action, reason, payload) {
+async function writeSystemAudit(pool, contestInstanceId, fromStatus, toStatus, action, reason, payload) {
   // Canonical SYSTEM user ID for automated actions
   const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 
   try {
     await pool.query(
-      `INSERT INTO admin_contest_audit (contest_id, admin_user_id, action, reason, payload)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [contestId, SYSTEM_USER_ID, action, reason, JSON.stringify(payload || {})]
+      `INSERT INTO admin_contest_audit (contest_instance_id, admin_user_id, action, reason, from_status, to_status, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [contestInstanceId, SYSTEM_USER_ID, action, reason, fromStatus, toStatus, JSON.stringify(payload || {})]
     );
   } catch (auditErr) {
     // Log audit failures but do not block the operation
-    console.error(`[GAP-07] Failed to write SYSTEM audit for contest ${contestId}:`, auditErr.message);
+    console.error(`[GAP-07] Failed to write SYSTEM audit for contest ${contestInstanceId}:`, auditErr.message);
   }
 }
 
@@ -237,6 +240,8 @@ async function attemptSystemTransitionWithErrorRecovery(pool, contestRow, nextSt
       await writeSystemAudit(
         pool,
         contestRow.id,
+        currentStatus,
+        'ERROR',
         'system_error_transition',
         `Automatic transition to ERROR due to failed attempt to transition to ${nextStatus}`,
         auditPayload

@@ -206,20 +206,84 @@ Write-time lifecycle enforcement is now fully guaranteed for both contest entry 
 
 ---
 
-## Admin Operations Contract
+## Admin Operations Contract (GAP-13 COMPLETED)
 
 Admin operations are privileged actions that modify contest state or configuration. These operations are available only to authenticated admin users.
 
 | Operation | Permitted States | Effect |
 |---|---|---|
 | Create contest | N/A | Creates a new contest in SCHEDULED state with all required time fields. |
-| Update time fields | SCHEDULED, LOCKED (with restrictions) | Modifies lock_time, start_time, or end_time subject to time field invariants. |
-| Cancel contest | SCHEDULED, LOCKED, LIVE | Transitions contest to CANCELLED. |
-| Force-lock contest | SCHEDULED | Transitions contest to LOCKED immediately, updating lock_time to now. |
-| Trigger settlement | COMPLETE | Executes the settlement process. |
-| Resolve error | ERROR | Transitions contest to COMPLETE or CANCELLED after manual investigation. |
+| Update time fields | SCHEDULED only | Modifies lock_time, start_time, or end_time subject to time field invariants. Time invariants enforce: created_at < lock_time ≤ start_time < end_time. Idempotent: unchanged fields return noop=true. |
+| Cancel contest | SCHEDULED, LOCKED, LIVE, ERROR | Transitions contest to CANCELLED. COMPLETE is terminal (rejected). Idempotent: calling on a CANCELLED contest returns noop=true. |
+| Force-lock contest | SCHEDULED | Transitions contest to LOCKED immediately, updating lock_time to NOW if null. Uses SYSTEM actor for transition (after ADMIN updates lock_time). Idempotent: calling on a LOCKED contest returns noop=true. |
+| Trigger settlement | LIVE | Checks settlement readiness. If ready, executes settlement and transitions to COMPLETE. If not ready, transitions to ERROR. Idempotent: COMPLETE and ERROR return noop=true. |
+| Resolve error | ERROR | Transitions contest to COMPLETE (with settlement execution) or CANCELLED. For COMPLETE, settlement is executed OUTSIDE the transaction, then status is updated. Idempotent: calling on a resolved contest returns noop=true. |
 
-Admin operations must enforce the same state transition rules and time field invariants as automated processes. There are no admin overrides that bypass validation in v1.
+### Admin Operations Implementation Details (GAP-13)
+
+All five admin operations enforce the same state transition rules and time field invariants as automated processes. There are no admin overrides that bypass validation in v1.
+
+**Shared Implementation Patterns:**
+
+1. **Row-Level Locking:** All operations use `SELECT ... FOR UPDATE` to acquire an exclusive row lock, preventing concurrent modifications during decision-making and state mutation.
+
+2. **State Checks After Lock:** Status is checked AFTER acquiring the lock, not before. This prevents race conditions between validation and mutation.
+
+3. **Audit Trail Discipline:** Every operation writes an audit record inside the transaction:
+   - Success: `payload.noop=false`
+   - Idempotency: `payload.noop=true` (operation already completed)
+   - Rejection: `payload.noop=true, payload.rejected=true, payload.error_code='CODE'`
+   - All records include required fields: `contest_instance_id`, `admin_user_id`, `action`, `reason`, `from_status`, `to_status`, `payload`
+
+4. **Transition Validation:** All status changes call `assertAllowedDbStatusTransition()` with the correct actor (ADMIN or SYSTEM) before UPDATE:
+   - `cancelContestInstance`: ADMIN actor
+   - `forceLockContestInstance`: SYSTEM actor (for the transition; ADMIN updates lock_time)
+   - `updateContestTimeFields`: No transition (no state change)
+   - `triggerSettlement`: SYSTEM actor (all transitions via this operation)
+   - `resolveError`: ADMIN actor
+
+5. **Idempotency Semantics:** Calling the same operation twice produces the same result without adverse side effects beyond the first call. Idempotent calls return `noop=true` with audit record.
+
+6. **Settlement Execution Boundaries (triggerSettlement, resolveError):**
+   - Settlement logic manages its own transaction and cannot be called inside an active transaction (PostgreSQL limitation)
+   - **triggerSettlement (LIVE + ready → COMPLETE):**
+     1. BEGIN transaction, acquire lock, check readiness
+     2. If ready, COMMIT (release lock)
+     3. Execute settlement OUTSIDE transaction
+     4. BEGIN new transaction, reacquire lock, update status
+   - **resolveError (ERROR → COMPLETE with settlement):**
+     1. Execute settlement FIRST (outside any transaction)
+     2. BEGIN transaction, acquire lock, verify settlement succeeded
+     3. Update status
+
+### Transition Origin Classification (GAP-14)
+
+All lifecycle state transitions include a standardized `transition_origin` field in audit payload for deterministic observability:
+
+| Origin | Description |
+|---|---|
+| `TIME_DRIVEN` | Lock time, start time, or end time gate transition via read-path self-healing |
+| `ADMIN_MANUAL` | Explicit admin operation (cancelContestInstance, forceLockContestInstance, updateContestTimeFields, triggerSettlement, resolveError) |
+| `SETTLEMENT_DRIVEN` | Successful settlement-driven transition (LIVE→COMPLETE when settlement is ready and executed) |
+| `ERROR_RECOVERY` | Automatic recovery after failure (LIVE→ERROR when settlement readiness check fails or other errors occur) |
+
+**Usage:**
+```sql
+-- Find all contests that transitioned to ERROR due to settlement failure
+SELECT * FROM admin_contest_audit
+WHERE action = 'system_error_transition'
+  AND payload->>'transition_origin' = 'ERROR_RECOVERY'
+ORDER BY created_at DESC;
+
+-- Find all admin-triggered LIVE→CANCELLED transitions
+SELECT * FROM admin_contest_audit
+WHERE action = 'cancel_contest'
+  AND from_status = 'LIVE'
+  AND payload->>'transition_origin' = 'ADMIN_MANUAL'
+ORDER BY created_at DESC;
+```
+
+This enables deterministic observability without introducing a domain event system. No separate lifecycle event table exists in v1.
 
 ---
 
@@ -520,6 +584,8 @@ All tests pass successfully.
 
 | Date | Version | Author | Description |
 |---|---|---|---|
+| 2026-02-11 | v1 | System | GAP-14 LIGHTENED: Replaced domain event abstraction with lightweight transition_origin classification in audit payload (TIME_DRIVEN, ADMIN_MANUAL, SETTLEMENT_DRIVEN, ERROR_RECOVERY). No new tables. Enables deterministic observability for debugging and compliance. Added "Transition Origin Classification" section with usage examples. Completion criteria: 10 integration tests, documentation updated. Proportional risk: minimal architectural impact. |
+| 2026-02-11 | v1 | System | GAP-13 COMPLETED: Five service-layer admin operations now enforce the contract's valid transition graph and time field invariants with the same rigor as automated processes. (1) cancelContestInstance: SCHEDULED/LOCKED/LIVE/ERROR → CANCELLED; COMPLETE is terminal. (2) forceLockContestInstance: SCHEDULED → LOCKED via SYSTEM actor (ADMIN updates lock_time). (3) updateContestTimeFields: SCHEDULED-only time updates with invariant validation. (4) triggerSettlement: LIVE → COMPLETE (if settlement ready) or LIVE → ERROR (if not ready). (5) resolveError: ERROR → COMPLETE (with settlement execution) or ERROR → CANCELLED. All operations use row-level locking (SELECT FOR UPDATE), explicit state checks after lock, audit trail discipline (success/idempotency/rejection), transition validation via assertAllowedDbStatusTransition(), and support idempotency. Settlement execution respects transaction boundaries (outside active transactions for executeSettlement()). Audit schema corrected: contest_instance_id, admin_user_id, action, reason, from_status, to_status, payload. Updated "Admin Operations Contract" section with implementation details and shared patterns. |
 | 2026-02-11 | v1 | System | GAP-12 CLOSED: "Contest List (My Contests)" section now fully implemented. Endpoint GET /api/contests/my returns contests user entered or SCHEDULED contests open for entry. Six-tier sorting enforced at SQL layer with CASE tier assignment and tier-scoped time columns. ERROR contests hidden from non-admin users (fail-closed policy). Metadata-only list response (no standings, deterministic and scalable). Dedicated `mapContestToApiResponseForList` mapper enforces list-specific invariants, separating read model concerns from detail endpoints. Non-mutating list endpoint (no self-healing). Pagination deterministic: limit [1,200] default 50, offset >= 0 default 0. Updated "Contest List (My Contests)" section with implementation notes documenting endpoint, SQL sorting strategy, error visibility, read model separation, pagination, non-mutating behavior, and authentication requirements. |
 | 2026-02-10 | v1 | System | GAP-08 complete and documented: (1) Settlement validation location clarified—occurs inside `attemptSystemTransitionWithErrorRecovery()` error recovery boundary, not only in `advanceContestLifecycleIfNeeded()`. (2) SYSTEM audit implementation documented with canonical UUID `00000000-0000-0000-0000-000000000000`. (3) Audit payload contracts defined for settlement failures: `settlement_failure: true`, `error_origin: 'settlement_readiness_check'`, full error stack. (4) Error recovery semantics guaranteed: failed settlement checks trigger LIVE→ERROR with distinguishable audit records. Settlement logic implementation remains deferred to GAP-09. |
 | 2026-02-08 | v1 | System | Initial creation of the Contest Lifecycle Contract. All sections defined. This is the authoritative v1 baseline. |

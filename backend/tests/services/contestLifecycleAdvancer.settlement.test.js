@@ -192,11 +192,34 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
       );
 
       testContestId = createRes.rows[0].id;
+
+      // Add test user as a participant (required for settlement readiness check)
+      // Without participants, isReadyForSettlement() returns true instead of throwing
+      await poolReal.query(
+        `INSERT INTO contest_participants (contest_instance_id, user_id)
+         VALUES ($1, $2)
+         ON CONFLICT (contest_instance_id, user_id) DO NOTHING`,
+        [testContestId, testOrgId]
+      );
     });
 
     afterAll(async () => {
       if (testContestId) {
-        await poolReal.query(`DELETE FROM contest_instances WHERE id = $1`, [testContestId]);
+        // Delete in dependency order: audit first (has FK to contest_instances)
+        await poolReal.query(
+          `DELETE FROM admin_contest_audit WHERE contest_instance_id = $1`,
+          [testContestId]
+        );
+
+        await poolReal.query(
+          `DELETE FROM contest_participants WHERE contest_instance_id = $1`,
+          [testContestId]
+        );
+
+        await poolReal.query(
+          `DELETE FROM contest_instances WHERE id = $1`,
+          [testContestId]
+        );
       }
     });
 
@@ -241,7 +264,7 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
       // Check the audit trail for the contest
       const auditRes = await poolReal.query(
         `SELECT * FROM admin_contest_audit
-         WHERE contest_id = $1
+         WHERE contest_instance_id = $1
            AND action = 'system_error_transition'
          ORDER BY created_at DESC
          LIMIT 1`,
@@ -262,7 +285,7 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
     test('CRITICAL: Settlement failure audit includes error_origin field', async () => {
       const auditRes = await poolReal.query(
         `SELECT * FROM admin_contest_audit
-         WHERE contest_id = $1
+         WHERE contest_instance_id = $1
            AND action = 'system_error_transition'
          ORDER BY created_at DESC
          LIMIT 1`,
@@ -282,7 +305,7 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
     test('CRITICAL: Settlement failure audit includes error stack trace', async () => {
       const auditRes = await poolReal.query(
         `SELECT * FROM admin_contest_audit
-         WHERE contest_id = $1
+         WHERE contest_instance_id = $1
            AND action = 'system_error_transition'
          ORDER BY created_at DESC
          LIMIT 1`,
@@ -305,7 +328,7 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
     test('CRITICAL: attempted_status is COMPLETE in settlement failure audit', async () => {
       const auditRes = await poolReal.query(
         `SELECT * FROM admin_contest_audit
-         WHERE contest_id = $1
+         WHERE contest_instance_id = $1
            AND action = 'system_error_transition'
          ORDER BY created_at DESC
          LIMIT 1`,
@@ -373,7 +396,7 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
         // Audit record should NOT have settlement markers
         const auditRes = await poolReal.query(
           `SELECT * FROM admin_contest_audit
-           WHERE contest_id = $1
+           WHERE contest_instance_id = $1
              AND action = 'system_error_transition'`,
           [schedContestId]
         );

@@ -84,6 +84,8 @@ describe('Picks Lifecycle Integration Tests (GAP-10 Step 2) - Baseline', () => {
 
   beforeEach(async () => {
     // Clear out contest-specific data before each test to ensure isolation
+    // Delete in dependency order: audit first (has FK to contest_instances)
+    await pool.query('DELETE FROM admin_contest_audit WHERE contest_instance_id IN (SELECT id FROM contest_instances)');
     await pool.query('DELETE FROM picks WHERE contest_instance_id IN (SELECT id FROM contest_instances)');
     await pool.query('DELETE FROM contest_participants WHERE contest_instance_id IN (SELECT id FROM contest_instances)');
     await pool.query('DELETE FROM contest_instances');
