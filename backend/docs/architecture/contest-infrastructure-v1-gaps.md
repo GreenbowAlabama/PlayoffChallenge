@@ -2,6 +2,12 @@
 
 ---
 
+This document reflects verified backend and database behavior.
+Unless marked CLOSED, gaps may describe intended guarantees that are not yet fully enforced.
+Audit persistence is pending schema support.
+
+---
+
 ## Purpose
 
 This document enumerates what is missing, incorrect, or incomplete in the current Contest Infrastructure implementation, measured strictly against the locked [Contest Lifecycle Contract v1](./contest-lifecycle.md).
@@ -105,7 +111,7 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 | Attribute | Value |
 |---|---|
-| Status | `EXISTS and conforms` |
+| Status | `CLOSED` |
 | Layer | Backend domain logic |
 | Description | Time-driven state transitions are now implemented via read-path self-healing. When a contest is fetched via single-instance read paths (`getContestInstance`, `getContestInstanceByToken`, `resolveJoinToken`), the system evaluates whether a time-based transition is due (e.g., current time ≥ lock_time) and persists the new status atomically using SYSTEM actor authority. This design avoids stale state without requiring background jobs, cron workers, or event loops. Transitions are idempotent and handle race conditions gracefully via conditional UPDATE. Write paths (joins, admin updates) rely on independent guards and do not self-heal; list endpoints are non-mutating. |
 | Why it matters | The platform rule "No manual admin steps" (CLAUDE.md) and the contract both require that lifecycle transitions are data-driven and automated. Read-path self-healing ensures contests never surface stale state to single-instance lookups without increasing write fan-out or infrastructure complexity. |
@@ -117,10 +123,10 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 | Attribute | Value |
 |---|---|
-| Status | `MISSING and required for v1` |
+| Status | `CLOSED` |
 | Layer | Backend domain logic |
-| Description | The contract defines ERROR as a state that a contest enters when a transition or settlement operation fails. ERROR is not in the database enum. No code transitions a contest to ERROR on failure. No admin resolution path (ERROR-to-COMPLETE or ERROR-to-CANCELLED) exists. |
-| Why it matters | The contract's principle "No silent failures" requires that failed transitions surface visibly. Without ERROR, failures are either swallowed or leave contests in inconsistent intermediate states. Admin resolution is impossible if the state does not exist. |
+| Description | The contract defines ERROR as a state that a contest enters when a transition or settlement operation fails. The ERROR state is now implemented, and ERROR is now a value in the database enum. Automated processes now transition contests to ERROR on failure, and admin resolution paths (ERROR-to-COMPLETE or ERROR-to-CANCELLED) are in place. |
+| Why it matters | The contract's principle "No silent failures" requires that failed transitions surface visibly. The ERROR state ensures that failures are caught, and contests do not remain in inconsistent intermediate states. Admin resolution is now possible. |
 | Dependencies | GAP-01 (state enum must include ERROR), GAP-05 (transition map must include ERROR paths). |
 
 ---
@@ -129,9 +135,10 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 | Attribute | Value |
 |---|---|
-| Status | `COMPLETE and conforming` |
+| Status | `PARTIALLY CLOSED` |
 | Layer | Backend domain logic |
-| Description | Settlement is now integrated as a precondition for COMPLETE state, with error recovery. The system guarantees the contract principle "No silent failures" through the following mechanisms: (1) Settlement readiness validation occurs inside `attemptSystemTransitionWithErrorRecovery()` error recovery boundary (lines 179-183 of contestLifecycleAdvancer.js), not only in `advanceContestLifecycleIfNeeded()`. This placement is mandatory to ensure ALL settlement failures are caught and trigger ERROR state. (2) The LIVE→COMPLETE transition calls `isContestGamesComplete(contest)`, which checks two conditions: time gate (`end_time` has passed) and settlement readiness (`isReadyForSettlement()` succeeds). Either condition can block transition. (3) If `isReadyForSettlement()` throws or returns false during LIVE→COMPLETE, the error is caught inside the recovery boundary and contests transition to LIVE→ERROR (using existing GAP-07 error recovery). (4) Settlement failures are distinguished from pure time-driven errors via enhanced audit payloads with markers: `settlement_failure: true`, `error_origin: 'settlement_readiness_check'`, `error_stack: <truncated to 1000 chars>`. (5) SYSTEM audit records use canonical UUID `00000000-0000-0000-0000-000000000000` for `admin_user_id`, guaranteeing FK safety and non-null constraint satisfaction. (6) Settlement logic itself (`isReadyForSettlement()`, `computeRankings()`, `allocatePayouts()`, etc.) remains unimplemented in GAP-08 and will throw "Not implemented: isReadyForSettlement". The error handling infrastructure is complete. (7) Settlement result persistence (`settlement_records` table, `settle_time` write, settlement outcome auditing) is deferred to GAP-09. |
+| Description | Settlement is now integrated as a precondition for COMPLETE state, with error recovery. The system guarantees the contract principle "No silent failures" through the following mechanisms: (1) Settlement readiness validation occurs inside `attemptSystemTransitionWithErrorRecovery()` error recovery boundary (lines 179-183 of contestLifecycleAdvancer.js), not only in `advanceContestLifecycleIfNeeded()`. This placement is mandatory to ensure ALL settlement failures are caught and trigger ERROR state. (2) The LIVE→COMPLETE transition calls `isContestGamesComplete(contest)`, which checks two conditions: time gate (`end_time` has passed) and settlement readiness (`isReadyForSettlement()` succeeds). Either condition can block transition. (3) If `isReadyForSettlement()` throws or returns false during LIVE→COMPLETE, the error is caught inside the recovery boundary and contests transition to LIVE→ERROR (using existing GAP-07 error recovery). (4) Settlement failures are distinguished from pure time-driven errors via enhanced audit payloads with markers: `settlement_failure: true`, `error_origin: 'settlement_readiness_check'`, `error_stack: <truncated to 1000 chars>`. (5) SYSTEM audit records use canonical UUID `00000000-0000-0000-0000-000000000000` for `admin_user_id`, guaranteeing FK safety and non-null constraint satisfaction. (6) Settlement logic itself (`isReadyForSettlement()`, `computeRankings()`, `allocatePayouts()`, etc.) remains unimplemented in GAP-08 and will throw "Not implemented: isReadyForSettlement". The error handling infrastructure is complete. (7) Settlement result persistence (`settlement_records` table, `settle_time` write, settlement outcome auditing) is deferred to GAP-09.
+note: backend logic complete; blocked on missing admin_contest_audit table |
 | Why it matters | The contract principle "No silent failures" requires that failed settlement operations surface visibly and move contests to ERROR. Placing validation inside the error recovery boundary ensures all failures—including transient errors, missing data, and logic failures—are caught. Making settlement a precondition for COMPLETE ensures contests never reach COMPLETE unless settlement readiness succeeds, preventing orphaned COMPLETE contests. This is a critical invariant for v1 settlement architecture. Admin resolution is possible via ERROR → COMPLETE/CANCELLED transitions. |
 | Dependencies | GAP-01 (ERROR state must exist), GAP-05 (transition validation must be in place), GAP-06 (read-path self-healing where settlement check occurs), GAP-07 (ERROR recovery pattern establishes error handling semantics). |
 
@@ -141,22 +148,34 @@ All gaps are ordered strictly by dependency. Items that block other items appear
 
 | Attribute | Value |
 |---|---|
-| Status | `EXISTS and conforms` |
+| Status | `PARTIALLY CLOSED` |
 | Layer | Backend domain logic and database |
-| Description | Settlement execution is fully implemented with deterministic computation and persistent results. The `settlement_records` table exists with contest_instance_id (UNIQUE FK), settled_at timestamp, results (JSONB), results_sha256 hash, settlement_version, participant_count, and total_pool_cents. Backend implements: (1) `isReadyForSettlement()` — verifies all participants have scores for all 4 playoff weeks using single SQL query; (2) `computeRankings()` — competition ranking (ties at same position); (3) `allocatePayouts()` — percentage-based payout allocation with tie splitting; (4) `canonicalizeJson()` — deterministic hashing for result verification; (5) `executeSettlement()` — full transactional settlement with SELECT FOR UPDATE lock, idempotency check, consistency validation, atomic insert/update, and SYSTEM audit record. Settlement executes BEFORE LIVE→COMPLETE status update; if it throws, error recovery transitions contest to ERROR. All logic is deterministic and replayable from same inputs. 28 comprehensive tests cover unit functions, integration, idempotency, concurrency, ties, and error handling. |
+| Description | Settlement execution is fully implemented with deterministic computation and persistent results. The `settlement_records` table exists with contest_instance_id (UNIQUE FK), settled_at timestamp, results (JSONB), results_sha256 hash, settlement_version, participant_count, and total_pool_cents. Backend implements: (1) `isReadyForSettlement()` — verifies all participants have scores for all 4 playoff weeks using single SQL query; (2) `computeRankings()` — competition ranking (ties at same position); (3) `allocatePayouts()` — percentage-based payout allocation with tie splitting; (4) `canonicalizeJson()` — deterministic hashing for result verification; (5) `executeSettlement()` — full transactional settlement with SELECT FOR UPDATE lock, idempotency check, consistency validation, atomic insert/update, and SYSTEM audit record. Settlement executes BEFORE LIVE→COMPLETE status update; if it throws, error recovery transitions contest to ERROR. All logic is deterministic and replayable from same inputs. 28 comprehensive tests cover unit functions, integration, idempotency, concurrency, ties, and error handling.
+note: settlement logic complete; blocked on missing admin_contest_audit table |
 | Why it matters | Settlement results must be persisted and immutable. With settlement execution complete, contests can now transition to COMPLETE state only after verified, deterministic settlement. Results are traceable via settlement_records (single source of truth) and SHA-256 hashes. Idempotency prevents duplicate entries. Error integration with GAP-08 ensures no silent failures. |
 | Dependencies | GAP-08 (error recovery boundary for settlement), database schema (settlement_records table already applied). |
 
 ---
 
-### GAP-10: Write-time state verification is incomplete for picks
+### GAP-10: Write-time state verification for picks is complete
 
 | Attribute | Value |
 |---|---|
-| Status | `EXISTS but violates contract` |
+| Status | `COMPLETED` |
 | Layer | Backend domain logic |
-| Description | The `joinContest()` path correctly uses `SELECT FOR UPDATE` and verifies status at write time. However, pick submission and pick change paths do not demonstrate equivalent write-time state verification. The contract requires: "The backend must verify state at the time of the write, not at the time of the request" for both entry submission and pick changes. |
-| Why it matters | Without write-time verification on picks, a race condition exists where picks could be accepted after a contest has transitioned to LOCKED. The contract explicitly calls out this scenario. |
+| Description | The `POST /api/picks/v2` and player replacement paths now correctly implement comprehensive write-time state verification for pick submissions and changes. The validation order is strictly enforced:
+  1. **Contest existence:** Validates the contest instance exists.
+  2. **Participant validation:** Verifies the user is a valid participant in the contest (`contest_participants` table).
+  3. **Contest lock state:** Checks if the contest status is `SCHEDULED`. If `LOCKED`, `LIVE`, or other non-modifiable states, returns `403 CONTEST_LOCKED` (or other appropriate status).
+  4. **Week alignment (WEEK_MISMATCH):** Compares the `weekNumber` sent in the client payload (`clientWeek`) against the server-derived game state week (`serverWeek`). If `clientWeek !== serverWeek`, the system returns `409 WEEK_MISMATCH`. This applies even when the contest is `SCHEDULED` and the user is a participant.
+  5. **Pick execution:** If all prior validations pass, the pick operations are executed within a transaction.
+
+This ensures that:
+- Picks cannot be accepted after a contest has transitioned to `LOCKED`.
+- Clients are always aligned with the server's current effective week.
+- All write operations are protected against race conditions and invalid states.
+note: scoped to write-time lifecycle enforcement for pick writes |
+| Why it matters | Comprehensive write-time verification for picks is critical to prevent race conditions and ensure data integrity. Without it, picks could be accepted after a contest has locked or for an incorrect week, violating core contract principles. Enforcing a strict validation order prevents unnecessary processing and provides clear error feedback. |
 | Dependencies | GAP-01 (state model must be correct), GAP-05 (transition enforcement must be in place). |
 
 ---

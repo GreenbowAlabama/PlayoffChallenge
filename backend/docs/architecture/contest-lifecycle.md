@@ -161,6 +161,21 @@ Returns the full contest object including all derived fields listed above. The r
 - Permitted only when the contest is in the SCHEDULED state.
 - Same write-time verification as entry submission.
 
+### Write-Time Validation Order for Pick Operations
+
+All pick submission and modification requests (POST `/api/picks/v2`) are subject to the following strict server-side validation order, ensuring data integrity and preventing race conditions:
+
+1.  **Contest Existence:** The provided `contestInstanceId` must correspond to an existing contest. If not found, the request fails early.
+2.  **Participant Validation:** The `userId` must correspond to a valid participant in the specified contest. If the user is not a participant, the request is rejected with an appropriate error.
+3.  **Contest Lock State:** The contest's `status` is checked.
+    *   If the contest is `LOCKED`, `LIVE`, `COMPLETE`, `CANCELLED`, or `ERROR`, pick submission/modification is rejected. Specifically, `LOCKED` contests return `403 CONTEST_LOCKED`. This validation occurs prior to week alignment checks.
+4.  **Week Alignment (WEEK_MISMATCH):** The `weekNumber` provided in the client's payload (`clientWeek`) is compared against the server-derived actual game state week (`serverWeek`). If `clientWeek !== serverWeek`, the system returns `409 WEEK_MISMATCH`. This applies even if the contest is `SCHEDULED` and the user is a valid participant.
+5.  **Pick Execution:** If all preceding validations pass, the requested pick operations (add/remove) are executed within a database transaction, including position limits and player eligibility checks.
+
+This precise order ensures that essential lifecycle invariants are protected and client-side logic can reliably interpret server responses.
+
+Write-time lifecycle enforcement is now fully guaranteed for both contest entry (`joinContest`) and pick submission/modification (POST `/api/picks/v2`), as detailed in GAP-10.
+
 ---
 
 ## Admin Operations Contract

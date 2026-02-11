@@ -5,15 +5,33 @@
  * Contains picks-related business logic with injected dependencies.
  */
 
+const PICKS_ERROR_CODES = {
+  // State errors from contest instance
+  CONTEST_NOT_FOUND: 'CONTEST_NOT_FOUND',
+  CONTEST_LOCKED: 'CONTEST_LOCKED',
+  CONTEST_UNAVAILABLE: 'CONTEST_UNAVAILABLE', // For statuses like COMPLETE, CANCELLED, ERROR
+  NOT_PARTICIPANT: 'NOT_PARTICIPANT',
+
+  // Existing picks-related errors
+  USER_NOT_FOUND: 'USER_NOT_FOUND',
+  WEEK_LOCKED: 'WEEK_LOCKED',
+  WEEK_MISMATCH: 'WEEK_MISMATCH',
+  PLAYER_NOT_FOUND: 'PLAYER_NOT_FOUND',
+  PLAYER_INELIGIBLE: 'PLAYER_INELIGIBLE',
+  POSITION_LIMIT_EXCEEDED: 'POSITION_LIMIT_EXCEEDED',
+  PICK_NOT_FOUND: 'PICK_NOT_FOUND',
+};
+
 /**
  * Custom error class for picks operations with HTTP status codes.
  */
 class PicksError extends Error {
-  constructor(message, statusCode = 400, details = null) {
+  constructor(message, statusCode = 400, details = null, code = null) {
     super(message);
     this.name = 'PicksError';
     this.statusCode = statusCode;
     this.details = details;
+    this.code = code;
   }
 }
 
@@ -278,19 +296,19 @@ async function getCurrentPositionCount(pool, userId, weekNumber, position, exclu
  * @returns {Promise<Object>} - Inserted/updated pick
  */
 async function upsertPick(pool, params) {
-  const { userId, playerId, weekNumber, position, multiplier, consecutiveWeeks } = params;
+  const { contestInstanceId, userId, playerId, weekNumber, position, multiplier, consecutiveWeeks } = params;
 
   const result = await pool.query(`
-    INSERT INTO picks (id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
-    VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, false, NOW())
-    ON CONFLICT (user_id, player_id, week_number)
+    INSERT INTO picks (id, contest_instance_id, user_id, player_id, week_number, position, multiplier, consecutive_weeks, locked, created_at)
+    VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, false, NOW())
+    ON CONFLICT (contest_instance_id, user_id, player_id, week_number)
     DO UPDATE SET
-      position = $4,
-      multiplier = $5,
-      consecutive_weeks = $6,
+      position = $5,
+      multiplier = $6,
+      consecutive_weeks = $7,
       created_at = NOW()
     RETURNING *
-  `, [userId, playerId, weekNumber, position, multiplier, consecutiveWeeks]);
+  `, [contestInstanceId, userId, playerId, weekNumber, position, multiplier, consecutiveWeeks]);
 
   return result.rows[0];
 }
@@ -303,8 +321,8 @@ async function upsertPick(pool, params) {
  * @param {string} userId - User ID
  * @returns {Promise<void>}
  */
-async function deletePick(pool, pickId, userId) {
-  await pool.query('DELETE FROM picks WHERE id = $1 AND user_id = $2', [pickId, userId]);
+async function deletePick(pool, pickId, userId, contestInstanceId) {
+  await pool.query('DELETE FROM picks WHERE id = $1 AND user_id = $2 AND contest_instance_id = $3', [pickId, userId, contestInstanceId]);
 }
 
 /**
@@ -316,10 +334,10 @@ async function deletePick(pool, pickId, userId) {
  * @param {number} weekNumber - Week number
  * @returns {Promise<void>}
  */
-async function deletePickByPlayer(pool, userId, playerId, weekNumber) {
+async function deletePickByPlayer(pool, contestInstanceId, userId, playerId, weekNumber) {
   await pool.query(
-    'DELETE FROM picks WHERE user_id = $1 AND player_id = $2 AND week_number = $3',
-    [userId, playerId, weekNumber]
+    'DELETE FROM picks WHERE contest_instance_id = $1 AND user_id = $2 AND player_id = $3 AND week_number = $4',
+    [contestInstanceId, userId, playerId, weekNumber]
   );
 }
 
@@ -458,64 +476,127 @@ function calculateEffectiveWeek(gameState) {
  * @returns {Promise<Object>} - Result with operations and position counts
  */
 async function executePicksV2Operations(pool, params) {
-  const { userId, weekNumber, ops, selectableTeams, normalizeTeamAbbr } = params;
+  const { contestInstanceId, userId, weekNumber, ops, selectableTeams, normalizeTeamAbbr } = params;
 
-  // User validation
-  if (!await userExists(pool, userId)) {
-    throw new PicksError('User not found', 404);
+  // Basic input validation
+  if (!contestInstanceId) {
+    throw new PicksError('contestInstanceId is required', 400);
+  }
+  if (!userId) {
+    throw new PicksError('userId is required', 400);
+  }
+  if (!ops || !Array.isArray(ops) || ops.length === 0) {
+    throw new PicksError('ops array is required and must not be empty', 400);
   }
 
-  // Get game state
-  const gameState = await getGameState(pool);
-  const { current_playoff_week, is_week_active } = gameState;
-
-  // Week lockout check
-  if (!is_week_active) {
-    throw new PicksError('Picks are locked for this week. The submission window has closed.', 403);
-  }
-
-  // Server is the single source of truth for active week
-  const effectiveWeek = calculateEffectiveWeek(gameState);
-
-  // Guard: reject if client sent a mismatched week
-  if (weekNumber && parseInt(weekNumber, 10) !== effectiveWeek) {
-    throw new PicksError(
-      'Week mismatch. The active playoff week has changed. Please refresh.',
-      409,
-      { serverWeek: effectiveWeek, clientWeek: parseInt(weekNumber, 10) }
-    );
-  }
-
-  // Build proposed operations with position info
-  const proposedOps = [];
-  for (const op of ops) {
-    if (op.action === 'add') {
-      const eligibility = await validatePlayerEligibility(pool, op.playerId, selectableTeams, normalizeTeamAbbr);
-      if (!eligibility.valid) {
-        throw new PicksError(eligibility.error, 400);
-      }
-      proposedOps.push({ action: 'add', position: eligibility.player.position, playerId: op.playerId });
-    } else if (op.action === 'remove') {
-      const pick = await getPickById(pool, op.pickId);
-      if (!pick) {
-        throw new PicksError(`Pick ${op.pickId} not found`, 400);
-      }
-      proposedOps.push({ action: 'remove', position: pick.position, pickId: op.pickId, playerId: pick.playerId });
-    }
-  }
-
-  // Validate position limits
-  const validation = await validatePositionCounts(pool, userId, effectiveWeek, proposedOps);
-  if (!validation.valid) {
-    throw new PicksError('Position limit exceeded', 400, { details: validation.errors });
-  }
-
-  // Execute operations within a transaction
+  // Execute operations within a transaction to ensure atomicity and proper locking
   const dbClient = await pool.connect();
-  const results = [];
+  let validation; // Declare validation outside try block to be accessible in return
+  let effectiveWeek; // Declare effectiveWeek outside try block to be accessible in return
 
   try {
     await dbClient.query('BEGIN');
+
+    // GAP-10 Step 2: 1. Contest existence and lifecycle verification
+    const contestResult = await dbClient.query(
+      'SELECT status FROM contest_instances WHERE id = $1 FOR UPDATE',
+      [contestInstanceId]
+    );
+
+    if (contestResult.rows.length === 0) {
+      await dbClient.query('ROLLBACK');
+      throw new PicksError('Contest not found', 404, null, PICKS_ERROR_CODES.CONTEST_NOT_FOUND);
+    }
+    const contestStatus = contestResult.rows[0].status;
+
+    if (contestStatus !== 'SCHEDULED') {
+      await dbClient.query('ROLLBACK');
+      let reason = 'Contest is not in a modifiable state.';
+      let errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
+      if (contestStatus === 'LOCKED') {
+        reason = 'Contest is locked and picks cannot be modified.';
+        errorCode = PICKS_ERROR_CODES.CONTEST_LOCKED;
+      } else if (contestStatus === 'COMPLETE') {
+        reason = 'Contest is complete and picks cannot be modified.';
+        errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
+      } else if (contestStatus === 'CANCELLED') {
+        reason = 'Contest is cancelled and picks cannot be modified.';
+        errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
+      } else if (contestStatus === 'LIVE') {
+        reason = 'Contest is live and picks cannot be modified.';
+        errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
+      }
+      throw new PicksError(reason, 403, null, errorCode);
+    }
+
+    // GAP-10 Step 2: 2. Verify user is a participant in this specific contest
+    const participantCheck = await dbClient.query(
+      'SELECT 1 FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
+      [contestInstanceId, userId]
+    );
+
+    if (participantCheck.rows.length === 0) {
+      await dbClient.query('ROLLBACK');
+      throw new PicksError('User is not a participant in this contest.', 403, null, PICKS_ERROR_CODES.NOT_PARTICIPANT);
+    }
+
+    // 3. All other eligibility and pick rule checks (after lifecycle and participation)
+
+    // User validation (only check existence here, participation already checked)
+    if (!await userExists(dbClient, userId)) { // Pass dbClient for transaction context
+      await dbClient.query('ROLLBACK');
+      throw new PicksError('User not found', 404, null, PICKS_ERROR_CODES.USER_NOT_FOUND);
+    }
+
+    // Get game state
+    const gameState = await getGameState(dbClient); // Pass dbClient
+    const { current_playoff_week, is_week_active } = gameState;
+
+    // Week lockout check (traditional system-wide lock)
+    // This is a global system setting, separate from contest-specific locking
+    if (!is_week_active) {
+      await dbClient.query('ROLLBACK');
+      throw new PicksError('Picks are locked for this week. The submission window has closed.', 403, null, PICKS_ERROR_CODES.WEEK_LOCKED);
+    }
+
+    // Server is the single source of truth for active week
+    effectiveWeek = calculateEffectiveWeek(gameState); // Assign to effectiveWeek declared outside try
+
+    // Guard: reject if client sent a mismatched week
+    if (weekNumber && parseInt(weekNumber, 10) !== effectiveWeek) {
+      await dbClient.query('ROLLBACK');
+      throw new PicksError(
+        'Week mismatch. The active playoff week has changed. Please refresh.',
+        409,
+        { serverWeek: effectiveWeek, clientWeek: parseInt(weekNumber, 10) },
+        PICKS_ERROR_CODES.WEEK_MISMATCH
+      );
+    }
+    const proposedOps = [];
+    for (const op of ops) {
+      if (op.action === 'add') {
+        const eligibility = await validatePlayerEligibility(dbClient, op.playerId, selectableTeams, normalizeTeamAbbr); // Pass dbClient
+        if (!eligibility.valid) {
+          await dbClient.query('ROLLBACK');
+          throw new PicksError(eligibility.error, 400, null, PICKS_ERROR_CODES.PLAYER_INELIGIBLE);
+        }
+        proposedOps.push({ action: 'add', position: eligibility.player.position, playerId: op.playerId });
+      } else if (op.action === 'remove') {
+        const pick = await getPickById(dbClient, op.pickId); // Pass dbClient
+        if (!pick) {
+          await dbClient.query('ROLLBACK');
+          throw new PicksError(`Pick ${op.pickId} not found`, 400, null, PICKS_ERROR_CODES.PICK_NOT_FOUND);
+        }
+        proposedOps.push({ action: 'remove', position: pick.position, pickId: op.pickId, playerId: pick.playerId });
+      }
+    }
+
+    // Validate position limits
+    validation = await validatePositionCounts(dbClient, userId, effectiveWeek, proposedOps); // Assign to validation declared outside try
+    if (!validation.valid) {
+      await dbClient.query('ROLLBACK');
+      throw new PicksError('Position limit exceeded', 400, { details: validation.errors }, PICKS_ERROR_CODES.POSITION_LIMIT_EXCEEDED);
+    }
 
     // Track removals by position for swap detection
     const removalsByPosition = new Map();
@@ -534,12 +615,18 @@ async function executePicksV2Operations(pool, params) {
           }
         }
 
-        const insertResult = await dbClient.query(`
-          INSERT INTO picks (user_id, player_id, position, week_number, multiplier, consecutive_weeks, locked)
-          VALUES ($1, $2, $3, $4, $5, $6, false)
-          RETURNING *
-        `, [userId, op.playerId, op.position, effectiveWeek, preservedMultiplier, preservedConsecutiveWeeks]);
-        results.push({ action: 'add', success: true, pick: insertResult.rows[0] });
+        const pickParams = {
+          contestInstanceId,
+          userId,
+          playerId: op.playerId,
+          weekNumber: effectiveWeek,
+          position: op.position,
+          multiplier: preservedMultiplier,
+          consecutiveWeeks: preservedConsecutiveWeeks
+        };
+
+        const insertResult = await upsertPick(dbClient, pickParams);
+        results.push({ action: 'add', success: true, pick: insertResult });
 
         // Check for swap
         const removal = removalsByPosition.get(op.position);
@@ -551,7 +638,7 @@ async function executePicksV2Operations(pool, params) {
           console.log(`[picks/v2] Logged swap: user ${userId} replaced ${removal.playerId} with ${op.playerId} at ${op.position} for week ${effectiveWeek}`);
         }
       } else if (op.action === 'remove') {
-        await deletePick(dbClient, op.pickId, userId);
+        await deletePick(dbClient, op.pickId, userId, contestInstanceId);
         results.push({ action: 'remove', success: true, pickId: op.pickId });
         removalsByPosition.set(op.position, { playerId: op.playerId, pickId: op.pickId });
       }
@@ -589,7 +676,15 @@ async function executePicksV2Operations(pool, params) {
  * @returns {Promise<Object>} - Result with old/new player info and pick
  */
 async function executePlayerReplacement(pool, params) {
-  const { userId, oldPlayerId, newPlayerId, position, weekNumber, activeTeams, selectableTeams, normalizeTeamAbbr } = params;
+  const { contestInstanceId, userId, oldPlayerId, newPlayerId, position, weekNumber, activeTeams, selectableTeams, normalizeTeamAbbr } = params;
+
+  // Input validation
+  if (!contestInstanceId) {
+    throw new PicksError('contestInstanceId is required', 400);
+  }
+  if (!userId || !oldPlayerId || !newPlayerId || !position || !weekNumber) {
+    throw new PicksError('Missing required parameters for player replacement.', 400);
+  }
 
   // Get game state
   const gameState = await getGameState(pool);
@@ -597,7 +692,7 @@ async function executePlayerReplacement(pool, params) {
 
   // Week lockout check
   if (!is_week_active) {
-    throw new PicksError('Picks are locked for this week. The submission window has closed.', 403);
+    throw new PicksError('Picks are locked for this week. The submission window has closed.', 403, null, PICKS_ERROR_CODES.WEEK_LOCKED);
   }
 
   // Calculate effective week
@@ -608,30 +703,30 @@ async function executePlayerReplacement(pool, params) {
   // Check old player's team
   const oldPlayer = await getOldPlayerInfo(pool, oldPlayerId);
   if (!oldPlayer) {
-    throw new PicksError('Old player not found', 404);
+    throw new PicksError('Old player not found', 404, null, PICKS_ERROR_CODES.PLAYER_NOT_FOUND);
   }
 
   if (activeTeams.has(oldPlayer.team)) {
-    throw new PicksError(`Cannot replace ${oldPlayer.full_name} - their team (${oldPlayer.team}) is still active`, 400);
+    throw new PicksError(`Cannot replace ${oldPlayer.full_name} - their team (${oldPlayer.team}) is still active`, 400, null, PICKS_ERROR_CODES.PLAYER_INELIGIBLE);
   }
 
   // Get and validate new player
   const newPlayer = await getNewPlayerInfo(pool, newPlayerId);
   if (!newPlayer) {
-    throw new PicksError('New player not found', 404);
+    throw new PicksError('New player not found', 404, null, PICKS_ERROR_CODES.PLAYER_NOT_FOUND);
   }
 
   // Check IR status
   const ineligibleStatuses = ['IR', 'PUP', 'SUSP'];
   const normalizedStatus = newPlayer.injury_status ? newPlayer.injury_status.toUpperCase().trim() : null;
   if (normalizedStatus && ineligibleStatuses.includes(normalizedStatus)) {
-    throw new PicksError(`${newPlayer.full_name} is on ${newPlayer.injury_status} and cannot be selected.`, 400);
+    throw new PicksError(`${newPlayer.full_name} is on ${newPlayer.injury_status} and cannot be selected.`, 400, null, PICKS_ERROR_CODES.PLAYER_INELIGIBLE);
   }
 
   // Check team eligibility
   const normalizedNewTeam = normalizeTeamAbbr(newPlayer.team);
   if (!selectableTeams.includes(normalizedNewTeam)) {
-    throw new PicksError(`${newPlayer.full_name}'s team (${newPlayer.team}) has been eliminated. Only players from active teams are selectable.`, 400);
+    throw new PicksError(`${newPlayer.full_name}'s team (${newPlayer.team}) has been eliminated. Only players from active teams are selectable.`, 400, null, PICKS_ERROR_CODES.PLAYER_INELIGIBLE);
   }
 
   // Validate position limit
@@ -643,51 +738,100 @@ async function executePlayerReplacement(pool, params) {
   const currentCount = await getCurrentPositionCount(pool, userId, effectiveWeekNumber, position, oldPlayerId);
 
   if (currentCount >= maxPicks) {
-    throw new PicksError(`Position limit exceeded for ${position}. Maximum allowed: ${maxPicks}`, 400);
+    throw new PicksError(`Position limit exceeded for ${position}. Maximum allowed: ${maxPicks}`, 400, null, PICKS_ERROR_CODES.POSITION_LIMIT_EXCEEDED);
   }
 
-  // Delete old pick
-  await deletePickByPlayer(pool, userId, oldPlayerId, effectiveWeekNumber);
+  // Perform operations within a transaction
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query('BEGIN');
 
-  // Get carry-forward values for new player
-  let preservedMultiplier = 1;
-  let preservedConsecutiveWeeks = 1;
-  if (current_playoff_week > 1) {
-    const carryForward = await getCarryForwardValues(pool, userId, newPlayerId, effectiveWeekNumber - 1);
-    preservedMultiplier = carryForward.multiplier;
-    preservedConsecutiveWeeks = carryForward.consecutiveWeeks;
-    if (preservedMultiplier > 1) {
-      console.log(`[swap] Carrying multiplier ${preservedMultiplier} and consecutive_weeks ${preservedConsecutiveWeeks} for player ${newPlayerId}`);
+    // GAP-10 Step 2: Write-time lifecycle verification for contest_instance (copied from executePicksV2Operations)
+    const contestResult = await dbClient.query(
+      'SELECT status FROM contest_instances WHERE id = $1 FOR UPDATE',
+      [contestInstanceId]
+    );
+
+    if (contestResult.rows.length === 0) {
+      await dbClient.query('ROLLBACK');
+      throw new PicksError('Contest not found', 404, null, PICKS_ERROR_CODES.CONTEST_NOT_FOUND);
     }
+    const contestStatus = contestResult.rows[0].status;
+
+    if (contestStatus !== 'SCHEDULED') {
+      await dbClient.query('ROLLBACK');
+      let reason = 'Contest is not in a modifiable state for player replacement.';
+      let errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
+      if (contestStatus === 'LOCKED') {
+        reason = 'Contest is locked and players cannot be replaced.';
+        errorCode = PICKS_ERROR_CODES.CONTEST_LOCKED;
+      }
+      throw new PicksError(reason, 403, null, errorCode);
+    }
+
+    // GAP-10 Step 2: Verify user is a participant (copied from executePicksV2Operations)
+    const participantCheck = await dbClient.query(
+      'SELECT 1 FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
+      [contestInstanceId, userId]
+    );
+
+    if (participantCheck.rows.length === 0) {
+      await dbClient.query('ROLLBACK');
+      throw new PicksError('User is not a participant in this contest.', 403, null, PICKS_ERROR_CODES.NOT_PARTICIPANT);
+    }
+
+
+    // Delete old pick
+    await deletePickByPlayer(dbClient, contestInstanceId, userId, oldPlayerId, effectiveWeekNumber);
+
+    // Get carry-forward values for new player
+    let preservedMultiplier = 1;
+    let preservedConsecutiveWeeks = 1;
+    if (current_playoff_week > 1) {
+      const carryForward = await getCarryForwardValues(dbClient, userId, newPlayerId, effectiveWeekNumber - 1);
+      preservedMultiplier = carryForward.multiplier;
+      preservedConsecutiveWeeks = carryForward.consecutiveWeeks;
+      if (preservedMultiplier > 1) {
+        console.log(`[swap] Carrying multiplier ${preservedMultiplier} and consecutive_weeks ${preservedConsecutiveWeeks} for player ${newPlayerId}`);
+      }
+    }
+
+    // Create new pick
+    const newPick = await upsertPick(dbClient, {
+      contestInstanceId, // NEW
+      userId, playerId: newPlayerId, weekNumber: effectiveWeekNumber,
+      position, multiplier: preservedMultiplier, consecutiveWeeks: preservedConsecutiveWeeks
+    });
+
+    // Log the swap
+    await logPlayerSwap(dbClient, {
+      userId, oldPlayerId, newPlayerId, position, weekNumber: effectiveWeekNumber
+    });
+
+    await dbClient.query('COMMIT');
+
+    console.log(`[swap] User ${userId} replaced ${oldPlayer.full_name} with ${newPlayer.full_name} for week ${effectiveWeekNumber}`);
+
+    return {
+      success: true,
+      oldPlayer: {
+        id: oldPlayerId,
+        name: oldPlayer.full_name,
+        team: oldPlayer.team
+      },
+      newPlayer: {
+        id: newPlayerId,
+        name: newPlayer.full_name,
+        team: newPlayer.team
+      },
+      pick: newPick
+    };
+  } catch (txErr) {
+    await dbClient.query('ROLLBACK');
+    throw txErr;
+  } finally {
+    dbClient.release();
   }
-
-  // Create new pick
-  const newPick = await upsertPick(pool, {
-    userId, playerId: newPlayerId, weekNumber: effectiveWeekNumber,
-    position, multiplier: preservedMultiplier, consecutiveWeeks: preservedConsecutiveWeeks
-  });
-
-  // Log the swap
-  await logPlayerSwap(pool, {
-    userId, oldPlayerId, newPlayerId, position, weekNumber: effectiveWeekNumber
-  });
-
-  console.log(`[swap] User ${userId} replaced ${oldPlayer.full_name} with ${newPlayer.full_name} for week ${effectiveWeekNumber}`);
-
-  return {
-    success: true,
-    oldPlayer: {
-      id: oldPlayerId,
-      name: oldPlayer.full_name,
-      team: oldPlayer.team
-    },
-    newPlayer: {
-      id: newPlayerId,
-      name: newPlayer.full_name,
-      team: newPlayer.team
-    },
-    pick: newPick
-  };
 }
 
 module.exports = {

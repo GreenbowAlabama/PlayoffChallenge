@@ -2363,8 +2363,10 @@ app.get('/api/picks/eliminated/:userId/:weekNumber', async (req, res) => {
 // Replace an eliminated player with a new player
 app.post('/api/picks/replace-player', async (req, res) => {
   try {
-    const { userId, oldPlayerId, newPlayerId, position, weekNumber } = req.body;
+    const { contestInstanceId, userId, oldPlayerId, newPlayerId, position, weekNumber } = req.body;
 
+    // contestInstanceId is now required in the service layer, so no need to explicitly check here,
+    // as the service will throw a PicksError if missing.
     if (!userId || !oldPlayerId || !newPlayerId || !position || !weekNumber) {
       return res.status(400).json({
         error: 'userId, oldPlayerId, newPlayerId, position, and weekNumber required'
@@ -2402,6 +2404,7 @@ app.post('/api/picks/replace-player', async (req, res) => {
     }
 
     const result = await picksService.executePlayerReplacement(pool, {
+      contestInstanceId, // NEW
       userId,
       oldPlayerId,
       newPlayerId,
@@ -2419,6 +2422,9 @@ app.post('/api/picks/replace-player', async (req, res) => {
       const response = { error: err.message };
       if (err.details) {
         Object.assign(response, err.details);
+      }
+      if (err.code) { // Include custom error code
+        response.code = err.code;
       }
       return res.status(err.statusCode).json(response);
     }
@@ -3070,7 +3076,7 @@ app.get('/api/picks/v2', async (req, res) => {
 // POST /api/picks/v2 - Operation-based lineup management
 app.post('/api/picks/v2', async (req, res) => {
   try {
-    const { userId, weekNumber, ops } = req.body;
+    const { contestInstanceId, userId, weekNumber, ops } = req.body;
 
     // Require picks_v2 capability
     const client = getClientCapabilities(req);
@@ -3083,6 +3089,8 @@ app.post('/api/picks/v2', async (req, res) => {
     if (!userId) {
       return res.status(400).json({ error: 'userId is required' });
     }
+    // contestInstanceId is now required in the service layer, so no need to explicitly check here,
+    // as the service will throw a PicksError if missing.
 
     if (!ops || !Array.isArray(ops) || ops.length === 0) {
       return res.status(400).json({ error: 'ops array is required and must not be empty' });
@@ -3096,6 +3104,7 @@ app.post('/api/picks/v2', async (req, res) => {
     }
 
     const result = await picksService.executePicksV2Operations(pool, {
+      contestInstanceId, // NEW
       userId,
       weekNumber,
       ops,
@@ -3110,6 +3119,9 @@ app.post('/api/picks/v2', async (req, res) => {
       const response = { error: err.message };
       if (err.details) {
         Object.assign(response, err.details);
+      }
+      if (err.code) { // Include custom error code
+        response.code = err.code;
       }
       return res.status(err.statusCode).json(response);
     }
