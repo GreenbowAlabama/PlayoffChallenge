@@ -280,6 +280,9 @@ router.get('/available', async (req, res) => {
     const userId = req.userId;
 
     const instances = await customContestService.getAvailableContestInstances(pool, userId);
+
+    console.log('🔴 EXEC_MARKER:ROUTE_BEFORE_JSON id:organizer_name pairs:', instances.map(inst => ({ id: inst.id, organizer_name: inst.organizer_name })));
+
     res.json(instances);
   } catch (err) {
     console.error('[Custom Contest] Error fetching available contests:', err);

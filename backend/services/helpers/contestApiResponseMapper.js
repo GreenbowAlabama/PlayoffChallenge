@@ -191,8 +191,10 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
     time_until_lock = Math.max(0, Math.floor((lockTimeMs - nowMs) / 1000));
   }
 
+  console.log('🔵 EXEC_MARKER:MAPPER_INPUT id:', contestRow.id, 'organizer_name:', contestRow.organizer_name);
+
   // --- Construct API List Response (no standings) ---
-  return {
+  const response = {
     __exec_marker: "mapContestToApiResponseForList_ACTIVE",
     id: contestRow.id,
     organizer_id: contestRow.organizer_id,
@@ -222,6 +224,10 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
     time_until_lock,
     // Explicitly omitted: standings (list endpoints are metadata-only)
   };
+
+  console.log('🔵 EXEC_MARKER:MAPPER_OUTPUT id:', response.id, 'organizer_name:', response.organizer_name);
+
+  return response;
 }
 
 module.exports = {

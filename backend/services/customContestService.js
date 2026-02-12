@@ -1187,18 +1187,16 @@ async function getAvailableContestInstances(pool, userId) {
     [userId]
   );
 
-  console.log('🟡 AVAILABLE RAW ROW COUNT:', result.rows.length);
-  console.log('🟡 AVAILABLE RAW ROWS:', JSON.stringify(result.rows, null, 2));
+  console.log('🟡 EXEC_MARKER:AFTER_SQL id:organizer_name pairs:', result.rows.map(r => ({ id: r.id, organizer_name: r.organizer_name })));
 
   const currentTimestamp = Date.now();
 
   // Map each row to list API response format (metadata-only, no standings)
-  const processedContests = result.rows.map(row =>
-    mapContestToApiResponseForList(row, { currentTimestamp })
-  );
-
-  console.log('🟢 AVAILABLE MAPPED COUNT:', processedContests.length);
-  console.log('🟢 AVAILABLE MAPPED:', JSON.stringify(processedContests, null, 2));
+  const processedContests = result.rows.map(row => {
+    const mapped = mapContestToApiResponseForList(row, { currentTimestamp });
+    console.log('🟢 EXEC_MARKER:AFTER_MAPPER id:organizer_name pair:', { id: mapped.id, organizer_name: mapped.organizer_name });
+    return mapped;
+  });
 
   return processedContests;
 }

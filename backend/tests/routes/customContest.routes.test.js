@@ -609,6 +609,40 @@ describe('Custom Contest Routes', () => {
       expect(response.body[0].entry_count).toBe(10);
       expect(response.body[0].max_entries).toBe(10);
     });
+
+    it('should preserve organizer_name from database (regression test)', async () => {
+      const futureTime = new Date(Date.now() + 3600 * 1000).toISOString();
+      const organizerUsername = 'Ian-testin';
+      const requestingUserId = 'B9F8EFF1-16AC-4B94-9DD7-06BA0B372E54';
+      const contestOrganizerId = OTHER_USER_ID; // Different from requesting user
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.status = 'SCHEDULED'[\s\S]*AND ci\.join_token IS NOT NULL/,
+        mockQueryResponses.multiple([{
+          ...mockInstanceWithTemplate,
+          id: 'contest-with-different-organizer',
+          organizer_id: contestOrganizerId,
+          organizer_name: organizerUsername, // Key assertion: this should NOT be overwritten
+          status: 'SCHEDULED',
+          join_token: 'dev_test_token_123',
+          entry_count: 2,
+          user_has_entered: false,
+          lock_time: futureTime
+        }])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/available')
+        .set('X-User-Id', requestingUserId);
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(1);
+      expect(response.body[0].id).toBe('contest-with-different-organizer');
+      expect(response.body[0].organizer_id).toBe(contestOrganizerId);
+      // CRITICAL: organizer_name must come from DB, NOT from requesting user
+      expect(response.body[0].organizer_name).toBe(organizerUsername);
+      expect(response.body[0].organizer_name).not.toBe(requestingUserId);
+    });
   });
 
   describe('GET /api/custom-contests/:id', () => {
