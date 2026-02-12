@@ -476,6 +476,141 @@ describe('Custom Contest Routes', () => {
     });
   });
 
+  describe('GET /api/custom-contests/available', () => {
+    it('should return 401 without authentication', async () => {
+      const response = await request(app)
+        .get('/api/custom-contests/available');
+
+      expect(response.status).toBe(401);
+    });
+
+    it('should return empty array when no published scheduled contests exist', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.status = 'SCHEDULED'[\s\S]*AND ci\.join_token IS NOT NULL/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/available')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body).toEqual([]);
+    });
+
+    it('should return published scheduled contests', async () => {
+      const futureTime = new Date(Date.now() + 3600 * 1000).toISOString();
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.status = 'SCHEDULED'[\s\S]*AND ci\.join_token IS NOT NULL/,
+        mockQueryResponses.multiple([{
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          join_token: 'dev_abc123def456abc123def456abc123',
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: futureTime
+        }])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/available')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.length).toBe(1);
+      expect(response.body[0].id).toBe(TEST_INSTANCE_ID);
+      expect(response.body[0].status).toBe('SCHEDULED');
+    });
+
+    it('should include user_has_entered field correctly', async () => {
+      const futureTime = new Date(Date.now() + 3600 * 1000).toISOString();
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.status = 'SCHEDULED'[\s\S]*AND ci\.join_token IS NOT NULL/,
+        mockQueryResponses.multiple([
+          {
+            ...mockInstanceWithTemplate,
+            id: 'contest-1-id',
+            status: 'SCHEDULED',
+            join_token: 'dev_token1',
+            entry_count: 3,
+            user_has_entered: true,
+            lock_time: futureTime
+          },
+          {
+            ...mockInstanceWithTemplate,
+            id: 'contest-2-id',
+            status: 'SCHEDULED',
+            join_token: 'dev_token2',
+            entry_count: 8,
+            user_has_entered: false,
+            lock_time: futureTime
+          }
+        ])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/available')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(2);
+      expect(response.body[0].user_has_entered).toBe(true);
+      expect(response.body[1].user_has_entered).toBe(false);
+      expect(typeof response.body[0].user_has_entered).toBe('boolean');
+      expect(typeof response.body[1].user_has_entered).toBe('boolean');
+    });
+
+    it('should include contests where user has already entered', async () => {
+      const futureTime = new Date(Date.now() + 3600 * 1000).toISOString();
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.status = 'SCHEDULED'[\s\S]*AND ci\.join_token IS NOT NULL/,
+        mockQueryResponses.multiple([{
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          join_token: 'dev_abc123',
+          entry_count: 15,
+          user_has_entered: true,
+          lock_time: futureTime
+        }])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/available')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(1);
+      expect(response.body[0].user_has_entered).toBe(true);
+    });
+
+    it('should include full contests in results', async () => {
+      const futureTime = new Date(Date.now() + 3600 * 1000).toISOString();
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.status = 'SCHEDULED'[\s\S]*AND ci\.join_token IS NOT NULL/,
+        mockQueryResponses.multiple([{
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          join_token: 'dev_full123',
+          max_entries: 10,
+          entry_count: 10,
+          user_has_entered: false,
+          lock_time: futureTime
+        }])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/available')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(1);
+      expect(response.body[0].entry_count).toBe(10);
+      expect(response.body[0].max_entries).toBe(10);
+    });
+  });
+
   describe('GET /api/custom-contests/:id', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)

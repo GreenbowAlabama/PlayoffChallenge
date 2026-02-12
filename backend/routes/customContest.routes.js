@@ -263,6 +263,31 @@ router.post('/', async (req, res) => {
 });
 
 /**
+ * GET /api/custom-contests/available
+ * List publicly joinable contests.
+ *
+ * Returns SCHEDULED contests that are published and publicly shareable.
+ * This is infrastructure plumbing for MVP contest discovery.
+ *
+ * Includes user_has_entered field to show if user has already joined.
+ * Does NOT filter by capacity or enrollment (all SCHEDULED + joinable).
+ *
+ * Response: Array of contest instances
+ */
+router.get('/available', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const userId = req.userId;
+
+    const instances = await customContestService.getAvailableContestInstances(pool, userId);
+    res.json(instances);
+  } catch (err) {
+    console.error('[Custom Contest] Error fetching available contests:', err);
+    res.status(500).json({ error: 'Failed to fetch available contests' });
+  }
+});
+
+/**
  * GET /api/custom-contests
  * List all contest instances for the authenticated organizer.
  *

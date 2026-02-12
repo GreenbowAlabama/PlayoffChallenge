@@ -559,6 +559,20 @@ async function resolveJoinToken(pool, token) {
   // Map the instance to the API response format to get derived fields
   const mappedContest = mapContestToApiResponse(instance, { currentTimestamp });
 
+  // Explicitly enforce lock_time for SCHEDULED contests
+  if (mappedContest.status === 'SCHEDULED' && instance.lock_time !== null && currentTimestamp >= new Date(instance.lock_time).getTime()) {
+    return {
+      valid: false,
+      error_code: JOIN_ERROR_CODES.CONTEST_LOCKED,
+      reason: 'Contest join window has closed',
+      environment_mismatch: false,
+      contest: {
+        ...mappedContest,
+        is_locked: true
+      }
+    };
+  }
+
   // Only SCHEDULED (not locked) contests resolve as valid for joining
   if (mappedContest.status === 'SCHEDULED' && !mappedContest.is_locked) {
     return {
@@ -1120,6 +1134,69 @@ async function getContestsForUser(pool, userId, isAdmin = false, limit = 50, off
 }
 
 /**
+ * Get Available Contest Instances (publicly joinable)
+ *
+ * Returns all SCHEDULED contests that are published and publicly joinable.
+ * This is infrastructure plumbing for MVP contest discovery.
+ *
+ * Returns contests where:
+ * - status = 'SCHEDULED'
+ * - join_token IS NOT NULL (published/shareable)
+ *
+ * Does NOT filter by:
+ * - User enrollment (user_has_entered is computed but does not filter)
+ * - Capacity (full contests are included)
+ *
+ * Sorted by: created_at DESC (newest first)
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} userId - UUID of requesting user (for user_has_entered computation)
+ * @returns {Promise<Array>} Array of available contest instances
+ */
+async function getAvailableContestInstances(pool, userId) {
+  const result = await pool.query(
+    `SELECT
+      ci.id,
+      ci.template_id,
+      ci.organizer_id,
+      ci.entry_fee_cents,
+      ci.payout_structure,
+      ci.status,
+      ci.start_time,
+      ci.lock_time,
+      ci.created_at,
+      ci.updated_at,
+      ci.join_token,
+      ci.max_entries,
+      ci.contest_name,
+      ci.end_time,
+      ci.settle_time,
+      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      cct.name AS template_name,
+      cct.sport AS template_sport,
+      cct.template_type AS template_type,
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
+      EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $1) AS user_has_entered
+    FROM contest_instances ci
+    LEFT JOIN users u ON u.id = ci.organizer_id
+    LEFT JOIN contest_templates cct ON cct.id = ci.template_id
+    WHERE ci.status = 'SCHEDULED'
+    AND ci.join_token IS NOT NULL
+    ORDER BY ci.created_at DESC`,
+    [userId]
+  );
+
+  const currentTimestamp = Date.now();
+
+  // Map each row to list API response format (metadata-only, no standings)
+  const processedContests = result.rows.map(row =>
+    mapContestToApiResponseForList(row, { currentTimestamp })
+  );
+
+  return processedContests;
+}
+
+/**
  * Get Available Contests (SCHEDULED, user hasn't entered, not full)
  *
  * Returns SCHEDULED contests that:
@@ -1227,6 +1304,7 @@ module.exports = {
   getContestInstanceByToken,
   getContestInstancesForOrganizer,
   getContestsForUser,
+  getAvailableContestInstances,
   getAvailableContests,
   updateContestInstanceStatus,
   updateContestStatusForSystem,

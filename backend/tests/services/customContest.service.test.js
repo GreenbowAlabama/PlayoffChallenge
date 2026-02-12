@@ -1359,22 +1359,22 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(result.joined).toBe(true);
     });
 
-    it('should return ALREADY_JOINED on unique constraint violation (PG 23505)', async () => {
+    it('should return joined=true when user already participant (pre-check path)', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single(openInstance)
       );
+      // Pre-check finds user already participant
       mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
-        mockQueryResponses.error(
-          'duplicate key value violates unique constraint "contest_participants_instance_user_unique"',
-          '23505'
-        )
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*=[\s\S]*AND[\s\S]*user_id[\s\S]*=/,
+        mockQueryResponses.single(mockParticipant)
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
-      expect(result.joined).toBe(false);
-      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.ALREADY_JOINED);
+      expect(result.joined).toBe(true);
+      expect(result.participant).toBeDefined();
+      expect(result.participant.contest_instance_id).toBe(TEST_INSTANCE_ID);
+      expect(result.participant.user_id).toBe(TEST_USER_ID);
     });
 
     it('should return CONTEST_FULL when capacity CTE returns 0 rows', async () => {
