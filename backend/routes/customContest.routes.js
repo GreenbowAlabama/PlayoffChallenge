@@ -272,8 +272,9 @@ router.get('/', async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const organizerId = req.userId;
+    const requestingUserId = req.userId;
 
-    const instances = await customContestService.getContestInstancesForOrganizer(pool, organizerId);
+    const instances = await customContestService.getContestInstancesForOrganizer(pool, organizerId, requestingUserId);
     res.json(instances);
   } catch (err) {
     console.error('[Custom Contest] Error fetching contests:', err);
@@ -291,12 +292,13 @@ router.get('/:id', async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
+    const requestingUserId = req.userId;
 
     if (!isValidUUID(id)) {
       return res.status(400).json({ error: 'Invalid contest ID format' });
     }
 
-    const instance = await customContestService.getContestInstance(pool, id);
+    const instance = await customContestService.getContestInstance(pool, id, requestingUserId);
 
     if (!instance) {
       return res.status(404).json({ error: 'Contest not found' });

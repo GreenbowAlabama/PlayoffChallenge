@@ -419,6 +419,61 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body).toEqual([]);
     });
+
+    it('should return user_has_entered: true when organizer is a participant in their contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.organizer_id/,
+        mockQueryResponses.multiple([{
+          ...mockInstanceWithTemplate,
+          entry_count: 1,
+          user_has_entered: true,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        }])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.length).toBe(1);
+      expect(response.body[0].user_has_entered).toBe(true);
+    });
+
+    it('should include user_has_entered for all contests in list', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.organizer_id/,
+        mockQueryResponses.multiple([
+          {
+            ...mockInstanceWithTemplate,
+            id: 'contest-1-id',
+            entry_count: 5,
+            user_has_entered: true,
+            lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+          },
+          {
+            ...mockInstanceWithTemplate,
+            id: 'contest-2-id',
+            entry_count: 3,
+            user_has_entered: false,
+            lock_time: new Date(Date.now() + 7200 * 1000).toISOString()
+          }
+        ])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(2);
+      expect(response.body[0].user_has_entered).toBe(true);
+      expect(response.body[1].user_has_entered).toBe(false);
+      // Verify both are boolean
+      expect(typeof response.body[0].user_has_entered).toBe('boolean');
+      expect(typeof response.body[1].user_has_entered).toBe('boolean');
+    });
   });
 
   describe('GET /api/custom-contests/:id', () => {
@@ -471,6 +526,64 @@ describe('Custom Contest Routes', () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Contest not found');
+    });
+
+    it('should return user_has_entered: true when authenticated user has entered contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          entry_count: 5,
+          user_has_entered: true,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        })
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.user_has_entered).toBe(true);
+    });
+
+    it('should return user_has_entered: false when authenticated user has not entered contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        })
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', OTHER_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.user_has_entered).toBe(false);
+    });
+
+    it('should always include user_has_entered field in response', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          entry_count: 0,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+        })
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('user_has_entered');
+      expect(typeof response.body.user_has_entered).toBe('boolean');
     });
   });
 
