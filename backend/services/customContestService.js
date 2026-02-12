@@ -1151,7 +1151,7 @@ async function getContestsForUser(pool, userId, isAdmin = false, limit = 50, off
  * Sorted by: created_at DESC (newest first)
  *
  * @param {Object} pool - Database connection pool
- * @param {string} userId - UUID of requesting user (for user_has_entered computation)
+ * @param {string|null} userId - UUID of requesting user, or null if unauthenticated
  * @returns {Promise<Array>} Array of available contest instances
  */
 async function getAvailableContestInstances(pool, userId) {
@@ -1177,7 +1177,10 @@ async function getAvailableContestInstances(pool, userId) {
       cct.sport AS template_sport,
       cct.template_type AS template_type,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
-      EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $1) AS user_has_entered
+      CASE
+        WHEN $1::uuid IS NULL THEN false
+        ELSE EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $1)
+      END AS user_has_entered
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id

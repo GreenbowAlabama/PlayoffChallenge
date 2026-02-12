@@ -69,6 +69,38 @@ function extractUserId(req, res, next) {
   next();
 }
 
+/**
+ * Middleware to optionally extract user ID from request.
+ * Used for endpoints that work with or without authentication.
+ *
+ * Sets req.userId = null if Authorization header is missing.
+ * Returns 400 if Authorization header is present but invalid UUID.
+ * Preserves existing behavior if valid.
+ */
+function extractOptionalUserId(req, res, next) {
+  let userId;
+  const authHeader = req.headers['authorization'];
+  const xUserId = req.headers['x-user-id'];
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    userId = authHeader.substring(7, authHeader.length);
+  } else if (xUserId) {
+    userId = xUserId;
+  } else {
+    // No auth header present - allow request with null userId
+    req.userId = null;
+    return next();
+  }
+
+  // Auth header was present but needs validation
+  if (!isValidUUID(userId)) {
+    return res.status(400).json({ error: 'Invalid user ID format' });
+  }
+
+  req.userId = userId;
+  next();
+}
+
 // ============================================
 // TEMPLATE ENDPOINTS (Public)
 // ============================================
@@ -183,9 +215,6 @@ router.get('/join/:token', joinRateLimiter, async (req, res) => {
 // PROTECTED ENDPOINTS (Require Auth)
 // ============================================
 
-// Apply auth middleware to remaining routes
-router.use(extractUserId);
-
 /**
  * POST /api/custom-contests
  * Create a new contest instance.
@@ -200,7 +229,7 @@ router.use(extractUserId);
  *
  * Response: Created contest instance
  */
-router.post('/', async (req, res) => {
+router.post('/', extractUserId, async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const organizerId = req.userId;
@@ -272,15 +301,24 @@ router.post('/', async (req, res) => {
  * Includes user_has_entered field to show if user has already joined.
  * Does NOT filter by capacity or enrollment (all SCHEDULED + joinable).
  *
+ * Works with or without Authorization header:
+ * - Missing auth → req.userId = null, user_has_entered = false
+ * - Invalid UUID → 400 Bad Request
+ * - Valid UUID → normal behavior
+ *
  * Response: Array of contest instances
  */
-router.get('/available', async (req, res) => {
+router.get('/available', extractOptionalUserId, async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const userId = req.userId;
 
     const instances = await customContestService.getAvailableContestInstances(pool, userId);
 
+    console.log('[AVAILABLE]', {
+      userIdPresent: !!userId,
+      contestCount: instances.length
+    });
     console.log('🔴 EXEC_MARKER:ROUTE_BEFORE_JSON id:organizer_name pairs:', instances.map(inst => ({ id: inst.id, organizer_name: inst.organizer_name })));
 
     res.json(instances);
@@ -296,7 +334,7 @@ router.get('/available', async (req, res) => {
  *
  * Response: Array of contest instances
  */
-router.get('/', async (req, res) => {
+router.get('/', extractUserId, async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const organizerId = req.userId;
@@ -316,7 +354,7 @@ router.get('/', async (req, res) => {
  *
  * Response: Contest instance with template info
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', extractUserId, async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
@@ -346,7 +384,7 @@ router.get('/:id', async (req, res) => {
  *
  * Response: Updated contest instance
  */
-router.post('/:id/publish', async (req, res) => {
+router.post('/:id/publish', extractUserId, async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
@@ -398,7 +436,7 @@ router.post('/:id/publish', async (req, res) => {
  *
  * Response: Updated contest instance
  */
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', extractUserId, async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
@@ -449,7 +487,7 @@ router.patch('/:id/status', async (req, res) => {
  * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
  * - 409: { error_code: 'ALREADY_JOINED' | 'CONTEST_FULL' | 'CONTEST_LOCKED' | ... }
  */
-router.post('/:id/join', async (req, res) => {
+router.post('/:id/join', extractUserId, async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
