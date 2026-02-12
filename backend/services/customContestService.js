@@ -1076,6 +1076,9 @@ async function getContestsForUser(pool, userId, isAdmin = false, limit = 50, off
       ci.end_time,
       ci.settle_time,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      cct.name AS template_name,
+      cct.sport AS template_sport,
+      cct.template_type AS template_type,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
       EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $1) AS user_has_entered,
       CASE ci.status
@@ -1095,6 +1098,7 @@ async function getContestsForUser(pool, userId, isAdmin = false, limit = 50, off
       CASE WHEN ci.status = 'ERROR' THEN ci.created_at END AS error_created_at
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
+    LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE
       (
         EXISTS (
@@ -1171,12 +1175,16 @@ async function getAvailableContests(pool, userId) {
       ci.settle_time,
       ci.is_platform_owned,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      cct.name AS template_name,
+      cct.sport AS template_sport,
+      cct.template_type AS template_type,
       COUNT(cp.id)::int AS entry_count,
       FALSE AS user_has_entered
     FROM contest_instances ci
     LEFT JOIN contest_participants cp
       ON cp.contest_instance_id = ci.id
     LEFT JOIN users u ON u.id = ci.organizer_id
+    LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.status = 'SCHEDULED'
     AND NOT EXISTS (
       SELECT 1
@@ -1203,7 +1211,11 @@ async function getAvailableContests(pool, userId) {
       ci.is_platform_owned,
       u.id,
       u.username,
-      u.name
+      u.name,
+      cct.id,
+      cct.name,
+      cct.sport,
+      cct.template_type
     HAVING
       ci.max_entries IS NULL
       OR COUNT(cp.id) < ci.max_entries
