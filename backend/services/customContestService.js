@@ -699,6 +699,7 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
     return mapped;
   });
 
+  console.log("ORGANIZER LIST MAPPED:", processedContests);
   return processedContests;
 }
 

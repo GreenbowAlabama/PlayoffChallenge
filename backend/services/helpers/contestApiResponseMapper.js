@@ -196,6 +196,7 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
     __exec_marker: "mapContestToApiResponseForList_ACTIVE",
     id: contestRow.id,
     organizer_id: contestRow.organizer_id,
+    organizer_name: contestRow.organizer_name,
     entry_fee_cents: contestRow.entry_fee_cents,
     payout_structure: contestRow.payout_structure,
     contest_name: contestRow.contest_name,
