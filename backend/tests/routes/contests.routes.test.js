@@ -51,7 +51,7 @@ function createMockContest(overrides = {}) {
   };
 }
 
-describe('Contests Routes (GET /api/contests/my - GAP-12)', () => {
+describe('Contests Routes', () => {
   let app;
   let mockPool;
   let lastQueryCalled = null;
@@ -526,6 +526,400 @@ describe('Contests Routes (GET /api/contests/my - GAP-12)', () => {
       expect(response.body[0].is_settled).toBe(false);
       expect(typeof response.body[0].time_until_lock).toBe('number');
       expect(response.body[0].time_until_lock).toBeGreaterThan(0);
+    });
+  });
+
+  describe('GET /api/contests/available', () => {
+    describe('Authentication', () => {
+      it('should return 401 if req.user is missing', async () => {
+        const response = await request(app).get('/api/contests/available');
+
+        expect(response.status).toBe(401);
+        expect(response.body.error).toMatch(/authentication|required/i);
+      });
+
+      it('should accept authenticated requests with Bearer token', async () => {
+        const contest = createMockContest({
+          is_platform_owned: true
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([contest])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(Array.isArray(response.body)).toBe(true);
+      });
+    });
+
+    describe('Data Scope (SCHEDULED only, user not entered, not full)', () => {
+      it('should only return SCHEDULED contests', async () => {
+        const scheduledContest = createMockContest({
+          id: '00000000-0000-0000-0000-000000000201',
+          status: 'SCHEDULED',
+          user_has_entered: false,
+          is_platform_owned: false
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([scheduledContest])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].status).toBe('SCHEDULED');
+      });
+
+      it('should exclude LIVE contests', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(0);
+      });
+
+      it('should exclude CANCELLED contests', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(0);
+      });
+
+      it('should exclude contests user has entered', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(0);
+      });
+
+      it('should exclude full contests', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(0);
+      });
+    });
+
+    describe('SQL Query Structure (EXISTS and HAVING)', () => {
+      it('should generate SQL with NOT EXISTS clause', async () => {
+        let lastQueryCalled = null;
+        const originalQuery = mockPool.query.bind(mockPool);
+        mockPool.query = jest.fn(async function(sql, params) {
+          lastQueryCalled = { sql, params };
+          return originalQuery(sql, params);
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([])
+        );
+
+        await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(lastQueryCalled).not.toBeNull();
+        expect(lastQueryCalled.sql).toMatch(/NOT EXISTS/i);
+        expect(lastQueryCalled.sql).toMatch(/contest_participants cp2/i);
+      });
+
+      it('should generate SQL with HAVING clause for capacity check', async () => {
+        let lastQueryCalled = null;
+        const originalQuery = mockPool.query.bind(mockPool);
+        mockPool.query = jest.fn(async function(sql, params) {
+          lastQueryCalled = { sql, params };
+          return originalQuery(sql, params);
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([])
+        );
+
+        await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(lastQueryCalled).not.toBeNull();
+        expect(lastQueryCalled.sql).toMatch(/HAVING/i);
+        expect(lastQueryCalled.sql).toMatch(/max_entries IS NULL/i);
+        expect(lastQueryCalled.sql).toMatch(/COUNT\(cp\.id\)/i);
+      });
+
+      it('should generate SQL with GROUP BY clause', async () => {
+        let lastQueryCalled = null;
+        const originalQuery = mockPool.query.bind(mockPool);
+        mockPool.query = jest.fn(async function(sql, params) {
+          lastQueryCalled = { sql, params };
+          return originalQuery(sql, params);
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([])
+        );
+
+        await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(lastQueryCalled).not.toBeNull();
+        expect(lastQueryCalled.sql).toMatch(/GROUP BY/i);
+      });
+
+      it('should use parameterized query (no string interpolation)', async () => {
+        let lastQueryCalled = null;
+        const originalQuery = mockPool.query.bind(mockPool);
+        mockPool.query = jest.fn(async function(sql, params) {
+          lastQueryCalled = { sql, params };
+          return originalQuery(sql, params);
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([])
+        );
+
+        await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(lastQueryCalled).not.toBeNull();
+        expect(lastQueryCalled.params).toHaveLength(1);
+        expect(lastQueryCalled.params[0]).toBe(TEST_USER_ID);
+      });
+    });
+
+    describe('Ordering (is_platform_owned DESC, created_at DESC)', () => {
+      it('should order platform-owned contests first', async () => {
+        const now = new Date();
+        const platformOwned = createMockContest({
+          id: '00000000-0000-0000-0000-000000000301',
+          is_platform_owned: true,
+          created_at: new Date(now.getTime() - 86400000), // 1 day ago
+          user_has_entered: false
+        });
+
+        const userOwned = createMockContest({
+          id: '00000000-0000-0000-0000-000000000302',
+          is_platform_owned: false,
+          created_at: now,
+          user_has_entered: false
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([platformOwned, userOwned])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(2);
+        expect(response.body[0].is_platform_owned).toBe(true);
+        expect(response.body[1].is_platform_owned).toBe(false);
+      });
+
+      it('should order by created_at DESC within same platform_owned value', async () => {
+        const now = new Date();
+        const newer = createMockContest({
+          id: '00000000-0000-0000-0000-000000000401',
+          is_platform_owned: true,
+          created_at: now,
+          user_has_entered: false
+        });
+
+        const older = createMockContest({
+          id: '00000000-0000-0000-0000-000000000402',
+          is_platform_owned: true,
+          created_at: new Date(now.getTime() - 86400000),
+          user_has_entered: false
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([newer, older])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(2);
+        expect(response.body[0].id).toBe(newer.id);
+        expect(response.body[1].id).toBe(older.id);
+      });
+    });
+
+    describe('Response Format', () => {
+      it('should always include user_has_entered as false', async () => {
+        const contest = createMockContest({
+          id: '00000000-0000-0000-0000-000000000501',
+          user_has_entered: false,
+          is_platform_owned: true
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([contest])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body[0].user_has_entered).toBe(false);
+      });
+
+      it('should include is_platform_owned in response', async () => {
+        const contest = createMockContest({
+          id: '00000000-0000-0000-0000-000000000502',
+          is_platform_owned: true,
+          user_has_entered: false
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([contest])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body[0]).toHaveProperty('is_platform_owned');
+        expect(response.body[0].is_platform_owned).toBe(true);
+      });
+
+      it('should include all required fields', async () => {
+        const contest = createMockContest({
+          id: '00000000-0000-0000-0000-000000000503',
+          is_platform_owned: false,
+          user_has_entered: false
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([contest])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        const contestObj = response.body[0];
+        expect(contestObj).toHaveProperty('id');
+        expect(contestObj).toHaveProperty('status');
+        expect(contestObj).toHaveProperty('entry_count');
+        expect(contestObj).toHaveProperty('max_entries');
+        expect(contestObj).toHaveProperty('user_has_entered');
+        expect(contestObj).toHaveProperty('is_platform_owned');
+        expect(contestObj).toHaveProperty('join_token');
+        expect(contestObj).toHaveProperty('lock_time');
+        expect(contestObj).toHaveProperty('created_at');
+      });
+
+      it('should NOT include standings field', async () => {
+        const contest = createMockContest({
+          id: '00000000-0000-0000-0000-000000000504',
+          is_platform_owned: true,
+          user_has_entered: false
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([contest])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body[0]).not.toHaveProperty('standings');
+      });
+    });
+
+    describe('Edge Cases', () => {
+      it('should return empty array when no available contests', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual([]);
+      });
+
+      it('should handle contest with NULL max_entries (unlimited)', async () => {
+        const contest = createMockContest({
+          id: '00000000-0000-0000-0000-000000000601',
+          max_entries: null,
+          entry_count: 100,
+          is_platform_owned: false,
+          user_has_entered: false
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([contest])
+        );
+
+        const response = await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].max_entries).toBeNull();
+      });
     });
   });
 });

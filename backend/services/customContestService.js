@@ -1131,6 +1131,95 @@ async function getContestsForUser(pool, userId, isAdmin = false, limit = 50, off
   return processedContests;
 }
 
+/**
+ * Get Available Contests (SCHEDULED, user hasn't entered, not full)
+ *
+ * Returns SCHEDULED contests that:
+ * - User has NOT entered
+ * - Are not full (entries_current < max_entries OR max_entries IS NULL)
+ *
+ * Ordered by:
+ * 1. is_platform_owned DESC (platform contests first)
+ * 2. created_at DESC (newest first)
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} userId - UUID of requesting user
+ * @returns {Promise<Array>} Array of available contest objects
+ */
+async function getAvailableContests(pool, userId) {
+  const result = await pool.query(
+    `
+    SELECT
+      ci.id,
+      ci.template_id,
+      ci.organizer_id,
+      ci.entry_fee_cents,
+      ci.payout_structure,
+      ci.status,
+      ci.start_time,
+      ci.lock_time,
+      ci.created_at,
+      ci.updated_at,
+      ci.join_token,
+      ci.max_entries,
+      ci.contest_name,
+      ci.end_time,
+      ci.settle_time,
+      ci.is_platform_owned,
+      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      COUNT(cp.id)::int AS entry_count,
+      FALSE AS user_has_entered
+    FROM contest_instances ci
+    LEFT JOIN contest_participants cp
+      ON cp.contest_instance_id = ci.id
+    LEFT JOIN users u ON u.id = ci.organizer_id
+    WHERE ci.status = 'SCHEDULED'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM contest_participants cp2
+      WHERE cp2.contest_instance_id = ci.id
+      AND cp2.user_id = $1
+    )
+    GROUP BY
+      ci.id,
+      ci.template_id,
+      ci.organizer_id,
+      ci.entry_fee_cents,
+      ci.payout_structure,
+      ci.status,
+      ci.start_time,
+      ci.lock_time,
+      ci.created_at,
+      ci.updated_at,
+      ci.join_token,
+      ci.max_entries,
+      ci.contest_name,
+      ci.end_time,
+      ci.settle_time,
+      ci.is_platform_owned,
+      u.id,
+      u.username,
+      u.name
+    HAVING
+      ci.max_entries IS NULL
+      OR COUNT(cp.id) < ci.max_entries
+    ORDER BY
+      ci.is_platform_owned DESC,
+      ci.created_at DESC
+    `,
+    [userId]
+  );
+
+  const currentTimestamp = Date.now();
+
+  // Map each row to API response format (metadata-only, no standings)
+  const processedContests = result.rows.map(row =>
+    mapContestToApiResponseForList(row, { currentTimestamp })
+  );
+
+  return processedContests;
+}
+
 module.exports = {
   // Template functions
   getTemplate,
@@ -1142,6 +1231,7 @@ module.exports = {
   getContestInstanceByToken,
   getContestInstancesForOrganizer,
   getContestsForUser,
+  getAvailableContests,
   updateContestInstanceStatus,
   updateContestStatusForSystem,
   publishContestInstance,

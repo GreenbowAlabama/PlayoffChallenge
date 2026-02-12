@@ -75,4 +75,43 @@ router.get('/my', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/contests/available
+ *
+ * Returns SCHEDULED contests available for user to join.
+ *
+ * Contract:
+ * - Data scope: SCHEDULED contests user has NOT entered, not full
+ * - Sorting: is_platform_owned DESC, created_at DESC
+ * - Metadata-only: no standings, user_has_entered always false
+ * - Single parameterized query, no N+1
+ *
+ * Response:
+ * - 200: Array of contest objects
+ * - 401: Authentication required (req.user missing)
+ * - 500: Server error
+ *
+ * Authentication:
+ * - Requires req.user (populated by upstream auth middleware)
+ * - userId derived from req.user.id
+ */
+router.get('/available', async (req, res) => {
+  try {
+    // Require authenticated user from centralized auth middleware
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const pool = req.app.locals.pool;
+    const userId = req.user.id;
+
+    const contests = await customContestService.getAvailableContests(pool, userId);
+
+    res.json(contests);
+  } catch (err) {
+    console.error('[Contests] Error fetching available contests:', err);
+    res.status(500).json({ error: 'Failed to fetch contests' });
+  }
+});
+
 module.exports = router;

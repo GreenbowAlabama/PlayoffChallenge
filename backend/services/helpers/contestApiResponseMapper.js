@@ -107,6 +107,7 @@ function mapContestToApiResponse(contestRow, { currentTimestamp }) {
     join_token: contestRow.join_token,
     created_at: contestRow.created_at,
     updated_at: contestRow.updated_at,
+    is_platform_owned: contestRow.is_platform_owned,
 
     // Derived Fields (GAP-11)
     status,
@@ -200,10 +201,12 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
     contest_name: contestRow.contest_name,
     start_time: contestRow.start_time,
     end_time: contestRow.end_time,
+    lock_time: contestRow.lock_time,
     max_entries: contestRow.max_entries,
     join_token: contestRow.join_token,
     created_at: contestRow.created_at,
     updated_at: contestRow.updated_at,
+    is_platform_owned: contestRow.is_platform_owned,
 
     // Derived Fields (subset for list surface)
     status,
