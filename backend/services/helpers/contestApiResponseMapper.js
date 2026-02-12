@@ -193,6 +193,7 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
 
   // --- Construct API List Response (no standings) ---
   return {
+    __exec_marker: "mapContestToApiResponseForList_ACTIVE",
     id: contestRow.id,
     organizer_id: contestRow.organizer_id,
     entry_fee_cents: contestRow.entry_fee_cents,

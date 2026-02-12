@@ -673,6 +673,7 @@ async function resolveJoinToken(pool, token) {
  * @returns {Promise<Array>} Array of contest instances
  */
 async function getContestInstancesForOrganizer(pool, organizerId, requestingUserId = null) {
+  console.log("🔥 EXECUTION: getContestInstancesForOrganizer START - should use mapContestToApiResponseForList");
   const result = await pool.query(
     `SELECT
       ci.id,
@@ -709,9 +710,23 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
   // Map each row to list API response format.
   // Uses mapContestToApiResponseForList which omits standings (metadata-only).
   // No lifecycle advancement, no per-row queries (non-mutating).
-  const processedContests = result.rows.map(row =>
-    mapContestToApiResponseForList(row, { currentTimestamp })
-  );
+  const processedContests = result.rows.map(row => {
+    console.log('LIST ROW:', JSON.stringify({
+      id: row.id,
+      template_id: row.template_id,
+      template_name: row.template_name,
+      contest_name: row.contest_name,
+      status: row.status
+    }, null, 2));
+    const mapped = mapContestToApiResponseForList(row, { currentTimestamp });
+    console.log('MAPPED:', JSON.stringify({
+      id: mapped.id,
+      template_name: mapped.template_name,
+      contest_name: mapped.contest_name,
+      status: mapped.status
+    }, null, 2));
+    return mapped;
+  });
 
   return processedContests;
 }
