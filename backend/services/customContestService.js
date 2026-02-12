@@ -1186,12 +1186,18 @@ async function getAvailableContestInstances(pool, userId) {
     [userId]
   );
 
+  console.log('🟡 AVAILABLE RAW ROW COUNT:', result.rows.length);
+  console.log('🟡 AVAILABLE RAW ROWS:', JSON.stringify(result.rows, null, 2));
+
   const currentTimestamp = Date.now();
 
   // Map each row to list API response format (metadata-only, no standings)
   const processedContests = result.rows.map(row =>
     mapContestToApiResponseForList(row, { currentTimestamp })
   );
+
+  console.log('🟢 AVAILABLE MAPPED COUNT:', processedContests.length);
+  console.log('🟢 AVAILABLE MAPPED:', JSON.stringify(processedContests, null, 2));
 
   return processedContests;
 }
