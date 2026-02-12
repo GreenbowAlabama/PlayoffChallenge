@@ -878,8 +878,14 @@ describe('Custom Contest Routes', () => {
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single(openInstance)
       );
+      // Pre-check: no existing participant
       mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
+        /SELECT[\s\S]*id[\s\S]*contest_instance_id[\s\S]*user_id[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*AND[\s\S]*user_id/,
+        mockQueryResponses.empty()
+      );
+      // INSERT succeeds with capacity available
+      mockPool.setQueryResponse(
+        /WITH capacity[\s\S]*INSERT INTO contest_participants/,
         mockQueryResponses.single(mockParticipant)
       );
 
@@ -893,25 +899,28 @@ describe('Custom Contest Routes', () => {
       expect(response.body.participant.contest_instance_id).toBe(TEST_INSTANCE_ID);
     });
 
-    it('should return 409 for ALREADY_JOINED', async () => {
+    it('should return 200 (idempotent) when user already joined', async () => {
+      // Simulate user already being a participant
+      // Contest lock query
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single(openInstance)
       );
+      // Pre-check: finds existing participant
       mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
-        mockQueryResponses.error(
-          'duplicate key value violates unique constraint "contest_participants_instance_user_unique"',
-          '23505'
-        )
+        /SELECT[\s\S]*id[\s\S]*contest_instance_id[\s\S]*user_id[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*AND[\s\S]*user_id/,
+        mockQueryResponses.single(mockParticipant)
       );
 
       const response = await request(app)
         .post(`/api/custom-contests/${TEST_INSTANCE_ID}/join`)
         .set('X-User-Id', TEST_USER_ID);
 
-      expect(response.status).toBe(409);
-      expect(response.body.error_code).toBe('ALREADY_JOINED');
+      // Should return success (200), not error (409) - this is idempotency
+      expect(response.status).toBe(200);
+      expect(response.body.joined).toBe(true);
+      expect(response.body.participant).toBeDefined();
+      expect(response.body.participant.user_id).toBe(TEST_USER_ID);
     });
 
     it('should return 409 for CONTEST_FULL', async () => {
@@ -919,8 +928,19 @@ describe('Custom Contest Routes', () => {
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({ ...openInstance, max_entries: 5 })
       );
+      // Pre-check: no existing participant
       mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
+        /SELECT[\s\S]*id[\s\S]*contest_instance_id[\s\S]*user_id[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*AND[\s\S]*user_id/,
+        mockQueryResponses.empty()
+      );
+      // INSERT returns 0 rows (capacity full)
+      mockPool.setQueryResponse(
+        /WITH capacity[\s\S]*INSERT INTO contest_participants/,
+        mockQueryResponses.empty()
+      );
+      // Recheck: still no participant
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*id[\s\S]*contest_instance_id[\s\S]*user_id[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*AND[\s\S]*user_id/,
         mockQueryResponses.empty()
       );
 

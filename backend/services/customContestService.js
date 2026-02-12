@@ -803,27 +803,29 @@ async function publishContestInstance(pool, instanceId, organizerId) {
 }
 
 /**
- * Join a contest as a participant (authenticated operation)
+ * Join a contest as a participant (authenticated operation) - IDEMPOTENT
  *
  * Uses a transaction with SELECT FOR UPDATE to serialize concurrent joins.
+ * Idempotent: if user already joined, returns success immediately without error.
  * Capacity is enforced via a CTE that conditionally inserts only when
  * current_count < max_entries (or max_entries IS NULL for unlimited).
  *
- * DB constraints are the source of truth:
- * - Unique (contest_instance_id, user_id) → ALREADY_JOINED
- * - CTE returns 0 rows → CONTEST_FULL
+ * Idempotency enforcement:
+ * - Pre-check: if user already participant, return success immediately
+ * - INSERT uses ON CONFLICT DO NOTHING as final protection against race conditions
+ * - Post-insert: if no rows, re-check participant existence to distinguish FULL vs race
  *
  * @param {Object} pool - Database connection pool
  * @param {string} contestInstanceId - UUID of the contest instance
  * @param {string} userId - UUID of the user joining
- * @returns {Promise<Object>} Join result { joined, participant? } or { joined, error_code, reason }
+ * @returns {Promise<Object>} Join result { joined: true, participant } or { joined: false, error_code, reason }
  */
 async function joinContest(pool, contestInstanceId, userId) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // 1. Lock the row and get data
+    // 1. Lock the contest and fetch state
     const contestResult = await client.query(
       'SELECT id, status, max_entries, lock_time, join_token FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestInstanceId]
@@ -835,7 +837,19 @@ async function joinContest(pool, contestInstanceId, userId) {
     }
     const contest = contestResult.rows[0];
 
-    // 2. Attempt INSERT to check for ALREADY_JOINED and CONTEST_FULL first
+    // 2. IDEMPOTENT: Pre-check if user already participant
+    const existingResult = await client.query(
+      'SELECT id, contest_instance_id, user_id FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
+      [contestInstanceId, userId]
+    );
+
+    if (existingResult.rows.length > 0) {
+      // User already participant → return success immediately (idempotent)
+      await client.query('COMMIT');
+      return { joined: true, participant: existingResult.rows[0] };
+    }
+
+    // 3. User not yet joined. Attempt INSERT with capacity check and ON CONFLICT safety
     const insertResult = await client.query(
       `WITH capacity AS (
         SELECT max_entries,
@@ -847,20 +861,35 @@ async function joinContest(pool, contestInstanceId, userId) {
       SELECT $1, $2
       FROM capacity
       WHERE capacity.max_entries IS NULL OR capacity.current_count < capacity.max_entries
+      ON CONFLICT (contest_instance_id, user_id) DO NOTHING
       RETURNING *`,
       [contestInstanceId, userId]
     );
 
+    // 4. If INSERT returned no rows, determine why:
     if (insertResult.rowCount === 0) {
+      // Either capacity was full OR there was a race condition with ON CONFLICT.
+      // Re-check participant existence to distinguish:
+      const recheckResult = await client.query(
+        'SELECT id, contest_instance_id, user_id FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
+        [contestInstanceId, userId]
+      );
+
+      if (recheckResult.rows.length > 0) {
+        // User was inserted by concurrent transaction → return success (idempotent)
+        await client.query('COMMIT');
+        return { joined: true, participant: recheckResult.rows[0] };
+      }
+
+      // Participant still doesn't exist → capacity was full
       await client.query('ROLLBACK');
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_FULL, reason: 'Contest has reached maximum participants' };
     }
 
-    // 3. Now that user has been added, validate the contest state.
-    // If these checks fail, we rollback the INSERT.
+    // 5. INSERT succeeded. Validate the contest state.
+    // If state checks fail, rollback the INSERT.
     if (contest.status !== 'SCHEDULED' || !contest.join_token) {
       await client.query('ROLLBACK');
-      // Refine reasons for UNAVAILABLE based on the specific non-SCHEDULED status
       if (!contest.join_token) {
         return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is not joinable (no join token)' };
       }
@@ -873,27 +902,24 @@ async function joinContest(pool, contestInstanceId, userId) {
       if (contest.status === 'CANCELLED') {
         return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is cancelled' };
       }
-      if (contest.status === 'LIVE' || contest.status === 'ERROR') { // LIVE and ERROR are also not joinable
+      if (contest.status === 'LIVE' || contest.status === 'ERROR') {
         return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: `Contest is in state '${contest.status}' and not joinable` };
       }
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is not in a joinable state' };
     }
 
-    // 4. Enforce lock_time
+    // 6. Enforce lock_time
     if (contest.lock_time !== null && new Date() >= new Date(contest.lock_time)) {
       await client.query('ROLLBACK');
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest join window has closed' };
     }
 
-    // 5. All checks passed.
+    // 7. All checks passed. Commit and return success.
     await client.query('COMMIT');
     return { joined: true, participant: insertResult.rows[0] };
 
   } catch (err) {
     await client.query('ROLLBACK');
-    if (err.code === '23505') {
-      return { joined: false, error_code: JOIN_ERROR_CODES.ALREADY_JOINED, reason: 'User has already joined this contest' };
-    }
     throw err;
   } finally {
     client.release();
