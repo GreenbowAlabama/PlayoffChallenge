@@ -705,31 +705,13 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
   );
 
   const currentTimestamp = Date.now();
-  const processedContests = [];
 
-  for (let row of result.rows) {
-    // Advance contest lifecycle if needed (read-path self-healing)
-    const newStatus = advanceContestLifecycleIfNeeded(row);
-    if (newStatus) {
-      const updatedRow = await attemptSystemTransitionWithErrorRecovery(
-        pool,
-        row,
-        newStatus,
-        updateContestStatusForSystem
-      );
-      if (updatedRow) {
-        row = updatedRow;
-      }
-    }
-
-    // Fetch standings if required
-    if (row.status === 'LIVE') {
-      row.standings = await _getLiveStandings(pool, row.id);
-    } else if (row.status === 'COMPLETE') {
-      row.standings = await _getCompleteStandings(pool, row.id);
-    }
-    processedContests.push(mapContestToApiResponse(row, { currentTimestamp }));
-  }
+  // Map each row to list API response format.
+  // Uses mapContestToApiResponseForList which omits standings (metadata-only).
+  // No lifecycle advancement, no per-row queries (non-mutating).
+  const processedContests = result.rows.map(row =>
+    mapContestToApiResponseForList(row, { currentTimestamp })
+  );
 
   return processedContests;
 }
