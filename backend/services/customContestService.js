@@ -12,7 +12,6 @@
 const crypto = require('crypto');
 const config = require('../config');
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
-const { advanceContestLifecycleIfNeeded, attemptSystemTransitionWithErrorRecovery } = require('./helpers/contestLifecycleAdvancer');
 const { mapContestToApiResponse, mapContestToApiResponseForList } = require('./helpers/contestApiResponseMapper');
 
 // Function to compare two numbers with a fixed precision (e.g., 2 decimal places)
@@ -390,25 +389,11 @@ async function getContestInstance(pool, instanceId, requestingUserId = null) {
     WHERE ci.id = $1`,
     requestingUserId ? [instanceId, requestingUserId] : [instanceId]
   );
-  let row = result.rows[0];
+  const row = result.rows[0];
 
   if (!row) return null;
 
   const currentTimestamp = Date.now();
-
-  // Advance contest lifecycle if needed (read-path self-healing)
-  const newStatus = advanceContestLifecycleIfNeeded(row);
-  if (newStatus) {
-    const updatedRow = await attemptSystemTransitionWithErrorRecovery(
-      pool,
-      row,
-      newStatus,
-      updateContestStatusForSystem
-    );
-    if (updatedRow) {
-      row = updatedRow;
-    }
-  }
 
   // Fetch standings if required
   if (row.status === 'LIVE') {
@@ -460,24 +445,10 @@ async function getContestInstanceByToken(pool, token, requestingUserId = null) {
     WHERE ci.join_token = $1`,
     requestingUserId ? [token, requestingUserId] : [token]
   );
-  let row = result.rows[0];
+  const row = result.rows[0];
   if (!row) return null;
 
   const currentTimestamp = Date.now();
-
-  // Advance contest lifecycle if needed (read-path self-healing)
-  const newStatus = advanceContestLifecycleIfNeeded(row);
-  if (newStatus) {
-    const updatedRow = await attemptSystemTransitionWithErrorRecovery(
-      pool,
-      row,
-      newStatus,
-      updateContestStatusForSystem
-    );
-    if (updatedRow) {
-      row = updatedRow;
-    }
-  }
 
   // Fetch standings if required
   if (row.status === 'LIVE') {
@@ -584,20 +555,6 @@ async function resolveJoinToken(pool, token) {
   }
 
   const currentTimestamp = Date.now();
-
-  // Advance contest lifecycle if needed (read-path self-healing)
-  const newStatus = advanceContestLifecycleIfNeeded(instance);
-  if (newStatus) {
-    const updatedInstance = await attemptSystemTransitionWithErrorRecovery(
-      pool,
-      instance,
-      newStatus,
-      updateContestStatusForSystem
-    );
-    if (updatedInstance) {
-      instance = updatedInstance; // Use the newly updated instance for further processing
-    }
-  }
 
   // Map the instance to the API response format to get derived fields
   const mappedContest = mapContestToApiResponse(instance, { currentTimestamp });
