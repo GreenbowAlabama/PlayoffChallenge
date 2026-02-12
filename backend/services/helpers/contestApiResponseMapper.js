@@ -166,6 +166,17 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
     throw new Error('Invariant Violation: SCHEDULED contest cannot have a null lock_time.');
   }
 
+  // 5. Validate template fields are strings
+  if (typeof contestRow.template_name !== 'string' || !contestRow.template_name) {
+    throw new Error(`Invariant Violation: 'template_name' must be a non-empty string, but received '${contestRow.template_name}'.`);
+  }
+  if (typeof contestRow.template_sport !== 'string' || !contestRow.template_sport) {
+    throw new Error(`Invariant Violation: 'template_sport' must be a non-empty string, but received '${contestRow.template_sport}'.`);
+  }
+  if (typeof contestRow.template_type !== 'string' || !contestRow.template_type) {
+    throw new Error(`Invariant Violation: 'template_type' must be a non-empty string, but received '${contestRow.template_type}'.`);
+  }
+
   // NOTE: We deliberately do NOT enforce standings presence/absence.
   // List endpoints are metadata-only. Standings are fetched in detail endpoints only.
 
@@ -194,7 +205,6 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
   // --- Construct API List Response (no standings) ---
   return {
     id: contestRow.id,
-    template_id: contestRow.template_id,
     organizer_id: contestRow.organizer_id,
     entry_fee_cents: contestRow.entry_fee_cents,
     payout_structure: contestRow.payout_structure,
@@ -207,6 +217,9 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
     created_at: contestRow.created_at,
     updated_at: contestRow.updated_at,
     is_platform_owned: contestRow.is_platform_owned,
+    template_name: contestRow.template_name,
+    template_sport: contestRow.template_sport,
+    template_type: contestRow.template_type,
 
     // Derived Fields (subset for list surface)
     status,

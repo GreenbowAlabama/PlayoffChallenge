@@ -691,10 +691,14 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
       ci.end_time,
       ci.settle_time,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      cct.name AS template_name,
+      cct.sport AS template_sport,
+      cct.template_type AS template_type,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
       ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
+    LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.organizer_id = $1
     ORDER BY ci.created_at DESC`,
     requestingUserId ? [organizerId, requestingUserId] : [organizerId]
