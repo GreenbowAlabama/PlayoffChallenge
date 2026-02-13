@@ -1333,6 +1333,16 @@ describe('Custom Contest Service Unit Tests', () => {
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single(openInstance)
       );
+      // Pre-check: user not yet participant
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*=[\s\S]*AND[\s\S]*user_id[\s\S]*=/,
+        mockQueryResponses.empty()
+      );
+      // Capacity check
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        mockQueryResponses.single({ current_count: '0' })
+      );
       mockPool.setQueryResponse(
         /INSERT INTO contest_participants/,
         mockQueryResponses.single(mockParticipant)
@@ -1349,6 +1359,16 @@ describe('Custom Contest Service Unit Tests', () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({ ...openInstance, max_entries: null })
+      );
+      // Pre-check: user not yet participant
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*=[\s\S]*AND[\s\S]*user_id[\s\S]*=/,
+        mockQueryResponses.empty()
+      );
+      // Capacity check
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        mockQueryResponses.single({ current_count: '0' })
       );
       mockPool.setQueryResponse(
         /INSERT INTO contest_participants/,
@@ -1377,14 +1397,20 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(result.participant.user_id).toBe(TEST_USER_ID);
     });
 
-    it('should return CONTEST_FULL when capacity CTE returns 0 rows', async () => {
+    it('should return CONTEST_FULL when capacity reached', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({ ...openInstance, max_entries: 5 })
       );
+      // Pre-check: user not yet participant
       mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*=[\s\S]*AND[\s\S]*user_id[\s\S]*=/,
         mockQueryResponses.empty()
+      );
+      // Capacity check: current_count >= max_entries
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        mockQueryResponses.single({ current_count: '5' })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1403,14 +1429,10 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_NOT_FOUND);
     });
 
-    it('should return CONTEST_LOCKED for LOCKED contest', async () => {
+    it('should return CONTEST_LOCKED for LOCKED contest (rejected before insert)', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({ ...openInstance, status: 'LOCKED' })
-      );
-      mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
-        mockQueryResponses.single({}) // Simulate successful insert to proceed to status check
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1418,16 +1440,10 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_LOCKED);
     });
 
-
-
-    it('should return CONTEST_UNAVAILABLE for CANCELLED contest', async () => {
+    it('should return CONTEST_UNAVAILABLE for CANCELLED contest (rejected before insert)', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({ ...openInstance, status: 'CANCELLED' })
-      );
-      mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
-        mockQueryResponses.single({}) // Simulate successful insert to proceed to status check
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1435,14 +1451,10 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_UNAVAILABLE);
     });
 
-    it('should return CONTEST_COMPLETED for COMPLETE contest', async () => {
+    it('should return CONTEST_COMPLETED for COMPLETE contest (rejected before insert)', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({ ...openInstance, status: 'COMPLETE' })
-      );
-      mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
-        mockQueryResponses.single({}) // Simulate successful insert to proceed to status check
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1450,11 +1462,75 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_COMPLETED);
     });
 
+    it('should return CONTEST_UNAVAILABLE if join_token is missing (rejected before insert)', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...openInstance, join_token: null })
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_UNAVAILABLE);
+    });
+
+    it('idempotent: second join via pre-check returns success without duplicate row', async () => {
+      // Simulates user joining for the second time
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single(openInstance)
+      );
+
+      // Pre-check: user already participant (idempotent path)
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*=[\s\S]*AND[\s\S]*user_id[\s\S]*=/,
+        mockQueryResponses.single(mockParticipant)
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(true);
+      expect(result.participant).toEqual(mockParticipant);
+    });
+
+    it('idempotent: returns CONTEST_FULL if capacity reached before insert', async () => {
+      // Simulates the case where capacity filled between pre-check and insert attempt
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single(openInstance)
+      );
+
+      // Pre-check: user not yet participant
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*=[\s\S]*AND[\s\S]*user_id[\s\S]*=/,
+        mockQueryResponses.empty()
+      );
+
+      // Capacity check: contest is full
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        mockQueryResponses.single({ current_count: '10' })
+      );
+
+      const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+      expect(result.joined).toBe(false);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_FULL);
+    });
+
     it('should use a transaction (pool.connect)', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single(openInstance)
       );
+      // Pre-check
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*=[\s\S]*AND[\s\S]*user_id[\s\S]*=/,
+        mockQueryResponses.empty()
+      );
+      // Capacity check
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        mockQueryResponses.single({ current_count: '0' })
+      );
+      // Insert
       mockPool.setQueryResponse(
         /INSERT INTO contest_participants/,
         mockQueryResponses.single(mockParticipant)

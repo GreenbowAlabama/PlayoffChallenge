@@ -245,11 +245,19 @@ async function cleanup() {
   cachedPool = null;
 }
 
+/**
+ * Compatibility alias for legacy tests
+ * createTestApp is an alias for getIntegrationApp (uses real database)
+ * Legacy admin tests expect actual database access
+ */
+const createTestApp = getIntegrationApp;
+
 module.exports = {
   // App factories
   getIntegrationApp,
   createIsolatedApp,
   getContractTestApp,
+  createTestApp,  // Compatibility alias
 
   // Request helpers
   createRequestFactory,

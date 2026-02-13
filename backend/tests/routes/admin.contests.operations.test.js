@@ -18,51 +18,118 @@
  */
 
 const request = require('supertest');
-const { createTestApp } = require('../mocks/testAppFactory');
+const { randomUUID } = require('crypto');
+const { createTestApp, createMockAdminToken } = require('../mocks/testAppFactory');
 
 describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
   let app;
   let pool;
   let adminToken;
+  let adminUserId;
   let contestId;
 
   beforeAll(async () => {
+    // Set JWT secret for testing before creating app
+    process.env.ADMIN_JWT_SECRET = 'test-secret-for-unit-tests';
+
     const setup = await createTestApp();
     app = setup.app;
     pool = setup.pool;
-    adminToken = setup.adminToken;
+
+    // Create admin user in database
+    adminUserId = randomUUID();
+    await pool.query(
+      `INSERT INTO users (id, name, email, is_admin)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        adminUserId,
+        'Test Admin',
+        `admin-${adminUserId}@test.example.com`,
+        true
+      ]
+    );
+
+    // Generate valid JWT token for the admin user
+    adminToken = createMockAdminToken({ sub: adminUserId });
   });
 
   afterAll(async () => {
-    if (pool) await pool.end();
+    // pool.end() is handled globally by tests/setup.js
   });
 
   beforeEach(async () => {
+    // Create organizer user (required FK)
+    const organizerId = randomUUID();
+    await pool.query(
+      `INSERT INTO users (id, name, email)
+       VALUES ($1, $2, $3)`,
+      [
+        organizerId,
+        'Test Organizer',
+        `organizer-${organizerId}@test.example.com`
+      ]
+    );
+
+    // Create test template (required FK)
+    const templateId = randomUUID();
+    await pool.query(
+      `INSERT INTO contest_templates (
+        id,
+        name,
+        sport,
+        template_type,
+        scoring_strategy_key,
+        lock_strategy_key,
+        settlement_strategy_key,
+        default_entry_fee_cents,
+        allowed_entry_fee_min_cents,
+        allowed_entry_fee_max_cents,
+        allowed_payout_structures,
+        is_active
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        templateId,
+        'Test Template',
+        'NFL',
+        'playoff_challenge',
+        'ppr',
+        'first_game_kickoff',
+        'final_standings',
+        0,
+        0,
+        100000,
+        JSON.stringify([{ '1': 100 }]),
+        true
+      ]
+    );
+
     // Create test contest in SCHEDULED status
-    const res = await pool.query(
+    contestId = randomUUID();
+
+    await pool.query(
       `INSERT INTO contest_instances (
         id, template_id, organizer_id, status, contest_name,
         entry_fee_cents, payout_structure, max_entries
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *`,
       [
-        'test-contest-' + Date.now(),
-        'template-1',
-        'org-user-1',
+        contestId,
+        templateId,
+        organizerId,
         'SCHEDULED',
         'Test Contest',
         0,
-        '{"1": 100}',
+        JSON.stringify({ '1': 100 }),
         10
       ]
     );
-    contestId = res.rows[0].id;
   });
 
   afterEach(async () => {
-    // Clean up
+    // Clean up in reverse FK order
     await pool.query('DELETE FROM admin_contest_audit WHERE contest_instance_id = $1', [contestId]);
     await pool.query('DELETE FROM contest_instances WHERE id = $1', [contestId]);
+    // Note: organizer user and template cleanup handled by cascade or separate cleanup if needed
   });
 
   // ============================================
@@ -337,7 +404,7 @@ describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
         })
         .expect(409);
 
-      expect(response.body.error).toContain('invariant');
+      expect(response.body.error).toContain('Invariant');
     });
 
     it('rejects non-SCHEDULED status with 409', async () => {

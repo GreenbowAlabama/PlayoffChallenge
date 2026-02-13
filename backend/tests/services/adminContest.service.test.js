@@ -81,14 +81,14 @@ describe('Admin Contest Service', () => {
   });
 
   describe('overrideStatus', () => {
-    it('should allow open → cancelled', async () => {
+    it('should allow SCHEDULED → CANCELLED', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'open', organizer_id: TEST_ORGANIZER_ID })
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'SCHEDULED', organizer_id: TEST_ORGANIZER_ID })
       );
       mockPool.setQueryResponse(
         /UPDATE contest_instances SET status/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'cancelled' })
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'CANCELLED' })
       );
       mockPool.setQueryResponse(
         /INSERT INTO admin_contest_audit/,
@@ -98,17 +98,18 @@ describe('Admin Contest Service', () => {
       const result = await adminContestService.overrideStatus(
         mockPool, TEST_CONTEST_ID, 'cancelled', TEST_ADMIN_ID, 'Violated rules'
       );
-      expect(result.status).toBe('cancelled');
+      expect(result.success).toBe(true);
+      expect(result.contest.status).toBe('CANCELLED');
     });
 
-    it('should allow locked → cancelled', async () => {
+    it('should allow LOCKED → CANCELLED', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'locked', organizer_id: TEST_ORGANIZER_ID })
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'LOCKED', organizer_id: TEST_ORGANIZER_ID })
       );
       mockPool.setQueryResponse(
         /UPDATE contest_instances SET status/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'cancelled' })
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'CANCELLED' })
       );
       mockPool.setQueryResponse(
         /INSERT INTO admin_contest_audit/,
@@ -118,21 +119,36 @@ describe('Admin Contest Service', () => {
       const result = await adminContestService.overrideStatus(
         mockPool, TEST_CONTEST_ID, 'cancelled', TEST_ADMIN_ID, 'Emergency cancellation'
       );
-      expect(result.status).toBe('cancelled');
+      expect(result.success).toBe(true);
+      expect(result.contest.status).toBe('CANCELLED');
     });
 
-    it('should allow open → draft when organizer is sole participant', async () => {
+    it('should reject draft transitions (legacy status not supported)', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'open', organizer_id: TEST_ORGANIZER_ID })
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'SCHEDULED', organizer_id: TEST_ORGANIZER_ID })
       );
+
+      await expect(
+        adminContestService.overrideStatus(mockPool, TEST_CONTEST_ID, 'draft', TEST_ADMIN_ID, 'Revert attempt')
+      ).rejects.toThrow('Unsupported legacy overrideStatus transition to \'draft\'');
+    });
+
+    it('should reject transition out of COMPLETE (terminal state)', async () => {
       mockPool.setQueryResponse(
-        /SELECT COUNT[\s\S]*FROM contest_participants/,
-        mockQueryResponses.single({ cnt: '1' })
+        /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'COMPLETE', organizer_id: TEST_ORGANIZER_ID })
       );
+
+      await expect(
+        adminContestService.overrideStatus(mockPool, TEST_CONTEST_ID, 'cancelled', TEST_ADMIN_ID, 'Trying to cancel complete')
+      ).rejects.toThrow("Cannot cancel contest in status 'COMPLETE'. Only SCHEDULED, LOCKED, and ERROR contests can be cancelled.");
+    });
+
+    it('should be idempotent when re-cancelling CANCELLED contest', async () => {
       mockPool.setQueryResponse(
-        /UPDATE contest_instances SET status/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'draft' })
+        /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'CANCELLED', organizer_id: TEST_ORGANIZER_ID })
       );
       mockPool.setQueryResponse(
         /INSERT INTO admin_contest_audit/,
@@ -140,57 +156,23 @@ describe('Admin Contest Service', () => {
       );
 
       const result = await adminContestService.overrideStatus(
-        mockPool, TEST_CONTEST_ID, 'draft', TEST_ADMIN_ID, 'Organizer requested revert'
+        mockPool, TEST_CONTEST_ID, 'cancelled', TEST_ADMIN_ID, 'Double cancel attempt'
       );
-      expect(result.status).toBe('draft');
+      expect(result.success).toBe(true);
+      expect(result.noop).toBe(true);
     });
 
-    it('should reject open → draft when contest has other participants', async () => {
+    it('should reject LIVE → CANCELLED (not admin-allowed in overrideStatus)', async () => {
+      // overrideStatus only supports SCHEDULED, LOCKED, ERROR → CANCELLED
+      // LIVE → CANCELLED is not supported (only through settlement)
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'open', organizer_id: TEST_ORGANIZER_ID })
-      );
-      mockPool.setQueryResponse(
-        /SELECT COUNT[\s\S]*FROM contest_participants/,
-        mockQueryResponses.single({ cnt: '3' })
-      );
-
-      await expect(
-        adminContestService.overrideStatus(mockPool, TEST_CONTEST_ID, 'draft', TEST_ADMIN_ID, 'Revert attempt')
-      ).rejects.toThrow('Cannot revert to draft: contest has participants beyond the organizer');
-    });
-
-    it('should reject transition out of settled', async () => {
-      mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'settled', organizer_id: TEST_ORGANIZER_ID })
-      );
-
-      await expect(
-        adminContestService.overrideStatus(mockPool, TEST_CONTEST_ID, 'cancelled', TEST_ADMIN_ID, 'Trying to cancel settled')
-      ).rejects.toThrow("Admin cannot transition from 'settled' to 'cancelled'");
-    });
-
-    it('should reject transition out of cancelled', async () => {
-      mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'cancelled', organizer_id: TEST_ORGANIZER_ID })
-      );
-
-      await expect(
-        adminContestService.overrideStatus(mockPool, TEST_CONTEST_ID, 'open', TEST_ADMIN_ID, 'Reopen attempt')
-      ).rejects.toThrow("Admin cannot transition from 'cancelled' to 'open'");
-    });
-
-    it('should reject invalid transition draft → cancelled (not admin-allowed)', async () => {
-      mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'draft', organizer_id: TEST_ORGANIZER_ID })
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'LIVE', organizer_id: TEST_ORGANIZER_ID })
       );
 
       await expect(
         adminContestService.overrideStatus(mockPool, TEST_CONTEST_ID, 'cancelled', TEST_ADMIN_ID, 'Test')
-      ).rejects.toThrow("Admin cannot transition from 'draft' to 'cancelled'");
+      ).rejects.toThrow("Cannot cancel contest in status 'LIVE'. Only SCHEDULED, LOCKED, and ERROR contests can be cancelled.");
     });
 
     it('should reject when contest not found', async () => {
@@ -213,11 +195,11 @@ describe('Admin Contest Service', () => {
     it('should write audit record on successful override', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'open', organizer_id: TEST_ORGANIZER_ID })
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'SCHEDULED', organizer_id: TEST_ORGANIZER_ID })
       );
       mockPool.setQueryResponse(
         /UPDATE contest_instances SET status/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'cancelled' })
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'CANCELLED' })
       );
       mockPool.setQueryResponse(
         /INSERT INTO admin_contest_audit/,
@@ -233,38 +215,28 @@ describe('Admin Contest Service', () => {
       expect(auditInserts).toHaveLength(1);
       expect(auditInserts[0].params[0]).toBe(TEST_CONTEST_ID);
       expect(auditInserts[0].params[1]).toBe(TEST_ADMIN_ID);
-      expect(auditInserts[0].params[2]).toBe('status_override');
+      expect(auditInserts[0].params[2]).toBe('cancel_contest');
       expect(auditInserts[0].params[3]).toBe('Test reason');
     });
   });
 
   describe('deleteContest', () => {
-    const openContest = {
+    const scheduledContest = {
       id: TEST_CONTEST_ID,
-      status: 'open',
+      status: 'SCHEDULED',
       entry_fee_cents: 0,
       organizer_id: TEST_ORGANIZER_ID
     };
 
-    it('should delete a free contest and return refund manifest', async () => {
+    it('should cancel a SCHEDULED contest (v1 semantics)', async () => {
+      // v1: deleteContest routes to cancelContestInstance
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single(openContest)
+        mockQueryResponses.single(scheduledContest)
       );
       mockPool.setQueryResponse(
-        /SELECT user_id FROM contest_participants/,
-        mockQueryResponses.multiple([
-          { user_id: TEST_ORGANIZER_ID },
-          { user_id: '22222222-2222-2222-2222-222222222222' }
-        ])
-      );
-      mockPool.setQueryResponse(
-        /DELETE FROM contest_participants/,
-        mockQueryResponses.deleted(2)
-      );
-      mockPool.setQueryResponse(
-        /DELETE FROM contest_instances/,
-        mockQueryResponses.deleted(1)
+        /UPDATE contest_instances SET status/,
+        mockQueryResponses.single({ ...scheduledContest, status: 'CANCELLED' })
       );
       mockPool.setQueryResponse(
         /INSERT INTO admin_contest_audit/,
@@ -275,81 +247,15 @@ describe('Admin Contest Service', () => {
         mockPool, TEST_CONTEST_ID, TEST_ADMIN_ID, 'Cleanup', false
       );
 
-      expect(result.contest_id).toBe(TEST_CONTEST_ID);
-      expect(result.entry_fee_cents).toBe(0);
-      expect(result.participants).toHaveLength(2);
+      expect(result.success).toBe(true);
+      expect(result.contest.status).toBe('CANCELLED');
     });
 
-    it('should cascade delete participants then contest', async () => {
+    it('should be idempotent if already CANCELLED', async () => {
+      const cancelledContest = { ...scheduledContest, status: 'CANCELLED' };
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single(openContest)
-      );
-      mockPool.setQueryResponse(
-        /SELECT user_id FROM contest_participants/,
-        mockQueryResponses.multiple([{ user_id: TEST_ORGANIZER_ID }])
-      );
-      mockPool.setQueryResponse(
-        /DELETE FROM contest_participants/,
-        mockQueryResponses.deleted(1)
-      );
-      mockPool.setQueryResponse(
-        /DELETE FROM contest_instances/,
-        mockQueryResponses.deleted(1)
-      );
-      mockPool.setQueryResponse(
-        /INSERT INTO admin_contest_audit/,
-        mockQueryResponses.single({ id: 'audit-1' })
-      );
-
-      await adminContestService.deleteContest(
-        mockPool, TEST_CONTEST_ID, TEST_ADMIN_ID, 'Test', false
-      );
-
-      const queries = mockPool.getQueryHistory();
-      const deleteParticipants = queries.findIndex(q => /DELETE FROM contest_participants/.test(q.sql));
-      const deleteInstances = queries.findIndex(q => /DELETE FROM contest_instances/.test(q.sql));
-      expect(deleteParticipants).toBeLessThan(deleteInstances);
-    });
-
-    it('should reject deletion of settled contest', async () => {
-      mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openContest, status: 'settled' })
-      );
-
-      await expect(
-        adminContestService.deleteContest(mockPool, TEST_CONTEST_ID, TEST_ADMIN_ID, 'Test', false)
-      ).rejects.toThrow('Cannot delete a settled contest');
-    });
-
-    it('should reject paid contest deletion without confirm_refund', async () => {
-      mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openContest, entry_fee_cents: 2500 })
-      );
-
-      await expect(
-        adminContestService.deleteContest(mockPool, TEST_CONTEST_ID, TEST_ADMIN_ID, 'Test', false)
-      ).rejects.toThrow('Paid contest deletion requires confirm_refund = true');
-    });
-
-    it('should allow paid contest deletion with confirm_refund = true', async () => {
-      mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openContest, entry_fee_cents: 2500 })
-      );
-      mockPool.setQueryResponse(
-        /SELECT user_id FROM contest_participants/,
-        mockQueryResponses.multiple([{ user_id: TEST_ORGANIZER_ID }])
-      );
-      mockPool.setQueryResponse(
-        /DELETE FROM contest_participants/,
-        mockQueryResponses.deleted(1)
-      );
-      mockPool.setQueryResponse(
-        /DELETE FROM contest_instances/,
-        mockQueryResponses.deleted(1)
+        mockQueryResponses.single(cancelledContest)
       );
       mockPool.setQueryResponse(
         /INSERT INTO admin_contest_audit/,
@@ -357,10 +263,44 @@ describe('Admin Contest Service', () => {
       );
 
       const result = await adminContestService.deleteContest(
-        mockPool, TEST_CONTEST_ID, TEST_ADMIN_ID, 'Refund required', true
+        mockPool, TEST_CONTEST_ID, TEST_ADMIN_ID, 'Test', false
       );
-      expect(result.entry_fee_cents).toBe(2500);
-      expect(result.participants).toContain(TEST_ORGANIZER_ID);
+
+      expect(result.success).toBe(true);
+      expect(result.noop).toBe(true);
+    });
+
+    it('should reject cancellation of COMPLETE contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ ...scheduledContest, status: 'COMPLETE' })
+      );
+
+      await expect(
+        adminContestService.deleteContest(mockPool, TEST_CONTEST_ID, TEST_ADMIN_ID, 'Test', false)
+      ).rejects.toThrow('Cannot cancel contest in status \'COMPLETE\'. Only SCHEDULED, LOCKED, and ERROR contests can be cancelled.');
+    });
+
+    it('should accept hard parameter (unused in v1)', async () => {
+      // v1: hard parameter is ignored, deleteContest always routes to cancelContestInstance
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single(scheduledContest)
+      );
+      mockPool.setQueryResponse(
+        /UPDATE contest_instances SET status/,
+        mockQueryResponses.single({ ...scheduledContest, status: 'CANCELLED' })
+      );
+      mockPool.setQueryResponse(
+        /INSERT INTO admin_contest_audit/,
+        mockQueryResponses.single({ id: 'audit-1' })
+      );
+
+      const result = await adminContestService.deleteContest(
+        mockPool, TEST_CONTEST_ID, TEST_ADMIN_ID, 'Test', true
+      );
+      expect(result.success).toBe(true);
+      expect(result.contest.status).toBe('CANCELLED');
     });
 
     it('should reject when contest not found', async () => {
@@ -380,22 +320,14 @@ describe('Admin Contest Service', () => {
       ).rejects.toThrow('reason is required');
     });
 
-    it('should write audit record with refund manifest as payload', async () => {
+    it('should write audit record on cancellation', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single(openContest)
+        mockQueryResponses.single(scheduledContest)
       );
       mockPool.setQueryResponse(
-        /SELECT user_id FROM contest_participants/,
-        mockQueryResponses.multiple([{ user_id: TEST_ORGANIZER_ID }])
-      );
-      mockPool.setQueryResponse(
-        /DELETE FROM contest_participants/,
-        mockQueryResponses.deleted(1)
-      );
-      mockPool.setQueryResponse(
-        /DELETE FROM contest_instances/,
-        mockQueryResponses.deleted(1)
+        /UPDATE contest_instances SET status/,
+        mockQueryResponses.single({ ...scheduledContest, status: 'CANCELLED' })
       );
       mockPool.setQueryResponse(
         /INSERT INTO admin_contest_audit/,
@@ -411,13 +343,8 @@ describe('Admin Contest Service', () => {
       expect(auditInserts).toHaveLength(1);
       expect(auditInserts[0].params[0]).toBe(TEST_CONTEST_ID);
       expect(auditInserts[0].params[1]).toBe(TEST_ADMIN_ID);
-      expect(auditInserts[0].params[2]).toBe('delete_contest');
+      expect(auditInserts[0].params[2]).toBe('cancel_contest');
       expect(auditInserts[0].params[3]).toBe('Audit test');
-
-      const payload = JSON.parse(auditInserts[0].params[4]);
-      expect(payload.contest_id).toBe(TEST_CONTEST_ID);
-      expect(payload.entry_fee_cents).toBe(0);
-      expect(payload.participants).toContain(TEST_ORGANIZER_ID);
     });
   });
 
@@ -427,11 +354,12 @@ describe('Admin Contest Service', () => {
 
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'open', lock_time: null })
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'SCHEDULED', lock_time: null })
       );
+      // updateContestTimeFields builds: `UPDATE contest_instances\nSET lock_time = ...` with newlines
       mockPool.setQueryResponse(
-        /UPDATE contest_instances SET lock_time/,
-        mockQueryResponses.single({ id: TEST_CONTEST_ID, lock_time: newLockTime })
+        /UPDATE[\s\S]*contest_instances[\s\S]*SET[\s\S]*lock_time/,
+        mockQueryResponses.single({ id: TEST_CONTEST_ID, status: 'SCHEDULED', lock_time: newLockTime })
       );
       mockPool.setQueryResponse(
         /INSERT INTO admin_contest_audit/,
@@ -442,12 +370,13 @@ describe('Admin Contest Service', () => {
         mockPool, TEST_CONTEST_ID, newLockTime, TEST_ADMIN_ID, 'Adjusting lock time'
       );
 
-      expect(result.lock_time).toBe(newLockTime);
+      expect(result.success).toBe(true);
+      expect(result.contest.lock_time).toBe(newLockTime);
 
       const queries = mockPool.getQueryHistory();
       const auditInserts = queries.filter(q => /INSERT INTO admin_contest_audit/.test(q.sql));
       expect(auditInserts).toHaveLength(1);
-      expect(auditInserts[0].params[2]).toBe('update_lock_time');
+      expect(auditInserts[0].params[2]).toBe('update_time_fields');
     });
 
     it('should reject when contest not found', async () => {
@@ -520,7 +449,7 @@ describe('Admin Contest Service', () => {
       expect(result.contest.status).toBe('CANCELLED');
     });
 
-    it('should reject COMPLETE status with TERMINAL_STATE error', async () => {
+    it('should reject COMPLETE status (terminal state)', async () => {
       const completeContest = { ...scheduledContest, status: 'COMPLETE' };
       mockPool.setQueryResponse(
         /SELECT \* FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
@@ -535,7 +464,7 @@ describe('Admin Contest Service', () => {
         adminContestService.cancelContestInstance(
           mockPool, TEST_CONTEST_ID, TEST_ADMIN_ID, 'Attempt to cancel complete contest'
         )
-      ).rejects.toThrow('Cannot cancel contest in terminal status');
+      ).rejects.toThrow('Cannot cancel contest in status \'COMPLETE\'. Only SCHEDULED, LOCKED, and ERROR contests can be cancelled.');
     });
 
     it('should throw CONTEST_NOT_FOUND when contest does not exist', async () => {

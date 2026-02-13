@@ -293,22 +293,18 @@ router.post('/', extractUserId, async (req, res) => {
 
 /**
  * GET /api/custom-contests/available
- * List publicly joinable contests.
+ * List publicly joinable contests (authenticated).
  *
  * Returns SCHEDULED contests that are published and publicly shareable.
  * This is infrastructure plumbing for MVP contest discovery.
  *
+ * Requires authentication: returns 401 if no valid user ID provided.
  * Includes user_has_entered field to show if user has already joined.
  * Does NOT filter by capacity or enrollment (all SCHEDULED + joinable).
  *
- * Works with or without Authorization header:
- * - Missing auth → req.userId = null, user_has_entered = false
- * - Invalid UUID → 400 Bad Request
- * - Valid UUID → normal behavior
- *
  * Response: Array of contest instances
  */
-router.get('/available', extractOptionalUserId, async (req, res) => {
+router.get('/available', extractUserId, async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const userId = req.userId;

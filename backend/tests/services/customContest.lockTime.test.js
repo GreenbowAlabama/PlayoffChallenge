@@ -29,7 +29,7 @@ describe('lock_time enforcement', () => {
   });
 
   describe('joinContest — lock_time', () => {
-    it('should reject join when lock_time has passed', async () => {
+    it('should reject join when lock_time has passed (rejected before insert)', async () => {
       const pastLockTime = new Date(Date.now() - 60000).toISOString(); // 1 minute ago
 
       mockPool.setQueryResponse(
@@ -41,10 +41,6 @@ describe('lock_time enforcement', () => {
           max_entries: 10,
           lock_time: pastLockTime
         })
-      );
-      mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
-        mockQueryResponses.single({}) // Simulate successful insert to proceed to lock_time check
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -65,6 +61,16 @@ describe('lock_time enforcement', () => {
           max_entries: null,
           lock_time: futureLockTime
         })
+      );
+      // Pre-check: user not yet participant
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*AND[\s\S]*user_id/,
+        mockQueryResponses.empty()
+      );
+      // Capacity check
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        mockQueryResponses.single({ current_count: '0' })
       );
       mockPool.setQueryResponse(
         /INSERT INTO contest_participants/,
@@ -89,6 +95,16 @@ describe('lock_time enforcement', () => {
           max_entries: null,
           lock_time: null
         })
+      );
+      // Pre-check: user not yet participant
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*AND[\s\S]*user_id/,
+        mockQueryResponses.empty()
+      );
+      // Capacity check
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        mockQueryResponses.single({ current_count: '0' })
       );
       mockPool.setQueryResponse(
         /INSERT INTO contest_participants/,

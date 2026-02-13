@@ -172,7 +172,7 @@ router.post('/:id/update-times', async (req, res) => {
     const result = await adminContestService.updateContestTimeFields(
       pool,
       req.params.id,
-      { lock_time, start_time, end_time, settle_time },
+      { lock_time, start_time, end_time },
       req.adminUser.id,
       reason
     );
@@ -182,7 +182,7 @@ router.post('/:id/update-times', async (req, res) => {
     if (err.code === 'CONTEST_NOT_FOUND') {
       return res.status(404).json({ error: err.message });
     }
-    if (err.code === 'INVALID_STATUS' || err.message.includes('invariant')) {
+    if (err.code === 'INVALID_STATUS' || err.message.toLowerCase().includes('invariant')) {
       return res.status(409).json({ error: err.message });
     }
     console.error('[Admin Contests] Error updating times:', err.message);
@@ -211,7 +211,7 @@ router.post('/:id/settle', async (req, res) => {
       reason
     );
 
-    res.json({ success: result.success, contest: result.contest });
+    res.json({ success: result.success, contest: result.contest, noop: result.noop });
   } catch (err) {
     if (err.code === 'CONTEST_NOT_FOUND') {
       return res.status(404).json({ error: err.message });

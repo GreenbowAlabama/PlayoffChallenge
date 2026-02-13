@@ -1052,9 +1052,14 @@ describe('Custom Contest Routes', () => {
         /SELECT[\s\S]*id[\s\S]*contest_instance_id[\s\S]*user_id[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*AND[\s\S]*user_id/,
         mockQueryResponses.empty()
       );
+      // Capacity check
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        mockQueryResponses.single({ current_count: '3' })
+      );
       // INSERT succeeds with capacity available
       mockPool.setQueryResponse(
-        /WITH capacity[\s\S]*INSERT INTO contest_participants/,
+        /INSERT INTO contest_participants[\s\S]*ON CONFLICT[\s\S]*DO NOTHING/,
         mockQueryResponses.single(mockParticipant)
       );
 
@@ -1102,15 +1107,10 @@ describe('Custom Contest Routes', () => {
         /SELECT[\s\S]*id[\s\S]*contest_instance_id[\s\S]*user_id[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*AND[\s\S]*user_id/,
         mockQueryResponses.empty()
       );
-      // INSERT returns 0 rows (capacity full)
+      // Capacity check: already at max
       mockPool.setQueryResponse(
-        /WITH capacity[\s\S]*INSERT INTO contest_participants/,
-        mockQueryResponses.empty()
-      );
-      // Recheck: still no participant
-      mockPool.setQueryResponse(
-        /SELECT[\s\S]*id[\s\S]*contest_instance_id[\s\S]*user_id[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*AND[\s\S]*user_id/,
-        mockQueryResponses.empty()
+        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        mockQueryResponses.single({ current_count: '5' })
       );
 
       const response = await request(app)
@@ -1146,7 +1146,7 @@ describe('Custom Contest Routes', () => {
         .set('X-User-Id', TEST_USER_ID);
 
       expect(response.status).toBe(409);
-      expect(response.body.error_code).toBe('CONTEST_FULL');
+      expect(response.body.error_code).toBe('CONTEST_LOCKED');
     });
 
     it('should return 409 for unpublished contest', async () => {
@@ -1160,7 +1160,7 @@ describe('Custom Contest Routes', () => {
         .set('X-User-Id', TEST_USER_ID);
 
       expect(response.status).toBe(409);
-      expect(response.body.error_code).toBe('CONTEST_FULL');
+      expect(response.body.error_code).toBe('CONTEST_UNAVAILABLE');
     });
   });
 });
