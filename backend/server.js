@@ -26,9 +26,11 @@ const config = require('./config');
 config.validateEnvironment();
 
 // Validate admin JWT secret is configured (required for admin authentication)
-if (!process.env.ADMIN_JWT_SECRET) {
-  console.error('FATAL: ADMIN_JWT_SECRET environment variable not configured');
-  process.exit(1);
+if (process.env.NODE_ENV !== 'test') {
+  if (!process.env.ADMIN_JWT_SECRET) {
+    console.error('FATAL: ADMIN_JWT_SECRET environment variable not configured');
+    process.exit(1);
+  }
 }
 
 const app = express();
