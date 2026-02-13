@@ -30,7 +30,9 @@ async function requireAdmin(req, res, next) {
     // Verify JWT signature and decode
     let decoded;
     try {
-      decoded = jwt.verify(token, process.env.ADMIN_JWT_SECRET);
+      decoded = jwt.verify(token, process.env.ADMIN_JWT_SECRET, {
+        algorithms: ['HS256']
+      });
     } catch (err) {
       console.log('[Admin Auth] Invalid or expired JWT', {
         timestamp: new Date().toISOString(),

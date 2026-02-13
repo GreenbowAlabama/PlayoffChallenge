@@ -25,6 +25,12 @@ const config = require('./config');
 // Fail fast on misconfigured environment
 config.validateEnvironment();
 
+// Validate admin JWT secret is configured (required for admin authentication)
+if (!process.env.ADMIN_JWT_SECRET) {
+  console.error('FATAL: ADMIN_JWT_SECRET environment variable not configured');
+  process.exit(1);
+}
+
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 8080;
