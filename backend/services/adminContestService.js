@@ -1,36 +1,33 @@
 /**
- * Admin Contest Service
+ * Admin Contest Service — Contest Operation Only
  *
  * Handles admin-only contest operations:
- * - Status overrides with restricted transition rules
- * - Hard deletion with cascade and refund manifest
+ * - Cancel contest
+ * - Force lock contest
+ * - Update contest time fields
+ * - Trigger settlement
+ * - Resolve error status
  * - Audit logging for all mutations
+ *
+ * This service is operation-focused, not override-focused.
+ * All operations respect actor-based transition rules.
  */
 
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
 const { assertAllowedDbStatusTransition, ACTORS, TransitionNotAllowedError } = require('./helpers/contestTransitionValidator');
 
-const ADMIN_TRANSITIONS = {
-  draft: [],
-  open: ['draft', 'cancelled'],
-  locked: ['cancelled'],
-  settled: [],
-  cancelled: []
-};
-
-
 /**
- * Write an audit record for an admin action (GAP-13 compliant).
- * Uses correct schema column names and required fields.
+ * Write an audit record for an admin action.
+ * All required fields must be provided per schema.
  *
  * @param {Object} client - DB client (inside transaction)
  * @param {Object} opts
- * @param {string} opts.contest_instance_id - FK to contest_instances
- * @param {string} opts.admin_user_id - FK to users
- * @param {string} opts.action - Action type (e.g., 'cancel_contest')
- * @param {string} opts.reason - Human-readable reason (required by schema)
- * @param {string} opts.from_status - Previous status (required by schema)
- * @param {string} opts.to_status - New status (required by schema)
+ * @param {string} opts.contest_instance_id - FK to contest_instances (required)
+ * @param {string} opts.admin_user_id - FK to users (required)
+ * @param {string} opts.action - Action type (required)
+ * @param {string} opts.reason - Human-readable reason (required)
+ * @param {string} opts.from_status - Status before operation (required)
+ * @param {string} opts.to_status - Status after operation (required)
  * @param {Object} opts.payload - Additional context (optional)
  */
 async function _writeAdminAudit(client, {
@@ -56,27 +53,6 @@ async function _writeAdminAudit(client, {
       to_status,
       JSON.stringify(payload)
     ]
-  );
-}
-
-/**
- * Write an audit record for an admin action (DEPRECATED).
- * Use _writeAdminAudit instead. This exists only for backward compatibility.
- *
- * @param {Object} client - DB client (inside transaction) or pool
- * @param {Object} opts
- * @param {string} opts.contest_id
- * @param {string} opts.admin_user_id
- * @param {string} opts.action
- * @param {string} opts.reason
- * @param {Object} opts.payload
- * @deprecated Use _writeAdminAudit instead
- */
-async function writeAudit(client, { contest_id, admin_user_id, action, reason, payload }) {
-  await client.query(
-    `INSERT INTO admin_contest_audit (contest_id, admin_user_id, action, reason, payload)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [contest_id, admin_user_id, action, reason, JSON.stringify(payload || {})]
   );
 }
 
@@ -148,240 +124,6 @@ async function getContest(pool, contestId) {
   return result.rows[0] || null;
 }
 
-/**
- * Admin status override with restricted transition rules.
- *
- * Allowed transitions:
- *   open → draft   (only if organizer is sole participant)
- *   open → cancelled
- *   locked → cancelled
- *
- * Settled and cancelled are terminal — no transitions out.
- *
- * @param {Object} pool - Database pool
- * @param {string} contestId
- * @param {string} newStatus
- * @param {string} adminUserId
- * @param {string} reason - Required reason for audit
- * @returns {Promise<Object>} Updated contest
- */
-async function overrideStatus(pool, contestId, newStatus, adminUserId, reason) {
-  if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
-    throw new Error('reason is required for admin status override');
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    const lockResult = await client.query(
-      'SELECT id, status, organizer_id FROM contest_instances WHERE id = $1 FOR UPDATE',
-      [contestId]
-    );
-
-    if (lockResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      throw new Error('Contest not found');
-    }
-
-    const contest = lockResult.rows[0];
-    const allowed = ADMIN_TRANSITIONS[contest.status];
-
-    if (!allowed || !allowed.includes(newStatus)) {
-      await client.query('ROLLBACK');
-      throw new Error(`Admin cannot transition from '${contest.status}' to '${newStatus}'`);
-    }
-
-    // open → draft requires organizer is sole participant
-    if (contest.status === 'open' && newStatus === 'draft') {
-      const countResult = await client.query(
-        'SELECT COUNT(*) as cnt FROM contest_participants WHERE contest_instance_id = $1',
-        [contestId]
-      );
-      const participantCount = parseInt(countResult.rows[0].cnt, 10);
-
-      if (participantCount > 1) {
-        await client.query('ROLLBACK');
-        throw new Error('Cannot revert to draft: contest has participants beyond the organizer');
-      }
-    }
-
-    const updateResult = await client.query(
-      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
-      [newStatus, contestId]
-    );
-
-    await writeAudit(client, {
-      contest_id: contestId,
-      admin_user_id: adminUserId,
-      action: 'status_override',
-      reason,
-      payload: { from_status: contest.status, to_status: newStatus }
-    });
-
-    await client.query('COMMIT');
-    return updateResult.rows[0];
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
-}
-
-/**
- * Update lock_time on a contest.
- *
- * @param {Object} pool - Database pool
- * @param {string} contestId
- * @param {string} lockTime - ISO 8601 timestamp or null
- * @param {string} adminUserId
- * @param {string} reason
- * @returns {Promise<Object>} Updated contest
- */
-async function updateLockTime(pool, contestId, lockTime, adminUserId, reason) {
-  if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
-    throw new Error('reason is required for admin lock_time update');
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    const lockResult = await client.query(
-      'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
-      [contestId]
-    );
-
-    if (lockResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      throw new Error('Contest not found');
-    }
-
-    const contest = lockResult.rows[0];
-
-    // Validate time invariants before update
-    validateContestTimeInvariants({
-      existing: contest,
-      updates: { lock_time: lockTime }
-    });
-
-    const updateResult = await client.query(
-      'UPDATE contest_instances SET lock_time = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
-      [lockTime, contestId]
-    );
-
-    await writeAudit(client, {
-      contest_id: contestId,
-      admin_user_id: adminUserId,
-      action: 'update_lock_time',
-      reason,
-      payload: { old_lock_time: contest.lock_time, new_lock_time: lockTime }
-    });
-
-    await client.query('COMMIT');
-    return updateResult.rows[0];
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
-}
-
-/**
- * Hard delete a contest with cascading cleanup.
- *
- * Transaction steps:
- *   1. SELECT ... FOR UPDATE on contest_instances
- *   2. Reject if status = settled
- *   3. Capture refund manifest (contest_id, entry_fee_cents, participants)
- *   4. Cascade delete: contest_participants, contest_instances
- *   5. Insert audit record
- *   6. COMMIT
- *   7. Return refund manifest
- *
- * Paid contest deletion requires confirmRefund = true.
- *
- * @param {Object} pool - Database pool
- * @param {string} contestId
- * @param {string} adminUserId
- * @param {string} reason
- * @param {boolean} confirmRefund - Must be true for paid contests
- * @returns {Promise<Object>} Refund manifest
- */
-async function deleteContest(pool, contestId, adminUserId, reason, confirmRefund) {
-  if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
-    throw new Error('reason is required for admin contest deletion');
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    const lockResult = await client.query(
-      'SELECT id, status, entry_fee_cents, organizer_id FROM contest_instances WHERE id = $1 FOR UPDATE',
-      [contestId]
-    );
-
-    if (lockResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      throw new Error('Contest not found');
-    }
-
-    const contest = lockResult.rows[0];
-
-    if (contest.status === 'settled') {
-      await client.query('ROLLBACK');
-      throw new Error('Cannot delete a settled contest');
-    }
-
-    // Paid contest deletion requires explicit refund confirmation
-    if (contest.entry_fee_cents > 0 && confirmRefund !== true) {
-      await client.query('ROLLBACK');
-      throw new Error('Paid contest deletion requires confirm_refund = true');
-    }
-
-    // Capture refund manifest
-    const participantsResult = await client.query(
-      'SELECT user_id FROM contest_participants WHERE contest_instance_id = $1',
-      [contestId]
-    );
-
-    const refundManifest = {
-      contest_id: contestId,
-      entry_fee_cents: contest.entry_fee_cents,
-      participants: participantsResult.rows.map(r => r.user_id)
-    };
-
-    // Cascade delete
-    await client.query(
-      'DELETE FROM contest_participants WHERE contest_instance_id = $1',
-      [contestId]
-    );
-    await client.query(
-      'DELETE FROM contest_instances WHERE id = $1',
-      [contestId]
-    );
-
-    // Audit — contest_id is the deleted contest's ID (for forensics)
-    await writeAudit(client, {
-      contest_id: contestId,
-      admin_user_id: adminUserId,
-      action: 'delete_contest',
-      reason,
-      payload: refundManifest
-    });
-
-    await client.query('COMMIT');
-    return refundManifest;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
-}
 
 /**
  * Force SCHEDULED → LOCKED transition by updating lock_time and performing SYSTEM transition.
@@ -465,6 +207,7 @@ async function forceLockContestInstance(pool, contestId, adminUserId, reason) {
         to_status: fromStatus,
         payload: { noop: true, rejected: true, error_code: 'INVALID_STATUS' }
       });
+      await client.query('COMMIT');
       const err = new Error(`Cannot force lock from status '${fromStatus}'. Only SCHEDULED contests can be force-locked.`);
       err.code = 'INVALID_STATUS';
       throw err;
@@ -526,7 +269,8 @@ async function forceLockContestInstance(pool, contestId, adminUserId, reason) {
 }
 
 /**
- * Update contest time fields (lock_time, start_time, end_time).
+ * Update contest time fields (lock_time, start_time, end_time only).
+ * settle_time is system-written and immutable per contract.
  *
  * Constraints:
  *   - SCHEDULED status only
@@ -581,6 +325,7 @@ async function updateContestTimeFields(pool, contestId, timeFields, adminUserId,
         to_status: fromStatus,
         payload: { noop: true, rejected: true, error_code: 'INVALID_STATUS' }
       });
+      await client.query('COMMIT');
       const err = new Error(`Cannot update time fields in status '${fromStatus}'. Only SCHEDULED contests allow time updates.`);
       err.code = 'INVALID_STATUS';
       throw err;
@@ -758,23 +503,6 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
     const fromStatus = contest.status;
 
     // Step 2: Check status AFTER lock
-    // Terminal state rejection
-    if (fromStatus === 'COMPLETE') {
-      await _writeAdminAudit(client, {
-        contest_instance_id: contestId,
-        admin_user_id: adminUserId,
-        action: 'cancel_contest',
-        reason,
-        from_status: fromStatus,
-        to_status: fromStatus,
-        payload: { noop: true, rejected: true, error_code: 'TERMINAL_STATE' }
-      });
-      await client.query('ROLLBACK');
-      const err = new Error(`Cannot cancel contest in terminal status '${fromStatus}'`);
-      err.code = 'TERMINAL_STATE';
-      throw err;
-    }
-
     // Idempotency: already cancelled
     if (fromStatus === 'CANCELLED') {
       await _writeAdminAudit(client, {
@@ -794,8 +522,25 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
       };
     }
 
-    // Step 3: Validate transition via validator
-    // Let TransitionNotAllowedError propagate if invalid
+    // Step 3: Fail-closed: only SCHEDULED, LOCKED, ERROR allowed
+    // If future statuses added, reject rather than allow
+    if (!['SCHEDULED', 'LOCKED', 'ERROR'].includes(fromStatus)) {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'cancel_contest',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { rejected: true, error_code: 'INVALID_STATUS' }
+      });
+      await client.query('COMMIT');
+      const err = new Error(`Cannot cancel contest in status '${fromStatus}'. Only SCHEDULED, LOCKED, and ERROR contests can be cancelled.`);
+      err.code = 'INVALID_STATUS';
+      throw err;
+    }
+
+    // Step 4: Validate transition via validator
     assertAllowedDbStatusTransition({
       fromStatus,
       toStatus: 'CANCELLED',
@@ -835,16 +580,327 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
   }
 }
 
+/**
+ * Mark contest as ERROR (LIVE → ERROR only).
+ * Explicit failure declaration by admin.
+ *
+ * Transaction steps:
+ *   1. SELECT * FOR UPDATE
+ *   2. If ERROR: audit noop, COMMIT, return success with noop=true (idempotent)
+ *   3. If status !== LIVE: audit rejected, COMMIT, throw INVALID_STATUS
+ *   4. UPDATE status to ERROR
+ *   5. Write audit
+ *   6. COMMIT
+ *
+ * @param {Object} pool - Database pool
+ * @param {string} contestId - Contest instance UUID
+ * @param {string} adminUserId - Admin user UUID
+ * @param {string} reason - Human-readable reason for failure declaration
+ * @returns {Promise<Object>} { success: boolean, contest: Object, noop?: boolean }
+ * @throws {Error} If contest not found or status invalid
+ */
+async function markContestError(pool, contestId, adminUserId, reason) {
+  if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+    throw new Error('reason is required for error marking');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const lockResult = await client.query(
+      'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
+      [contestId]
+    );
+
+    if (lockResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      const err = new Error('Contest not found');
+      err.code = 'CONTEST_NOT_FOUND';
+      throw err;
+    }
+
+    const contest = lockResult.rows[0];
+    const fromStatus = contest.status;
+
+    // Idempotency: already ERROR
+    if (fromStatus === 'ERROR') {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'mark_error',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { noop: true }
+      });
+      await client.query('COMMIT');
+      return {
+        success: true,
+        contest,
+        noop: true
+      };
+    }
+
+    // Only LIVE → ERROR allowed
+    if (fromStatus !== 'LIVE') {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'mark_error',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { rejected: true, error_code: 'INVALID_STATUS' }
+      });
+      await client.query('COMMIT');
+      const err = new Error(`Cannot mark error on contest in status '${fromStatus}'. Only LIVE contests can be marked as ERROR.`);
+      err.code = 'INVALID_STATUS';
+      throw err;
+    }
+
+    const updateResult = await client.query(
+      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      ['ERROR', contestId]
+    );
+
+    await _writeAdminAudit(client, {
+      contest_instance_id: contestId,
+      admin_user_id: adminUserId,
+      action: 'mark_error',
+      reason,
+      from_status: fromStatus,
+      to_status: 'ERROR',
+      payload: {}
+    });
+
+    await client.query('COMMIT');
+
+    return {
+      success: true,
+      contest: updateResult.rows[0],
+      noop: false
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Trigger settlement transition (LIVE → COMPLETE).
+ *
+ * Transaction steps:
+ *   1. SELECT * FOR UPDATE
+ *   2. If COMPLETE: audit noop, COMMIT, return success with noop=true
+ *   3. If status !== LIVE: audit rejected, COMMIT, throw INVALID_STATUS
+ *   4. UPDATE status to COMPLETE
+ *   5. Write audit
+ *   6. COMMIT
+ *
+ * @param {Object} pool - Database pool
+ * @param {string} contestId - Contest instance UUID
+ * @param {string} adminUserId - Admin user UUID
+ * @param {string} reason - Human-readable reason
+ * @returns {Promise<Object>} { success: boolean, contest: Object, noop?: boolean }
+ * @throws {Error} If contest not found or status invalid
+ */
+async function triggerSettlement(pool, contestId, adminUserId, reason) {
+  if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+    throw new Error('reason is required for settlement trigger');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const lockResult = await client.query(
+      'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
+      [contestId]
+    );
+
+    if (lockResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      const err = new Error('Contest not found');
+      err.code = 'CONTEST_NOT_FOUND';
+      throw err;
+    }
+
+    const contest = lockResult.rows[0];
+    const fromStatus = contest.status;
+
+    // Idempotent if already COMPLETE
+    if (fromStatus === 'COMPLETE') {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'trigger_settlement',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { noop: true }
+      });
+      await client.query('COMMIT');
+      return {
+        success: true,
+        contest,
+        noop: true
+      };
+    }
+
+    // Reject if not LIVE
+    if (fromStatus !== 'LIVE') {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'trigger_settlement',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { noop: true, rejected: true, error_code: 'INVALID_STATUS' }
+      });
+      await client.query('COMMIT');
+      const err = new Error(`Cannot settle contest in status '${fromStatus}'. Only LIVE contests can be settled.`);
+      err.code = 'INVALID_STATUS';
+      throw err;
+    }
+
+    // Update to COMPLETE
+    const updateResult = await client.query(
+      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      ['COMPLETE', contestId]
+    );
+
+    // Audit success
+    await _writeAdminAudit(client, {
+      contest_instance_id: contestId,
+      admin_user_id: adminUserId,
+      action: 'trigger_settlement',
+      reason,
+      from_status: fromStatus,
+      to_status: 'COMPLETE',
+      payload: { noop: false }
+    });
+
+    await client.query('COMMIT');
+
+    return {
+      success: true,
+      contest: updateResult.rows[0]
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Resolve ERROR status to COMPLETE or CANCELLED.
+ *
+ * Transaction steps:
+ *   1. SELECT * FOR UPDATE
+ *   2. If status !== ERROR: audit rejected, COMMIT, throw INVALID_STATUS
+ *   3. If toStatus not in COMPLETE|CANCELLED: throw immediately
+ *   4. UPDATE status to toStatus
+ *   5. Write audit
+ *   6. COMMIT
+ *
+ * @param {Object} pool - Database pool
+ * @param {string} contestId - Contest instance UUID
+ * @param {string} toStatus - Target status: COMPLETE or CANCELLED
+ * @param {string} adminUserId - Admin user UUID
+ * @param {string} reason - Human-readable reason
+ * @returns {Promise<Object>} { success: boolean, contest: Object }
+ * @throws {Error} If contest not found, status invalid, or toStatus invalid
+ */
+async function resolveError(pool, contestId, toStatus, adminUserId, reason) {
+  if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+    throw new Error('reason is required for error resolution');
+  }
+
+  if (!['COMPLETE', 'CANCELLED'].includes(toStatus)) {
+    throw new Error(`toStatus must be COMPLETE or CANCELLED, got '${toStatus}'`);
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const lockResult = await client.query(
+      'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
+      [contestId]
+    );
+
+    if (lockResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      const err = new Error('Contest not found');
+      err.code = 'CONTEST_NOT_FOUND';
+      throw err;
+    }
+
+    const contest = lockResult.rows[0];
+    const fromStatus = contest.status;
+
+    // Reject if not ERROR
+    if (fromStatus !== 'ERROR') {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'resolve_error',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { noop: true, rejected: true, error_code: 'INVALID_STATUS' }
+      });
+      await client.query('COMMIT');
+      const err = new Error(`Cannot resolve error on contest in status '${fromStatus}'. Only ERROR contests can be resolved.`);
+      err.code = 'INVALID_STATUS';
+      throw err;
+    }
+
+    // Update to target status
+    const updateResult = await client.query(
+      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      [toStatus, contestId]
+    );
+
+    // Audit success
+    await _writeAdminAudit(client, {
+      contest_instance_id: contestId,
+      admin_user_id: adminUserId,
+      action: 'resolve_error',
+      reason,
+      from_status: fromStatus,
+      to_status: toStatus,
+      payload: { resolved_to: toStatus }
+    });
+
+    await client.query('COMMIT');
+
+    return {
+      success: true,
+      contest: updateResult.rows[0]
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   listContests,
   getContest,
-  overrideStatus,
-  updateLockTime,
-  deleteContest,
   cancelContestInstance,
   forceLockContestInstance,
   updateContestTimeFields,
-  writeAudit,
-  _writeAdminAudit,
-  ADMIN_TRANSITIONS
+  triggerSettlement,
+  resolveError,
+  markContestError,
+  _writeAdminAudit
 };
