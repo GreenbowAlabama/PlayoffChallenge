@@ -1,142 +1,80 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { getUsers } from '../api/users';
-import { getUserPicks } from '../api/picks';
-import { getGameConfig } from '../api/admin';
-import type { User, Pick } from '../types';
-import {
-  filterPicksByScope,
-  computeConferenceTrends,
-  computeTeamTrends,
-  computePlayerTrends,
-} from '../lib/trendHelpers';
-import { generateInsights } from '../lib/trendInsights';
-import { computeMultiplierInsights } from '../lib/multiplierInsights';
+import { useState, useEffect } from 'react';
+import { apiRequest } from '../api/client';
+import type {
+  PlayerPickTrend,
+  TeamPickTrend,
+  ConferencePickTrend,
+} from '../api/admin';
 
-const BATCH_SIZE = 10;
-
-interface PicksLoadState {
-  picks: Pick[];
+interface TrendsState {
+  playerTrends: PlayerPickTrend[];
+  teamTrends: TeamPickTrend[];
+  conferenceTrends: ConferencePickTrend[];
   loading: boolean;
-  progress: { loaded: number; total: number } | null;
   error: string | null;
 }
 
 export function Trends() {
-  // UI state
   const [trendScope, setTrendScope] = useState<'current' | 'all'>('current');
   const [playerTrendLimit, setPlayerTrendLimit] = useState<10 | 25 | 'all'>(10);
-
-  // Picks loading state (client-side aggregation)
-  const [picksState, setPicksState] = useState<PicksLoadState>({
-    picks: [],
-    loading: false,
-    progress: null,
+  const [trends, setTrends] = useState<TrendsState>({
+    playerTrends: [],
+    teamTrends: [],
+    conferenceTrends: [],
+    loading: true,
     error: null,
   });
 
-  // Fetch game config to determine current playoff week
-  const { data: gameConfig } = useQuery({
-    queryKey: ['gameConfig'],
-    queryFn: getGameConfig,
-    staleTime: 60000,
-  });
-
-  const currentPlayoffWeek = gameConfig?.current_playoff_week ?? 1;
-
-  // Fetch users
-  const {
-    data: users,
-    isLoading: usersLoading,
-    error: usersError,
-  } = useQuery({
-    queryKey: ['adminUsers'],
-    queryFn: getUsers,
-    staleTime: 60000,
-  });
-
-  // Load picks in batches (same pattern as PicksExplorer)
-  const loadPicksSequentially = useCallback(async (userList: User[]) => {
-    setPicksState({
-      picks: [],
-      loading: true,
-      progress: { loaded: 0, total: userList.length },
-      error: null,
-    });
-
-    const allPicks: Pick[] = [];
-
-    for (let i = 0; i < userList.length; i += BATCH_SIZE) {
-      const batch = userList.slice(i, i + BATCH_SIZE);
-
-      const batchResults = await Promise.all(
-        batch.map(async (user) => {
-          try {
-            return await getUserPicks(user.id);
-          } catch {
-            // Silently skip users with fetch errors for trend aggregation
-            return [];
-          }
-        })
-      );
-
-      for (const picks of batchResults) {
-        allPicks.push(...picks);
-      }
-
-      setPicksState((prev) => ({
-        ...prev,
-        picks: [...allPicks],
-        progress: {
-          loaded: Math.min(i + BATCH_SIZE, userList.length),
-          total: userList.length,
-        },
-      }));
-    }
-
-    setPicksState((prev) => ({
-      ...prev,
-      loading: false,
-      progress: null,
-    }));
-  }, []);
-
-  // Trigger picks loading when users are available
+  // Load trends from backend aggregate endpoints
   useEffect(() => {
-    if (users && users.length > 0 && picksState.picks.length === 0 && !picksState.loading) {
-      loadPicksSequentially(users);
+    let cancelled = false;
+
+    async function loadTrends() {
+      try {
+        setTrends((prev) => ({ ...prev, loading: true, error: null }));
+
+        const [playerRes, teamRes, conferenceRes] = await Promise.all([
+          apiRequest<PlayerPickTrend[]>(
+            `/api/admin/trends/players?weekRange=${trendScope}`
+          ),
+          apiRequest<TeamPickTrend[]>(
+            `/api/admin/trends/teams?weekRange=${trendScope}`
+          ),
+          apiRequest<ConferencePickTrend[]>(
+            `/api/admin/trends/conferences?weekRange=${trendScope}`
+          ),
+        ]);
+
+        if (!cancelled) {
+          setTrends({
+            playerTrends: playerRes || [],
+            teamTrends: teamRes || [],
+            conferenceTrends: conferenceRes || [],
+            loading: false,
+            error: null,
+          });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setTrends((prev) => ({
+            ...prev,
+            loading: false,
+            error:
+              err instanceof Error ? err.message : 'Failed to load trends data',
+          }));
+        }
+      }
     }
-  }, [users, loadPicksSequentially, picksState.picks.length, picksState.loading]);
 
-  // Filter picks by scope
-  const scopedPicks = useMemo(() => {
-    return filterPicksByScope(picksState.picks, trendScope, currentPlayoffWeek);
-  }, [picksState.picks, trendScope, currentPlayoffWeek]);
-
-  // Compute trends from scoped picks
-  const conferenceTrends = useMemo(() => computeConferenceTrends(scopedPicks), [scopedPicks]);
-  const teamTrends = useMemo(() => computeTeamTrends(scopedPicks), [scopedPicks]);
-  const playerTrends = useMemo(() => computePlayerTrends(scopedPicks), [scopedPicks]);
-
-  // Compute insights from trends
-  const insights = useMemo(
-    () => generateInsights({ scopedPicks, teamTrends, playerTrends }),
-    [scopedPicks, teamTrends, playerTrends]
-  );
-
-  // Compute multiplier utilization insights
-  const multiplierInsights = useMemo(
-    () => computeMultiplierInsights(scopedPicks),
-    [scopedPicks]
-  );
-
-  // Loading state
-  const isLoading = usersLoading || picksState.loading;
-  const hasError = usersError || picksState.error;
+    loadTrends();
+    return () => {
+      cancelled = true;
+    };
+  }, [trendScope]);
 
   // Conference distribution computed values
-  const afcData = conferenceTrends.find((c) => c.conference === 'AFC');
-  const nfcData = conferenceTrends.find((c) => c.conference === 'NFC');
+  const afcData = trends.conferenceTrends.find((c) => c.conference === 'AFC');
+  const nfcData = trends.conferenceTrends.find((c) => c.conference === 'NFC');
   const afcCount = afcData?.pickCount ?? 0;
   const nfcCount = nfcData?.pickCount ?? 0;
   const totalConference = afcCount + nfcCount;
@@ -145,10 +83,13 @@ export function Trends() {
 
   // Player trends with limit applied
   const displayedPlayerTrends =
-    playerTrendLimit === 'all' ? playerTrends : playerTrends.slice(0, playerTrendLimit);
+    playerTrendLimit === 'all'
+      ? trends.playerTrends
+      : trends.playerTrends.slice(0, playerTrendLimit);
 
   // Team trends max for bar scaling
-  const maxTeamPicks = teamTrends.length > 0 ? teamTrends[0].pickCount : 0;
+  const maxTeamPicks =
+    trends.teamTrends.length > 0 ? trends.teamTrends[0].pickCount : 0;
 
   return (
     <div className="space-y-6">
@@ -162,26 +103,19 @@ export function Trends() {
       </div>
 
       {/* Controls */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <label htmlFor="trendScope" className="text-sm font-medium text-gray-700">
-            Scope:
-          </label>
-          <select
-            id="trendScope"
-            value={trendScope}
-            onChange={(e) => setTrendScope(e.target.value as 'current' | 'all')}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="current">Current Week (Week {currentPlayoffWeek})</option>
-            <option value="all">Entire Contest</option>
-          </select>
-        </div>
-        {picksState.progress && (
-          <span className="text-sm text-gray-500">
-            Loading picks: {picksState.progress.loaded}/{picksState.progress.total}
-          </span>
-        )}
+      <div className="flex items-center gap-2">
+        <label htmlFor="trendScope" className="text-sm font-medium text-gray-700">
+          Scope:
+        </label>
+        <select
+          id="trendScope"
+          value={trendScope}
+          onChange={(e) => setTrendScope(e.target.value as 'current' | 'all')}
+          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        >
+          <option value="current">Current Week</option>
+          <option value="all">Entire Contest</option>
+        </select>
       </div>
 
       {/* Disclaimer banner */}
@@ -193,36 +127,14 @@ export function Trends() {
       </div>
 
       {/* Error state */}
-      {hasError && (
+      {trends.error && (
         <div className="rounded-md bg-red-50 border border-red-200 p-4">
           <p className="text-sm text-red-800">
-            Failed to load data:{' '}
-            {usersError instanceof Error
-              ? usersError.message
-              : picksState.error || 'Unknown error'}
+            Failed to load trends: {trends.error}
           </p>
         </div>
       )}
 
-      {/* Trend Observations */}
-      {!isLoading && insights.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
-            <h2 className="text-lg font-medium text-gray-900">Trend Observations</h2>
-            <p className="text-sm text-gray-500">Notable patterns in current pick data</p>
-          </div>
-          <div className="p-4">
-            <ul className="space-y-2 text-sm text-gray-700">
-              {insights.map((insight) => (
-                <li key={insight.id} className="flex items-start gap-2">
-                  <span className="text-gray-400 mt-0.5">•</span>
-                  <span>{insight.message}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
 
       {/* Conference Distribution */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -231,7 +143,7 @@ export function Trends() {
           <p className="text-sm text-gray-500">AFC vs NFC pick breakdown</p>
         </div>
         <div className="p-4">
-          {isLoading ? (
+          {trends.loading ? (
             <div className="animate-pulse h-8 bg-gray-200 rounded"></div>
           ) : totalConference === 0 ? (
             <div className="text-sm text-gray-500 italic">No picks data available</div>
@@ -280,17 +192,17 @@ export function Trends() {
           <p className="text-sm text-gray-500">Pick distribution by team</p>
         </div>
         <div className="p-4">
-          {isLoading ? (
+          {trends.loading ? (
             <div className="animate-pulse space-y-2">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-6 bg-gray-200 rounded"></div>
               ))}
             </div>
-          ) : teamTrends.length === 0 ? (
+          ) : trends.teamTrends.length === 0 ? (
             <div className="text-sm text-gray-500 italic">No team pick data available</div>
           ) : (
             <div className="space-y-1">
-              {teamTrends.map((team) => {
+              {trends.teamTrends.map((team) => {
                 const widthPct = maxTeamPicks > 0 ? (team.pickCount / maxTeamPicks) * 100 : 0;
                 return (
                   <div key={team.teamAbbr} className="flex items-center gap-2">
@@ -310,46 +222,6 @@ export function Trends() {
         </div>
       </div>
 
-      {/* Multiplier Utilization */}
-      {!isLoading && multiplierInsights.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
-            <h2 className="text-lg font-medium text-gray-900">Multiplier Utilization</h2>
-            <p className="text-sm text-gray-500">Distribution of user multipliers by player</p>
-          </div>
-          <div className="p-4">
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-2 pr-4 font-medium text-gray-600">Player</th>
-                    <th className="text-left py-2 px-2 font-medium text-gray-600">Team</th>
-                    <th className="text-right py-2 px-2 font-medium text-gray-600">1x Users</th>
-                    <th className="text-right py-2 px-2 font-medium text-gray-600">2x Users</th>
-                    <th className="text-right py-2 px-2 font-medium text-gray-600">3x+ Users</th>
-                    <th className="text-right py-2 pl-2 font-medium text-gray-600">Total Users</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {multiplierInsights.map((insight) => (
-                    <tr
-                      key={insight.playerId}
-                      className="border-b border-gray-100 hover:bg-gray-50"
-                    >
-                      <td className="py-2 pr-4 text-gray-900 font-medium">{insight.playerName}</td>
-                      <td className="py-2 px-2 text-gray-600">{insight.team}</td>
-                      <td className="py-2 px-2 text-right text-gray-700">{insight.oneX}</td>
-                      <td className="py-2 px-2 text-right text-gray-700">{insight.twoX}</td>
-                      <td className="py-2 px-2 text-right text-gray-700">{insight.threeXPlus}</td>
-                      <td className="py-2 pl-2 text-right font-semibold text-gray-900">{insight.totalUsers}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Player Pick Trends */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -377,13 +249,13 @@ export function Trends() {
           </div>
         </div>
         <div className="p-4">
-          {isLoading ? (
+          {trends.loading ? (
             <div className="animate-pulse space-y-2">
               {[1, 2, 3, 4, 5].map((i) => (
                 <div key={i} className="h-8 bg-gray-200 rounded"></div>
               ))}
             </div>
-          ) : playerTrends.length === 0 ? (
+          ) : trends.playerTrends.length === 0 ? (
             <div className="text-sm text-gray-500 italic">No player pick data available</div>
           ) : (
             <div className="overflow-x-auto">
