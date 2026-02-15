@@ -48,6 +48,11 @@ const PORT = process.env.PORT || 8080;
 pg.types.setTypeParser(1700, (v) => v === null ? null : parseFloat(v));
 
 app.use(cors());
+
+// Webhook routes must be mounted BEFORE express.json() middleware
+// so that the raw request body is available for Stripe signature verification
+app.use('/api/webhooks', webhooksRoutes);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -1418,9 +1423,6 @@ app.get('/join/:token', (req, res) => {
   const appStoreUrl = config.getAppStoreUrl();
   res.redirect(302, appStoreUrl);
 });
-
-// Webhook routes (Stripe and other providers)
-app.use('/api/webhooks', webhooksRoutes);
 
 // Payment routes (entry fee collection)
 app.use('/api/payments', paymentsRoutes);
