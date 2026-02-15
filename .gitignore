@@ -11,3 +11,6 @@
 # Railway / Postgres exports
 railway_backup_*
 backup_all_tables_*
+
+# Allow canonical schema snapshot
+!backend/db/schema.snapshot.sql
