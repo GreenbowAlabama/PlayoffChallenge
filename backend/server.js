@@ -21,6 +21,7 @@ const usersService = require('./services/usersService');
 const adminService = require('./services/adminService');
 const customContestService = require('./services/customContestService');
 const config = require('./config');
+const { startCleanup, stopCleanup } = require('./auth/appleVerify');
 
 // Fail fast on misconfigured environment
 config.validateEnvironment();
@@ -31,6 +32,8 @@ if (process.env.NODE_ENV !== 'test') {
     console.error('FATAL: ADMIN_JWT_SECRET environment variable not configured');
     process.exit(1);
   }
+  // Start JTI cleanup interval only in production, not in tests
+  startCleanup();
 }
 
 const app = express();
@@ -4310,4 +4313,4 @@ process.on('SIGTERM', () => {
 });
 
 // Export for testing (does not affect production behavior)
-module.exports = { app, pool, calculateFantasyPoints, startServer };
+module.exports = { app, pool, calculateFantasyPoints, startServer, stopCleanup };

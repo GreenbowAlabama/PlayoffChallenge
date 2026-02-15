@@ -30,13 +30,14 @@ afterAll(async () => {
   console.log = originalLog;
   console.error = originalError;
 
-  // Only close the pool if server was already loaded by an integration test.
-  // Calling require('../server') here would force-load the module for pure
-  // unit-test suites, opening a real PG connection that keeps the process alive.
+  // Stop Apple JTI cleanup interval if server was loaded
   const serverModuleId = require.resolve('../server');
   const serverModule = require.cache[serverModuleId];
   if (serverModule) {
-    const { pool } = serverModule.exports;
+    const { stopCleanup, pool } = serverModule.exports;
+    if (stopCleanup && typeof stopCleanup === 'function') {
+      stopCleanup();
+    }
     if (pool && typeof pool.end === 'function') {
       await pool.end();
     }

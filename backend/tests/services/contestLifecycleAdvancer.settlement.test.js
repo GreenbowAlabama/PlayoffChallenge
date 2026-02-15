@@ -453,4 +453,10 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
       }
     });
   });
+
+  afterAll(async () => {
+    if (pool && typeof pool.end === 'function') {
+      await pool.end();
+    }
+  });
 });

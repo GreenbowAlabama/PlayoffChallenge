@@ -14,15 +14,36 @@ const appleJwksClient = jwksClient({
 // Map<jti, expiryTimestamp>
 const jtiCache = new Map();
 
-// Cleanup expired JTIs every minute
-setInterval(() => {
-  const now = Date.now();
-  for (const [jti, expiry] of jtiCache.entries()) {
-    if (expiry < now) {
-      jtiCache.delete(jti);
-    }
+// Cleanup interval reference (lifecycle-managed, not auto-started)
+let cleanupInterval = null;
+
+/**
+ * Starts the JTI cache cleanup interval.
+ * Must be called explicitly in production; tests should not call it.
+ */
+function startCleanup() {
+  if (!cleanupInterval) {
+    cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [jti, expiry] of jtiCache.entries()) {
+        if (expiry < now) {
+          jtiCache.delete(jti);
+        }
+      }
+    }, 60000);
   }
-}, 60000);
+}
+
+/**
+ * Stops the JTI cache cleanup interval.
+ * Called during test cleanup or server shutdown.
+ */
+function stopCleanup() {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
+}
 
 /**
  * Fetches Apple's public signing key for the given key ID (kid).
@@ -156,5 +177,7 @@ async function exchangeAppleAuthCode(code, clientId, clientSecret, redirectUri) 
 
 module.exports = {
   verifyAppleIdToken,
-  exchangeAppleAuthCode
+  exchangeAppleAuthCode,
+  startCleanup,
+  stopCleanup
 };

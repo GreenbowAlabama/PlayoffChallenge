@@ -198,13 +198,14 @@ describe('Contest Rules Validator - validateRoster', () => {
       expect(result.errors.some(e => e.includes('array'))).toBe(true);
     });
 
-    it('handles empty roster', () => {
+    it('rejects empty roster when roster_size > 0', () => {
       const roster = [];
-      const config = { roster_size: 0 };
+      const config = { roster_size: 1 };
 
       const result = validateRoster(roster, config, validField);
 
-      expect(result.valid).toBe(true);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('size'))).toBe(true);
     });
 
     it('handles empty validated field', () => {

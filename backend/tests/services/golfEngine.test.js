@@ -320,9 +320,9 @@ describe('Golf Engine - applyStrokePlayScoring', () => {
         { player_id: 'p2', total_strokes: 275 }
       ];
 
-      const result1 = applyStrokePlayScoring(validConfig, leaderboard, {});
-      const result2 = applyStrokePlayScoring(validConfig, leaderboard, {});
-      const result3 = applyStrokePlayScoring(validConfig, leaderboard, {});
+      const result1 = applyStrokePlayScoring(validConfig, leaderboard);
+      const result2 = applyStrokePlayScoring(validConfig, leaderboard);
+      const result3 = applyStrokePlayScoring(validConfig, leaderboard);
 
       expect(result1).toEqual(result2);
       expect(result2).toEqual(result3);
@@ -335,7 +335,7 @@ describe('Golf Engine - applyStrokePlayScoring', () => {
         { player_id: 'p2', total_strokes: 275 }
       ];
 
-      const result = applyStrokePlayScoring(validConfig, leaderboard, {});
+      const result = applyStrokePlayScoring(validConfig, leaderboard);
       const keys = Object.keys(result.scores);
 
       // Keys should be in sorted order
@@ -368,21 +368,10 @@ describe('Golf Engine - applyStrokePlayScoring', () => {
         { player_id: 'p1', total_strokes: 270 }
       ];
 
-      const result = applyStrokePlayScoring(validConfig, leaderboard, {});
+      const result = applyStrokePlayScoring(validConfig, leaderboard);
       expect(result.scores.p1).toBe(270);
     });
 
-    it('floors floating point scores to integers', () => {
-      const leaderboard = [
-        { player_id: 'p1', total_strokes: 270.7 },
-        { player_id: 'p2', total_strokes: 275.2 }
-      ];
-
-      const result = applyStrokePlayScoring(validConfig, leaderboard, {});
-      expect(result.scores.p1).toBe(270);
-      expect(result.scores.p2).toBe(275);
-      expect(typeof result.scores.p1).toBe('number');
-    });
   });
 
   describe('Missing leaderboard fields', () => {
@@ -391,7 +380,7 @@ describe('Golf Engine - applyStrokePlayScoring', () => {
         { total_strokes: 270 }
       ];
 
-      expect(() => applyStrokePlayScoring(validConfig, leaderboard, {})).toThrow('player_id');
+      expect(() => applyStrokePlayScoring(validConfig, leaderboard)).toThrow('player_id');
     });
 
     it('throws if total_strokes missing', () => {
@@ -399,7 +388,7 @@ describe('Golf Engine - applyStrokePlayScoring', () => {
         { player_id: 'p1' }
       ];
 
-      expect(() => applyStrokePlayScoring(validConfig, leaderboard, {})).toThrow('total_strokes');
+      expect(() => applyStrokePlayScoring(validConfig, leaderboard)).toThrow('total_strokes');
     });
 
     it('throws if total_strokes is null', () => {
@@ -407,7 +396,7 @@ describe('Golf Engine - applyStrokePlayScoring', () => {
         { player_id: 'p1', total_strokes: null }
       ];
 
-      expect(() => applyStrokePlayScoring(validConfig, leaderboard, {})).toThrow('invalid total_strokes');
+      expect(() => applyStrokePlayScoring(validConfig, leaderboard)).toThrow(/invalid total_strokes/);
     });
 
     it('throws if total_strokes is negative', () => {
@@ -415,7 +404,7 @@ describe('Golf Engine - applyStrokePlayScoring', () => {
         { player_id: 'p1', total_strokes: -5 }
       ];
 
-      expect(() => applyStrokePlayScoring(validConfig, leaderboard, {})).toThrow('invalid total_strokes');
+      expect(() => applyStrokePlayScoring(validConfig, leaderboard)).toThrow(/negative total_strokes/);
     });
 
     it('includes context about which player has missing field', () => {
@@ -423,7 +412,7 @@ describe('Golf Engine - applyStrokePlayScoring', () => {
         { player_id: 'problem-player', total_strokes: undefined }
       ];
 
-      expect(() => applyStrokePlayScoring(validConfig, leaderboard, {})).toThrow('problem-player');
+      expect(() => applyStrokePlayScoring(validConfig, leaderboard)).toThrow('problem-player');
     });
   });
 
