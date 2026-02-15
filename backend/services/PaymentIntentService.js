@@ -117,7 +117,7 @@ async function createPaymentIntent(pool, contestInstanceId, userId, amountCents,
       stripe_payment_intent_id: stripePI.id,
       stripe_customer_id: stripePI.customer || null,
       stripe_client_secret: stripePI.client_secret,
-      status: stripePI.status
+      status: stripePI.status.toUpperCase()
     });
 
     // Step 4: Commit transaction
@@ -127,7 +127,7 @@ async function createPaymentIntent(pool, contestInstanceId, userId, amountCents,
     return {
       payment_intent_id: paymentIntentRow.id,
       client_secret: stripePI.client_secret,
-      status: stripePI.status
+      status: stripePI.status.toUpperCase()
     };
   } catch (err) {
     // Single rollback point for all errors
