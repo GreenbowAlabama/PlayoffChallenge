@@ -14,3 +14,6 @@ backup_all_tables_*
 
 # Allow canonical schema snapshot
 !backend/db/schema.snapshot.sql
+
+!backend/migrations/
+!backend/migrations/*.sql

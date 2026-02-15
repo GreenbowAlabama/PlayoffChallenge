@@ -26,7 +26,8 @@ const picksService = require('../../services/picksService'); // Keep this as it'
 // Note: gameStateService import is removed as it's now mocked at the top.
 
 describe('Picks Lifecycle Integration Tests (GAP-10 Step 2) - Baseline', () => {
-  let client; // Direct client for transaction control (not used in baseline, but kept for future)
+  let client; // Direct client for transaction control
+  let txnClient; // Transaction client for test isolation
   let testUserId;
   let testPlayerId;
   let testContestInstanceId;
@@ -83,12 +84,26 @@ describe('Picks Lifecycle Integration Tests (GAP-10 Step 2) - Baseline', () => {
   });
 
   beforeEach(async () => {
-    // Clear out contest-specific data before each test to ensure isolation
-    // Delete in dependency order: audit first (has FK to contest_instances)
-    await pool.query('DELETE FROM admin_contest_audit WHERE contest_instance_id IN (SELECT id FROM contest_instances)');
-    await pool.query('DELETE FROM picks WHERE contest_instance_id IN (SELECT id FROM contest_instances)');
-    await pool.query('DELETE FROM contest_participants WHERE contest_instance_id IN (SELECT id FROM contest_instances)');
-    await pool.query('DELETE FROM contest_instances');
+    // Transaction-based test isolation
+    // Each test runs inside a transaction that rolls back completely
+    // This respects append-only constraints while maintaining perfect isolation
+    txnClient = await pool.connect();
+    await txnClient.query('BEGIN');
+  });
+
+  afterEach(async () => {
+    // Rollback transaction to restore DB to pre-test state
+    // This respects append-only invariants (score_history, etc.)
+    if (txnClient) {
+      try {
+        await txnClient.query('ROLLBACK');
+      } catch (err) {
+        // Ignore rollback errors if transaction already ended
+      }
+      await txnClient.release();
+      txnClient = null;
+    }
+
     // Ensure that any client opened for race conditions is released if not already
     if (client) {
       await client.release();

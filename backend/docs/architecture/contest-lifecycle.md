@@ -112,6 +112,75 @@ This is **Settlement Model v1**. Future versions may introduce partial settlemen
 
 ---
 
+## Scoring Service Contract
+
+The scoring service computes fantasy points for individual players based on their game statistics. It is the single source of truth for point calculations and must be pure, deterministic, and replayable.
+
+### Function Signature
+
+```javascript
+async function calculateFantasyPoints(pool, stats)
+```
+
+### Parameters
+
+- **pool**: PostgreSQL connection pool. Must be injected explicitly. Used to fetch active scoring rules.
+- **stats**: Object containing player statistics (e.g., `{ pass_yd: 300, pass_td: 2, rush_yd: 100 }`).
+
+### Return Value
+
+A single numeric value representing total fantasy points, rounded to 2 decimal places. Returns `0` if stats is empty or all values are null/undefined.
+
+### Behavioral Requirements
+
+1. **Must not import server.js.** The function exists in `services/scoringService.js` and is imported directly by callers.
+2. **Must not initialize Express.** No app bootstrap, middleware, or route handlers in the scoring service.
+3. **Must not create global database connections.** Pool is injected; the service does not create or manage its own connection.
+4. **Must return identical output for identical input.** Given the same `(pool, stats)` parameters and the same database state, output must be numerically identical.
+5. **Must round to 2 decimal places.** Result must satisfy `decimalPlaces <= 2`.
+6. **Must handle null/undefined safely.** Missing stats fields are treated as 0; null or undefined values do not throw errors.
+7. **Must be idempotent.** Multiple calls with same inputs produce same output without side effects.
+8. **Must not modify input parameters.** The `stats` object passed in must not be mutated.
+
+### Determinism Guarantee
+
+Scoring results are deterministic and replayable. The output depends only on:
+- The input stats object
+- The active scoring rules in the database (via the injected pool)
+
+Scoring does not depend on:
+- System time (beyond the point at which the pool is created)
+- Random number generation
+- External API calls
+- Global state
+- Cache state (each call fetches fresh rules)
+
+This determinism is critical for settlement auditability: when settling a contest, the same set of stats always produces the same point totals, regardless of when settlement is executed.
+
+### Testing Guarantees
+
+- All unit tests use `mockPool` with mock scoring rules.
+- Unit tests never require the real `server.js` module.
+- No real database connections are created in test environment.
+- No open handles remain after test completion.
+- Tests import `calculateFantasyPoints` directly from `services/scoringService.js`.
+- Each test explicitly passes a mock pool: `calculateFantasyPointsFunc(mockPool, stats)`.
+
+### Example Usage
+
+```javascript
+// In production/integration context
+const { calculateFantasyPoints } = require('./services/scoringService');
+const points = await calculateFantasyPoints(pool, { pass_yd: 300, pass_td: 2 });
+
+// In unit tests
+const { calculateFantasyPoints } = require('../../services/scoringService');
+const mockPool = createMockPool();
+const points = await calculateFantasyPoints(mockPool, { pass_yd: 300, pass_td: 2 });
+```
+
+---
+
 ## Derived Fields Returned to Clients
 
 Clients receive contest data through the API. The following fields are derived by the backend and included in API responses. Clients must not compute these independently.

@@ -11,10 +11,10 @@
 
 const { createMockPool, mockQueryResponses } = require('../mocks/mockPool');
 const { statPayloads } = require('../fixtures');
+const { calculateFantasyPoints: calculateFantasyPointsFunc } = require('../../services/scoringService');
 
 describe('Scoring Service Unit Tests', () => {
   let mockPool;
-  let calculateFantasyPoints;
 
   beforeEach(() => {
     mockPool = createMockPool();
@@ -24,33 +24,19 @@ describe('Scoring Service Unit Tests', () => {
       /SELECT stat_name, points FROM scoring_rules/,
       mockQueryResponses.scoringRules()
     );
-
-    // Clear module cache to get fresh instance
-    jest.resetModules();
-
-    // Mock the pool in the server module
-    // Note: This approach requires the real server.js because
-    // calculateFantasyPoints uses the global pool
-    // In a full SOLID refactor, this would be injected
   });
 
   afterEach(() => {
     mockPool.reset();
   });
 
-  describe('Direct Calculation Tests (Using Real Server)', () => {
-    // These tests use the real calculateFantasyPoints from server.js
+  describe('Direct Calculation Tests (Using Mock Pool)', () => {
+    // These tests use scoringService directly with injected mock pool
     // They demonstrate the behavioral contract we need to preserve
-
-    beforeAll(async () => {
-      // Get the real function - it uses the real pool
-      const server = require('../../server');
-      calculateFantasyPoints = server.calculateFantasyPoints;
-    });
 
     it('should calculate QB passing stats correctly', async () => {
       const stats = statPayloads.qbBasic;
-      const points = await calculateFantasyPoints(stats);
+      const points = await calculateFantasyPointsFunc(mockPool, stats);
 
       expect(typeof points).toBe('number');
       expect(points).toBeGreaterThan(0);
@@ -60,15 +46,15 @@ describe('Scoring Service Unit Tests', () => {
       const under400 = { pass_yd: 399, pass_td: 2 };
       const over400 = { pass_yd: 400, pass_td: 2 };
 
-      const pointsUnder = await calculateFantasyPoints(under400);
-      const pointsOver = await calculateFantasyPoints(over400);
+      const pointsUnder = await calculateFantasyPointsFunc(mockPool,under400);
+      const pointsOver = await calculateFantasyPointsFunc(mockPool,over400);
 
       expect(pointsOver).toBeGreaterThan(pointsUnder);
     });
 
     it('should calculate RB rushing stats correctly', async () => {
       const stats = statPayloads.rbBasic;
-      const points = await calculateFantasyPoints(stats);
+      const points = await calculateFantasyPointsFunc(mockPool,stats);
 
       expect(typeof points).toBe('number');
       expect(points).toBeGreaterThan(0);
@@ -78,15 +64,15 @@ describe('Scoring Service Unit Tests', () => {
       const under150 = { rush_yd: 149, rush_td: 1 };
       const over150 = { rush_yd: 150, rush_td: 1 };
 
-      const pointsUnder = await calculateFantasyPoints(under150);
-      const pointsOver = await calculateFantasyPoints(over150);
+      const pointsUnder = await calculateFantasyPointsFunc(mockPool,under150);
+      const pointsOver = await calculateFantasyPointsFunc(mockPool,over150);
 
       expect(pointsOver).toBeGreaterThan(pointsUnder);
     });
 
     it('should calculate WR receiving stats with PPR', async () => {
       const stats = statPayloads.wrPPR;
-      const points = await calculateFantasyPoints(stats);
+      const points = await calculateFantasyPointsFunc(mockPool,stats);
 
       expect(typeof points).toBe('number');
       expect(points).toBeGreaterThan(0);
@@ -96,15 +82,15 @@ describe('Scoring Service Unit Tests', () => {
       const noRec = { rec: 0, rec_yd: 100 };
       const withRec = { rec: 5, rec_yd: 100 };
 
-      const pointsNoRec = await calculateFantasyPoints(noRec);
-      const pointsWithRec = await calculateFantasyPoints(withRec);
+      const pointsNoRec = await calculateFantasyPointsFunc(mockPool,noRec);
+      const pointsWithRec = await calculateFantasyPointsFunc(mockPool,withRec);
 
       expect(pointsWithRec).toBeGreaterThan(pointsNoRec);
     });
 
     it('should calculate kicker stats with flat scoring', async () => {
       const stats = statPayloads.kickerBasic;
-      const points = await calculateFantasyPoints(stats);
+      const points = await calculateFantasyPointsFunc(mockPool,stats);
 
       // 2 FG * 3 + 3 XP * 1 = 9 points minimum
       expect(points).toBeGreaterThanOrEqual(9);
@@ -114,15 +100,15 @@ describe('Scoring Service Unit Tests', () => {
       const noMiss = { fg_made: 2, xp_made: 2, fg_missed: 0, xp_missed: 0 };
       const withMiss = { fg_made: 2, xp_made: 2, fg_missed: 1, xp_missed: 1 };
 
-      const pointsNoMiss = await calculateFantasyPoints(noMiss);
-      const pointsWithMiss = await calculateFantasyPoints(withMiss);
+      const pointsNoMiss = await calculateFantasyPointsFunc(mockPool,noMiss);
+      const pointsWithMiss = await calculateFantasyPointsFunc(mockPool,withMiss);
 
       expect(pointsWithMiss).toBeLessThan(pointsNoMiss);
     });
 
     it('should calculate defense shutout bonus', async () => {
       const stats = statPayloads.defenseShutout;
-      const points = await calculateFantasyPoints(stats);
+      const points = await calculateFantasyPointsFunc(mockPool,stats);
 
       // Shutout should give +20 points bonus
       expect(points).toBeGreaterThanOrEqual(20);
@@ -133,9 +119,9 @@ describe('Scoring Service Unit Tests', () => {
       const average = { def_sack: 2, def_pts_allowed: 17 };
       const bad = { def_sack: 2, def_pts_allowed: 35 };
 
-      const pointsShutout = await calculateFantasyPoints(shutout);
-      const pointsAverage = await calculateFantasyPoints(average);
-      const pointsBad = await calculateFantasyPoints(bad);
+      const pointsShutout = await calculateFantasyPointsFunc(mockPool,shutout);
+      const pointsAverage = await calculateFantasyPointsFunc(mockPool,average);
+      const pointsBad = await calculateFantasyPointsFunc(mockPool,bad);
 
       expect(pointsShutout).toBeGreaterThan(pointsAverage);
       expect(pointsAverage).toBeGreaterThan(pointsBad);
@@ -145,8 +131,8 @@ describe('Scoring Service Unit Tests', () => {
       const noFumble = { rush_yd: 100, fum_lost: 0 };
       const withFumble = { rush_yd: 100, fum_lost: 2 };
 
-      const pointsNoFumble = await calculateFantasyPoints(noFumble);
-      const pointsWithFumble = await calculateFantasyPoints(withFumble);
+      const pointsNoFumble = await calculateFantasyPointsFunc(mockPool,noFumble);
+      const pointsWithFumble = await calculateFantasyPointsFunc(mockPool,withFumble);
 
       expect(pointsWithFumble).toBeLessThan(pointsNoFumble);
     });
@@ -155,14 +141,14 @@ describe('Scoring Service Unit Tests', () => {
       const noInt = { pass_yd: 200, pass_int: 0 };
       const withInt = { pass_yd: 200, pass_int: 2 };
 
-      const pointsNoInt = await calculateFantasyPoints(noInt);
-      const pointsWithInt = await calculateFantasyPoints(withInt);
+      const pointsNoInt = await calculateFantasyPointsFunc(mockPool,noInt);
+      const pointsWithInt = await calculateFantasyPointsFunc(mockPool,withInt);
 
       expect(pointsWithInt).toBeLessThan(pointsNoInt);
     });
 
     it('should handle empty stats object', async () => {
-      const points = await calculateFantasyPoints({});
+      const points = await calculateFantasyPointsFunc(mockPool,{});
 
       expect(points).toBe(0);
     });
@@ -174,7 +160,7 @@ describe('Scoring Service Unit Tests', () => {
         rec_td: 1
       };
 
-      const points = await calculateFantasyPoints(stats);
+      const points = await calculateFantasyPointsFunc(mockPool,stats);
 
       expect(typeof points).toBe('number');
       expect(points).not.toBeNaN();
@@ -183,8 +169,8 @@ describe('Scoring Service Unit Tests', () => {
     it('should return consistent results for same input', async () => {
       const stats = { pass_yd: 300, pass_td: 3 };
 
-      const points1 = await calculateFantasyPoints(stats);
-      const points2 = await calculateFantasyPoints(stats);
+      const points1 = await calculateFantasyPointsFunc(mockPool, stats);
+      const points2 = await calculateFantasyPointsFunc(mockPool, stats);
 
       expect(points1).toBe(points2);
     });
@@ -192,7 +178,7 @@ describe('Scoring Service Unit Tests', () => {
     it('should round to 2 decimal places', async () => {
       const stats = { pass_yd: 273, rec_yd: 87 };
 
-      const points = await calculateFantasyPoints(stats);
+      const points = await calculateFantasyPointsFunc(mockPool,stats);
 
       const decimalPlaces = (points.toString().split('.')[1] || '').length;
       expect(decimalPlaces).toBeLessThanOrEqual(2);
@@ -203,17 +189,12 @@ describe('Scoring Service Unit Tests', () => {
     // These tests document specific expected outputs
     // for known stat combinations
 
-    beforeAll(async () => {
-      const server = require('../../server');
-      calculateFantasyPoints = server.calculateFantasyPoints;
-    });
-
     it('100 rushing yards + 1 TD = at least 16 points', async () => {
       // 100 yards * 0.1 = 10 points
       // 1 TD * 6 = 6 points
       // Total = 16 points
       const stats = { rush_yd: 100, rush_td: 1 };
-      const points = await calculateFantasyPoints(stats);
+      const points = await calculateFantasyPointsFunc(mockPool,stats);
 
       expect(points).toBeGreaterThanOrEqual(16);
     });
@@ -223,7 +204,7 @@ describe('Scoring Service Unit Tests', () => {
       // 100 yards * 0.1 = 10 points
       // Total = 20 points
       const stats = { rec: 10, rec_yd: 100 };
-      const points = await calculateFantasyPoints(stats);
+      const points = await calculateFantasyPointsFunc(mockPool,stats);
 
       expect(points).toBeGreaterThanOrEqual(20);
     });
@@ -233,7 +214,7 @@ describe('Scoring Service Unit Tests', () => {
       // 3 TDs * 4 = 12 points
       // Total = 24 points
       const stats = { pass_yd: 300, pass_td: 3 };
-      const points = await calculateFantasyPoints(stats);
+      const points = await calculateFantasyPointsFunc(mockPool,stats);
 
       expect(points).toBeGreaterThanOrEqual(24);
     });

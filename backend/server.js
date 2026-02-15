@@ -1,3 +1,6 @@
+// Load environment variables from .env file FIRST, before any other requires
+require('dotenv').config();
+
 const express = require('express');
 const { Pool } = require('pg');
 const pg = require('pg');

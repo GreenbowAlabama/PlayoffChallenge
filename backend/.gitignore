@@ -32,3 +32,6 @@ coverage/
 # Production
 dist/
 build/
+
+!backend/migrations/
+!backend/migrations/*.sql
