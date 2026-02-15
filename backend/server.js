@@ -16,6 +16,8 @@ const adminContestsRoutes = require('./routes/admin.contests.routes');
 const customContestRoutes = require('./routes/customContest.routes');
 const customContestTemplatesRoutes = require('./routes/customContestTemplates.routes');
 const contestsRoutes = require('./routes/contests.routes');
+const webhooksRoutes = require('./routes/webhooks');
+const paymentsRoutes = require('./routes/payments');
 const jobsService = require('./services/adminJobs.service');
 const scoringService = require('./services/scoringService');
 const gameStateService = require('./services/gameStateService');
@@ -1416,6 +1418,12 @@ app.get('/join/:token', (req, res) => {
   const appStoreUrl = config.getAppStoreUrl();
   res.redirect(302, appStoreUrl);
 });
+
+// Webhook routes (Stripe and other providers)
+app.use('/api/webhooks', webhooksRoutes);
+
+// Payment routes (entry fee collection)
+app.use('/api/payments', paymentsRoutes);
 
 // Admin auth routes (no protection)
 app.use('/api/admin/auth', adminAuthRoutes);

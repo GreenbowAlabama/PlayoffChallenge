@@ -234,6 +234,63 @@ report_json, created_at
 
 ---
 
+## Error Code Contract
+
+### Explicit Error Codes
+
+All payment operations map to explicit error codes. No generic 500 errors for expected failure paths.
+
+#### STRIPE_SIGNATURE_INVALID (HTTP 400)
+- Stripe webhook signature validation failed
+- HMAC signature does not match calculated signature
+- **User action**: None (Stripe will retry webhook)
+- **Operator action**: Verify STRIPE_WEBHOOK_SECRET environment variable is correct
+- **Recovery**: None needed; Stripe retries automatically
+
+#### STRIPE_EVENT_DUPLICATE (HTTP 200 with { received: true, duplicate: true })
+- Stripe event with this stripe_event_id already processed
+- Webhook is being replayed (idempotent success)
+- **User action**: None
+- **Operator action**: None (expected behavior)
+- **Recovery**: None needed; duplicate returns success
+
+#### IDEMPOTENCY_KEY_REQUIRED (HTTP 400)
+- POST /api/payments/intents missing Idempotency-Key header
+- Client must provide unique key for idempotency
+- **User action**: Retry with Idempotency-Key header
+- **Operator action**: None
+- **Recovery**: Client retries with valid header
+
+#### PAYMENT_INTENT_NOT_FOUND (HTTP 409)
+- Webhook event references payment_intent that doesn't exist in database
+- Race condition: payment intent deleted or never created
+- **User action**: None (operator intervention required)
+- **Operator action**: Investigate webhook event vs database state
+- **Recovery**: Manual reconciliation via admin console
+
+#### PAYMENT_ALREADY_PROCESSED (HTTP 200)
+- Payment status already SUCCEEDED before webhook processing
+- Webhook replay after successful payment
+- **User action**: None
+- **Operator action**: None (expected idempotency)
+- **Recovery**: None needed
+
+#### LEDGER_DUPLICATE_ENTRY (Internal - not user-facing)
+- Ledger entry with this idempotency_key already exists
+- Webhook processing attempted to create duplicate ledger entry
+- **User action**: None
+- **Operator action**: None (expected idempotency behavior)
+- **Recovery**: None needed; treated as idempotent success
+
+#### STRIPE_API_ERROR (HTTP 500)
+- Call to Stripe API failed (network, invalid request, API error)
+- Examples: declined card, rate limit, network timeout
+- **User action**: Retry payment or contact support
+- **Operator action**: Check Stripe dashboard and system logs
+- **Recovery**: Retry after resolving root cause
+
+---
+
 ## Validation Rules
 
 ### Payment Validation (Before Creating Intent)

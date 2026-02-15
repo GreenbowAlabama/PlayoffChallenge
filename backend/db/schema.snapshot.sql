@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict Wq9lnQS0wGNvD1m0Wo6BQdpOpY0j5lrxXoHdwPaYv2LyIo8K67G7vs6PsKY1Im5
+\restrict d2UeFvU6J9LeI8qZ3QdYtooygz9EgjvCNlVtXnAVxjTNn3m86kzFCSV1kg4GXiw
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -414,9 +414,17 @@ CREATE TABLE public.payment_intents (
     currency text DEFAULT 'USD'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    stripe_client_secret text,
     CONSTRAINT payment_intents_amount_cents_check CHECK ((amount_cents >= 0)),
     CONSTRAINT payment_intents_status_check CHECK ((status = ANY (ARRAY['REQUIRES_PAYMENT_METHOD'::text, 'REQUIRES_CONFIRMATION'::text, 'REQUIRES_ACTION'::text, 'PROCESSING'::text, 'SUCCEEDED'::text, 'CANCELED'::text, 'FAILED'::text])))
 );
+
+
+--
+-- Name: COLUMN payment_intents.stripe_client_secret; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.payment_intents.stripe_client_secret IS 'Stripe payment intent client_secret for Stripe.js frontend integration. Stored for idempotent retry returns.';
 
 
 --
@@ -2298,5 +2306,5 @@ ALTER TABLE ONLY public.tournament_configs
 -- PostgreSQL database dump complete
 --
 
-\unrestrict Wq9lnQS0wGNvD1m0Wo6BQdpOpY0j5lrxXoHdwPaYv2LyIo8K67G7vs6PsKY1Im5
+\unrestrict d2UeFvU6J9LeI8qZ3QdYtooygz9EgjvCNlVtXnAVxjTNn3m86kzFCSV1kg4GXiw
 
