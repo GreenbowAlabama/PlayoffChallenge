@@ -163,7 +163,8 @@ async function processPaymentIntentSucceeded(client, event, stripeEventsId) {
       amount_cents: amountCents,
       currency: paymentIntent.currency,
       reference_type: 'stripe_event',
-      reference_id: event.id,
+      reference_id: paymentIntent.id,
+      stripe_event_id: event.id,
       idempotency_key: ledgerIdempotencyKey
     });
   } catch (err) {
