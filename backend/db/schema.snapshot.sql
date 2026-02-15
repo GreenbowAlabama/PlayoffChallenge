@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict eNWQSsaEvQUg3Q2BpMCLZzHKArf6ILmz9LR8aGUJhYuea9OvNaDOLzWaxlwwfAg
+\restrict Wq9lnQS0wGNvD1m0Wo6BQdpOpY0j5lrxXoHdwPaYv2LyIo8K67G7vs6PsKY1Im5
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -89,6 +89,80 @@ BEGIN
 
   IF contest_status IN ('LOCKED', 'LIVE') THEN
     RAISE EXCEPTION 'CONFIG_IMMUTABLE_DURING_LOCKED_OR_LIVE';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: prevent_settlement_audit_illegal_update(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.prevent_settlement_audit_illegal_update() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  v_old_status TEXT;
+  v_new_status TEXT;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'settlement_audit is append-only: deletions are not allowed';
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+
+    IF NEW.contest_instance_id IS DISTINCT FROM OLD.contest_instance_id THEN
+      RAISE EXCEPTION 'settlement_audit identity field contest_instance_id is immutable';
+    END IF;
+
+    IF NEW.settlement_run_id IS DISTINCT FROM OLD.settlement_run_id THEN
+      RAISE EXCEPTION 'settlement_audit identity field settlement_run_id is immutable';
+    END IF;
+
+    IF NEW.engine_version IS DISTINCT FROM OLD.engine_version THEN
+      RAISE EXCEPTION 'settlement_audit identity field engine_version is immutable';
+    END IF;
+
+    IF NEW.event_ids_applied IS DISTINCT FROM OLD.event_ids_applied THEN
+      RAISE EXCEPTION 'settlement_audit identity field event_ids_applied is immutable';
+    END IF;
+
+    IF NEW.started_at IS DISTINCT FROM OLD.started_at THEN
+      RAISE EXCEPTION 'settlement_audit identity field started_at is immutable';
+    END IF;
+
+    IF NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+      RAISE EXCEPTION 'settlement_audit identity field created_at is immutable';
+    END IF;
+
+    v_old_status := OLD.status;
+    v_new_status := NEW.status;
+
+    IF v_new_status IS DISTINCT FROM v_old_status THEN
+      IF v_old_status != 'STARTED' THEN
+        RAISE EXCEPTION 'settlement_audit status % cannot transition to %', v_old_status, v_new_status;
+      END IF;
+
+      IF v_new_status NOT IN ('COMPLETE', 'FAILED') THEN
+        RAISE EXCEPTION 'settlement_audit status STARTED can only transition to COMPLETE or FAILED, not %', v_new_status;
+      END IF;
+
+      IF NEW.completed_at IS NULL THEN
+        RAISE EXCEPTION 'settlement_audit completed_at must be set when transitioning from STARTED to %', v_new_status;
+      END IF;
+    ELSE
+      IF v_old_status = 'STARTED' AND NEW.completed_at IS NOT NULL THEN
+        RAISE EXCEPTION 'settlement_audit completed_at must remain NULL while status is STARTED';
+      END IF;
+    END IF;
+
+    IF NEW.status = 'STARTED' AND NEW.completed_at IS NOT NULL THEN
+      RAISE EXCEPTION 'settlement_audit completed_at must be NULL when status is STARTED';
+    END IF;
+
+    RETURN NEW;
   END IF;
 
   RETURN NEW;
@@ -298,6 +372,72 @@ CREATE TABLE public.ingestion_validation_errors (
     error_code text NOT NULL,
     error_details_json jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: ledger; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ledger (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    contest_instance_id uuid,
+    user_id uuid,
+    entry_type text NOT NULL,
+    direction text NOT NULL,
+    amount_cents integer NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    reference_type text,
+    reference_id uuid,
+    idempotency_key text,
+    metadata_json jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ledger_amount_cents_check CHECK ((amount_cents >= 0)),
+    CONSTRAINT ledger_direction_check CHECK ((direction = ANY (ARRAY['CREDIT'::text, 'DEBIT'::text]))),
+    CONSTRAINT ledger_entry_type_check CHECK ((entry_type = ANY (ARRAY['ENTRY_FEE'::text, 'ENTRY_FEE_REFUND'::text, 'PRIZE_PAYOUT'::text, 'PRIZE_PAYOUT_REVERSAL'::text, 'ADJUSTMENT'::text])))
+);
+
+
+--
+-- Name: payment_intents; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_intents (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    contest_instance_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    stripe_payment_intent_id text,
+    stripe_customer_id text,
+    status text NOT NULL,
+    amount_cents integer NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payment_intents_amount_cents_check CHECK ((amount_cents >= 0)),
+    CONSTRAINT payment_intents_status_check CHECK ((status = ANY (ARRAY['REQUIRES_PAYMENT_METHOD'::text, 'REQUIRES_CONFIRMATION'::text, 'REQUIRES_ACTION'::text, 'PROCESSING'::text, 'SUCCEEDED'::text, 'CANCELED'::text, 'FAILED'::text])))
+);
+
+
+--
+-- Name: payout_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payout_requests (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    contest_instance_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    amount_cents integer NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    status text DEFAULT 'REQUESTED'::text NOT NULL,
+    requested_at timestamp with time zone DEFAULT now() NOT NULL,
+    processed_at timestamp with time zone,
+    processor_ref text,
+    error_code text,
+    error_details_json jsonb,
+    CONSTRAINT payout_requests_amount_cents_check CHECK ((amount_cents >= 0)),
+    CONSTRAINT payout_requests_status_check CHECK ((status = ANY (ARRAY['REQUESTED'::text, 'PROCESSING'::text, 'SUCCEEDED'::text, 'FAILED'::text, 'CANCELED'::text])))
 );
 
 
@@ -770,6 +910,24 @@ ALTER SEQUENCE public.signup_attempts_id_seq OWNED BY public.signup_attempts.id;
 
 
 --
+-- Name: stripe_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.stripe_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    stripe_event_id text NOT NULL,
+    event_type text NOT NULL,
+    raw_payload_json jsonb NOT NULL,
+    received_at timestamp with time zone DEFAULT now() NOT NULL,
+    processed_at timestamp with time zone,
+    processing_status text DEFAULT 'RECEIVED'::text NOT NULL,
+    processing_error_code text,
+    processing_error_details_json jsonb,
+    CONSTRAINT stripe_events_processing_status_check CHECK ((processing_status = ANY (ARRAY['RECEIVED'::text, 'PROCESSED'::text, 'FAILED'::text])))
+);
+
+
+--
 -- Name: tournament_config_versions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1059,6 +1217,30 @@ ALTER TABLE ONLY public.ingestion_validation_errors
 
 
 --
+-- Name: ledger ledger_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ledger
+    ADD CONSTRAINT ledger_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payment_intents payment_intents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_intents
+    ADD CONSTRAINT payment_intents_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payout_requests payout_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payout_requests
+    ADD CONSTRAINT payout_requests_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: payout_structure payout_structure_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1259,6 +1441,14 @@ ALTER TABLE ONLY public.signup_attempts
 
 
 --
+-- Name: stripe_events stripe_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.stripe_events
+    ADD CONSTRAINT stripe_events_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: tournament_config_versions tournament_config_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1445,6 +1635,34 @@ CREATE INDEX idx_ingestion_validation_errors_code ON public.ingestion_validation
 --
 
 CREATE INDEX idx_ingestion_validation_errors_contest ON public.ingestion_validation_errors USING btree (contest_instance_id, created_at);
+
+
+--
+-- Name: idx_ledger_contest_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ledger_contest_created ON public.ledger USING btree (contest_instance_id, created_at);
+
+
+--
+-- Name: idx_ledger_user_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ledger_user_created ON public.ledger USING btree (user_id, created_at);
+
+
+--
+-- Name: idx_payment_intents_contest_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_intents_contest_user ON public.payment_intents USING btree (contest_instance_id, user_id);
+
+
+--
+-- Name: idx_payout_requests_contest_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payout_requests_contest_user ON public.payout_requests USING btree (contest_instance_id, user_id);
 
 
 --
@@ -1665,6 +1883,41 @@ CREATE INDEX idx_users_state ON public.users USING btree (state);
 
 
 --
+-- Name: ledger_idempotency_key_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX ledger_idempotency_key_uq ON public.ledger USING btree (idempotency_key) WHERE (idempotency_key IS NOT NULL);
+
+
+--
+-- Name: payment_intents_idempotency_key_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX payment_intents_idempotency_key_uq ON public.payment_intents USING btree (idempotency_key);
+
+
+--
+-- Name: payment_intents_stripe_pi_id_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX payment_intents_stripe_pi_id_uq ON public.payment_intents USING btree (stripe_payment_intent_id) WHERE (stripe_payment_intent_id IS NOT NULL);
+
+
+--
+-- Name: payout_requests_idempotency_key_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX payout_requests_idempotency_key_uq ON public.payout_requests USING btree (idempotency_key);
+
+
+--
+-- Name: stripe_events_stripe_event_id_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX stripe_events_stripe_event_id_uq ON public.stripe_events USING btree (stripe_event_id);
+
+
+--
 -- Name: uniq_active_config; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1693,6 +1946,13 @@ CREATE TRIGGER ingestion_validation_errors_no_update BEFORE DELETE OR UPDATE ON 
 
 
 --
+-- Name: ledger ledger_no_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER ledger_no_update BEFORE DELETE OR UPDATE ON public.ledger FOR EACH ROW EXECUTE FUNCTION public.prevent_updates_deletes();
+
+
+--
 -- Name: score_history score_history_no_update; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -1700,10 +1960,17 @@ CREATE TRIGGER score_history_no_update BEFORE DELETE OR UPDATE ON public.score_h
 
 
 --
--- Name: settlement_audit settlement_audit_no_update; Type: TRIGGER; Schema: public; Owner: -
+-- Name: settlement_audit settlement_audit_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER settlement_audit_no_update BEFORE DELETE OR UPDATE ON public.settlement_audit FOR EACH ROW EXECUTE FUNCTION public.prevent_updates_deletes();
+CREATE TRIGGER settlement_audit_guard BEFORE DELETE OR UPDATE ON public.settlement_audit FOR EACH ROW EXECUTE FUNCTION public.prevent_settlement_audit_illegal_update();
+
+
+--
+-- Name: stripe_events stripe_events_no_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER stripe_events_no_update BEFORE DELETE OR UPDATE ON public.stripe_events FOR EACH ROW EXECUTE FUNCTION public.prevent_updates_deletes();
 
 
 --
@@ -1841,6 +2108,54 @@ ALTER TABLE ONLY public.ingestion_validation_errors
 
 ALTER TABLE ONLY public.ingestion_validation_errors
     ADD CONSTRAINT ingestion_validation_errors_ingestion_event_id_fkey FOREIGN KEY (ingestion_event_id) REFERENCES public.ingestion_events(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: ledger ledger_contest_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ledger
+    ADD CONSTRAINT ledger_contest_instance_id_fkey FOREIGN KEY (contest_instance_id) REFERENCES public.contest_instances(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: ledger ledger_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ledger
+    ADD CONSTRAINT ledger_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: payment_intents payment_intents_contest_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_intents
+    ADD CONSTRAINT payment_intents_contest_instance_id_fkey FOREIGN KEY (contest_instance_id) REFERENCES public.contest_instances(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: payment_intents payment_intents_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_intents
+    ADD CONSTRAINT payment_intents_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: payout_requests payout_requests_contest_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payout_requests
+    ADD CONSTRAINT payout_requests_contest_instance_id_fkey FOREIGN KEY (contest_instance_id) REFERENCES public.contest_instances(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: payout_requests payout_requests_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payout_requests
+    ADD CONSTRAINT payout_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE RESTRICT;
 
 
 --
@@ -1983,5 +2298,5 @@ ALTER TABLE ONLY public.tournament_configs
 -- PostgreSQL database dump complete
 --
 
-\unrestrict eNWQSsaEvQUg3Q2BpMCLZzHKArf6ILmz9LR8aGUJhYuea9OvNaDOLzWaxlwwfAg
+\unrestrict Wq9lnQS0wGNvD1m0Wo6BQdpOpY0j5lrxXoHdwPaYv2LyIo8K67G7vs6PsKY1Im5
 
