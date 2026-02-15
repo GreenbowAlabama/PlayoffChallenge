@@ -82,19 +82,11 @@ async function handleStripeEvent(rawBody, stripeSignature, pool) {
 
     // Step 4: Route by event type
     if (event.type === 'payment_intent.succeeded') {
-      // Process canonical event and update status inside transaction
+      // Process canonical event inside transaction
       await processPaymentIntentSucceeded(client, event, stripeEventsRow.id);
     }
 
-    // Step 5: Mark event as PROCESSED
-    await StripeEventsRepository.updateProcessingStatus(
-      client,
-      stripeEventsRow.id,
-      'PROCESSED',
-      new Date()
-    );
-
-    // Step 6: Commit transaction
+    // Step 5: Commit transaction
     await client.query('COMMIT');
 
     return { status: 'processed', stripe_event_id: event.id };
@@ -125,11 +117,6 @@ async function handleStripeEvent(rawBody, stripeSignature, pool) {
  * @throws {Error} Error with code property
  */
 async function processPaymentIntentSucceeded(client, event, stripeEventsId) {
-  console.log("WEBHOOK_V3_ACTIVE", {
-    event_id: event.id,
-    stripe_pi: event.data.object.id
-  });
-
   // Extract Stripe payment intent ID
   const stripePaymentIntentId = event.data.object.id;
   const amountCents = event.data.object.amount;
@@ -175,11 +162,6 @@ async function processPaymentIntentSucceeded(client, event, stripeEventsId) {
       reference_id: paymentIntent.id,
       stripe_event_id: event.id,
       idempotency_key: ledgerIdempotencyKey
-    });
-
-    console.log("LEDGER_WRITE_SUCCESS", {
-      stripe_event_id: event.id,
-      internal_payment_intent_id: paymentIntent.id
     });
   } catch (err) {
     // If duplicate idempotency_key (PG error 23505), treat as idempotent success

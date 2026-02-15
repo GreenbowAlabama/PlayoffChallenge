@@ -112,7 +112,7 @@ describe('StripeWebhookService', () => {
         if (sql.includes('SELECT') && sql.includes('payment_intents')) {
           return {
             rows: [{
-              id: 'pi_id_1',
+              id: '550e8400-e29b-41d4-a716-446655440000',
               contest_instance_id: 'contest_id_1',
               user_id: 'user_id_1',
               amount_cents: 1500,
@@ -127,9 +127,6 @@ describe('StripeWebhookService', () => {
         }
         if (sql.includes('INSERT INTO ledger')) {
           return { rows: [{ id: 'ledger_id_1' }] };
-        }
-        if (sql.includes('UPDATE stripe_events')) {
-          return {};
         }
         return { rows: [] };
       });
@@ -170,7 +167,7 @@ describe('StripeWebhookService', () => {
         if (sql.includes('SELECT') && sql.includes('payment_intents')) {
           return {
             rows: [{
-              id: 'pi_id_2',
+              id: '550e8400-e29b-41d4-a716-446655440001',
               contest_instance_id: 'contest_id_2',
               user_id: 'user_id_2',
               amount_cents: 2000,
@@ -183,9 +180,6 @@ describe('StripeWebhookService', () => {
         if (sql.includes('INSERT INTO ledger')) {
           ledgerInsertCalls++;
           return { rows: [{ id: 'ledger_id_2' }] };
-        }
-        if (sql.includes('UPDATE stripe_events')) {
-          return {};
         }
         return { rows: [] };
       });
@@ -221,7 +215,7 @@ describe('StripeWebhookService', () => {
         if (sql.includes('SELECT') && sql.includes('payment_intents')) {
           return {
             rows: [{
-              id: 'pi_id_3',
+              id: '550e8400-e29b-41d4-a716-446655440002',
               contest_instance_id: 'contest_id_3',
               user_id: 'user_id_3',
               amount_cents: 2500,
@@ -245,9 +239,6 @@ describe('StripeWebhookService', () => {
             err.code = '23505';
             throw err;
           }
-        }
-        if (sql.includes('UPDATE stripe_events')) {
-          return {};
         }
         return { rows: [] };
       });
@@ -314,7 +305,7 @@ describe('StripeWebhookService', () => {
         if (sql.includes('SELECT') && sql.includes('payment_intents')) {
           return {
             rows: [{
-              id: 'pi_id_5',
+              id: '550e8400-e29b-41d4-a716-446655440003',
               contest_instance_id: 'contest_id_5',
               user_id: 'user_id_5',
               amount_cents: 3500,
@@ -370,9 +361,6 @@ describe('StripeWebhookService', () => {
         }
         if (sql.includes('INSERT INTO ledger')) {
           ledgerInsertCalls++;
-        }
-        if (sql.includes('UPDATE stripe_events')) {
-          return {};
         }
         return { rows: [] };
       });

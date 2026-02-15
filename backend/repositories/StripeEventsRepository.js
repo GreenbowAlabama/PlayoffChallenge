@@ -33,26 +33,6 @@ async function insertStripeEvent(client, { stripe_event_id, event_type, raw_payl
 }
 
 /**
- * Update the processing status of a stripe event.
- *
- * @param {Object} client - Database transaction client
- * @param {string} id - stripe_events.id
- * @param {string} status - New processing_status ('RECEIVED', 'PROCESSED', 'FAILED')
- * @param {Date} [processed_at] - Timestamp when processing completed
- * @param {string} [error_code] - Error code if FAILED
- * @param {Object} [error_details] - Error details if FAILED
- * @returns {Promise<void>}
- */
-async function updateProcessingStatus(client, id, status, processed_at = null, error_code = null, error_details = null) {
-  await client.query(
-    `UPDATE stripe_events
-     SET processing_status = $1, processed_at = $2, processing_error_code = $3, processing_error_details_json = $4
-     WHERE id = $5`,
-    [status, processed_at, error_code, error_details ? JSON.stringify(error_details) : null, id]
-  );
-}
-
-/**
  * Find stripe event by stripe_event_id.
  *
  * @param {Object} pool - Database connection pool
@@ -70,6 +50,5 @@ async function findByStripeEventId(pool, stripe_event_id) {
 
 module.exports = {
   insertStripeEvent,
-  updateProcessingStatus,
   findByStripeEventId
 };
