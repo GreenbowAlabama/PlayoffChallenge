@@ -134,7 +134,7 @@ async function createPaymentIntent(pool, contestInstanceId, userId, amountCents,
     try {
       await client.query('ROLLBACK');
     } catch (rollbackErr) {
-      console.error('[PaymentIntentService] Rollback error:', rollbackErr);
+      // Silently handle rollback error; original error will be thrown
     }
 
     // Handle duplicate key race condition
@@ -152,7 +152,6 @@ async function createPaymentIntent(pool, contestInstanceId, userId, amountCents,
 
     // Re-throw mapped errors
     if (err.code === PAYMENT_ERROR_CODES.STRIPE_API_ERROR) {
-      console.error('[PaymentIntentService] Stripe API error:', err.message);
       throw err;
     }
 

@@ -387,17 +387,9 @@ All payment operations map to explicit error codes. No generic 500 errors for ex
 - Refund initiated → ledger shows refund entry; balance adjusted
 
 ### Failure Path Tests
-- Invalid Stripe signature rejects webhook (logged, not processed)
+- Invalid Stripe signature rejects webhook (rejected, not processed)
 - Payment amount mismatch (entry fee changed) rejects intent creation
 - Duplicate payment (user already paid) rejects new intent
-- Webhook timeout detected and operator alerted
-- Payout failure is logged and can be retried
-
-### Manual Payout Tests
-- Operator selects ledger entries → payout request created
-- Payout request sent to Stripe → stripe_payout_id recorded
-- Stripe webhook confirms payout completion → ledger updated
-- Payout failure is recorded; operator can retry
 
 ---
 
@@ -417,6 +409,29 @@ All payment operations map to explicit error codes. No generic 500 errors for ex
 ✓ Payment failure modes are documented in runbook (iteration 05)
 ✓ Schema snapshot is updated and committed
 ✓ No undocumented assumptions remain
+
+---
+
+## Future Work (Iteration 05+ Runbooks)
+
+The following items are documented for manual payout implementation and failure recovery. They are NOT part of Iteration 03 completion and are deferred to Iteration 05 operationalrunbooks:
+
+### Manual Payout Tests (Iteration 05)
+- Operator selects ledger entries → payout request created
+- Payout request sent to Stripe → stripe_payout_id recorded
+- Stripe webhook confirms payout completion → ledger updated
+- Payout failure is recorded; operator can retry
+
+### Payout Webhook Processing (Iteration 05)
+- Payout completion webhooks update payout_records.status
+- Payout failure webhooks are logged with error details
+- Manual reconciliation process for failed payouts
+
+### Alerting & Observability (Iteration 05)
+- Webhook timeout detection and operator alert system
+- Payment failure rate metrics and dashboard
+- Ledger reconciliation failure alerts
+- Admin console for payment and payout diagnostics
 
 ---
 

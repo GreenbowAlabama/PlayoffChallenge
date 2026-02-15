@@ -78,7 +78,6 @@ router.post(
       }
 
       // Unexpected errors
-      console.error('[Stripe Webhook Error]', err);
       return res.status(500).json({
         error: 'Webhook processing failed'
       });

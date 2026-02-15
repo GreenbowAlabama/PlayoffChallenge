@@ -113,14 +113,12 @@ router.post('/intents', extractUserId, async (req, res) => {
     }
 
     if (err.code === PAYMENT_ERROR_CODES.STRIPE_API_ERROR) {
-      console.error('[Payment Intent Route] Stripe error:', err.message);
       return res.status(500).json({
         error: 'Stripe API error'
       });
     }
 
     // Unexpected errors
-    console.error('[Payment Intent Route] Error:', err);
     return res.status(500).json({
       error: 'Payment intent creation failed'
     });

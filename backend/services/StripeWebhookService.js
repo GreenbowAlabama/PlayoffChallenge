@@ -95,7 +95,7 @@ async function handleStripeEvent(rawBody, stripeSignature, pool) {
     try {
       await client.query('ROLLBACK');
     } catch (rollbackErr) {
-      console.error('[StripeWebhook] Rollback error:', rollbackErr);
+      // Silently handle rollback error; original error will be thrown
     }
     throw err;
   } finally {

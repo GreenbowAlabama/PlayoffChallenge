@@ -649,10 +649,93 @@ All tests pass successfully.
 
 ---
 
+## Stripe Webhook Processing Guarantees (Phase 03)
+
+Stripe webhook processing is built on append-only, idempotent foundations with strict transactional boundaries.
+
+### Append-Only Architecture
+
+The `stripe_events` table is append-only at both application and database layers:
+- **Database enforcement:** PostgreSQL trigger `stripe_events_no_update` prevents all UPDATE and DELETE operations
+- **Schema:** `UNIQUE` constraint on `stripe_event_id` ensures each Stripe event ID can be inserted at most once
+- **Consequence:** Duplicate webhook deliveries are detected via the unique constraint, not via mutable state
+
+### Idempotency Guarantees
+
+**Layer 1: Stripe Event Deduplication**
+- Primary key: `stripe_events.stripe_event_id` (Stripe's evt_* ID, uniquely indexed)
+- Duplicate stripe_event_id → PG error 23505 (unique violation)
+- Duplicate is rolled back, not silently ignored
+- Caller receives `{ status: 'duplicate', stripe_event_id: evt_* }` — idempotent success
+
+**Layer 2: Ledger Entry Deduplication**
+- Ledger entries for payment_intent.succeeded use idempotency key: `stripe_event:{event_id}:ENTRY_FEE`
+- Primary key: `ledger.idempotency_key` (partially unique, WHERE NOT NULL)
+- Duplicate key → PG error 23505 (unique violation)
+- Duplicate is rolled back, not inserted twice
+- Service catches 23505 and returns idempotent success (no ledger mutation)
+
+### Transactional Atomicity
+
+**Transaction Boundaries**
+```
+BEGIN TRANSACTION
+  ↓
+INSERT stripe_events (with Stripe's event ID)
+  ↓
+If duplicate stripe_event_id → ROLLBACK (no poisoned dedupe rows)
+  ↓
+For payment_intent.succeeded:
+  - Fetch payment_intent from payment_intents table
+  - Validate payment_intent exists (throw 409 if not found)
+  - If already SUCCEEDED, skip remaining steps (idempotent)
+  - UPDATE payment_intents.status = 'SUCCEEDED'
+  - INSERT ledger entry (with idempotency_key)
+  ↓
+COMMIT (all or nothing)
+  ↓
+On any error → ROLLBACK (prevents partial state, Stripe retries)
+```
+
+**Critical Invariants**
+1. `stripe_events` insert is INSIDE the transaction (not outside)
+2. If processing fails, stripe_events insert is rolled back (no poisoned rows)
+3. Stripe will retry the webhook after ROLLBACK, allowing success on retry
+4. Ledger entries only created after payment intent validation succeeds
+5. All writes are atomic: succeed together or fail together
+
+### Processing Semantics
+
+- **payment_intent.succeeded:** Only canonical event type with side effects (ledger insertion)
+- **Other event types:** Stored in stripe_events but not processed (future extensibility)
+- **Processing status:** Immutable after receipt (`processing_status = 'RECEIVED'`; no mutations)
+
+### Observability
+
+Audit trail captures:
+- Stripe event ID (evt_*)
+- Internal payment intent ID (UUID, used as reference_id in ledger)
+- Ledger entry creation timestamp
+- Idempotency key (stripe_event:{event_id}:ENTRY_FEE)
+
+Queries to reconstruct payment flows:
+```sql
+SELECT * FROM ledger
+WHERE stripe_event_id = 'evt_...'
+ORDER BY created_at;
+
+SELECT * FROM stripe_events
+WHERE stripe_event_id = 'evt_...'
+ORDER BY received_at;
+```
+
+---
+
 ## Change Log
 
 | Date | Version | Author | Description |
 |---|---|---|---|
+| 2026-02-15 | v1 | System | **PHASE 03 COMPLETE: Stripe Webhook Finalization & Cleanup**. Removed all debug logs from webhook/payment paths. Confirmed stripe_events append-only via database trigger. Verified transaction boundaries (BEGIN → insert stripe_event → process → COMMIT with ROLLBACK on failure). Idempotency enforced at two layers: stripe_event_id (unique at DB) and ledger.idempotency_key (unique at DB). Added "Stripe Webhook Processing Guarantees" section to contest-lifecycle.md documenting architecture, idempotency, transactional boundaries, and audit trail. Updated contest-infrastructure-v1-gaps.md change log. Unit tests passing; staging E2E confirmed. |
 | 2026-02-11 | v1 | System | GAP-14 LIGHTENED: Replaced domain event abstraction with lightweight transition_origin classification in audit payload (TIME_DRIVEN, ADMIN_MANUAL, SETTLEMENT_DRIVEN, ERROR_RECOVERY). No new tables. Enables deterministic observability for debugging and compliance. Added "Transition Origin Classification" section with usage examples. Completion criteria: 10 integration tests, documentation updated. Proportional risk: minimal architectural impact. |
 | 2026-02-11 | v1 | System | GAP-13 COMPLETED: Five service-layer admin operations now enforce the contract's valid transition graph and time field invariants with the same rigor as automated processes. (1) cancelContestInstance: SCHEDULED/LOCKED/LIVE/ERROR → CANCELLED; COMPLETE is terminal. (2) forceLockContestInstance: SCHEDULED → LOCKED via SYSTEM actor (ADMIN updates lock_time). (3) updateContestTimeFields: SCHEDULED-only time updates with invariant validation. (4) triggerSettlement: LIVE → COMPLETE (if settlement ready) or LIVE → ERROR (if not ready). (5) resolveError: ERROR → COMPLETE (with settlement execution) or ERROR → CANCELLED. All operations use row-level locking (SELECT FOR UPDATE), explicit state checks after lock, audit trail discipline (success/idempotency/rejection), transition validation via assertAllowedDbStatusTransition(), and support idempotency. Settlement execution respects transaction boundaries (outside active transactions for executeSettlement()). Audit schema corrected: contest_instance_id, admin_user_id, action, reason, from_status, to_status, payload. Updated "Admin Operations Contract" section with implementation details and shared patterns. |
 | 2026-02-11 | v1 | System | GAP-12 CLOSED: "Contest List (My Contests)" section now fully implemented. Endpoint GET /api/contests/my returns contests user entered or SCHEDULED contests open for entry. Six-tier sorting enforced at SQL layer with CASE tier assignment and tier-scoped time columns. ERROR contests hidden from non-admin users (fail-closed policy). Metadata-only list response (no standings, deterministic and scalable). Dedicated `mapContestToApiResponseForList` mapper enforces list-specific invariants, separating read model concerns from detail endpoints. Non-mutating list endpoint (no self-healing). Pagination deterministic: limit [1,200] default 50, offset >= 0 default 0. Updated "Contest List (My Contests)" section with implementation notes documenting endpoint, SQL sorting strategy, error visibility, read model separation, pagination, non-mutating behavior, and authentication requirements. |
