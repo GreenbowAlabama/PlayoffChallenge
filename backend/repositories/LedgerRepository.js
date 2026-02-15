@@ -42,14 +42,25 @@ async function insertLedgerEntry(client, {
   reference_type = null,
   reference_id = null,
   idempotency_key = null,
+  stripe_event_id = null,
   metadata_json = null
 }) {
   const result = await client.query(
     `INSERT INTO ledger (
-       contest_instance_id, user_id, entry_type, direction, amount_cents,
-       currency, reference_type, reference_id, idempotency_key, metadata_json, created_at
+       contest_instance_id,
+       user_id,
+       entry_type,
+       direction,
+       amount_cents,
+       currency,
+       reference_type,
+       reference_id,
+       idempotency_key,
+       stripe_event_id,
+       metadata_json,
+       created_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
      RETURNING id, entry_type, direction, amount_cents`,
     [
       contest_instance_id,
@@ -61,6 +72,7 @@ async function insertLedgerEntry(client, {
       reference_type,
       reference_id,
       idempotency_key,
+      stripe_event_id,
       metadata_json ? JSON.stringify(metadata_json) : null
     ]
   );
