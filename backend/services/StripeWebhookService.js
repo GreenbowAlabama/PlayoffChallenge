@@ -125,6 +125,11 @@ async function handleStripeEvent(rawBody, stripeSignature, pool) {
  * @throws {Error} Error with code property
  */
 async function processPaymentIntentSucceeded(client, event, stripeEventsId) {
+  console.log("WEBHOOK_V3_ACTIVE", {
+    event_id: event.id,
+    stripe_pi: event.data.object.id
+  });
+
   // Extract Stripe payment intent ID
   const stripePaymentIntentId = event.data.object.id;
   const amountCents = event.data.object.amount;
@@ -154,6 +159,10 @@ async function processPaymentIntentSucceeded(client, event, stripeEventsId) {
   // Insert ledger entry with idempotency key format: stripe_event:{event_id}:ENTRY_FEE
   const ledgerIdempotencyKey = `stripe_event:${event.id}:ENTRY_FEE`;
 
+  if (!paymentIntent.id || paymentIntent.id.length !== 36) {
+    throw new Error("Invalid internal paymentIntent.id (not UUID)");
+  }
+
   try {
     await LedgerRepository.insertLedgerEntry(client, {
       contest_instance_id: paymentIntent.contest_instance_id,
@@ -166,6 +175,11 @@ async function processPaymentIntentSucceeded(client, event, stripeEventsId) {
       reference_id: paymentIntent.id,
       stripe_event_id: event.id,
       idempotency_key: ledgerIdempotencyKey
+    });
+
+    console.log("LEDGER_WRITE_SUCCESS", {
+      stripe_event_id: event.id,
+      internal_payment_intent_id: paymentIntent.id
     });
   } catch (err) {
     // If duplicate idempotency_key (PG error 23505), treat as idempotent success
