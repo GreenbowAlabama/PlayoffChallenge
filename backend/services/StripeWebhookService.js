@@ -28,8 +28,8 @@ const { PAYMENT_ERROR_CODES } = require('./paymentErrorCodes');
  * 2. START TRANSACTION
  * 3. INSERT stripe_events (inside transaction)
  * 4. If duplicate stripe_event_id:
- *    - ROLLBACK (removes duplicate row)
- *    - Return { status: 'duplicate' }
+ *    - COMMIT transaction (duplicate row not inserted due to ON CONFLICT DO NOTHING)
+ *    - Return { status: 'processed' } (idempotent success)
  * 5. Route by event type:
  *    - payment_intent.succeeded: processPaymentIntentSucceeded()
  *    - Other: update status to PROCESSED and commit
@@ -38,7 +38,7 @@ const { PAYMENT_ERROR_CODES } = require('./paymentErrorCodes');
  * @param {Buffer} rawBody - Raw request body (required for signature verification)
  * @param {string} stripeSignature - Stripe-Signature header value
  * @param {Object} pool - Database connection pool
- * @returns {Promise<Object>} { status: 'processed' | 'duplicate' }
+ * @returns {Promise<Object>} { status: 'processed', stripe_event_id: string }
  * @throws {Error} Error with code property set to PAYMENT_ERROR_CODES key
  */
 async function handleStripeEvent(rawBody, stripeSignature, pool) {
@@ -61,23 +61,18 @@ async function handleStripeEvent(rawBody, stripeSignature, pool) {
   try {
     await client.query('BEGIN');
 
-    // Step 3: Insert stripe_events inside transaction
-    let stripeEventsRow;
-    try {
-      stripeEventsRow = await StripeEventsRepository.insertStripeEvent(client, {
-        stripe_event_id: event.id,
-        event_type: event.type,
-        raw_payload_json: event
-      });
-    } catch (err) {
-      // Check if duplicate stripe_event_id (PG error code 23505)
-      if (err.code === '23505') {
-        await client.query('ROLLBACK');
-        return { status: 'duplicate', stripe_event_id: event.id };
-      }
-      // Other database error - rollback and rethrow
-      await client.query('ROLLBACK');
-      throw err;
+    // Step 3: Insert stripe_events inside transaction (idempotent via ON CONFLICT DO NOTHING)
+    const stripeEventsRow = await StripeEventsRepository.insertStripeEvent(client, {
+      stripe_event_id: event.id,
+      event_type: event.type,
+      raw_payload_json: event
+    });
+
+    // If insert returned null, this is a duplicate stripe_event_id (idempotent)
+    if (!stripeEventsRow) {
+      // Commit transaction and return idempotent success
+      await client.query('COMMIT');
+      return { status: 'processed', stripe_event_id: event.id };
     }
 
     // Step 4: Route by event type
@@ -91,6 +86,15 @@ async function handleStripeEvent(rawBody, stripeSignature, pool) {
 
     return { status: 'processed', stripe_event_id: event.id };
   } catch (err) {
+    // Debug: log error details in test environment
+    if (process.env.NODE_ENV === 'test') {
+      console.error('handleStripeEvent error:', {
+        message: err.message,
+        code: err.code,
+        constraint: err.constraint,
+        detail: err.detail
+      });
+    }
     // Rollback on any error to prevent partial state
     try {
       await client.query('ROLLBACK');
@@ -164,6 +168,15 @@ async function processPaymentIntentSucceeded(client, event, stripeEventsId) {
       idempotency_key: ledgerIdempotencyKey
     });
   } catch (err) {
+    // Debug: log error details in test environment
+    if (process.env.NODE_ENV === 'test') {
+      console.error('Ledger insert error:', {
+        message: err.message,
+        code: err.code,
+        constraint: err.constraint,
+        detail: err.detail
+      });
+    }
     // If duplicate idempotency_key (PG error 23505), treat as idempotent success
     if (err.code === '23505') {
       return;

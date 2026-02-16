@@ -1,23 +1,10 @@
 // Load environment variables from .env file FIRST, before any other requires
 require('dotenv').config();
 
-const express = require('express');
 const { Pool } = require('pg');
-const pg = require('pg');
-const cors = require('cors');
 const axios = require('axios');
 const rateLimit = require('express-rate-limit');
-// Note: geoip and bcrypt moved to usersService
-const requireAdmin = require('./middleware/adminAuth');
-const adminAuthRoutes = require('./routes/adminAuth');
-const adminDiagnosticsRoutes = require('./routes/admin.diagnostics.routes');
-const adminTrendsRoutes = require('./routes/admin.trends.routes');
-const adminContestsRoutes = require('./routes/admin.contests.routes');
-const customContestRoutes = require('./routes/customContest.routes');
-const customContestTemplatesRoutes = require('./routes/customContestTemplates.routes');
-const contestsRoutes = require('./routes/contests.routes');
-const webhooksRoutes = require('./routes/webhooks');
-const paymentsRoutes = require('./routes/payments');
+const { app } = require('./app');
 const jobsService = require('./services/adminJobs.service');
 const scoringService = require('./services/scoringService');
 const gameStateService = require('./services/gameStateService');
@@ -41,29 +28,9 @@ if (process.env.NODE_ENV !== 'test') {
   startCleanup();
 }
 
-const app = express();
-app.set('trust proxy', 1);
 const PORT = process.env.PORT || 8080;
 
-pg.types.setTypeParser(1700, (v) => v === null ? null : parseFloat(v));
-
-app.use(cors());
-
-// Webhook routes must be mounted BEFORE express.json() middleware
-// so that the raw request body is available for Stripe signature verification
-app.use('/api/webhooks', webhooksRoutes);
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Rate limiting configuration
-const apiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 1000,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
+// Auth rate limiting configuration
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10, // 10 auth attempts per IP per window
@@ -71,9 +38,6 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-
-// Apply general rate limit to all API routes
-app.use('/api/', apiLimiter);
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -1423,33 +1387,6 @@ app.get('/join/:token', (req, res) => {
   const appStoreUrl = config.getAppStoreUrl();
   res.redirect(302, appStoreUrl);
 });
-
-// Payment routes (entry fee collection)
-app.use('/api/payments', paymentsRoutes);
-
-// Admin auth routes (no protection)
-app.use('/api/admin/auth', adminAuthRoutes);
-
-// Admin protection middleware
-app.use('/api/admin', requireAdmin);
-
-// Admin diagnostics routes (protected by requireAdmin above)
-app.use('/api/admin/diagnostics', adminDiagnosticsRoutes);
-
-// Admin trends routes (protected by requireAdmin above)
-app.use('/api/admin/trends', adminTrendsRoutes);
-
-// Admin contest control routes (protected by requireAdmin above)
-app.use('/api/admin/contests', adminContestsRoutes);
-
-// Admin custom contest template routes (protected by requireAdmin above)
-app.use('/api/admin/custom-contests/templates', customContestTemplatesRoutes);
-
-// Custom contest routes (user-created contests)
-app.use('/api/custom-contests', customContestRoutes);
-
-// User-scoped contest routes (My Contests - GAP-12)
-app.use('/api/contests', contestsRoutes);
 
 // Update week active status (lock/unlock)
 app.post('/api/admin/update-week-status', async (req, res) => {

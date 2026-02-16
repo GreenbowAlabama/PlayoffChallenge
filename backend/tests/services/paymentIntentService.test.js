@@ -47,7 +47,7 @@ describe('PaymentIntentService', () => {
           1000,
           null // No key
         );
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe(PAYMENT_ERROR_CODES.IDEMPOTENCY_KEY_REQUIRED);
       }
@@ -62,7 +62,7 @@ describe('PaymentIntentService', () => {
           1000,
           '  ' // Whitespace only
         );
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe(PAYMENT_ERROR_CODES.IDEMPOTENCY_KEY_REQUIRED);
       }
@@ -72,8 +72,7 @@ describe('PaymentIntentService', () => {
       const existingIntent = {
         id: 'pi_id_1',
         idempotency_key: 'test_key_1',
-        status: 'REQUIRES_CONFIRMATION',
-        stripe_client_secret: 'secret_cached_1'
+        status: 'REQUIRES_CONFIRMATION'
       };
 
       mockPool.setQueryResponse(/WHERE idempotency_key/, {
@@ -93,7 +92,6 @@ describe('PaymentIntentService', () => {
 
       expect(result.payment_intent_id).toBe('pi_id_1');
       expect(result.status).toBe('REQUIRES_CONFIRMATION');
-      expect(result.client_secret).toBe('secret_cached_1');
       // Should NOT call Stripe API
       expect(stripe.paymentIntents.create).not.toHaveBeenCalled();
     });
@@ -154,8 +152,7 @@ describe('PaymentIntentService', () => {
       const existingIntent = {
         id: 'pi_id_3',
         idempotency_key: 'test_key_3',
-        status: 'SUCCEEDED',
-        stripe_client_secret: 'secret_race_winner'
+        status: 'SUCCEEDED'
       };
 
       // First findByIdempotencyKey returns null (will try insert)
@@ -196,7 +193,6 @@ describe('PaymentIntentService', () => {
 
       expect(result.payment_intent_id).toBe('pi_id_3');
       expect(result.status).toBe('SUCCEEDED');
-      expect(result.client_secret).toBe('secret_race_winner');
       // Should NOT call Stripe for duplicate idempotency key
       expect(stripe.paymentIntents.create).not.toHaveBeenCalled();
     });
@@ -266,7 +262,7 @@ describe('PaymentIntentService', () => {
           3000,
           'test_key_5'
         );
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe(PAYMENT_ERROR_CODES.STRIPE_API_ERROR);
         expect(err.message).toContain('Your card was declined');
@@ -305,10 +301,10 @@ describe('PaymentIntentService', () => {
         'test_key_6'
       );
 
-      // Verify update with Stripe details including client_secret
+      // Verify update with Stripe details (status and IDs only)
       expect(mockUpdateClient.query).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE payment_intents'),
-        expect.arrayContaining(['stripe_pi_789', 'cus_789', 'secret_789', 'PROCESSING'])
+        expect.arrayContaining(['stripe_pi_789', 'cus_789', 'PROCESSING', 'pi_id_6'])
       );
     });
 

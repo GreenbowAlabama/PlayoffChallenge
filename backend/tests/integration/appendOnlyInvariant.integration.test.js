@@ -134,7 +134,7 @@ describe('Append-Only Invariant Enforcement (Real DB)', () => {
           'UPDATE ingestion_events SET validation_status = $1 WHERE id = $2',
           ['INVALID', eventId]
         );
-        expect.fail('UPDATE should have been rejected');
+        throw new Error('UPDATE should have been rejected');
       } catch (err) {
         // Expected: trigger exception from prevent_updates_deletes()
         expect(err).toBeDefined();
@@ -156,7 +156,7 @@ describe('Append-Only Invariant Enforcement (Real DB)', () => {
       // Attempt to DELETE
       try {
         await pool.query('DELETE FROM ingestion_events WHERE id = $1', [eventId]);
-        expect.fail('DELETE should have been rejected');
+        throw new Error('DELETE should have been rejected');
       } catch (err) {
         // Expected: trigger exception from prevent_updates_deletes()
         expect(err).toBeDefined();
@@ -214,7 +214,7 @@ describe('Append-Only Invariant Enforcement (Real DB)', () => {
           'UPDATE ingestion_validation_errors SET error_code = $1 WHERE id = $2',
           ['DIFFERENT_CODE', errorId]
         );
-        expect.fail('UPDATE should have been rejected');
+        throw new Error('UPDATE should have been rejected');
       } catch (err) {
         expect(err).toBeDefined();
         expect(err.message).toMatch(/append-only|update|delete|trigger/i);
@@ -243,7 +243,7 @@ describe('Append-Only Invariant Enforcement (Real DB)', () => {
       // Attempt DELETE
       try {
         await pool.query('DELETE FROM ingestion_validation_errors WHERE id = $1', [errorId]);
-        expect.fail('DELETE should have been rejected');
+        throw new Error('DELETE should have been rejected');
       } catch (err) {
         expect(err).toBeDefined();
         expect(err.message).toMatch(/append-only|update|delete|trigger/i);
@@ -300,7 +300,7 @@ describe('Append-Only Invariant Enforcement (Real DB)', () => {
           'UPDATE score_history SET scores_json = $1 WHERE id = $2',
           [JSON.stringify({ 'p1': 200 }), scoreId]
         );
-        expect.fail('UPDATE should have been rejected');
+        throw new Error('UPDATE should have been rejected');
       } catch (err) {
         expect(err).toBeDefined();
         expect(err.message).toMatch(/append-only|update|delete|trigger/i);
@@ -329,7 +329,7 @@ describe('Append-Only Invariant Enforcement (Real DB)', () => {
       // Attempt DELETE
       try {
         await pool.query('DELETE FROM score_history WHERE id = $1', [scoreId]);
-        expect.fail('DELETE should have been rejected');
+        throw new Error('DELETE should have been rejected');
       } catch (err) {
         expect(err).toBeDefined();
         expect(err.message).toMatch(/append-only|update|delete|trigger/i);
@@ -378,7 +378,7 @@ describe('Append-Only Invariant Enforcement (Real DB)', () => {
           'DELETE FROM ingestion_validation_errors WHERE id = $1',
           [firstError.rows[0].id]
         );
-        expect.fail('DELETE should have been rejected');
+        throw new Error('DELETE should have been rejected');
       } catch (err) {
         expect(err).toBeDefined();
       }

@@ -52,9 +52,9 @@ async function createPaymentIntent(pool, contestInstanceId, userId, amountCents,
   const existingIntent = await PaymentIntentsRepository.findByIdempotencyKey(pool, idempotencyKey);
   if (existingIntent) {
     // Return cached result - idempotent success
+    // Note: client_secret is only available on first creation from Stripe response
     return {
       payment_intent_id: existingIntent.id,
-      client_secret: existingIntent.stripe_client_secret,
       status: existingIntent.status
     };
   }
@@ -116,7 +116,6 @@ async function createPaymentIntent(pool, contestInstanceId, userId, amountCents,
     await PaymentIntentsRepository.updateStripeDetails(client, paymentIntentRow.id, {
       stripe_payment_intent_id: stripePI.id,
       stripe_customer_id: stripePI.customer || null,
-      stripe_client_secret: stripePI.client_secret,
       status: stripePI.status.toUpperCase()
     });
 
@@ -142,9 +141,9 @@ async function createPaymentIntent(pool, contestInstanceId, userId, amountCents,
       const raceWinner = await PaymentIntentsRepository.findByIdempotencyKey(pool, idempotencyKey);
       if (raceWinner) {
         // Another thread won the race - return their result
+        // Note: client_secret is only available on first creation from Stripe response
         return {
           payment_intent_id: raceWinner.id,
-          client_secret: raceWinner.stripe_client_secret,
           status: raceWinner.status
         };
       }

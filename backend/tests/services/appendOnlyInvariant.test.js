@@ -32,7 +32,7 @@ describe('Append-Only Invariant Enforcement', () => {
 
       try {
         await mockPool.query('DELETE FROM ingestion_events WHERE id = $1', ['event-1']);
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe('APPEND_ONLY_VIOLATION');
       }
@@ -49,7 +49,7 @@ describe('Append-Only Invariant Enforcement', () => {
           'UPDATE ingestion_events SET validation_status = $1 WHERE id = $2',
           ['VALID', 'event-1']
         );
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe('APPEND_ONLY_VIOLATION');
       }
@@ -102,7 +102,7 @@ describe('Append-Only Invariant Enforcement', () => {
 
       try {
         await mockPool.query('DELETE FROM ingestion_validation_errors WHERE id = $1', ['error-1']);
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe('APPEND_ONLY_VIOLATION');
       }
@@ -119,7 +119,7 @@ describe('Append-Only Invariant Enforcement', () => {
           'UPDATE ingestion_validation_errors SET error_code = $1 WHERE id = $2',
           ['NEW_CODE', 'error-1']
         );
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe('APPEND_ONLY_VIOLATION');
       }
@@ -173,7 +173,7 @@ describe('Append-Only Invariant Enforcement', () => {
 
       try {
         await mockPool.query('DELETE FROM settlement_audit WHERE id = $1', ['audit-1']);
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe('APPEND_ONLY_VIOLATION');
       }
@@ -190,7 +190,7 @@ describe('Append-Only Invariant Enforcement', () => {
           'UPDATE settlement_audit SET error_json = $1 WHERE id = $2',
           [JSON.stringify({ modified: true }), 'audit-1']
         );
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe('APPEND_ONLY_VIOLATION');
       }
@@ -261,7 +261,7 @@ describe('Append-Only Invariant Enforcement', () => {
 
       try {
         await mockPool.query('DELETE FROM score_history WHERE id = $1', ['score-1']);
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe('APPEND_ONLY_VIOLATION');
       }
@@ -278,7 +278,7 @@ describe('Append-Only Invariant Enforcement', () => {
           'UPDATE score_history SET scores_json = $1 WHERE id = $2',
           [JSON.stringify({}), 'score-1']
         );
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
         expect(err.code).toBe('APPEND_ONLY_VIOLATION');
       }
@@ -335,7 +335,7 @@ describe('Append-Only Invariant Enforcement', () => {
 
       try {
         await mockPool.query('DELETE FROM ingestion_events WHERE id = $1', ['event-1']);
-        expect.fail('Should have thrown');
+        throw new Error('Should have thrown');
       } catch (err) {
         expect(err.code).toBe('APPEND_ONLY_VIOLATION');
         expect(err.message).toContain('Append-only');
@@ -350,7 +350,7 @@ describe('Append-Only Invariant Enforcement', () => {
 
       try {
         await mockPool.query('DELETE FROM ingestion_events WHERE id = $1', ['event-1']);
-        expect.fail('Should have thrown');
+        throw new Error('Should have thrown');
       } catch (err) {
         expect(err.message).toContain('ingestion_events');
       }

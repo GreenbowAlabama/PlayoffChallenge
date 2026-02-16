@@ -49,8 +49,9 @@ describe('StripeWebhookService', () => {
 
       try {
         await StripeWebhookService.handleStripeEvent(rawBody, badSignature, mockPool);
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
+        if (err.message === 'Should have thrown error') throw err;
         expect(err.code).toBe(PAYMENT_ERROR_CODES.STRIPE_SIGNATURE_INVALID);
       }
     });
@@ -64,23 +65,21 @@ describe('StripeWebhookService', () => {
 
       stripe.webhooks.constructEvent.mockReturnValue(event);
 
-      // Mock INSERT to throw duplicate key error
+      // Mock INSERT to return empty (ON CONFLICT DO NOTHING)
       mockClient.query.mockImplementation(async (sql) => {
         if (sql.includes('INSERT INTO stripe_events')) {
-          const err = new Error('duplicate key');
-          err.code = '23505';
-          throw err;
+          return { rows: [], rowCount: 0 }; // Duplicate: no row returned
         }
-        if (sql.includes('ROLLBACK')) return {};
+        if (sql.includes('COMMIT')) return {};
         if (sql.includes('BEGIN')) return {};
         return { rows: [] };
       });
 
       const result = await StripeWebhookService.handleStripeEvent(Buffer.from('{}'), 'sig', mockPool);
 
-      expect(result.status).toBe('duplicate');
+      expect(result.status).toBe('processed');
       expect(result.stripe_event_id).toBe('evt_test_123');
-      expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+      expect(mockClient.query).toHaveBeenCalledWith('COMMIT');
     });
 
     it('should process payment_intent.succeeded and create ledger entry', async () => {
@@ -106,7 +105,8 @@ describe('StripeWebhookService', () => {
         }
         if (sql.includes('INSERT INTO stripe_events')) {
           return {
-            rows: [{ id: 'stripe_events_id_1', stripe_event_id: event.id, processing_status: 'RECEIVED' }]
+            rows: [{ id: 'stripe_events_id_1', stripe_event_id: event.id, processing_status: 'RECEIVED' }],
+            rowCount: 1
           };
         }
         if (sql.includes('SELECT') && sql.includes('payment_intents')) {
@@ -265,7 +265,8 @@ describe('StripeWebhookService', () => {
         if (sql.includes('BEGIN')) return {};
         if (sql.includes('INSERT INTO stripe_events')) {
           return {
-            rows: [{ id: 'stripe_events_id_4', stripe_event_id: event.id }]
+            rows: [{ id: 'stripe_events_id_4', stripe_event_id: event.id }],
+            rowCount: 1
           };
         }
         if (sql.includes('SELECT') && sql.includes('payment_intents')) {
@@ -277,8 +278,9 @@ describe('StripeWebhookService', () => {
 
       try {
         await StripeWebhookService.handleStripeEvent(Buffer.from('{}'), 'sig', mockPool);
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
+        if (err.message === 'Should have thrown error') throw err;
         expect(err.code).toBe(PAYMENT_ERROR_CODES.PAYMENT_INTENT_NOT_FOUND);
         expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
       }
@@ -299,7 +301,8 @@ describe('StripeWebhookService', () => {
         if (sql.includes('BEGIN')) return {};
         if (sql.includes('INSERT INTO stripe_events')) {
           return {
-            rows: [{ id: 'stripe_events_id_5', stripe_event_id: event.id }]
+            rows: [{ id: 'stripe_events_id_5', stripe_event_id: event.id }],
+            rowCount: 1
           };
         }
         if (sql.includes('SELECT') && sql.includes('payment_intents')) {
@@ -330,8 +333,9 @@ describe('StripeWebhookService', () => {
 
       try {
         await StripeWebhookService.handleStripeEvent(Buffer.from('{}'), 'sig', mockPool);
-        expect.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err) {
+        if (err.message === 'Should have thrown error') throw err;
         expect(err.message).toContain('Network error');
         // Verify entire transaction was rolled back
         expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');

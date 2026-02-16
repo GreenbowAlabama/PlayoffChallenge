@@ -11,25 +11,30 @@
  */
 
 /**
- * Insert a new Stripe event into stripe_events table.
+ * Insert a new Stripe event into stripe_events table (idempotent).
+ *
+ * Uses ON CONFLICT DO NOTHING for atomic, race-free idempotency.
+ * Returns row on successful insert, null on duplicate (idempotent).
  *
  * @param {Object} client - Database transaction client (from pool.connect())
  * @param {Object} data - Event data
  * @param {string} data.stripe_event_id - Stripe's event ID (unique)
  * @param {string} data.event_type - Event type (e.g., 'payment_intent.succeeded')
  * @param {Object} data.raw_payload_json - Complete Stripe event object
- * @returns {Promise<Object>} { id, stripe_event_id, processing_status }
- * @throws {Error} PG error 23505 if duplicate stripe_event_id
+ * @returns {Promise<Object|null>} { id, stripe_event_id, processing_status } on success, null on duplicate
  */
 async function insertStripeEvent(client, { stripe_event_id, event_type, raw_payload_json }) {
   const result = await client.query(
     `INSERT INTO stripe_events (stripe_event_id, event_type, raw_payload_json, processing_status, received_at)
      VALUES ($1, $2, $3, 'RECEIVED', NOW())
+     ON CONFLICT (stripe_event_id) DO NOTHING
      RETURNING id, stripe_event_id, processing_status`,
     [stripe_event_id, event_type, JSON.stringify(raw_payload_json)]
   );
 
-  return result.rows[0];
+  // rowCount=0 means conflict occurred (duplicate), return null
+  // rowCount=1 means insert succeeded, return row
+  return result.rowCount === 1 ? result.rows[0] : null;
 }
 
 /**

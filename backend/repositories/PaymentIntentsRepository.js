@@ -50,20 +50,18 @@ async function insertPaymentIntent(client, {
  * @param {Object} data - Update data
  * @param {string} [data.stripe_payment_intent_id] - Stripe payment intent ID
  * @param {string} [data.stripe_customer_id] - Stripe customer ID
- * @param {string} [data.stripe_client_secret] - Stripe client_secret
  * @param {string} [data.status] - Updated status
  * @returns {Promise<void>}
  */
-async function updateStripeDetails(client, id, { stripe_payment_intent_id, stripe_customer_id, stripe_client_secret, status }) {
+async function updateStripeDetails(client, id, { stripe_payment_intent_id, stripe_customer_id, status }) {
   await client.query(
     `UPDATE payment_intents
      SET stripe_payment_intent_id = COALESCE($1, stripe_payment_intent_id),
          stripe_customer_id = COALESCE($2, stripe_customer_id),
-         stripe_client_secret = COALESCE($3, stripe_client_secret),
-         status = COALESCE($4, status),
+         status = COALESCE($3, status),
          updated_at = NOW()
-     WHERE id = $5`,
-    [stripe_payment_intent_id, stripe_customer_id, stripe_client_secret, status, id]
+     WHERE id = $4`,
+    [stripe_payment_intent_id, stripe_customer_id, status, id]
   );
 }
 
@@ -76,7 +74,7 @@ async function updateStripeDetails(client, id, { stripe_payment_intent_id, strip
  */
 async function findByIdempotencyKey(pool, idempotency_key) {
   const result = await pool.query(
-    `SELECT id, idempotency_key, contest_instance_id, user_id, amount_cents, currency, status, stripe_payment_intent_id, stripe_customer_id, stripe_client_secret, created_at, updated_at
+    `SELECT id, idempotency_key, contest_instance_id, user_id, amount_cents, currency, status, stripe_payment_intent_id, stripe_customer_id, created_at, updated_at
      FROM payment_intents
      WHERE idempotency_key = $1`,
     [idempotency_key]
@@ -94,7 +92,7 @@ async function findByIdempotencyKey(pool, idempotency_key) {
  */
 async function findByStripePaymentIntentId(pool, stripe_payment_intent_id) {
   const result = await pool.query(
-    `SELECT id, idempotency_key, contest_instance_id, user_id, amount_cents, currency, status, stripe_payment_intent_id, stripe_customer_id, stripe_client_secret, created_at, updated_at
+    `SELECT id, idempotency_key, contest_instance_id, user_id, amount_cents, currency, status, stripe_payment_intent_id, stripe_customer_id, created_at, updated_at
      FROM payment_intents
      WHERE stripe_payment_intent_id = $1`,
     [stripe_payment_intent_id]
