@@ -400,13 +400,41 @@ All mutating operations must be idempotent. Duplicate external events must be sa
 **Impact**:
 - New iteration order: 01 → 02 → 03 → 04 → 05 (Payout) → 06 (Runbooks)
 - Iteration 05 includes: PayoutOrchestrationService, PayoutExecutionService, PayoutJobService, StripePayoutAdapter
-- Iteration 05 includes: payouts and payout_jobs tables, idempotency key logic, ledger integration
+- Iteration 05 includes: payout_transfers and payout_jobs tables, idempotency key logic, ledger integration
 - Iteration 06 runbooks now test payout failure recovery
 - Iteration 06 Founder Absence Simulation includes 14-day end-to-end test with automatic payout
 - 30-Day Survivability gate: automatic payout must be operational before claim is valid
 
 **Owner**: Architecture Team
 **Status**: Active (blocking defect if violated)
+
+---
+
+### Decision: Deterministic Idempotency Key Generation for Payout Transfers
+
+**Date**: 2026-02-16
+**Iteration**: 05 - Automatic Payout Execution
+**Context**: Payout transfers must be idempotent to prevent duplicate payouts on retry. Idempotency keys must be deterministic so that replaying the same settlement produces identical Stripe transfer IDs. Random key generation defeats determinism and creates retry fragility.
+**Decision**: Idempotency keys for payout transfers are derived deterministically from stable composites (e.g., `payout_transfer_id`). Keys are NOT randomly generated. Same transfer always uses the same idempotency key across retry attempts.
+**Rationale**:
+- Deterministic keys enable replay safety: same settlement always produces same Stripe transfers
+- Random keys create unpredictability: re-running payout produces different transfer IDs; can't verify idempotency
+- Stripe idempotency works correctly only with stable keys: same key always returns same transfer_id
+- Retry safety requires key stability: on timeout, retry uses same key; Stripe returns cached transfer
+- Enables operational determinism: auditors can verify payout amounts without uncertainty
+**Alternatives Rejected**:
+  - Random UUID per attempt: Non-deterministic; breaks replay safety; can't verify idempotency
+  - Client-provided keys: Adds complexity; clients may not provide; still need stable fallback
+  - Per-settlement global counter: Over-engineered; doesn't provide clear mapping to individual transfers
+**Impact**:
+- `payout_transfers.idempotency_key` is derived deterministically from `payout_transfer_id`
+- Service layer generates key at transfer creation, stored in `payout_transfers.idempotency_key` (UNIQUE constraint)
+- All retry attempts use the same key (no new key generation on retry)
+- Stripe deduplication ensures only one transfer per idempotency key
+- Unit tests verify: same transfer → same idempotency key → same Stripe transfer ID
+- Ledger entries reference `idempotency_key` for audit trail traceability
+**Owner**: Payout Team, Architecture Team
+**Status**: Active (architectural invariant for payout transfers)
 
 ---
 

@@ -61,21 +61,20 @@ The payment system must:
 ## SOLID Enforcement
 
 ### Single Responsibility Boundaries
-- **paymentService**: Payment collection, idempotency, intent creation (no webhook handling, no ledger writes)
-- **webhookHandler**: Receive events, validate signatures, store raw events (no business logic)
-- **paymentProcessor**: Apply validated events to ledger (no Stripe API calls)
-- **ledgerRepository**: Store and retrieve ledger entries (append-only, no mutations)
-- **payoutService**: Execute manual payouts, track disbursements (future iteration may automate)
+- **PaymentIntentService**: Payment intent creation, idempotency, Stripe API calls (no webhook handling, no ledger writes)
+- **StripeWebhookService**: Receive webhook events, validate signatures, store raw stripe_events, route by event type, process payment_intent.succeeded events only
+- **LedgerRepository**: Store and retrieve ledger entries (append-only, no mutations)
+- **PaymentIntentsRepository**: Manage payment_intents table state
+- **StripeEventsRepository**: Manage stripe_events table state (idempotent via ON CONFLICT DO NOTHING)
 
-**Document these boundaries** in `/backend/services/paymentService/CLAUDE.md` and `/backend/services/webhookHandler/CLAUDE.md`
+**Document these boundaries** in `/backend/services/PaymentIntentService/CLAUDE.md` and `/backend/services/StripeWebhookService/CLAUDE.md` if they exist
 
 ### Explicit Interfaces
-- `paymentService.createIntent(contestId, userId, amount)` → `{ intentId, clientSecret, status }`
-- `paymentService.validateIdempotencyKey(key)` → `{ isNew: bool, existingIntentId?: string }`
-- `webhookHandler.handleEvent(rawEvent)` → `{ processed: bool, error?: string }`
-- `paymentProcessor.applyEvent(webhookEvent, ledgerId)` → `{ success: bool, ledgerEntry: {} }`
-- `ledgerRepository.record(entry)` → stores immutable entry; no edits
-- `payoutService.initiateManualPayout(ledgerIds)` → `{ payoutId, ledgerIds, status }`
+- `PaymentIntentService.createPaymentIntent(pool, contestInstanceId, userId, amountCents, idempotencyKey)` → `{ payment_intent_id, client_secret, status }`
+- `StripeWebhookService.handleStripeEvent(rawBody, stripeSignature, pool)` → `{ status: 'processed', stripe_event_id }`
+- `LedgerRepository.insertLedgerEntry(client, entry)` → stores immutable entry; no edits
+- `PaymentIntentsRepository.findByIdempotencyKey(pool, key)` → `{ id, status, ... }` or null (for deduplication)
+- `StripeEventsRepository.insertStripeEvent(client, event)` → `{ id, stripe_event_id, ... }` or null if duplicate (ON CONFLICT DO NOTHING)
 
 ### No Hidden Coupling
 - Stripe API calls happen only in paymentService
@@ -85,37 +84,38 @@ The payment system must:
 
 ### Dependency Direction
 ```
-routes → paymentController → paymentService → Stripe API
-                           → ledgerRepository
-       → webhookController → webhookHandler
-                           → paymentProcessor → ledgerRepository
-       → payoutController → payoutService → ledgerRepository
+routes → paymentController → PaymentIntentService → PaymentIntentsRepository → database
+                                                  → Stripe API
+       → webhookController → StripeWebhookService → StripeEventsRepository → database
+                                                  → PaymentIntentsRepository → database
+                                                  → LedgerRepository → database
 ```
-No circular dependencies; no service calls its caller.
+No circular dependencies; no service calls its caller. All database access goes through repositories.
 
 ### Idempotency Invariants
 
 All state-mutating operations must be idempotent. Duplicate external events must be safe.
 
-- **All state-mutating POST endpoints require idempotency keys**: Idempotency keys are provided by the client (or generated and stored). Same key + same request = same response, always.
-  - Example: `POST /api/payments/create-intent` requires `idempotencyKey` header or request body field
-  - Idempotency key is validated and stored before any state change
-  - Duplicate request with same key returns cached result (no new charge, no new ledger entry)
+- **All state-mutating POST endpoints require idempotency keys**: Idempotency keys are provided by the client. Same key + same request = same response, always.
+  - Example: `POST /api/payments/create-intent` requires `idempotencyKey` header
+  - Idempotency key is validated via `PaymentIntentsRepository.findByIdempotencyKey()` before any state change
+  - Duplicate request with same key returns cached result (no new Stripe call, no new ledger entry)
+  - Database UNIQUE constraint on `payment_intents.idempotency_key` enforces at DB level
 
-- **All Stripe webhook event IDs must be stored before processing**: Raw webhook event is persisted in `payment_events` table with `stripe_event_id` before any processing.
+- **All Stripe webhook event IDs must be stored before processing**: Raw webhook event is persisted in `stripe_events` table with `stripe_event_id` before any business logic runs.
+  - `stripe_events` INSERT happens inside transaction at start of `handleStripeEvent()`
   - If processing crashes mid-execution, event is already stored
-  - On recovery, check if `stripe_event_id` has been processed; if yes, skip processing
+  - On recovery, `insertStripeEvent()` uses ON CONFLICT DO NOTHING; duplicate stripe_event_id returns null (idempotent)
 
-- **Duplicate Stripe events must not create duplicate ledger entries**: Idempotency key on ledger prevents double-counting.
-  - Same `stripe_event_id` can be processed multiple times (Stripe retries); only one ledger entry is created
-  - Retry loop checks `payment_events` table for `stripe_event_id`; if found, skip processing
+- **Duplicate Stripe events must not create duplicate ledger entries**: Stripe webhook retry handling.
+  - Same `stripe_event_id` can arrive multiple times (Stripe retries for 3 days)
+  - `StripeWebhookService.handleStripeEvent()` detects duplicate and commits idempotently (returns success)
+  - `LedgerRepository.insertLedgerEntry()` enforces UNIQUE on `idempotency_key`; duplicate ledger inserts fail on constraint, caught and treated as idempotent success
 
-- **Payout triggers must verify payout not already initiated**: Before initiating a Stripe payout, check that payout has not already been requested.
-  - Query `payout_records` for the ledger entry; if `status != NULL`, skip (already initiated)
-  - Prevents double-payout from duplicate operator clicks or retry logic
-
-- **Idempotency must be enforced at service layer, not controller layer**: Service methods are responsible for idempotency logic. Controllers call services; services ensure idempotency.
-  - Example: `paymentService.createIntent(contestId, userId, amount, idempotencyKey)` is responsible for idempotency, not the controller
+- **Idempotency enforced at multiple levels**: Service layer + database constraints.
+  - Service layer: `PaymentIntentService.createPaymentIntent()` checks for existing idempotency key before Stripe call
+  - Database: UNIQUE constraints on `payment_intents.idempotency_key` and `ledger.idempotency_key`
+  - Controllers call services; services ensure idempotency
 
 **Stripe Webhook Retry Policy**: Retry policy for Stripe webhooks follows Stripe's native retry behavior. Stripe retries failed webhooks for 3 days with exponential backoff. Our system must handle:
   - **On successful processing**: Store event, process, update status
@@ -127,63 +127,45 @@ All state-mutating operations must be idempotent. Duplicate external events must
 
 ## Data Model Impact
 
-### Schema Changes Required (Conceptual; No Implementation)
+### Implemented Schema (Iteration 03)
 
-#### payments table
+#### payment_intents table
 ```
-id, contest_id, user_id, amount_cents, currency,
-stripe_intent_id, status, idempotency_key,
-created_at, updated_at
+id (UUID), contest_instance_id (UUID), user_id (UUID),
+amount_cents (INTEGER), currency (TEXT),
+stripe_payment_intent_id (TEXT), stripe_customer_id (TEXT),
+idempotency_key (TEXT, UNIQUE), status (TEXT),
+stripe_client_secret (TEXT), created_at, updated_at
 ```
 - `idempotency_key` ensures duplicate requests return same intent
-- `status` is: PENDING, SUCCEEDED, FAILED, REQUIRES_ACTION
+- `status` is: REQUIRES_CONFIRMATION, PROCESSING, SUCCEEDED, REQUIRES_ACTION, CANCELED
 - Immutable after creation (no edits; only status updates)
+- `stripe_client_secret` stored for idempotent return to frontend
 
-#### payment_events table
+#### stripe_events table
 ```
-id, payment_id, event_type, stripe_event_id, stripe_event_json,
-signature_valid, processed_at, error_json, created_at
+id (UUID), stripe_event_id (TEXT, UNIQUE), event_type (TEXT),
+raw_payload_json (JSONB), processed_at (TIMESTAMP),
+status (TEXT), created_at
 ```
 - Append-only log of all Stripe webhook events
-- `signature_valid` documents whether event passed cryptographic check
-- `error_json` captures any processing errors
-- Idempotent processing: same stripe_event_id never processes twice
+- `status`: RECEIVED, PROCESSED
+- `stripe_event_id` uniqueness prevents duplicate webhook processing
+- All events stored before processing (audit trail)
 
-#### payout_records table
+#### ledger table
 ```
-id, payout_request_id, ledger_entry_id, user_id, amount_cents,
-stripe_payout_id, status, initiated_by (operator), initiated_at,
-completed_at, error_json, created_at
+id (UUID), contest_instance_id (UUID), user_id (UUID),
+entry_type (TEXT), direction (TEXT: CREDIT/DEBIT),
+amount_cents (INTEGER), currency (TEXT),
+reference_type (TEXT), reference_id (TEXT),
+stripe_event_id (TEXT), idempotency_key (TEXT, UNIQUE),
+created_at (TIMESTAMP), recorded_at (TIMESTAMP)
 ```
-- Manual payout workflow: operator selects ledger entries → initiates payout
-- `stripe_payout_id` links to Stripe payout object
-- `status` is: PENDING, IN_PROGRESS, COMPLETED, FAILED
-- Future automation will populate this table from scheduled job
-
-#### ledger_entries table
-```
-id, contest_id, user_id, entry_fee_cents, currency,
-transaction_type, related_table, related_id,
-balance_cents, status,
-created_at, recorded_at
-```
-- Immutable financial record
-- `transaction_type`: ENTRY_FEE_COLLECTED, REFUND, PAYOUT_COMPLETED, CHARGEBACK
-- `related_table` + `related_id`: links to payment_id, payout_record_id, etc.
-- `balance_cents`: running balance for reconciliation
+- Immutable financial record (append-only)
+- `entry_type`: ENTRY_FEE, REFUND, CHARGEBACK (PAYOUT_* types reserved for Iteration 05)
+- `stripe_event_id` + `idempotency_key` ensure duplicate webhook events create one entry only
 - Single source of truth for financial state
-
-#### reconciliation_reports table (Required)
-```
-id, generated_at, total_collected_cents, total_ledger_cents,
-discrepancy_cents, status, stripe_dashboard_total_cents,
-report_json, created_at
-```
-- **Scheduled reconciliation job**: Compares Stripe dashboard totals to ledger_entries
-- Runs daily; flags discrepancies; writes reconciliation_report entry
-- `status`: PASSED, DISCREPANCY_DETECTED, ERROR
-- `report_json`: Full reconciliation details including variance explanation
-- Mandatory before Iteration 04 Contract Freeze
 
 ### Critical Constraints
 - All tables are append-only (no edits after creation)

@@ -213,10 +213,17 @@ Each iteration is a complete, independent closure before the next begins.
 
 ### Automatic Payout Dependencies
 - Automatic Payout (Iteration 05) cannot begin until:
-  - Contract Freeze (Iteration 04) is complete
-  - All payment endpoints are finalized (Iteration 04)
+  - Stripe integration complete (Iteration 03)
+  - Contract Freeze stable (Iteration 04)
+  - Ledger append-only guarantees in place (Iteration 03)
   - Settlement strategy is complete (Iteration 01-02)
-  - Payment ledger is auditable and append-only (Iteration 03)
+
+- Automatic Payout (Iteration 05) does NOT depend on:
+  - External API changes or upgrades
+  - Changes to contest configuration or scoring rules
+  - Changes to payment collection workflow (Iteration 03 is canonical)
+
+- Iteration 05 implementation is self-contained: PayoutOrchestrationService, PayoutExecutionService, PayoutJobService, StripePayoutAdapter
 
 - Runbooks (Iteration 06) cannot close until:
   - Automatic Payout (Iteration 05) is complete and verified operational
