@@ -1,4 +1,4 @@
-# Iteration 05 – Operational + Technical Runbooks
+# Iteration 06 – Operational + Technical Runbooks + Founder Absence Simulation
 
 ## Objective
 
@@ -81,6 +81,11 @@ Runbooks are self-contained; no runbook depends on another.
 - Do NOT create custom `operational_alerts` table; use hosted alerting from your infrastructure provider
 - Alerting rules are configured via provider (not database); changes do not require migrations
 - This respects the Infrastructure Tooling Constraints: no custom implementations of solved infrastructure problems
+
+### Automatic Payout Runbooks Required
+- Iteration 05 (Automatic Payout) must be complete before this iteration starts
+- Runbooks now include payout failure modes (transfer failure, partial batch, Stripe outage, etc.)
+- Founder Absence Simulation must test end-to-end payout execution without intervention
 
 ---
 
@@ -184,7 +189,7 @@ Runbooks are self-contained; no runbook depends on another.
 
 ### Environment Promotion Runbook
 
-**Prerequisite**: All iterations (01-04) are complete. Staging deployment is tested and stable.
+**Prerequisite**: All iterations (01-05, including Automatic Payout) are complete. Staging deployment is tested and stable.
 
 **Promotion Checklist** (Execute in order; stop on any failure):
 
@@ -365,7 +370,7 @@ Runbooks are self-contained; no runbook depends on another.
 
 ---
 
-## Payment Failure Modes (New to Iteration 05)
+## Payment and Payout Failure Modes (New to Iteration 06)
 
 ### Payment-Related Runbooks
 - Webhook signature validation failure
@@ -373,23 +378,38 @@ Runbooks are self-contained; no runbook depends on another.
 - Payment intent orphaned (created but no webhook)
 - Refund request from user
 - Chargeback received from Stripe
-- Manual payout fails
+
+### Payout-Related Runbooks (from Iteration 05)
+- Stripe transfer failure (account suspended, invalid amount)
+- Partial batch execution (some payouts succeed, others fail)
+- Webhook delay (settlement complete but payout not triggered)
+- Idempotency conflict (duplicate request with different amount)
+- Stripe API outage
+- Destination account invalid
+- User deleted post-settlement
 
 See iteration 03 (Payment Integration) for payment failure definitions.
+See iteration 05 (Automatic Payout) for payout failure definitions.
 
 ---
 
 ## Program Completion
 
 Once this iteration closes:
-- **Automatic payout automation must be implemented and verified before declaring 30-Day Survivability achieved**
-  - Manual payout workflow completes iteration 03
-  - Automatic payout system (scheduled job, zero operator involvement) must be built and tested in staging post-closure
-  - Only after automatic payout is verified operational can 30-Day Survivability be declared
-- All iterations 01-05 are complete
-- Governance is locked in place
-- Next work is automatic payout implementation, then feature development
-- This program becomes the foundation for all future changes
+- **All iterations 01-06 are complete**
+  - Iteration 01: Masters Config-Driven Golf Engine
+  - Iteration 02: Ingestion Validation + Replay
+  - Iteration 03: Payment Integration + Ledger Governance
+  - Iteration 04: Contract Freeze
+  - Iteration 05: Automatic Payout Execution ✓
+  - Iteration 06: Operational Runbooks + Founder Absence Simulation ✓
+- **30-Day Survivability is achieved**
+  - All automatic systems verified working without manual intervention
+  - Founder Absence Simulation passed: 14-day staging simulation with zero engineering access
+  - All failure modes have documented recovery procedures
+  - Payout execution is automatic and idempotent
+- **Governance is locked in place**
+- **This program becomes the foundation for all future changes**
 
 ---
 

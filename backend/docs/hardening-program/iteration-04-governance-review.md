@@ -30,8 +30,9 @@
 	•	Update DB schema snapshot and commit.  ￼
 
 Decision-log compliance note (do this during doc closure)
-	•	Decision “Explicit Error Codes (No Generic Errors)” is labeled “Iteration 03 - Contract Freeze” but contract freeze is Iteration 04 per the program restructure. Update the iteration number to 04 to remove drift.  ￼  ￼
-	•	Decision “Runbooks Executable By Ops” is labeled “Iteration 04 - Runbooks” but runbooks are Iteration 05 after restructure. Update to Iteration 05 to remove drift.  ￼  ￼
+	•	Decision "Explicit Error Codes (No Generic Errors)" is labeled "Iteration 03 - Contract Freeze" but contract freeze is Iteration 04 per the program restructure. Update the iteration number to 04 to remove drift.  ￼  ￼
+	•	Decision "Runbooks Executable By Ops" is labeled "Iteration 04 - Runbooks" but runbooks are now Iteration 06 after the payout restructure (Iteration 05 = Automatic Payout). Update to Iteration 06 to remove drift.  ￼  ￼
+	•	New Decision: "Automatic Payout Required for Survivability" added to DECISION-LOG for Iteration 05-06 restructure.  ￼
 	•	No decision is violated by Phase 04 as planned. The work is hardening, tests, and documentation. No abstraction creep.  ￼  ￼
 
 (b) Test matrix

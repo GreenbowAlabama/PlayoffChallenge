@@ -378,6 +378,38 @@ All mutating operations must be idempotent. Duplicate external events must be sa
 
 ---
 
+### Decision: Automatic Payout Required for Survivability
+
+**Date**: 2026-02-16
+**Iteration**: Program Restructuring
+**Context**: 30-Day Survivability requires zero manual founder involvement. Payment collection without automatic payout leaves critical infrastructure manual. Runbooks cannot close when payout still requires operator action.
+**Decision**: Iteration 05 = Automatic Payout Execution. Runbooks (Founder Absence Simulation) move to Iteration 06. Automatic payout is mandatory before 30-Day Survivability is declared.
+**Rationale**:
+- Payment collection is infrastructure (Iteration 03 complete)
+- Payout dispersal is infrastructure (Iteration 05 required)
+- Runbooks test autonomy (Iteration 06)
+- Contest lifecycle is meaningless without automatic payout
+- Founder absence cannot be simulated if manual payout is required
+- This separates implementation (05) from testing (06) cleanly
+
+**Alternatives Rejected**:
+  - Payout after runbooks: Runbooks can't test what doesn't exist; payout must come first
+  - Runbooks including payout implementation: Runbooks document procedures; payout is infrastructure code
+  - Manual payout acceptable for survivability: Manual payout requires operator = not autonomous
+
+**Impact**:
+- New iteration order: 01 → 02 → 03 → 04 → 05 (Payout) → 06 (Runbooks)
+- Iteration 05 includes: PayoutOrchestrationService, PayoutExecutionService, PayoutJobService, StripePayoutAdapter
+- Iteration 05 includes: payouts and payout_jobs tables, idempotency key logic, ledger integration
+- Iteration 06 runbooks now test payout failure recovery
+- Iteration 06 Founder Absence Simulation includes 14-day end-to-end test with automatic payout
+- 30-Day Survivability gate: automatic payout must be operational before claim is valid
+
+**Owner**: Architecture Team
+**Status**: Active (blocking defect if violated)
+
+---
+
 ## Superseded Decisions
 
 (None yet. First decisions logged at program start.)

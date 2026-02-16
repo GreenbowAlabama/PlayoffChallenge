@@ -151,10 +151,17 @@ The system is considered **30-day survivable** when ALL of the following are tru
    - SOLID boundaries are enforced and documented
    - Architecture review checklist is complete
 
-5. **Runbooks (Iterations 4+)**
+5. **Runbooks (Iteration 6+)**
    - Operational procedures are step-by-step and role-based
    - No "ask engineering" steps; runbooks must be executable by ops
    - Failure detection and recovery procedures are tested
+   - Payout failure modes documented and tested
+
+6. **Automatic Payout (Iteration 5)**
+   - Payout job scheduled automatically on settlement complete
+   - All transfers executed via Stripe without manual action
+   - Idempotent retry logic prevents duplicate transfers
+   - Stripe transfer IDs and ledger entries persisted and auditable
 
 ---
 
@@ -168,7 +175,7 @@ Payment integration must be deterministic, auditable, and never inject fragility
 - **No Silent Failures**: All payment events are logged; validation failures are explicit
 - **Ledger Immutable**: All financial transactions recorded append-only; no edits or deletions
 - **Contest Independence**: Payment state cannot mutate contest lifecycle (SCHEDULED → LOCKED → LIVE → COMPLETE)
-- **Automatic Payout Required**: Manual payout is allowed during Iteration 03 only. Automatic payout must be implemented and operational before 30-Day Survivability is declared achieved. Survivability requires zero operator payout execution.
+- **Automatic Payout Required**: Manual payout workflow completes Iteration 03 (Payment Integration). Automatic payout execution is Iteration 05 (mandatory before 30-Day Survivability). Survivability requires zero operator payout execution.
 
 ### Constraints
 - Payment logic is isolated in dedicated services (PaymentService, WebhookHandler, LedgerRepository)
@@ -181,7 +188,7 @@ Payment integration must be deterministic, auditable, and never inject fragility
 ### Integration Point
 - Payment integration is Iteration 03, immediately after Ingestion (Iteration 02) and before Contract Freeze (Iteration 04)
 - This ordering ensures: deterministic ingestion → deterministic payments → frozen contracts → operational runbooks
-- Runbooks (Iteration 05) include payment failure modes and recovery procedures
+- Runbooks (Iteration 06) include payment and payout failure modes and recovery procedures
 
 ---
 
@@ -191,7 +198,8 @@ Payment integration must be deterministic, auditable, and never inject fragility
 - **Iteration 02**: Ingestion Validation + Replay + Safeguards
 - **Iteration 03**: Payment Integration + Ledger Governance
 - **Iteration 04**: Backend Contract Freeze + Canonical Documentation
-- **Iteration 05**: Operational + Technical Runbooks
+- **Iteration 05**: Automatic Payout Execution
+- **Iteration 06**: Operational + Technical Runbooks + Founder Absence Simulation
 
 Each iteration is a complete, independent closure before the next begins.
 
@@ -202,6 +210,18 @@ Each iteration is a complete, independent closure before the next begins.
   - Ledger reconciliation interface is specified
   - Error codes are enumerated (PAYMENT_FAILED, DUPLICATE_INTENT, WEBHOOK_INVALID, etc.)
   - Payment state transitions are explicit (no hidden state)
+
+### Automatic Payout Dependencies
+- Automatic Payout (Iteration 05) cannot begin until:
+  - Contract Freeze (Iteration 04) is complete
+  - All payment endpoints are finalized (Iteration 04)
+  - Settlement strategy is complete (Iteration 01-02)
+  - Payment ledger is auditable and append-only (Iteration 03)
+
+- Runbooks (Iteration 06) cannot close until:
+  - Automatic Payout (Iteration 05) is complete and verified operational
+  - Payout failure modes are documented and tested
+  - Founder Absence Simulation passes: 14-day staging test with zero engineering access
 
 ---
 
@@ -216,7 +236,7 @@ These are merge blockers. Any code that violates these invariants must be reject
 - **Payment cannot mutate contest lifecycle**: Payment state is independent; payment failures do not lock, cancel, or settle contests
 - **Completion requires deterministic terminal signal**: COMPLETE state triggered only by explicit provider signal or verified final round completion; never by inferred absence
 - **No silent errors allowed anywhere in stack**: All validation failures, errors, and anomalies must be logged explicitly with full context
-- **Automatic payout required for survivability**: Manual payout is allowed during implementation; automatic payout is mandatory before 30-day survivability is declared
+- **Automatic payout required for survivability**: Iteration 05 implements automatic payout execution. Manual payout exists in iteration 03 only for initial implementation. 30-Day Survivability requires automatic payout (Iteration 05) to be complete and verified operational.
 - **User participation contingent on payment success**: Unpaid users cannot be active participants; participation requires SUCCEEDED payment status
 
 Violations of these invariants are blocking defects.
@@ -241,7 +261,7 @@ Environment isolation is mandatory. No environment-specific logic in code; all e
 
 The following infrastructure tooling decisions are binding and non-negotiable:
 
-- **Stripe for all payment rails**: Stripe must be used for all payment rails (checkout, payment intents, webhooks, transfers, disputes). No custom payment processors or payout rails are permitted.
+- **Stripe for all payment rails**: Stripe must be used for all payment rails (checkout, payment intents, webhooks, transfers, disputes). No custom payment processors or payout rails are permitted. Automatic payout uses `stripe.transfers.create()` with idempotency keys for all payouts.
 - **Production-grade job system required**: All asynchronous background processing must use a production-grade job system (e.g., BullMQ or equivalent). Custom retry engines or in-memory queue implementations are prohibited.
 - **Formal schema validation mandatory**: All request and response validation must use a formal schema validation library (e.g., Zod, Joi, or equivalent). Manual inline validation logic is not permitted.
 - **OpenAPI specification required**: Public API contracts must be generated from a formal OpenAPI specification derived from route schemas. Admin routes must be excluded by default unless explicitly documented.

@@ -406,28 +406,32 @@ All payment operations map to explicit error codes. No generic 500 errors for ex
 ✓ Idempotency keys prevent duplicate charges
 ✓ Stripe events are stored raw before processing
 ✓ Ledger reconciliation is automated and can detect discrepancies
-✓ Payment failure modes are documented in runbook (iteration 05)
+✓ Payment failure modes are documented in runbook (iteration 06)
 ✓ Schema snapshot is updated and committed
 ✓ No undocumented assumptions remain
 
 ---
 
-## Future Work (Iteration 05+ Runbooks)
+## Future Work (Iteration 05 Automatic Payout + Iteration 06 Runbooks)
 
-The following items are documented for manual payout implementation and failure recovery. They are NOT part of Iteration 03 completion and are deferred to Iteration 05 operationalrunbooks:
+The following items are deferred:
+- **Iteration 05**: Automatic payout execution service (PayoutOrchestrationService, PayoutExecutionService, StripePayoutAdapter)
+- **Iteration 06**: Operational runbooks for payment and payout failure recovery
 
-### Manual Payout Tests (Iteration 05)
+The following items are documented for reference:
+
+### Manual Payout Tests (Reference for Iteration 05 Automatic Payout Implementation)
 - Operator selects ledger entries → payout request created
 - Payout request sent to Stripe → stripe_payout_id recorded
 - Stripe webhook confirms payout completion → ledger updated
 - Payout failure is recorded; operator can retry
 
-### Payout Webhook Processing (Iteration 05)
+### Payout Webhook Processing (Iteration 05 Automatic Payout Implementation)
 - Payout completion webhooks update payout_records.status
 - Payout failure webhooks are logged with error details
 - Manual reconciliation process for failed payouts
 
-### Alerting & Observability (Iteration 05)
+### Alerting & Observability (Iteration 06 Runbooks)
 - Webhook timeout detection and operator alert system
 - Payment failure rate metrics and dashboard
 - Ledger reconciliation failure alerts
@@ -455,16 +459,21 @@ The following items are documented for manual payout implementation and failure 
 (Document links to service-specific governance files)
 
 ### Manual Payout Operational Knowledge
-(Document what was learned about manual payout processes for iteration 05 runbooks)
+(Document what was learned about manual payout processes for iteration 05-06)
 
 ---
 
 ## Next Steps
 
 Once this iteration closes:
-- Iteration 04 begins: Backend Contract Freeze + Canonical Documentation
-- All payment endpoints are defined with explicit contracts
-- Payment integration is deterministic and auditable
-- Manual payout workflow is documented and ready for operations
-- Runbooks (iteration 05) will include payment failure recovery
-- No further changes to payment structure without explicit iteration plan
+- **Iteration 04**: Backend Contract Freeze + Canonical Documentation
+  - All payment endpoints are frozen with explicit contracts
+  - Payment integration is deterministic and auditable
+  - No further changes to payment structure without iteration plan
+- **Iteration 05**: Automatic Payout Execution
+  - PayoutOrchestrationService, PayoutExecutionService, StripePayoutAdapter implemented
+  - Automatic payout triggered on settlement completion
+  - Zero manual operator involvement required
+- **Iteration 06**: Operational Runbooks + Founder Absence Simulation
+  - Payment and payout failure modes documented with recovery procedures
+  - Founder Absence Simulation includes 14-day test with automatic payout

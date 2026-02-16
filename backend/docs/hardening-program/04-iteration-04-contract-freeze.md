@@ -258,7 +258,8 @@ This prevents UI chaos from backend changes. Breaking API changes cause mobile a
 ## Next Steps
 
 Once this iteration closes:
-- Iteration 05 begins: Operational + Technical Runbooks
+- **Iteration 05** begins: Automatic Payout Execution (infrastructure)
+- **Iteration 06** begins: Operational + Technical Runbooks + Founder Absence Simulation
 - Contracts are frozen; breaking changes require explicit versioning
 - Frontend and mobile build against generated schema
 - No further changes to contract structure without explicit iteration plan
