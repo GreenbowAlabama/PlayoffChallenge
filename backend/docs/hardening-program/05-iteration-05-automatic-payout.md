@@ -689,3 +689,18 @@ After iteration closure:
 - **Review Stripe error logs**: Identify patterns in failures
 - **Audit ledger quarterly**: Verify no missing payouts
 - **Update payout runbooks**: Based on discovered failure modes
+
+---
+
+## Iteration Boundary Clarification
+
+Iteration 05 scope ends at:
+
+- Schema invariants (05A)
+- Deterministic orchestration (05B)
+- Stripe execution + idempotency guarantees (05C)
+
+Durable queue infrastructure intentionally deferred.
+See: ../infrastructure-enhancements/07-durable-queue-hardening.md
+
+Iteration 05 is COMPLETE.

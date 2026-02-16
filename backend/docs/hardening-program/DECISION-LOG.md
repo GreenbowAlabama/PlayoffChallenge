@@ -483,3 +483,17 @@ This log is owned by the engineering leadership team.
 Questions about decision rationale should be directed to the decision owner.
 
 Proposals to supersede decisions require explicit written justification.
+
+---
+
+## 2026-02-16 — Durable Queue Infrastructure Deferred
+
+Decision:
+Durable queue (BullMQ or equivalent) deferred.
+
+Rationale:
+Current payout engine is idempotent and restart-safe using DB locking.
+Queue infra adds complexity without revenue or scale justification.
+
+Trigger:
+Revisit when scale or multi-node deployment requires distributed job handling.

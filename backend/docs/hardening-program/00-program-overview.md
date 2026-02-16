@@ -292,3 +292,4 @@ When code contradicts this documentation, the documentation is correct and code 
 This program is owned by 67 Enterprises engineering.
 
 Questions about scope, constraints, or iteration closure should be escalated before starting work.
+- Future: Durable Queue Infrastructure (Deferred – see infrastructure-enhancements/07)
