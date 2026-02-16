@@ -156,6 +156,36 @@ function clearRegistry() {
   jobRegistry.clear();
 }
 
+/**
+ * Run payout scheduler.
+ *
+ * Called by background job runner to process pending payout jobs.
+ * Not a recurring job itself - the caller manages scheduling.
+ *
+ * @param {Object} pool - Database connection pool
+ * @returns {Promise<Object>} Scheduler execution result
+ */
+async function runPayoutScheduler(pool) {
+  const PayoutJobService = require('./PayoutJobService');
+
+  try {
+    const result = await PayoutJobService.processPendingJobs(pool, {
+      jobBatchSize: 10,
+      transferBatchSize: 50
+    });
+
+    return {
+      success: true,
+      ...result
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
 module.exports = {
   registerJob,
   updateJobStatus,
@@ -163,5 +193,6 @@ module.exports = {
   getJobStatus,
   getAllJobStatuses,
   getJobHealthSummary,
-  clearRegistry
+  clearRegistry,
+  runPayoutScheduler
 };
