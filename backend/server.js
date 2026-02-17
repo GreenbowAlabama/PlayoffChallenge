@@ -3407,10 +3407,12 @@ async function startPayoutScheduler() {
 
   console.log('Payout scheduler initialized (runs every 5 minutes)');
 
-  // Poll every 5 minutes
-  payoutSchedulerInterval = setInterval(async () => {
-    await runPayoutSchedulerWithTracking();
-  }, PAYOUT_SCHEDULER_INTERVAL_MS);
+  // Poll every 5 minutes (skip in test environment)
+  if (process.env.NODE_ENV !== 'test') {
+    payoutSchedulerInterval = setInterval(async () => {
+      await runPayoutSchedulerWithTracking();
+    }, PAYOUT_SCHEDULER_INTERVAL_MS);
+  }
 }
 
 // Wrapper to track payout job status for diagnostics

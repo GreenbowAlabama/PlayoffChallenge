@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict SDt7oEyKeDUntcG5tzkPJaRa3Ia91umT2yg2FhQf9ER3JKHsBlRRCUSNGdFx2ny
+\restrict zypUlzDiVAusGS7dKcsd6jzvDni1tZYCGbQnjGTuyDDk9v5kIzet4vQxaq8iRnh
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -2730,5 +2730,5 @@ ALTER TABLE ONLY public.tournament_configs
 -- PostgreSQL database dump complete
 --
 
-\unrestrict SDt7oEyKeDUntcG5tzkPJaRa3Ia91umT2yg2FhQf9ER3JKHsBlRRCUSNGdFx2ny
+\unrestrict zypUlzDiVAusGS7dKcsd6jzvDni1tZYCGbQnjGTuyDDk9v5kIzet4vQxaq8iRnh
 

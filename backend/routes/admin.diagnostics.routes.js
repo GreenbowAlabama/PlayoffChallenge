@@ -276,4 +276,86 @@ router.get('/jobs/:jobName', (req, res) => {
   }
 });
 
+// ============================================
+// PAYOUT DIAGNOSTICS
+// ============================================
+
+/**
+ * GET /api/admin/diagnostics/payouts
+ * Returns payout transfer diagnostics and stuck transfer detection.
+ * Read-only endpoint for observability.
+ */
+router.get('/payouts', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const stuckMinutes = parseInt(req.query.stuck_minutes || '30', 10);
+
+    const summaryResult = await pool.query(`
+      SELECT
+        status,
+        COUNT(*) as count
+      FROM payout_transfers
+      GROUP BY status
+    `);
+
+    const stuckResult = await pool.query(`
+      SELECT
+        id,
+        contest_id,
+        payout_job_id,
+        attempt_count,
+        max_attempts,
+        failure_reason,
+        EXTRACT(EPOCH FROM (NOW() - updated_at)) / 60 AS minutes_in_retryable
+      FROM payout_transfers
+      WHERE status = 'retryable'
+        AND NOW() - updated_at > ($1 || ' minutes')::interval
+      ORDER BY updated_at ASC
+      LIMIT 25
+    `, [stuckMinutes]);
+
+    const jobsDiagnostics = jobsService.getJobStatus?.('payout-scheduler') || null;
+
+    res.json({
+      timestamp: new Date().toISOString(),
+      scheduler: jobsDiagnostics,
+      summary: summaryResult.rows.reduce((acc, row) => {
+        acc[row.status] = parseInt(row.count, 10);
+        return acc;
+      }, {}),
+      stuck_transfers: stuckResult.rows,
+      stuck_threshold_minutes: stuckMinutes
+    });
+  } catch (err) {
+    console.error('[Admin Diagnostics] Error fetching payout diagnostics:', err);
+    res.status(500).json({ error: 'diagnostics_failed' });
+  }
+});
+
+/**
+ * POST /api/admin/diagnostics/run-payout-scheduler
+ * Manually trigger payout scheduler.
+ * Idempotent and safe; respects all payout invariants.
+ */
+router.post('/run-payout-scheduler', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const result = await jobsService.runPayoutScheduler(pool);
+
+    res.json({
+      timestamp: new Date().toISOString(),
+      success: result.success,
+      result
+    });
+  } catch (err) {
+    console.error('[Admin Diagnostics] Error running payout scheduler:', err);
+    res.status(500).json({
+      timestamp: new Date().toISOString(),
+      success: false,
+      error: 'scheduler_failed',
+      error_message: err.message
+    });
+  }
+});
+
 module.exports = router;

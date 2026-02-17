@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 // Route modules
 const adminAuthRoutes = require('./routes/adminAuth');
 const adminDiagnosticsRoutes = require('./routes/admin.diagnostics.routes');
+const adminRunbooksRoutes = require('./routes/admin.runbooks.routes');
 const adminTrendsRoutes = require('./routes/admin.trends.routes');
 const adminContestsRoutes = require('./routes/admin.contests.routes');
 const customContestRoutes = require('./routes/customContest.routes');
@@ -49,6 +50,7 @@ app.use('/api/payments', paymentsRoutes);
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin', requireAdmin);
 app.use('/api/admin/diagnostics', adminDiagnosticsRoutes);
+app.use('/api/admin/runbooks', adminRunbooksRoutes);
 app.use('/api/admin/trends', adminTrendsRoutes);
 app.use('/api/admin/contests', adminContestsRoutes);
 app.use('/api/admin/custom-contests/templates', customContestTemplatesRoutes);

@@ -26,6 +26,120 @@ Runbooks must:
 
 ---
 
+## Phase 06A – Operational Control Plane
+
+### Runbook Execution Endpoints
+
+Phase 06A introduces API endpoints for recording runbook execution. **Ops team has no direct database access.** All runbook logging flows through these endpoints.
+
+#### POST /api/admin/runbooks/start
+
+**Purpose**: Initiate a runbook execution record
+
+**Request**:
+```json
+POST /api/admin/runbooks/start
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{
+  "runbook_name": "payout_transfer_stuck_in_retryable",
+  "runbook_version": "1.0.0",
+  "executed_by": "ops-user-123",
+  "system_state_before": {
+    "payout_transfers_stuck": 2,
+    "last_scheduler_run": "2026-02-16T19:30:00Z"
+  }
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "timestamp": "2026-02-16T20:00:00.000Z",
+  "execution_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+```
+
+**Fields**:
+- `runbook_name` (required): Name of runbook being executed
+- `runbook_version` (required): Version of runbook (for audit trail)
+- `executed_by` (required): Ops user/identifier executing runbook
+- `system_state_before` (optional): JSON snapshot of system state before procedure
+
+#### POST /api/admin/runbooks/complete
+
+**Purpose**: Complete a runbook execution record with outcome
+
+**Request**:
+```json
+POST /api/admin/runbooks/complete
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{
+  "execution_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "status": "completed",
+  "result_json": {
+    "transfers_recovered": 2,
+    "scheduler_triggered": true,
+    "next_check_interval": 300
+  },
+  "system_state_after": {
+    "payout_transfers_stuck": 0,
+    "last_scheduler_run": "2026-02-16T20:05:00Z"
+  }
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "timestamp": "2026-02-16T20:05:00.000Z",
+  "success": true
+}
+```
+
+**Fields**:
+- `execution_id` (required): ID returned from `/start` endpoint
+- `status` (required): One of `completed`, `failed`, `partial`
+- `result_json` (optional): JSON result data from runbook execution
+- `error_reason` (optional): Error description if status is `failed`
+- `system_state_after` (optional): JSON snapshot of system state after procedure
+
+**Status Values**:
+- `completed`: Runbook executed successfully, all objectives met
+- `failed`: Runbook execution failed, system may be in inconsistent state, escalation required
+- `partial`: Runbook partially succeeded (e.g., 2 of 3 stuck transfers recovered)
+
+### Audit Trail Progression
+
+**Important**: Status progression happens in a **single row**. No append-only duplicate rows.
+
+1. `POST /start` creates row with status `in_progress`
+2. `POST /complete` updates same row with final status and completion data
+3. Single audit record tracks entire lifecycle: start → end, before → after, success/failure
+
+**Query audit trail**:
+```sql
+SELECT
+  id,
+  runbook_name,
+  executed_by,
+  status,
+  start_time,
+  end_time,
+  duration_seconds,
+  system_state_before,
+  result_json,
+  error_reason,
+  system_state_after
+FROM runbook_executions
+ORDER BY start_time DESC;
+```
+
+---
+
 ## Phase 06A – Runbook Audit Schema
 
 ### Decision: runbook_executions Table Implementation
@@ -49,30 +163,56 @@ This creates an audit trail essential for postmortem analysis.
 **runbook_executions Table**
 ```sql
 CREATE TABLE runbook_executions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  runbook_name TEXT NOT NULL,
-  runbook_version TEXT NOT NULL,
-  executed_by TEXT NOT NULL,
-  executed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  execution_phase TEXT NOT NULL,
-  phase_step INTEGER NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'partial')),
-  start_time TIMESTAMPTZ,
-  end_time TIMESTAMPTZ,
-  duration_seconds INTEGER,
-  result_json JSONB,
-  error_reason TEXT,
-  system_state_before JSONB,
-  system_state_after JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  runbook_name text NOT NULL,
+  runbook_version text NOT NULL,
+  executed_by text NOT NULL,
+  status text NOT NULL,
+  execution_phase text,
+  phase_step integer,
+  start_time timestamp with time zone DEFAULT now() NOT NULL,
+  end_time timestamp with time zone,
+  duration_seconds integer,
+  result_json jsonb,
+  error_reason text,
+  system_state_before jsonb,
+  system_state_after jsonb,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT runbook_executions_duration_seconds_check CHECK ((duration_seconds >= 0)),
+  CONSTRAINT runbook_executions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'in_progress'::text, 'completed'::text, 'failed'::text, 'partial'::text])))
 );
 
-CREATE INDEX idx_runbook_executions_runbook_executed_at
-  ON runbook_executions(runbook_name, executed_at);
+CREATE INDEX idx_runbook_executions_created_at
+  ON runbook_executions(created_at);
+
+CREATE INDEX idx_runbook_executions_runbook_name
+  ON runbook_executions(runbook_name);
 
 CREATE INDEX idx_runbook_executions_status
   ON runbook_executions(status);
 ```
+
+### Scheduler Behavior
+
+**Test Environment**: The payout scheduler is disabled in test environments (`NODE_ENV = 'test'`). This prevents background jobs from interfering with unit tests and integration tests. Manual E2E verification in staging uses real scheduler execution.
+
+**Implementation**: Server.js implements environment check:
+```javascript
+if (process.env.NODE_ENV !== 'test') {
+  // Scheduler runs every 5 minutes in production and staging
+  setInterval(async () => {
+    // Process payout jobs
+  }, 300000);
+}
+```
+
+**Why This Matters**:
+- **Test determinism**: Scheduler silence prevents unexpected state mutations during test execution
+- **Predictable test behavior**: Tests complete when they end, not when background jobs finish
+- **Future contributors**: Explains why scheduler is not mentioned in test documentation
+
+---
 
 ### Constraints (06A)
 - Append-only: No edits to runbook_executions rows after creation
