@@ -21,9 +21,8 @@ struct CreateContestFlowView: View {
                     userId: userId,
                     creatorUsername: authService.currentUser?.username ?? "Unknown",
                     onContestCreated: { contest in
-                        // Store contest for management and leaderboard
+                        // Store contest for management
                         CreatedContestsStore.shared.add(contest)
-                        JoinedContestsStore.shared.markJoined(contest)
                         createdContest = contest
                         showContestDetail = true
                     }

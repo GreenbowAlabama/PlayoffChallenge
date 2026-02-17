@@ -1,5 +1,24 @@
 import Foundation
 
+/// DTO for available contests from /api/contests/available endpoint
+/// Backend handles filtering, capacity logic, sorting, and user_has_entered.
+struct AvailableContestDTO: Codable {
+    let id: UUID
+    let contest_name: String
+    let status: String
+    let entry_count: Int
+    let max_entries: Int?
+    let user_has_entered: Bool
+    let is_platform_owned: Bool?
+    let join_token: String?
+    let lock_time: Date?
+    let created_at: Date?
+    let start_time: Date?
+    let end_time: Date?
+    let entry_fee_cents: Int?
+    let organizer_name: String?
+}
+
 /// Domain model returned by createAndPublish - clean interface for Views
 struct CreatedContest: Equatable {
     let id: UUID
@@ -29,19 +48,126 @@ struct ContestCreationInput {
 /// Wraps APIService.shared and implements protocol contracts.
 final class CustomContestService: CustomContestCreating, CustomContestPublishing {
 
-    private let baseURL: String
+    private let environment: AppEnvironment
 
-    init() {
-        guard let baseURLValue = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
-              !baseURLValue.isEmpty else {
-            fatalError("CustomContestService: API_BASE_URL not configured")
-        }
-        self.baseURL = baseURLValue
+    init(environment: AppEnvironment = .shared) {
+        self.environment = environment
     }
 
-    // For testing with custom base URL
-    init(baseURL: String) {
-        self.baseURL = baseURL
+    // MARK: - Available Contests
+
+    /// Fetches available contests from backend.
+    /// Backend handles all filtering (status=SCHEDULED, not full, user hasn't joined),
+    /// capacity logic, sorting, and user_has_entered flag.
+    /// Client must NOT re-implement any of this logic.
+    func fetchAvailableContests() async throws -> [AvailableContestDTO] {
+        // Retrieve userId from persistence before building request
+        guard let userIdString = UserDefaults.standard.string(forKey: "userId"),
+              let userId = UUID(uuidString: userIdString) else {
+            print("❌ Missing userId before /available call")
+            throw CustomContestError.notAuthenticated
+        }
+
+        let url = environment.baseURL.appendingPathComponent("api/custom-contests/available")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
+
+        print("🔐 userId from defaults:", userIdString)
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CustomContestError.networkError(underlying: "Invalid response")
+        }
+
+        // Log request details
+        print("[fetchAvailableContests] baseURL: \(environment.baseURL.absoluteString)")
+        print("[fetchAvailableContests] full URL: \(url.absoluteString)")
+        print("[fetchAvailableContests] Authorization header: true")
+        print("[fetchAvailableContests] HTTP status: \(httpResponse.statusCode)")
+
+        switch httpResponse.statusCode {
+        case 200:
+            let decoder = JSONDecoder.iso8601Decoder
+
+            do {
+                let rawString = String(data: data, encoding: .utf8) ?? "nil"
+                print("🟡 RAW JSON RESPONSE:")
+                print(rawString)
+
+                let dtos = try decoder.decode([AvailableContestDTO].self, from: data)
+
+                print("🟢 Successfully decoded \(dtos.count) contests")
+
+                return dtos
+
+            } catch {
+                print("🔴 DECODE ERROR:", error)
+
+                let rawString = String(data: data, encoding: .utf8) ?? "nil"
+
+                var debugMessage = "DECODE ERROR:\n\(error.localizedDescription)\n\n"
+
+                if let decodingError = error as? DecodingError {
+                    switch decodingError {
+                    case .typeMismatch(let type, let context):
+                        print("Type mismatch:", type)
+                        print("CodingPath:", context.codingPath)
+                        print("DebugDescription:", context.debugDescription)
+
+                        debugMessage += "TypeMismatch: \(type)\n"
+                        debugMessage += "Path: \(context.codingPath)\n"
+                        debugMessage += "Debug: \(context.debugDescription)\n"
+
+                    case .valueNotFound(let type, let context):
+                        print("Value not found:", type)
+                        print("CodingPath:", context.codingPath)
+                        print("DebugDescription:", context.debugDescription)
+
+                        debugMessage += "ValueNotFound: \(type)\n"
+                        debugMessage += "Path: \(context.codingPath)\n"
+                        debugMessage += "Debug: \(context.debugDescription)\n"
+
+                    case .keyNotFound(let key, let context):
+                        print("Key not found:", key)
+                        print("CodingPath:", context.codingPath)
+                        print("DebugDescription:", context.debugDescription)
+
+                        debugMessage += "KeyNotFound: \(key)\n"
+                        debugMessage += "Path: \(context.codingPath)\n"
+                        debugMessage += "Debug: \(context.debugDescription)\n"
+
+                    case .dataCorrupted(let context):
+                        print("Data corrupted:")
+                        print("CodingPath:", context.codingPath)
+                        print("DebugDescription:", context.debugDescription)
+
+                        debugMessage += "DataCorrupted\n"
+                        debugMessage += "Path: \(context.codingPath)\n"
+                        debugMessage += "Debug: \(context.debugDescription)\n"
+
+                    @unknown default:
+                        print("Unknown decoding error")
+                        debugMessage += "Unknown decoding error\n"
+                    }
+                }
+
+                debugMessage += "\n\nRAW JSON:\n\(rawString)"
+
+                print("🔴 RAW JSON ON FAILURE:")
+                print(rawString)
+
+                throw CustomContestError.decodeFailure(debugMessage)
+            }
+
+        case 401, 403:
+            throw CustomContestError.notAuthorized
+
+        default:
+            throw CustomContestError.serverError(message: "Server returned \(httpResponse.statusCode)")
+        }
     }
 
     // MARK: - High-Level Orchestration
@@ -86,7 +212,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
     }
 
     private func fetchDefaultTemplate(userId: UUID) async throws -> TemplateInfo {
-        let url = URL(string: "\(baseURL)/api/custom-contests/templates")!
+        let url = environment.baseURL.appendingPathComponent("api/custom-contests/templates")
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -129,7 +255,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         userId: UUID,
         lockTime: Date? = nil
     ) async throws -> UUID {
-        let url = URL(string: "\(baseURL)/api/custom-contests")!
+        let url = environment.baseURL.appendingPathComponent("api/custom-contests")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -188,7 +314,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
             throw firstError
         }
 
-        let url = URL(string: "\(baseURL)/api/custom-contests")!
+        let url = environment.baseURL.appendingPathComponent("api/custom-contests")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -262,7 +388,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         contestId: UUID,
         userId: UUID
     ) async throws -> PublishContestResult {
-        let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)/publish")!
+        let url = environment.baseURL.appendingPathComponent("api/custom-contests/\(contestId.uuidString)/publish")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

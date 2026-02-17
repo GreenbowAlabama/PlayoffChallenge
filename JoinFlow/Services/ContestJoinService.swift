@@ -14,14 +14,7 @@ final class ContestJoinService: ContestJoining {
     private let baseURL: String
 
     init(baseURL: String? = nil) {
-        if let baseURL = baseURL {
-            self.baseURL = baseURL
-        } else {
-            guard let url = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String else {
-                fatalError("API_BASE_URL not configured in Info.plist")
-            }
-            self.baseURL = url
-        }
+        self.baseURL = baseURL ?? AppEnvironment.shared.baseURL.absoluteString
     }
 
     func joinContest(contestId: UUID, token: String, userId: UUID) async throws -> ContestJoinResult {
@@ -52,7 +45,19 @@ final class ContestJoinService: ContestJoining {
 
             switch httpResponse.statusCode {
             case 200...299:
-                let decoded: JoinContestAPIResponse? = data.isEmpty ? nil : try? JSONDecoder().decode(JoinContestAPIResponse.self, from: data)
+                var decoded: JoinContestAPIResponse?
+                if !data.isEmpty {
+                    let decoder = JSONDecoder.iso8601Decoder
+                    do {
+                        decoded = try decoder.decode(JoinContestAPIResponse.self, from: data)
+                    } catch {
+                        print("❌ DECODE ERROR - POST /api/custom-contests/\(contestId.uuidString)/join")
+                        print("Error: \(error)")
+                        if let rawJSON = String(data: data, encoding: .utf8) {
+                            print("Raw response: \(rawJSON)")
+                        }
+                    }
+                }
                 return ContestJoinResult(
                     contestId: decoded?.contestId ?? contestId,
                     userId: userId,

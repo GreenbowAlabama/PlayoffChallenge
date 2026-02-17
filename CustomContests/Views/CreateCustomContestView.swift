@@ -122,12 +122,18 @@ struct CreateCustomContestView: View {
             }
 
         case .published:
-            HStack {
-                Spacer()
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                Text("Published!")
-                Spacer()
+            VStack(spacing: 12) {
+                HStack {
+                    Spacer()
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Published!")
+                    Spacer()
+                }
+                Button("Done") {
+                    dismiss()
+                }
+                .padding(.top, 8)
             }
         }
     }

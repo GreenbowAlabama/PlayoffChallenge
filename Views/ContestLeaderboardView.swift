@@ -3,6 +3,7 @@
 //  PlayoffChallenge
 //
 //  Leaderboard view for a specific contest.
+//  Uses contract-driven rendering from LeaderboardResponseContract.
 //
 
 import SwiftUI
@@ -15,15 +16,41 @@ struct ContestLeaderboardView: View {
         authService.currentUser?.username ?? ""
     }
 
-    init(contest: MockContest) {
-        _viewModel = StateObject(wrappedValue: ContestLeaderboardViewModel(contest: contest))
+    init(contestId: UUID) {
+        _viewModel = StateObject(wrappedValue: ContestLeaderboardViewModel(contestId: contestId))
     }
 
     var body: some View {
         Group {
             if viewModel.isLoading {
                 ProgressView("Loading leaderboard...")
-            } else if viewModel.entries.isEmpty {
+            } else if viewModel.isPending {
+                VStack(spacing: 16) {
+                    Image(systemName: "hourglass")
+                        .font(.system(size: 60))
+                        .foregroundColor(.gray)
+
+                    Text("Leaderboard pending")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                }
+            } else if viewModel.hasError {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 60))
+                        .foregroundColor(.red)
+
+                    Text("Error computing leaderboard")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+
+                    if let error = viewModel.errorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            } else if viewModel.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "chart.bar")
                         .font(.system(size: 60))
@@ -34,40 +61,19 @@ struct ContestLeaderboardView: View {
                         .foregroundColor(.secondary)
                 }
             } else {
-                ScrollView {
-                    // Show user's rank if on leaderboard
-                    if let rank = viewModel.currentUserRank {
-                        HStack {
-                            Image(systemName: "person.circle.fill")
-                                .foregroundColor(.blue)
-                            Text("Your rank: #\(rank)")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                        }
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(8)
-                        .padding(.horizontal)
+                DynamicLeaderboardTableView(
+                    columnSchema: viewModel.columnSchema,
+                    rows: viewModel.rows,
+                    isCurrentUserRow: { row in
+                        // Check if this row represents the current user (customizable based on schema)
+                        false
                     }
-
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(viewModel.entries.enumerated()), id: \.element.id) { index, entry in
-                            LeaderboardRowView(
-                                rank: index + 1,
-                                entry: entry,
-                                isCurrentUser: entry.username == currentUsername
-                            )
-                        }
-                    }
-                    .padding(.horizontal)
-                }
+                )
             }
         }
         .navigationTitle("Leaderboard")
         .navigationBarTitleDisplayMode(.large)
         .task {
-            viewModel.configure(currentUsername: currentUsername)
             await viewModel.loadLeaderboard()
         }
         .refreshable {
@@ -76,7 +82,7 @@ struct ContestLeaderboardView: View {
     }
 }
 
-// MARK: - Mock Leaderboard Entry
+// MARK: - Mock Leaderboard Entry (legacy, kept for other views)
 
 struct MockLeaderboardEntry: Identifiable {
     let id: UUID
@@ -96,22 +102,14 @@ struct MockLeaderboardEntry: Identifiable {
     ]
 }
 
-// MARK: - Leaderboard Row
+// MARK: - Leaderboard Row (legacy, kept for other views)
 
 struct LeaderboardRowView: View {
-    let rank: Int
     let entry: MockLeaderboardEntry
     var isCurrentUser: Bool = false
 
     var body: some View {
         HStack(spacing: 16) {
-            // Rank
-            Text("\(rank)")
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(rankColor)
-                .frame(width: 40)
-
             // User Info
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.username)
@@ -143,30 +141,20 @@ struct LeaderboardRowView: View {
         .padding(.horizontal, 16)
         .background(isCurrentUser ? Color.blue.opacity(0.08) : Color(.systemBackground))
     }
-
-    private var rankColor: Color {
-        if isCurrentUser { return .blue }
-        switch rank {
-        case 1: return .yellow
-        case 2: return .gray
-        case 3: return .orange
-        default: return .primary
-        }
-    }
 }
 
 #Preview("Leaderboard") {
     NavigationStack {
-        ContestLeaderboardView(contest: MockContest.samples[0])
+        ContestLeaderboardView(contestId: UUID())
             .environmentObject(AuthService())
     }
 }
 
 #Preview("Leaderboard Row") {
     VStack(spacing: 0) {
-        LeaderboardRowView(rank: 1, entry: MockLeaderboardEntry.samples[0])
-        LeaderboardRowView(rank: 2, entry: MockLeaderboardEntry.samples[1], isCurrentUser: true)
-        LeaderboardRowView(rank: 3, entry: MockLeaderboardEntry.samples[2])
+        LeaderboardRowView(entry: MockLeaderboardEntry.samples[0])
+        LeaderboardRowView(entry: MockLeaderboardEntry.samples[1], isCurrentUser: true)
+        LeaderboardRowView(entry: MockLeaderboardEntry.samples[2])
     }
     .padding()
 }

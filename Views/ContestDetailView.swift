@@ -281,7 +281,7 @@ struct ContestDetailView: View {
         .navigationTitle("Contest")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $navigateToLeaderboard) {
-            ContestLeaderboardView(contest: viewModel.contest)
+            ContestLeaderboardView(contestId: viewModel.contestId)
         }
         .navigationDestination(isPresented: $navigateToLineup) {
             // Navigate to lineup view (using existing LineupView or similar)

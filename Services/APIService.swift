@@ -63,15 +63,7 @@ class APIService {
     private let clientVersion = "1.40.0"
 
     private init() {
-        guard let baseURLValue = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") else {
-            fatalError("APIService: API_BASE_URL is not configured in Info.plist. Add API_BASE_URL to your Info.plist with the appropriate server URL for this build configuration.")
-        }
-
-        guard let baseURLString = baseURLValue as? String, !baseURLString.isEmpty else {
-            fatalError("APIService: API_BASE_URL in Info.plist is not a valid string or is empty. Expected a URL string like 'https://example.com'.")
-        }
-
-        self.baseURL = baseURLString
+        self.baseURL = AppEnvironment.shared.baseURL.absoluteString
         print("APIService: Using baseURL: \(self.baseURL)")
     }
 
@@ -139,13 +131,24 @@ class APIService {
             throw APIError.serverError("Server returned \(httpResponse.statusCode) for GET \(path)")
         }
 
+        // 🔎 RAW RESPONSE LOGGING (TEMPORARY DIAGNOSTIC)
+        if let raw = String(data: data, encoding: .utf8) {
+            print("🔎 RAW GET \(path) RESPONSE:")
+            print(raw)
+        } else {
+            print("🔎 RAW RESPONSE COULD NOT BE STRINGIFIED")
+        }
+
         do {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            let decoder = JSONDecoder.iso8601Decoder
             let decodedObject = try decoder.decode(T.self, from: data)
             return decodedObject
         } catch {
-            print("APIService ERROR: Decode failed for GET \(path): \(error)")
+            print("❌ DECODE ERROR - GET \(path)")
+            print("Error: \(error)")
+            if let rawJSON = String(data: data, encoding: .utf8) {
+                print("Raw response: \(rawJSON)")
+            }
             throw APIError.decodingError
         }
     }

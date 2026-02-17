@@ -15,15 +15,7 @@ final class JoinLinkService: JoinLinkResolving {
     private let currentEnvironment: String
 
     init(baseURL: String? = nil, environment: String? = nil) {
-        if let baseURL = baseURL {
-            self.baseURL = baseURL
-        } else {
-            guard let url = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String else {
-                fatalError("API_BASE_URL not configured in Info.plist")
-            }
-            self.baseURL = url
-        }
-
+        self.baseURL = baseURL ?? AppEnvironment.shared.baseURL.absoluteString
         self.currentEnvironment = environment ?? (self.baseURL.contains("staging") ? "staging" : "production")
     }
 
@@ -45,8 +37,18 @@ final class JoinLinkService: JoinLinkResolving {
 
             switch httpResponse.statusCode {
             case 200:
-                let decoded = try JSONDecoder().decode(JoinLinkAPIResponse.self, from: data)
-                return try mapToResolvedJoinLink(decoded, token: token)
+                do {
+                    let decoder = JSONDecoder.iso8601Decoder
+                    let decoded = try decoder.decode(JoinLinkAPIResponse.self, from: data)
+                    return try mapToResolvedJoinLink(decoded, token: token)
+                } catch {
+                    print("❌ DECODE ERROR - GET /api/custom-contests/join/\(token)")
+                    print("Error: \(error)")
+                    if let rawJSON = String(data: data, encoding: .utf8) {
+                        print("Raw response: \(rawJSON)")
+                    }
+                    throw error
+                }
 
             case 404:
                 throw JoinLinkError.contestNotFound
@@ -175,8 +177,8 @@ private struct JoinLinkAPIResponse: Codable {
         let currentEntries: Int? // Current participant count
         let payoutStructure: PayoutStructure?
         let status: String
-        let startTime: String?
-        let lockTime: String?
+        let startTime: Date?
+        let lockTime: Date?
         let computedJoinState: String?
         let creatorName: String?
 

@@ -8,18 +8,35 @@
 import SwiftUI
 
 struct AvailableContestsView: View {
-    @ObservedObject var viewModel: AvailableContestsViewModel
+    @EnvironmentObject var authService: AuthService
+    @StateObject private var viewModel = AvailableContestsViewModel()
     @State private var selectedContest: MockContest?
 
     var body: some View {
         List {
             Section {
-                ForEach(viewModel.contests) { contest in
-                    ContestRowView(contest: contest)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            selectedContest = contest
+                if let errorMessage = viewModel.errorMessage {
+                    ScrollView {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else if viewModel.contests.isEmpty {
+                    Text("No contests available")
+                        .foregroundColor(.secondary)
+                        .onAppear {
+                            print("[AvailableContestsView] No contests to display. Loading: \(viewModel.isLoading), Error: \(viewModel.errorMessage ?? "none")")
                         }
+                } else {
+                    ForEach(viewModel.contests) { contest in
+                        ContestRowView(contest: contest)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedContest = contest
+                            }
+                    }
                 }
             } header: {
                 Text("Open Contests")
@@ -36,8 +53,10 @@ struct AvailableContestsView: View {
         .refreshable {
             await viewModel.refresh()
         }
-        .task {
-            await viewModel.loadContests()
+        .task(id: authService.isAuthenticated) {
+            if authService.isAuthenticated {
+                await viewModel.loadContests()
+            }
         }
     }
 }
@@ -102,6 +121,6 @@ struct ContestRowView: View {
 
 #Preview {
     NavigationStack {
-        AvailableContestsView(viewModel: AvailableContestsViewModel())
+        AvailableContestsView()
     }
 }

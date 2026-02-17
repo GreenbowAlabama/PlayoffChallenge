@@ -120,11 +120,13 @@ struct StatusBadge: View {
     }
 
     private var statusColor: Color {
-        switch status.lowercased() {
-        case "open": return .green
-        case "locked": return .orange
-        case "completed": return .blue
-        case "draft": return .gray
+        switch status {
+        case "SCHEDULED": return .green
+        case "LOCKED": return .orange
+        case "COMPLETE": return .blue
+        case "LIVE": return .red
+        case "CANCELLED": return .gray
+        case "ERROR": return .red
         default: return .secondary
         }
     }

@@ -14,10 +14,12 @@ enum CustomContestError: Error, Equatable, LocalizedError {
     case notInDraftState
     case contestNotFound
     case notAuthorized
+    case notAuthenticated
 
     // Network errors
     case networkError(underlying: String)
     case serverError(message: String)
+    case decodeFailure(String)
 
     var errorDescription: String? {
         switch self {
@@ -39,10 +41,14 @@ enum CustomContestError: Error, Equatable, LocalizedError {
             return "Contest not found."
         case .notAuthorized:
             return "You are not authorized to modify this contest."
+        case .notAuthenticated:
+            return "You must be logged in to view available contests."
         case .networkError(let underlying):
             return "Network error: \(underlying)"
         case .serverError(let message):
             return "Server error: \(message)"
+        case .decodeFailure(let message):
+            return "Decode Failure:\n\(message)"
         }
     }
 
@@ -60,10 +66,14 @@ enum CustomContestError: Error, Equatable, LocalizedError {
             return "Not Found"
         case .notAuthorized:
             return "Not Authorized"
+        case .notAuthenticated:
+            return "Not Authenticated"
         case .networkError:
             return "Network Error"
         case .serverError:
             return "Server Error"
+        case .decodeFailure:
+            return "Decode Error"
         }
     }
 }

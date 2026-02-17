@@ -591,3 +591,174 @@ struct AnyCodable: Codable {
         }
     }
 }
+
+// MARK: - Contract DTOs (Iteration 02 — iOS Contract Compliance)
+
+/// Behavior flags driven by backend contest state.
+/// These are the source of truth for UI gating.
+struct ContestActions: Codable {
+    let can_join: Bool
+    let can_edit_entry: Bool
+    let is_live: Bool
+    let is_closed: Bool
+    let is_scoring: Bool
+    let is_scored: Bool
+    let is_read_only: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case can_join
+        case can_edit_entry
+        case is_live
+        case is_closed
+        case is_scoring
+        case is_scored
+        case is_read_only
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        can_join = try c.decode(Bool.self, forKey: .can_join)
+        can_edit_entry = try c.decode(Bool.self, forKey: .can_edit_entry)
+        is_live = try c.decode(Bool.self, forKey: .is_live)
+        is_closed = try c.decode(Bool.self, forKey: .is_closed)
+        is_scoring = try c.decode(Bool.self, forKey: .is_scoring)
+        is_scored = try c.decode(Bool.self, forKey: .is_scored)
+        is_read_only = try c.decode(Bool.self, forKey: .is_read_only)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(can_join, forKey: .can_join)
+        try c.encode(can_edit_entry, forKey: .can_edit_entry)
+        try c.encode(is_live, forKey: .is_live)
+        try c.encode(is_closed, forKey: .is_closed)
+        try c.encode(is_scoring, forKey: .is_scoring)
+        try c.encode(is_scored, forKey: .is_scored)
+        try c.encode(is_read_only, forKey: .is_read_only)
+    }
+}
+
+/// Leaderboard computation state (not UI state).
+enum LeaderboardState: String, Decodable {
+    case pending
+    case computed
+    case error
+}
+
+/// Schema definition for dynamic leaderboard columns.
+struct LeaderboardColumnSchema: Decodable {
+    let key: String
+    let label: String
+    let type: String?
+    let format: String?
+
+    enum CodingKeys: String, CodingKey {
+        case key, label, type, format
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(String.self, forKey: .key)
+        label = try c.decode(String.self, forKey: .label)
+        type = try c.decodeIfPresent(String.self, forKey: .type)
+        format = try c.decodeIfPresent(String.self, forKey: .format)
+    }
+}
+
+/// Dynamic leaderboard row (contest-type-agnostic).
+typealias LeaderboardRow = [String: AnyCodable]
+
+/// Backend leaderboard contract response.
+struct LeaderboardResponseContract: Decodable {
+    let contest_id: String
+    let contest_type: String
+    let leaderboard_state: LeaderboardState
+    let generated_at: String?
+    let column_schema: [LeaderboardColumnSchema]
+    let rows: [LeaderboardRow]
+
+    enum CodingKeys: String, CodingKey {
+        case contest_id
+        case contest_type
+        case leaderboard_state
+        case generated_at
+        case column_schema
+        case rows
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        contest_id = try c.decode(String.self, forKey: .contest_id)
+        contest_type = try c.decode(String.self, forKey: .contest_type)
+        leaderboard_state = try c.decode(LeaderboardState.self, forKey: .leaderboard_state)
+        generated_at = try c.decodeIfPresent(String.self, forKey: .generated_at)
+        column_schema = try c.decode([LeaderboardColumnSchema].self, forKey: .column_schema)
+        rows = try c.decode([LeaderboardRow].self, forKey: .rows)
+    }
+}
+
+/// Payout tier in contest detail contract.
+struct PayoutTierContract: Decodable {
+    let rank_min: Int
+    let rank_max: Int
+    let amount: Decimal
+
+    enum CodingKeys: String, CodingKey {
+        case rank_min
+        case rank_max
+        case amount
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rank_min = try c.decode(Int.self, forKey: .rank_min)
+        rank_max = try c.decode(Int.self, forKey: .rank_max)
+
+        // Handle amount as string or number — fail loudly on malformed value
+        if let s = try? c.decode(String.self, forKey: .amount) {
+            guard let parsed = Decimal(string: s) else {
+                throw DecodingError.dataCorruptedError(
+                    in: c,
+                    debugDescription: "Invalid decimal string for amount: \(s)"
+                )
+            }
+            amount = parsed
+        } else {
+            let d = try c.decode(Double.self, forKey: .amount)
+            amount = Decimal(d)
+        }
+    }
+}
+
+/// Roster configuration (contest-type-agnostic).
+typealias RosterConfigContract = [String: AnyCodable]
+
+/// Contest detail contract response (source of truth for contest state).
+struct ContestDetailResponseContract: Decodable {
+    let contest_id: String
+    let type: String
+    let leaderboard_state: LeaderboardState
+    let actions: ContestActions
+    let payout_table: [PayoutTierContract]
+    let roster_config: RosterConfigContract
+
+    enum CodingKeys: String, CodingKey {
+        case contest_id
+        case type
+        case leaderboard_state
+        case actions
+        case payout_table
+        case roster_config
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        contest_id = try c.decode(String.self, forKey: .contest_id)
+        type = try c.decode(String.self, forKey: .type)
+        leaderboard_state = try c.decode(LeaderboardState.self, forKey: .leaderboard_state)
+        actions = try c.decode(ContestActions.self, forKey: .actions)
+        // Required fields — no fallback
+        payout_table = try c.decode([PayoutTierContract].self, forKey: .payout_table)
+        roster_config = try c.decode(RosterConfigContract.self, forKey: .roster_config)
+    }
+}

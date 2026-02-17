@@ -19,6 +19,7 @@ final class ContestDetailViewModel: ObservableObject {
     // MARK: - Published State
 
     @Published private(set) var contest: MockContest
+    @Published private(set) var contractContest: ContestDetailResponseContract?
     @Published private(set) var isJoined: Bool
     @Published private(set) var isLoading = false
     @Published private(set) var isFetching = false
@@ -30,7 +31,6 @@ final class ContestDetailViewModel: ObservableObject {
     let contestId: UUID
     private let contestJoiner: ContestJoining
     private let detailFetcher: ContestDetailFetching
-    private let joinedStore: JoinedContestsStore
     private var currentUserId: UUID?
     private var hasFetched = false
 
@@ -41,7 +41,6 @@ final class ContestDetailViewModel: ObservableObject {
         placeholder: MockContest? = nil,
         contestJoiner: ContestJoining,
         detailFetcher: ContestDetailFetching? = nil,
-        joinedStore: JoinedContestsStore? = nil,
         getCurrentUserId: @escaping () -> UUID? = {
             guard let s = UserDefaults.standard.string(forKey: "userId") else { return nil }
             return UUID(uuidString: s)
@@ -50,7 +49,6 @@ final class ContestDetailViewModel: ObservableObject {
         self.contestId = contestId
         self.contestJoiner = contestJoiner
         self.detailFetcher = detailFetcher ?? ContestDetailService(getCurrentUserId: getCurrentUserId)
-        self.joinedStore = joinedStore ?? JoinedContestsStore.shared
 
         // Use placeholder if provided, otherwise create a minimal loading state
         let initial = placeholder ?? MockContest(
@@ -63,9 +61,8 @@ final class ContestDetailViewModel: ObservableObject {
         )
         self.contest = initial
 
-        // Check JoinedContestsStore as source of truth for joined state
-        let persistedJoined = self.joinedStore.isJoined(contestId: contestId)
-        self.isJoined = persistedJoined || initial.isJoined
+        // Backend DTO is source of truth for joined state
+        self.isJoined = initial.isJoined
     }
 
     /// Configure the user ID for join operations
@@ -82,21 +79,27 @@ final class ContestDetailViewModel: ObservableObject {
         }
     }
 
-    /// Fetches contest detail from the backend. Called once on appearance.
+    /// Fetches contest detail from the backend.
     /// Overwrites all placeholder data with the authoritative backend response.
+    /// Always fetches on explicit refresh, skips duplicate fetch only on initial load.
     func fetchContestDetail() async {
-        guard !hasFetched || contest.status == "Loading" else { return }
+        guard !hasFetched || isFetching else { return }
         isFetching = true
         print("JOIN PREVIEW FETCHING CONTEST DETAIL \(contestId)")
 
         do {
+            // Fetch the authoritative contract from backend
+            let fetchedContract = try await detailFetcher.fetchContestDetailContract(contestId: contestId)
+            contractContest = fetchedContract
+
+            // Also fetch legacy data for backward compatibility
             let fetched = try await detailFetcher.fetchDetail(contestId: contestId)
 
             // Backend response is the single source of truth — no merging with placeholder
             contest = fetched
             hasFetched = true
             print("ContestDetailViewModel: contest set → \(fetched.id)")
-            isJoined = fetched.isJoined || joinedStore.isJoined(contestId: contestId)
+            isJoined = fetched.isJoined
         } catch {
             // On fetch failure, keep placeholder data — don't blank the screen
             print("ContestDetailViewModel: fetch failed — \(error.localizedDescription)")
@@ -105,18 +108,39 @@ final class ContestDetailViewModel: ObservableObject {
         isFetching = false
     }
 
-    // MARK: - Joinability (single source of truth)
+    /// Internal fetch that bypasses guard, used for refresh operations
+    private func fetchContestDetailForRefresh() async {
+        isFetching = true
+
+        do {
+            // Fetch the authoritative contract from backend
+            let fetchedContract = try await detailFetcher.fetchContestDetailContract(contestId: contestId)
+            contractContest = fetchedContract
+
+            // Also fetch legacy data for backward compatibility
+            let fetched = try await detailFetcher.fetchDetail(contestId: contestId)
+            contest = fetched
+            isJoined = fetched.isJoined
+            print("ContestDetailViewModel: refreshed → \(fetched.id)")
+        } catch {
+            print("ContestDetailViewModel: refresh failed — \(error.localizedDescription)")
+        }
+
+        isFetching = false
+    }
+
+    // MARK: - Joinability (actions-driven)
 
     /// Whether the user can join this contest.
+    /// Gated by backend-provided actions only.
     var canJoinContest: Bool {
-        guard !isJoined else { return false }
-        let statusOpen = contest.status.lowercased() == "open"
-        let notFull = !contest.isFull
-        return statusOpen && notFull
+        guard let contract = contractContest else { return false }
+        return contract.actions.can_join && !isJoined
     }
 
     var canSelectLineup: Bool {
-        isJoined && contest.status.lowercased() != "completed"
+        guard let contract = contractContest else { return false }
+        return contract.actions.can_edit_entry && isJoined
     }
 
     var canViewRules: Bool {
@@ -128,27 +152,26 @@ final class ContestDetailViewModel: ObservableObject {
     }
 
     var joinButtonTitle: String {
+        guard let contract = contractContest else { return "Join Contest" }
         if isJoined {
             return "Joined"
         }
-        if contest.isFull {
-            return "Contest Full"
-        }
-        if contest.status.lowercased() == "locked" {
-            return "Contest Locked"
+        if !contract.actions.can_join {
+            return "Cannot Join"
         }
         return "Join Contest"
     }
 
     var statusMessage: String? {
-        if !isJoined && contest.status.lowercased() == "open" && !contest.isFull {
+        guard let contract = contractContest else { return nil }
+        if isJoined {
+            return nil
+        }
+        if contract.actions.can_join {
             return "Join this contest to select your lineup"
         }
-        if !isJoined && contest.isFull {
-            return "This contest is full"
-        }
-        if !isJoined && contest.status.lowercased() == "locked" {
-            return "This contest is locked"
+        if contract.actions.is_closed {
+            return "This contest is closed"
         }
         return nil
     }
@@ -160,29 +183,12 @@ final class ContestDetailViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
 
-        // Re-fetch from backend
-        hasFetched = false
-        await fetchContestDetail()
+        // Re-fetch from backend, bypassing the hasFetched guard
+        await fetchContestDetailForRefresh()
 
         isLoading = false
     }
 
-    /// Increment participant count (called after another user joins)
-    func incrementParticipantCount() {
-        contest = MockContest(
-            id: contest.id,
-            name: contest.name,
-            entryCount: contest.entryCount + 1,
-            maxEntries: contest.maxEntries,
-            status: contest.status,
-            creatorName: contest.creatorName,
-            entryFee: contest.entryFee,
-            joinToken: contest.joinToken,
-            isJoined: contest.isJoined,
-            lockTime: contest.lockTime
-        )
-        CreatedContestsStore.shared.update(contest)
-    }
 
     /// Attempt to join the contest. This is the sole join entry point in the app.
     func joinContest() async {
@@ -202,7 +208,9 @@ final class ContestDetailViewModel: ObservableObject {
         do {
             _ = try await contestJoiner.joinContest(contestId: contest.id, token: token, userId: userId)
             isJoined = true
-            updateContestWithJoinedState()
+
+            // Refetch contest detail from backend to get accurate joined state and other fields
+            await fetchContestDetailForRefresh()
         } catch let error as JoinLinkError {
             handleJoinError(error)
         } catch {
@@ -219,7 +227,6 @@ final class ContestDetailViewModel: ObservableObject {
         case .alreadyJoined:
             // Idempotent — treat as success
             isJoined = true
-            updateContestWithJoinedState()
             errorMessage = nil
         case .contestFull:
             errorMessage = "This contest is now full."
@@ -232,25 +239,6 @@ final class ContestDetailViewModel: ObservableObject {
         }
     }
 
-    private func updateContestWithJoinedState() {
-        let updatedContest = MockContest(
-            id: contest.id,
-            name: contest.name,
-            entryCount: isJoined ? contest.entryCount + 1 : contest.entryCount,
-            maxEntries: contest.maxEntries,
-            status: contest.status,
-            creatorName: contest.creatorName,
-            entryFee: contest.entryFee,
-            joinToken: contest.joinToken,
-            isJoined: isJoined,
-            lockTime: contest.lockTime
-        )
-        contest = updatedContest
-
-        if isJoined {
-            joinedStore.markJoined(updatedContest)
-        }
-    }
 
     func clearError() {
         errorMessage = nil

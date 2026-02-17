@@ -13,6 +13,8 @@ import Combine
 
 @MainActor
 class AuthService: ObservableObject {
+    static let shared = AuthService()
+
     @Published var currentUser: User?
     @Published var isAuthenticated = false
     @Published var isLoading = false
@@ -36,10 +38,7 @@ class AuthService: ObservableObject {
 
     func handleAppleIDCredential(credential: ASAuthorizationAppleIDCredential) async {
         print("AuthService: Starting Apple authentication...")
-        print(
-          "API_BASE_URL:",
-          Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") ?? "MISSING"
-        )
+        print("API_BASE_URL:", AppEnvironment.shared.baseURL.absoluteString)
         isLoading = true
         errorMessage = nil
 
@@ -83,10 +82,10 @@ class AuthService: ObservableObject {
                 print("AuthService: Username: \(user.username ?? "nil")")
 
                 self.currentUser = user
-                self.isAuthenticated = true
-
                 UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
                 print("AuthService: Saved userId to UserDefaults")
+
+                self.isAuthenticated = true
 
                 // V2: Check TOS requirement via flags endpoint (capability-based)
                 await checkTOSFlags(userId: user.id)
@@ -166,10 +165,10 @@ class AuthService: ObservableObject {
             print("AuthService: Username: \(user.username ?? "nil")")
 
             self.currentUser = user
-            self.isAuthenticated = true
-
             UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
             print("AuthService: Saved userId to UserDefaults")
+
+            self.isAuthenticated = true
 
             // V2: Check TOS requirement via flags endpoint (capability-based)
             await checkTOSFlags(userId: user.id)
@@ -204,11 +203,11 @@ class AuthService: ObservableObject {
             print("AuthService: Username: \(user.username ?? "nil")")
 
             self.currentUser = user
-            self.isAuthenticated = true
-            self.needsUsernameSetup = true
-
             UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
             print("AuthService: Saved userId to UserDefaults")
+
+            self.isAuthenticated = true
+            self.needsUsernameSetup = true
 
             // V2: Check TOS requirement via flags endpoint (capability-based)
             await checkTOSFlags(userId: user.id)
@@ -244,6 +243,12 @@ class AuthService: ObservableObject {
 
     var displayName: String {
         return currentUser?.username ?? "User"
+    }
+
+    /// Returns the Bearer token (currently user ID) if authenticated, nil otherwise.
+    /// Centralized here so future auth upgrades (JWT, sessions, etc.) only require changes in this method.
+    func currentAuthToken() -> String? {
+        return currentUser?.id.uuidString
     }
 }
 

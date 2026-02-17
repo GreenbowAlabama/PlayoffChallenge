@@ -33,6 +33,9 @@ struct MockContest: Identifiable, Hashable, Codable {
     let joinURL: URL?
     let isJoined: Bool
     let lockTime: Date?
+    let startTime: Date?
+    let endTime: Date?
+    let actions: ContestActions?
 
     init(
         id: UUID = UUID(),
@@ -45,7 +48,10 @@ struct MockContest: Identifiable, Hashable, Codable {
         joinToken: String? = nil,
         joinURL: URL? = nil,
         isJoined: Bool = false,
-        lockTime: Date? = nil
+        lockTime: Date? = nil,
+        startTime: Date? = nil,
+        endTime: Date? = nil,
+        actions: ContestActions? = nil
     ) {
         self.id = id
         self.name = name
@@ -58,6 +64,9 @@ struct MockContest: Identifiable, Hashable, Codable {
         self.joinURL = joinURL
         self.isJoined = isJoined
         self.lockTime = lockTime
+        self.startTime = startTime
+        self.endTime = endTime
+        self.actions = actions
     }
 
     var formattedEntryFee: String {
@@ -69,10 +78,6 @@ struct MockContest: Identifiable, Hashable, Codable {
 
     var slotsRemaining: Int {
         maxEntries - entryCount
-    }
-
-    var isFull: Bool {
-        maxEntries > 0 && entryCount >= maxEntries
     }
 
     static let samples: [MockContest] = [

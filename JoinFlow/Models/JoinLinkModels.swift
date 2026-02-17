@@ -9,12 +9,12 @@ import Foundation
 
 /// Status of a contest
 enum ContestStatus: String, Codable, Equatable {
-    case draft
-    case open
-    case locked
-    case completed
-    case cancelled
-    case settled
+    case scheduled = "SCHEDULED"
+    case locked = "LOCKED"
+    case live = "LIVE"
+    case complete = "COMPLETE"
+    case cancelled = "CANCELLED"
+    case error = "ERROR"
 }
 
 /// Backend-computed join state — single source of truth for joinability
@@ -42,16 +42,6 @@ struct ContestSummary: Codable, Equatable {
     var hasSlotInfo: Bool { totalSlots > 0 }
 
     var slotsRemaining: Int { totalSlots - filledSlots }
-
-    /// A contest is full only if it has a positive capacity AND filled slots meet or exceed it.
-    /// When totalSlots <= 0 (unlimited), the contest is never full.
-    var isFull: Bool { totalSlots > 0 && filledSlots >= totalSlots }
-
-    /// Whether the contest is past its lock time
-    var isLocked: Bool {
-        guard let lockTime = lockTime else { return false }
-        return Date() >= lockTime
-    }
 
     init(
         id: UUID,

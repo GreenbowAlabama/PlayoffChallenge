@@ -34,7 +34,6 @@
 		EA98FE462F2D776C00CA4A36 /* ContestJoinService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE352F2D776C00CA4A36 /* ContestJoinService.swift */; };
 		EA98FE482F2D776C00CA4A36 /* PendingJoinManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE382F2D776C00CA4A36 /* PendingJoinManager.swift */; };
 		EA98FE492F2D776C00CA4A36 /* JoinLinkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE372F2D776C00CA4A36 /* JoinLinkService.swift */; };
-
 		EA98FE4B2F2D776C00CA4A36 /* JoinLinkResolving.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE322F2D776C00CA4A36 /* JoinLinkResolving.swift */; };
 		EAF21C572EA5D75E00B46D95 /* readme.md in Resources */ = {isa = PBXBuildFile; fileRef = EAF21C562EA5D75500B46D95 /* readme.md */; };
 /* End PBXBuildFile section */
@@ -79,7 +78,6 @@
 		EA98FE372F2D776C00CA4A36 /* JoinLinkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkService.swift; sourceTree = "<group>"; };
 		EA98FE382F2D776C00CA4A36 /* PendingJoinManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingJoinManager.swift; sourceTree = "<group>"; };
 		EA98FE3C2F2D776C00CA4A36 /* JoinErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinErrorView.swift; sourceTree = "<group>"; };
-
 		EA98FE502F2D783900CA4A36 /* PlayoffChallengeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlayoffChallengeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA98FE7D2F2DBCC100CA4A36 /* PlayoffChallenge.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = PlayoffChallenge.xctestplan; sourceTree = "<group>"; };
 		EAB5744A2F28203600767979 /* PlayoffChallenge-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "PlayoffChallenge-Info.plist"; sourceTree = "<group>"; };
@@ -406,7 +404,6 @@
 				EA98FE462F2D776C00CA4A36 /* ContestJoinService.swift in Sources */,
 				EA98FE482F2D776C00CA4A36 /* PendingJoinManager.swift in Sources */,
 				EA98FE492F2D776C00CA4A36 /* JoinLinkService.swift in Sources */,
-
 				EA98FE4B2F2D776C00CA4A36 /* JoinLinkResolving.swift in Sources */,
 				EA345EBE2EA45CB700689C4E /* PlayoffChallengeApp.swift in Sources */,
 				CC001A012F3A000100000001 /* CustomContestModels.swift in Sources */,
@@ -449,7 +446,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				API_BASE_URL = "https://playoffchallenge-production.up.railway.app";
+				API_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;

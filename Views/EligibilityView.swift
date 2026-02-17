@@ -157,10 +157,10 @@ struct EligibilityView: View {
 
             await MainActor.run {
                 authService.currentUser = user
+                UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
                 authService.isAuthenticated = true
                 authService.needsUsernameSetup = true
                 authService.pendingAppleCredential = nil
-                UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
                 dismiss()
             }
         } catch let error as APIError {

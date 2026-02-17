@@ -79,7 +79,7 @@ struct LandingView: View {
     private func destinationView(for destination: LandingDestination) -> some View {
         switch destination {
         case .availableContests:
-            AvailableContestsView(viewModel: AvailableContestsViewModel())
+            AvailableContestsView()
         case .createContest:
             CreateContestFlowView()
         case .contestManagement:
@@ -96,7 +96,7 @@ struct LandingView: View {
         case .contestDetail(let contestId):
             ContestDetailView(contestId: contestId)
         case .leaderboard(let contest):
-            ContestLeaderboardView(contest: contest)
+            ContestLeaderboardView(contestId: contest.id)
         }
     }
 }

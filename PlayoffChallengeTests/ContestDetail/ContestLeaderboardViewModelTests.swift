@@ -3,270 +3,270 @@
 //  PlayoffChallengeTests
 //
 //  Unit tests for ContestLeaderboardViewModel.
-//  Proves that joined users appear on the leaderboard.
+//  Tests contract-based leaderboard rendering.
 //
 
 import XCTest
 @testable import PlayoffChallenge
 
-// MARK: - Mock Data Provider
+// MARK: - Mock Fetcher
 
 @MainActor
-final class MockLeaderboardDataProvider: LeaderboardDataProviding {
-    var entriesToReturn: [MockLeaderboardEntry] = []
-    var currentUserEntry: MockLeaderboardEntry?
-    var getEntriesCalled = false
-    var getEntriesContestId: UUID?
+final class MockContestDetailFetcher: ContestDetailFetching {
+    var contractToReturn: LeaderboardResponseContract?
+    var fetchLeaderboardCalled = false
+    var fetchLeaderboardContestId: UUID?
+    var shouldThrowError = false
 
-    func getEntries(for contestId: UUID) async -> [MockLeaderboardEntry] {
-        getEntriesCalled = true
-        getEntriesContestId = contestId
-        return entriesToReturn
+    func fetchDetail(contestId: UUID) async throws -> MockContest {
+        throw APIError.invalidResponse
     }
 
-    func getCurrentUserEntry(contestId: UUID, username: String) -> MockLeaderboardEntry? {
-        return currentUserEntry
+    func fetchContestDetailContract(contestId: UUID) async throws -> ContestDetailResponseContract {
+        throw APIError.invalidResponse
+    }
+
+    func fetchLeaderboard(contestId: UUID) async throws -> LeaderboardResponseContract {
+        fetchLeaderboardCalled = true
+        fetchLeaderboardContestId = contestId
+
+        if shouldThrowError {
+            throw APIError.serverError("Mock error")
+        }
+
+        guard let contract = contractToReturn else {
+            throw APIError.decodingError
+        }
+
+        return contract
     }
 
     func reset() {
-        entriesToReturn = []
-        currentUserEntry = nil
-        getEntriesCalled = false
-        getEntriesContestId = nil
+        contractToReturn = nil
+        fetchLeaderboardCalled = false
+        fetchLeaderboardContestId = nil
+        shouldThrowError = false
     }
 }
 
 final class ContestLeaderboardViewModelTests: XCTestCase {
 
-    private var mockDataProvider: MockLeaderboardDataProvider!
-    private var testStore: JoinedContestsStore!
+    private var mockFetcher: MockContestDetailFetcher!
 
     @MainActor
     override func setUp() {
         super.setUp()
-        mockDataProvider = MockLeaderboardDataProvider()
-        testStore = JoinedContestsStore.makeForTesting()
+        mockFetcher = MockContestDetailFetcher()
     }
 
     @MainActor
     override func tearDown() {
-        mockDataProvider = nil
-        testStore?.clear()
-        testStore = nil
+        mockFetcher?.reset()
+        mockFetcher = nil
         super.tearDown()
     }
 
     // MARK: - Test Helpers
 
-    private func createTestContest(
-        id: UUID = UUID(),
-        name: String = "Test Contest"
-    ) -> MockContest {
-        MockContest(
-            id: id,
-            name: name,
-            entryCount: 5,
-            maxEntries: 20,
-            status: "Open",
-            creatorName: "Organizer",
-            entryFee: 25.0,
-            joinToken: "testtoken",
-            isJoined: false
-        )
-    }
-
-    private func createTestEntry(
-        username: String = "Player",
-        points: Double = 100.0
-    ) -> MockLeaderboardEntry {
-        MockLeaderboardEntry(
-            id: UUID(),
-            username: username,
-            teamName: nil,
-            totalPoints: points
+    private func createTestLeaderboardContract(
+        state: LeaderboardState = .computed,
+        rows: [LeaderboardRow] = []
+    ) -> LeaderboardResponseContract {
+        LeaderboardResponseContract(
+            contest_id: UUID().uuidString,
+            contest_type: "test",
+            leaderboard_state: state,
+            generated_at: nil,
+            column_schema: [
+                LeaderboardColumnSchema(key: "rank", label: "Rank", type: "number", format: nil),
+                LeaderboardColumnSchema(key: "name", label: "Player", type: nil, format: nil),
+                LeaderboardColumnSchema(key: "points", label: "Points", type: "number", format: nil)
+            ],
+            rows: rows
         )
     }
 
     // MARK: - Initial State Tests
 
     @MainActor func testInitialStateIsCorrect() {
-        let contest = createTestContest()
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
+        let contestId = UUID()
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
 
-        XCTAssertTrue(sut.entries.isEmpty)
+        XCTAssertNil(sut.leaderboardContract)
         XCTAssertFalse(sut.isLoading)
         XCTAssertNil(sut.errorMessage)
-        XCTAssertNil(sut.currentUserRank)
-    }
-
-    @MainActor func testContestNameIsExposed() {
-        let contest = createTestContest(name: "Championship 2026")
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
-
-        XCTAssertEqual(sut.contestName, "Championship 2026")
     }
 
     // MARK: - Load Leaderboard Tests
 
-    @MainActor func testLoadLeaderboardFetchesEntries() async {
-        let contest = createTestContest()
-        mockDataProvider.entriesToReturn = [
-            createTestEntry(username: "Player1", points: 150),
-            createTestEntry(username: "Player2", points: 100)
-        ]
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
+    @MainActor func testLoadLeaderboardFetchesContract() async {
+        let contestId = UUID()
+        let contract = createTestLeaderboardContract()
+        mockFetcher.contractToReturn = contract
 
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
         await sut.loadLeaderboard()
 
-        XCTAssertTrue(mockDataProvider.getEntriesCalled)
-        XCTAssertEqual(mockDataProvider.getEntriesContestId, contest.id)
-        XCTAssertEqual(sut.entries.count, 2)
+        XCTAssertTrue(mockFetcher.fetchLeaderboardCalled)
+        XCTAssertEqual(mockFetcher.fetchLeaderboardContestId, contestId)
+        XCTAssertNotNil(sut.leaderboardContract)
+        XCTAssertEqual(sut.leaderboardContract?.contest_id, contract.contest_id)
     }
 
-    @MainActor func testLoadLeaderboardSortsByPointsDescending() async {
-        let contest = createTestContest()
-        mockDataProvider.entriesToReturn = [
-            createTestEntry(username: "LowScorer", points: 50),
-            createTestEntry(username: "HighScorer", points: 200),
-            createTestEntry(username: "MidScorer", points: 100)
-        ]
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
+    @MainActor func testLoadLeaderboardHandlesError() async {
+        let contestId = UUID()
+        mockFetcher.shouldThrowError = true
 
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
         await sut.loadLeaderboard()
 
-        XCTAssertEqual(sut.entries[0].username, "HighScorer")
-        XCTAssertEqual(sut.entries[1].username, "MidScorer")
-        XCTAssertEqual(sut.entries[2].username, "LowScorer")
+        XCTAssertNil(sut.leaderboardContract)
+        XCTAssertNotNil(sut.errorMessage)
     }
 
     @MainActor func testLoadLeaderboardSetsLoadingFalseAfterCompletion() async {
-        let contest = createTestContest()
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
+        let contestId = UUID()
+        mockFetcher.contractToReturn = createTestLeaderboardContract()
 
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
         await sut.loadLeaderboard()
 
         XCTAssertFalse(sut.isLoading)
     }
 
-    // MARK: - Join → Leaderboard Inclusion Tests (KEY TEST)
+    // MARK: - State Tests
 
-    @MainActor func testJoinedUserAppearsOnLeaderboard() async {
-        // Given: A contest and user who has joined
-        let contest = createTestContest()
-        testStore.markJoined(contest)
+    @MainActor func testIsPendingWhenStateIsPending() {
+        let contestId = UUID()
+        let contract = createTestLeaderboardContract(state: .pending)
+        mockFetcher.contractToReturn = contract
 
-        // When: Using the default data provider which checks JoinedContestsStore
-        let sut = ContestLeaderboardViewModel(
-            contest: contest,
-            dataProvider: DefaultLeaderboardDataProvider(joinedStore: testStore),
-            joinedStore: testStore
-        )
-        await sut.loadLeaderboard()
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
+        sut.leaderboardContract = contract
 
-        // Then: User appears on leaderboard
-        XCTAssertTrue(sut.isCurrentUserOnLeaderboard)
-        XCTAssertTrue(sut.entries.contains { $0.username == "You" })
+        XCTAssertTrue(sut.isPending)
+        XCTAssertFalse(sut.isComputed)
+        XCTAssertFalse(sut.hasError)
     }
 
-    @MainActor func testNotJoinedUserDoesNotAppearOnLeaderboard() async {
-        // Given: A contest the user has NOT joined
-        let contest = createTestContest()
-        // Explicitly do NOT mark as joined
+    @MainActor func testIsComputedWhenStateIsComputed() {
+        let contestId = UUID()
+        let contract = createTestLeaderboardContract(state: .computed)
+        mockFetcher.contractToReturn = contract
 
-        // Use mock data provider that returns only other players
-        mockDataProvider.entriesToReturn = [
-            createTestEntry(username: "OtherPlayer1", points: 100),
-            createTestEntry(username: "OtherPlayer2", points: 80)
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
+        sut.leaderboardContract = contract
+
+        XCTAssertFalse(sut.isPending)
+        XCTAssertTrue(sut.isComputed)
+        XCTAssertFalse(sut.hasError)
+    }
+
+    @MainActor func testHasErrorWhenStateIsError() {
+        let contestId = UUID()
+        let contract = createTestLeaderboardContract(state: .error)
+        mockFetcher.contractToReturn = contract
+
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
+        sut.leaderboardContract = contract
+
+        XCTAssertFalse(sut.isPending)
+        XCTAssertFalse(sut.isComputed)
+        XCTAssertTrue(sut.hasError)
+    }
+
+    @MainActor func testIsEmptyWhenComputedWithNoRows() {
+        let contestId = UUID()
+        let contract = createTestLeaderboardContract(state: .computed, rows: [])
+
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
+        sut.leaderboardContract = contract
+
+        XCTAssertTrue(sut.isEmpty)
+    }
+
+    @MainActor func testIsNotEmptyWhenComputedWithRows() {
+        let contestId = UUID()
+        let rows: [LeaderboardRow] = [
+            ["rank": AnyCodable(1), "name": AnyCodable("Player1"), "points": AnyCodable(100)]
         ]
+        let contract = createTestLeaderboardContract(state: .computed, rows: rows)
 
-        let sut = ContestLeaderboardViewModel(
-            contest: contest,
-            dataProvider: mockDataProvider,
-            joinedStore: testStore
-        )
-        await sut.loadLeaderboard()
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
+        sut.leaderboardContract = contract
 
-        // Then: Current user is NOT on leaderboard
-        XCTAssertFalse(sut.isCurrentUserOnLeaderboard)
-        XCTAssertFalse(sut.entries.contains { $0.username == "You" })
-    }
-
-    @MainActor func testCurrentUserRankIsCalculated() async {
-        // Given: A contest with the user at rank 3
-        let contest = createTestContest()
-        mockDataProvider.entriesToReturn = [
-            createTestEntry(username: "Leader", points: 200),
-            createTestEntry(username: "Second", points: 150),
-            createTestEntry(username: "You", points: 100),
-            createTestEntry(username: "Fourth", points: 50)
-        ]
-
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
-        await sut.loadLeaderboard()
-
-        XCTAssertEqual(sut.currentUserRank, 3)
-    }
-
-    @MainActor func testCurrentUserRankIsNilWhenNotOnLeaderboard() async {
-        let contest = createTestContest()
-        mockDataProvider.entriesToReturn = [
-            createTestEntry(username: "Player1", points: 100)
-        ]
-
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
-        await sut.loadLeaderboard()
-
-        XCTAssertNil(sut.currentUserRank)
-    }
-
-    // MARK: - Add Current User Tests
-
-    @MainActor func testAddCurrentUserIfJoinedAddsUserWhenJoined() {
-        let contest = createTestContest()
-        testStore.markJoined(contest)
-
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
-        sut.addCurrentUserIfJoined()
-
-        XCTAssertTrue(sut.isCurrentUserOnLeaderboard)
-        XCTAssertEqual(sut.entries.count, 1)
-    }
-
-    @MainActor func testAddCurrentUserIfJoinedDoesNothingWhenNotJoined() {
-        let contest = createTestContest()
-        // Not joined
-
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
-        sut.addCurrentUserIfJoined()
-
-        XCTAssertFalse(sut.isCurrentUserOnLeaderboard)
-        XCTAssertTrue(sut.entries.isEmpty)
-    }
-
-    @MainActor func testAddCurrentUserIfJoinedIsIdempotent() {
-        let contest = createTestContest()
-        testStore.markJoined(contest)
-
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
-        sut.addCurrentUserIfJoined()
-        sut.addCurrentUserIfJoined()
-        sut.addCurrentUserIfJoined()
-
-        // Should only have one "You" entry
-        let youEntries = sut.entries.filter { $0.username == "You" }
-        XCTAssertEqual(youEntries.count, 1)
+        XCTAssertFalse(sut.isEmpty)
     }
 
     // MARK: - Refresh Tests
 
     @MainActor func testRefreshReloadsLeaderboard() async {
-        let contest = createTestContest()
-        mockDataProvider.entriesToReturn = [createTestEntry(username: "Player", points: 100)]
+        let contestId = UUID()
+        mockFetcher.contractToReturn = createTestLeaderboardContract()
 
-        let sut = ContestLeaderboardViewModel(contest: contest, dataProvider: mockDataProvider, joinedStore: testStore)
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
         await sut.refresh()
 
-        XCTAssertTrue(mockDataProvider.getEntriesCalled)
-        XCTAssertEqual(sut.entries.count, 1)
+        XCTAssertTrue(mockFetcher.fetchLeaderboardCalled)
+        XCTAssertNotNil(sut.leaderboardContract)
+    }
+
+    // MARK: - Contract Enforcement Tests
+
+    @MainActor func testEmptyIsNotInferredFromRowsAlone() {
+        // Empty rows should NOT imply pending or error
+        let contestId = UUID()
+        let contract = createTestLeaderboardContract(state: .computed, rows: [])
+
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
+        sut.leaderboardContract = contract
+
+        XCTAssertTrue(sut.isEmpty, "isEmpty should be true for computed state with empty rows")
+        XCTAssertFalse(sut.isPending, "Empty rows should not imply pending")
+        XCTAssertFalse(sut.hasError, "Empty rows should not imply error")
+    }
+
+    @MainActor func testPendingStateWithRowsDoesNotShowTable() {
+        // Rows present but pending state should not show table
+        let contestId = UUID()
+        let rows: [LeaderboardRow] = [
+            ["rank": AnyCodable(1), "name": AnyCodable("Player1"), "points": AnyCodable(100)]
+        ]
+        let contract = createTestLeaderboardContract(state: .pending, rows: rows)
+
+        let sut = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
+        sut.leaderboardContract = contract
+
+        XCTAssertTrue(sut.isPending, "State drives UI, not row count")
+        XCTAssertFalse(sut.isEmpty, "Pending is not empty")
+        XCTAssertFalse(sut.isComputed, "Pending is not computed")
+    }
+
+    @MainActor func testLeaderboardStateIsSourceOfTruth() {
+        // Verify state enum controls behavior, not data presence
+        let contestId = UUID()
+
+        // Scenario 1: Error state
+        let errorContract = createTestLeaderboardContract(state: .error, rows: [])
+        let sut1 = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
+        sut1.leaderboardContract = errorContract
+        XCTAssertTrue(sut1.hasError)
+
+        // Scenario 2: Pending state (even with rows)
+        let rows: [LeaderboardRow] = [
+            ["rank": AnyCodable(1), "name": AnyCodable("P"), "points": AnyCodable(50)]
+        ]
+        let pendingContract = createTestLeaderboardContract(state: .pending, rows: rows)
+        let sut2 = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
+        sut2.leaderboardContract = pendingContract
+        XCTAssertTrue(sut2.isPending)
+        XCTAssertEqual(sut2.rows.count, 1, "Rows are accessible but state drives display")
+
+        // Scenario 3: Computed state with rows
+        let computedContract = createTestLeaderboardContract(state: .computed, rows: rows)
+        let sut3 = ContestLeaderboardViewModel(contestId: contestId, fetcher: mockFetcher)
+        sut3.leaderboardContract = computedContract
+        XCTAssertTrue(sut3.isComputed)
+        XCTAssertFalse(sut3.isEmpty, "Computed with rows is not empty")
     }
 }

@@ -59,9 +59,8 @@ struct LeaderboardView: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                            ForEach(entries, id: \.id) { entry in
                                 ExpandableLeaderboardRow(
-                                    rank: index + 1,
                                     entry: entry,
                                     isExpanded: expandedUserId == entry.id,
                                     onTap: {
@@ -178,7 +177,6 @@ struct PreGameBanner: View {
 }
 
 struct ExpandableLeaderboardRow: View {
-    let rank: Int
     let entry: LeaderboardEntry
     let isExpanded: Bool
     let onTap: () -> Void
@@ -194,13 +192,6 @@ struct ExpandableLeaderboardRow: View {
             // Main row - tap to expand/collapse picks
             Button(action: onTap) {
                 HStack(spacing: 16) {
-                    // Rank
-                    Text("\(rank)")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(rankColor)
-                        .frame(width: 40)
-
                     // User info
                     VStack(alignment: .leading, spacing: 4) {
                         Text(displayName)
@@ -254,16 +245,7 @@ struct ExpandableLeaderboardRow: View {
             }
 
             Divider()
-                .padding(.leading, 72)
-        }
-    }
-
-    private var rankColor: Color {
-        switch rank {
-        case 1: return .yellow
-        case 2: return .gray
-        case 3: return .orange
-        default: return .primary
+                .padding(.leading, 16)
         }
     }
 }

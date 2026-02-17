@@ -21,9 +21,19 @@ struct RulesPreviewView: View {
                         .font(.title)
                         .fontWeight(.bold)
 
-                    HStack(spacing: 12) {
-                        Label("\(contest.entryCount)/\(contest.maxEntries) entries", systemImage: "person.2")
-                        Label("Created by \(contest.creatorName)", systemImage: "person")
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            Label("\(contest.entryCount)/\(contest.maxEntries) entries", systemImage: "person.2")
+                            Label("Created by \(contest.creatorName)", systemImage: "person")
+                                // 🔴 POINT D: Log when viewing creator name
+                                .onAppear {
+                                    print("🔴 VIEW RENDER contest: \(contest.id.uuidString.prefix(8)) creator: '\(contest.creatorName)'")
+                                }
+                        }
+
+                        if let lockTime = contest.lockTime {
+                            Text("Join by \(lockTime.formatted(date: .abbreviated, time: .shortened))")
+                        }
                     }
                     .font(.subheadline)
                     .foregroundColor(.secondary)
