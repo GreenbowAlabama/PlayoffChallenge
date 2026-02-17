@@ -482,6 +482,140 @@ pick_order: Ranked list of selections
 
 ---
 
+## Explicit Authoritative Contracts
+
+### A. Payout Authority & Tie Resolution
+
+#### Source of Truth
+
+- **The leaderboard.rows[].payout field is the authoritative payout value.**
+- This represents the actual awarded amount per entry.
+- The payout_table in contest detail is a published payout schedule (template).
+- If any discrepancy exists, leaderboard.rows[].payout is correct.
+
+#### Tie Resolution Rule
+
+- Ties use duplicate rank assignment.
+- Example: If 8 participants tie for rank 3, all receive rank = 3.
+- The next participant receives rank = 11.
+- Payout distribution:
+  - The payout amount for that rank range is split equally among tied participants.
+  - Example:
+    - payout_table: rank 3-10 → $20
+    - 8 participants tie at rank 3
+    - Each receives payout = $20.00 (already computed and reflected in leaderboard)
+
+#### Reconciliation Invariant
+
+For every leaderboard row:
+
+Find payout_table entry where:
+```
+row.rank >= min_rank AND row.rank <= max_rank
+```
+
+Assert:
+```
+abs(row.payout - payout_table.payout_amount) < 0.01
+```
+
+This invariant must pass in integration tests.
+
+**Closure gate requirement:**
+- [ ] Tie scenario test implemented
+- [ ] Reconciliation test implemented
+
+---
+
+### B. Leaderboard State Machine (Authoritative Definition)
+
+#### Enum
+
+```
+leaderboard_state ∈ ["pending", "computing", "computed", "error"]
+```
+
+#### Definitions
+
+- **pending**
+  - Contest exists
+  - Scoring not yet executed
+
+- **computing**
+  - Background scoring job in progress
+  - Leaderboard endpoint returns 202 Accepted
+
+- **computed**
+  - Scoring complete
+  - Leaderboard endpoint returns 200 OK with full schema and rows
+
+- **error**
+  - Scoring failed irrecoverably
+  - Leaderboard endpoint returns 200 OK with error message
+
+#### Transition Order (Immutable)
+
+```
+pending → computing → computed
+pending → computing → error
+```
+
+No backward transitions.
+
+Terminal states:
+- `computed`
+- `error`
+
+#### Mapping Requirement
+
+Contest lifecycle status must not be used directly by iOS.
+iOS behavior must be driven exclusively by leaderboard_state and actions.
+
+**Closure gate requirement:**
+- [ ] Enum implemented in backend
+- [ ] Integration test validates state transitions
+- [ ] Example responses updated to use "computed" (not "scored")
+
+---
+
+### C. Join Endpoint Idempotency Contract
+
+#### POST /api/contests/{id}/join
+
+Behavior is idempotent per (contest_id, user_id).
+
+#### First Request
+
+Response:
+- HTTP 200
+- Returns new entry object
+
+#### Subsequent Identical Request
+
+Response:
+- HTTP 200 (NOT 409)
+- Returns the same entry object
+- entry_id identical to original
+- joined_at unchanged
+
+#### Enforcement Requirements
+
+- Database unique constraint on (contest_id, user_id)
+- On unique violation (PG error 23505):
+  - Fetch existing entry
+  - Return existing entry
+  - No duplicate rows created
+
+**Closure gate requirement:**
+- [ ] Integration test:
+  - Join once
+  - Join again
+  - Assert same entry_id
+  - Assert joined_at unchanged
+  - Assert HTTP 200 both times
+
+---
+
 ## Sign-Off
 
 - [ ] Backend Lead Approval
