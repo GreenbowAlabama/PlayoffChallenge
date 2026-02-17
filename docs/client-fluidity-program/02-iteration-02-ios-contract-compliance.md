@@ -112,7 +112,7 @@ struct Contest: Codable, Identifiable {
     let type: String
     let name: String
     let description: String?
-    let status: String  // "open", "live", "closed", "scored", "archived"
+    let status: String  // "open", "live", "closed", "archived"
     let startsAt: Date
     let endsAt: Date
     let organizerId: String

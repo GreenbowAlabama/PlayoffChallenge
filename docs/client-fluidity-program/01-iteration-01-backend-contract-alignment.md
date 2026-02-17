@@ -236,7 +236,7 @@ Establish a lean, versioned presentation contract that provides iOS with suffici
 {
   "contest_id": "contest-123",
   "contest_type": "daily-fantasy",
-  "leaderboard_state": "scored",
+  "leaderboard_state": "computed",
   "generated_at": "2026-02-20T14:30:00Z",
 
   "column_schema": [
