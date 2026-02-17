@@ -51,7 +51,7 @@ struct ContestDetailView: View {
 
                     HStack(spacing: 20) {
                         StatView(value: "\(viewModel.contest.entryCount)", label: "Entries")
-                        StatView(value: viewModel.contest.status, label: "Status")
+                        StatView(value: viewModel.contest.displayStatus, label: "Status")
                         StatView(value: "\(viewModel.contest.maxEntries)", label: "Max")
                     }
                 }
@@ -60,7 +60,7 @@ struct ContestDetailView: View {
                 .background(Color(.systemGray6))
                 .cornerRadius(16)
                 .padding(.horizontal)
-                .redacted(reason: viewModel.contest.status == "Loading" ? .placeholder : [])
+                .redacted(reason: viewModel.contest.displayStatus == "Loading" ? .placeholder : [])
 
                 // Entry Fee Card
                 HStack {
@@ -183,7 +183,7 @@ struct ContestDetailView: View {
                     InfoRowView(label: "Created By", value: viewModel.contest.creatorName)
                     InfoRowView(label: "Participants", value: "\(viewModel.contest.entryCount) of \(viewModel.contest.maxEntries)")
                     InfoRowView(label: "Entry Fee", value: viewModel.contest.formattedEntryFee)
-                    InfoRowView(label: "Status", value: viewModel.contest.status)
+                    InfoRowView(label: "Status", value: viewModel.contest.displayStatus)
                     if let lockTime = viewModel.contest.lockTime {
                         InfoRowView(label: "Contest Locks", value: viewModel.formattedLockTime(lockTime))
                     }
@@ -196,7 +196,7 @@ struct ContestDetailView: View {
                 .background(Color(.systemGray6))
                 .cornerRadius(12)
                 .padding(.horizontal)
-                .redacted(reason: viewModel.contest.status == "Loading" ? .placeholder : [])
+                .redacted(reason: viewModel.contest.displayStatus == "Loading" ? .placeholder : [])
 
                 // Share Link (for organizers)
                 if isOrganizer, let joinURL = viewModel.contest.joinURL {

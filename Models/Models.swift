@@ -192,6 +192,11 @@ struct Pick: Codable, Identifiable {
 }
 
 // MARK: - Leaderboard
+
+/// DEPRECATED for custom contests: Use LeaderboardResponseContract instead.
+/// LeaderboardEntry is legacy-only, kept for weekly leaderboard (LeaderboardView) only.
+/// Custom contest leaderboards MUST use LeaderboardResponseContract + schema-driven rendering.
+@available(*, deprecated: 1.0, renamed: "LeaderboardResponseContract", message: "Custom contests must use LeaderboardResponseContract. LeaderboardEntry is legacy-only.")
 struct LeaderboardEntry: Codable, Identifiable {
     let id: UUID
     let username: String?
@@ -596,7 +601,7 @@ struct AnyCodable: Codable {
 
 /// Behavior flags driven by backend contest state.
 /// These are the source of truth for UI gating.
-struct ContestActions: Codable {
+struct ContestActions: Codable, Hashable, Equatable {
     let can_join: Bool
     let can_edit_entry: Bool
     let is_live: Bool
@@ -613,6 +618,16 @@ struct ContestActions: Codable {
         case is_scoring
         case is_scored
         case is_read_only
+    }
+
+    init(can_join: Bool, can_edit_entry: Bool, is_live: Bool, is_closed: Bool, is_scoring: Bool, is_scored: Bool, is_read_only: Bool) {
+        self.can_join = can_join
+        self.can_edit_entry = can_edit_entry
+        self.is_live = is_live
+        self.is_closed = is_closed
+        self.is_scoring = is_scoring
+        self.is_scored = is_scored
+        self.is_read_only = is_read_only
     }
 
     init(from decoder: Decoder) throws {
@@ -656,6 +671,13 @@ struct LeaderboardColumnSchema: Decodable {
         case key, label, type, format
     }
 
+    init(key: String, label: String, type: String? = nil, format: String? = nil) {
+        self.key = key
+        self.label = label
+        self.type = type
+        self.format = format
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         key = try c.decode(String.self, forKey: .key)
@@ -686,6 +708,15 @@ struct LeaderboardResponseContract: Decodable {
         case rows
     }
 
+    init(contest_id: String, contest_type: String, leaderboard_state: LeaderboardState, generated_at: String? = nil, column_schema: [LeaderboardColumnSchema], rows: [LeaderboardRow]) {
+        self.contest_id = contest_id
+        self.contest_type = contest_type
+        self.leaderboard_state = leaderboard_state
+        self.generated_at = generated_at
+        self.column_schema = column_schema
+        self.rows = rows
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         contest_id = try c.decode(String.self, forKey: .contest_id)
@@ -709,6 +740,12 @@ struct PayoutTierContract: Decodable {
         case amount
     }
 
+    init(rank_min: Int, rank_max: Int, amount: Decimal) {
+        self.rank_min = rank_min
+        self.rank_max = rank_max
+        self.amount = amount
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         rank_min = try c.decode(Int.self, forKey: .rank_min)
@@ -718,6 +755,7 @@ struct PayoutTierContract: Decodable {
         if let s = try? c.decode(String.self, forKey: .amount) {
             guard let parsed = Decimal(string: s) else {
                 throw DecodingError.dataCorruptedError(
+                    forKey: .amount,
                     in: c,
                     debugDescription: "Invalid decimal string for amount: \(s)"
                 )
@@ -749,6 +787,15 @@ struct ContestDetailResponseContract: Decodable {
         case actions
         case payout_table
         case roster_config
+    }
+
+    init(contest_id: String, type: String, leaderboard_state: LeaderboardState, actions: ContestActions, payout_table: [PayoutTierContract], roster_config: RosterConfigContract) {
+        self.contest_id = contest_id
+        self.type = type
+        self.leaderboard_state = leaderboard_state
+        self.actions = actions
+        self.payout_table = payout_table
+        self.roster_config = roster_config
     }
 
     init(from decoder: Decoder) throws {

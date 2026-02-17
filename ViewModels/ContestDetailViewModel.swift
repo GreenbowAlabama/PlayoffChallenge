@@ -31,6 +31,7 @@ final class ContestDetailViewModel: ObservableObject {
     let contestId: UUID
     private let contestJoiner: ContestJoining
     private let detailFetcher: ContestDetailFetching
+    private let joinedStore: JoinedContestsStoring
     private var currentUserId: UUID?
     private var hasFetched = false
 
@@ -41,6 +42,7 @@ final class ContestDetailViewModel: ObservableObject {
         placeholder: MockContest? = nil,
         contestJoiner: ContestJoining,
         detailFetcher: ContestDetailFetching? = nil,
+        joinedStore: JoinedContestsStoring,
         getCurrentUserId: @escaping () -> UUID? = {
             guard let s = UserDefaults.standard.string(forKey: "userId") else { return nil }
             return UUID(uuidString: s)
@@ -49,6 +51,7 @@ final class ContestDetailViewModel: ObservableObject {
         self.contestId = contestId
         self.contestJoiner = contestJoiner
         self.detailFetcher = detailFetcher ?? ContestDetailService(getCurrentUserId: getCurrentUserId)
+        self.joinedStore = joinedStore
 
         // Use placeholder if provided, otherwise create a minimal loading state
         let initial = placeholder ?? MockContest(
@@ -56,13 +59,35 @@ final class ContestDetailViewModel: ObservableObject {
             name: "Loading…",
             entryCount: 0,
             maxEntries: 0,
-            status: "Loading",
+            status: .scheduled,
             creatorName: "—"
         )
         self.contest = initial
 
         // Backend DTO is source of truth for joined state
         self.isJoined = initial.isJoined
+    }
+
+    /// Convenience initializer for production use — provides a default joinedStore.
+    @MainActor
+    convenience init(
+        contestId: UUID,
+        placeholder: MockContest? = nil,
+        contestJoiner: ContestJoining,
+        detailFetcher: ContestDetailFetching? = nil,
+        getCurrentUserId: @escaping () -> UUID? = {
+            guard let s = UserDefaults.standard.string(forKey: "userId") else { return nil }
+            return UUID(uuidString: s)
+        }
+    ) {
+        self.init(
+            contestId: contestId,
+            placeholder: placeholder,
+            contestJoiner: contestJoiner,
+            detailFetcher: detailFetcher,
+            joinedStore: JoinedContestsStore.makeForTesting(),
+            getCurrentUserId: getCurrentUserId
+        )
     }
 
     /// Configure the user ID for join operations
@@ -176,6 +201,10 @@ final class ContestDetailViewModel: ObservableObject {
         return nil
     }
 
+    var displayStatusMessage: String {
+        contest.displayStatus
+    }
+
     // MARK: - Actions
 
     /// Refresh contest data from the server
@@ -249,5 +278,13 @@ final class ContestDetailViewModel: ObservableObject {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+
+    /// Internal method for testing to update joined state directly
+    func updateIsJoinedState(_ value: Bool) {
+        isJoined = value
+        if value {
+            joinedStore.markJoined(contest)
+        }
     }
 }

@@ -159,7 +159,7 @@ struct CreateContestFormView: View {
                     name: result.name,
                     entryCount: 1,
                     maxEntries: maxEntries,
-                    status: result.status.capitalized,
+                    status: ContestStatus(rawValue: result.status) ?? .scheduled,
                     creatorName: creatorUsername,
                     entryFee: entryFee,
                     joinToken: result.joinToken,

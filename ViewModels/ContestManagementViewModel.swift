@@ -149,7 +149,7 @@ final class ContestManagementViewModel: ObservableObject {
                     name: dto.templateName,
                     entryCount: dto.entriesCurrent,
                     maxEntries: dto.maxEntries ?? 0,
-                    status: dto.status,
+                    status: ContestStatus(rawValue: dto.status) ?? .scheduled,
                     creatorName: "Unknown",
                     entryFee: 0.0,
                     joinToken: dto.joinToken,

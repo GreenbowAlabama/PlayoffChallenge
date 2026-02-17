@@ -90,7 +90,7 @@ struct ManagedContestRowView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    StatusBadge(status: contest.status)
+                    StatusBadge(status: contest.displayStatus)
                 }
             }
 

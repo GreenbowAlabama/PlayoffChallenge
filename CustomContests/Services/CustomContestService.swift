@@ -474,3 +474,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         return nil
     }
 }
+
+// MARK: - Protocol Conformance
+
+extension CustomContestService: ContestServiceing {}

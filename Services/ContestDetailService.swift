@@ -191,7 +191,7 @@ private struct ContestDetailResponse: Decodable {
             name: name,
             entryCount: entriesCurrent ?? filledSlots ?? 0,
             maxEntries: maxEntries ?? totalSlots ?? 0,
-            status: status,
+            status: ContestStatus(rawValue: status) ?? .scheduled,
             creatorName: organizerName ?? creatorName ?? "Unknown",
             entryFee: fee,
             joinToken: joinToken,

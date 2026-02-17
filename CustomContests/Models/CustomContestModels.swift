@@ -13,15 +13,6 @@ struct CustomContestDraft: Codable, Equatable, Identifiable {
     let joinToken: String?
     let settleTime: Date?
 
-    enum ContestStatus: String, Codable, Equatable {
-        case scheduled = "SCHEDULED"
-        case locked = "LOCKED"
-        case live = "LIVE"
-        case complete = "COMPLETE"
-        case cancelled = "CANCELLED"
-        case error = "ERROR"
-    }
-
     enum CodingKeys: String, CodingKey {
         case id
         case name

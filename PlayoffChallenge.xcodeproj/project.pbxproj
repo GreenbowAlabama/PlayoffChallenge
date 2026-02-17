@@ -25,6 +25,8 @@
 		EA345EBE2EA45CB700689C4E /* PlayoffChallengeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA345EBD2EA45CB700689C4E /* PlayoffChallengeApp.swift */; };
 		EA345EC02EA45CB700689C4E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA345EBF2EA45CB700689C4E /* ContentView.swift */; };
 		EA345EC22EA45CB900689C4E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EA345EC12EA45CB900689C4E /* Assets.xcassets */; };
+		EA8192012F45254D00B5A5E1 /* core in Frameworks */ = {isa = PBXBuildFile; productRef = EA8192002F45254D00B5A5E1 /* core */; };
+		EA8192042F4525A900B5A5E1 /* core in Frameworks */ = {isa = PBXBuildFile; productRef = EA8192032F4525A900B5A5E1 /* core */; };
 		EA98FE402F2D776C00CA4A36 /* JoinErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE3C2F2D776C00CA4A36 /* JoinErrorView.swift */; };
 		EA98FE412F2D776C00CA4A36 /* ContestJoining.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE312F2D776C00CA4A36 /* ContestJoining.swift */; };
 		EA98FE422F2D776C00CA4A36 /* JoinLinkError.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE2E2F2D776C00CA4A36 /* JoinLinkError.swift */; };
@@ -39,7 +41,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		EA98FE542F2D783900CA4A36 /* PBXContainerItemProxy */ = {
+		EA493C3F2F45134300F878AD /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = EA345EB22EA45CB700689C4E /* Project object */;
 			proxyType = 1;
@@ -68,6 +70,7 @@
 		EA345EBD2EA45CB700689C4E /* PlayoffChallengeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayoffChallengeApp.swift; sourceTree = "<group>"; };
 		EA345EBF2EA45CB700689C4E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		EA345EC12EA45CB900689C4E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		EA493C3B2F45134300F878AD /* PlayoffChallengeUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlayoffChallengeUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA98FE2E2F2D776C00CA4A36 /* JoinLinkError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkError.swift; sourceTree = "<group>"; };
 		EA98FE2F2F2D776C00CA4A36 /* JoinLinkModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkModels.swift; sourceTree = "<group>"; };
 		EA98FE312F2D776C00CA4A36 /* ContestJoining.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestJoining.swift; sourceTree = "<group>"; };
@@ -78,7 +81,6 @@
 		EA98FE372F2D776C00CA4A36 /* JoinLinkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkService.swift; sourceTree = "<group>"; };
 		EA98FE382F2D776C00CA4A36 /* PendingJoinManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingJoinManager.swift; sourceTree = "<group>"; };
 		EA98FE3C2F2D776C00CA4A36 /* JoinErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinErrorView.swift; sourceTree = "<group>"; };
-		EA98FE502F2D783900CA4A36 /* PlayoffChallengeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlayoffChallengeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA98FE7D2F2DBCC100CA4A36 /* PlayoffChallenge.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = PlayoffChallenge.xctestplan; sourceTree = "<group>"; };
 		EAB5744A2F28203600767979 /* PlayoffChallenge-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "PlayoffChallenge-Info.plist"; sourceTree = "<group>"; };
 		EAF21C492EA483D800B46D95 /* PlayoffChallenge.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PlayoffChallenge.entitlements; sourceTree = "<group>"; };
@@ -106,6 +108,11 @@
 			path = ViewModels;
 			sourceTree = "<group>";
 		};
+		EA493C3C2F45134300F878AD /* PlayoffChallengeUnitTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PlayoffChallengeUnitTests;
+			sourceTree = "<group>";
+		};
 		EA98FE512F2D783900CA4A36 /* PlayoffChallengeTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = PlayoffChallengeTests;
@@ -118,13 +125,15 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EA8192012F45254D00B5A5E1 /* core in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EA98FE4D2F2D783900CA4A36 /* Frameworks */ = {
+		EA493C382F45134300F878AD /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EA8192042F4525A900B5A5E1 /* core in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -202,6 +211,7 @@
 				EAF21C492EA483D800B46D95 /* PlayoffChallenge.entitlements */,
 				EA345ED42EA465B200689C4E /* Services */,
 				EA98FE512F2D783900CA4A36 /* PlayoffChallengeTests */,
+				EA493C3C2F45134300F878AD /* PlayoffChallengeUnitTests */,
 				EA345EBB2EA45CB700689C4E /* Products */,
 				EA345ECD2EA4645100689C4E /* Views */,
 				EA345ECE2EA4645F00689C4E /* Models */,
@@ -211,6 +221,7 @@
 				EA345ED52EA465B600689C4E /* ViewModels */,
 				EA98FE3F2F2D776C00CA4A36 /* JoinFlow */,
 				CC001A0A2F3A000100000006 /* CustomContests */,
+				EA8192022F4525A900B5A5E1 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -218,9 +229,16 @@
 			isa = PBXGroup;
 			children = (
 				EA345EBA2EA45CB700689C4E /* PlayoffChallenge.app */,
-				EA98FE502F2D783900CA4A36 /* PlayoffChallengeTests.xctest */,
+				EA493C3B2F45134300F878AD /* PlayoffChallengeUnitTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		EA8192022F4525A900B5A5E1 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 		EA98FE302F2D776C00CA4A36 /* Models */ = {
@@ -303,32 +321,34 @@
 			);
 			name = PlayoffChallenge;
 			packageProductDependencies = (
+				EA8192002F45254D00B5A5E1 /* core */,
 			);
 			productName = PlayoffChallenge;
 			productReference = EA345EBA2EA45CB700689C4E /* PlayoffChallenge.app */;
 			productType = "com.apple.product-type.application";
 		};
-		EA98FE4F2F2D783900CA4A36 /* PlayoffChallengeTests */ = {
+		EA493C3A2F45134300F878AD /* PlayoffChallengeUnitTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = EA98FE562F2D783900CA4A36 /* Build configuration list for PBXNativeTarget "PlayoffChallengeTests" */;
+			buildConfigurationList = EA493C412F45134300F878AD /* Build configuration list for PBXNativeTarget "PlayoffChallengeUnitTests" */;
 			buildPhases = (
-				EA98FE4C2F2D783900CA4A36 /* Sources */,
-				EA98FE4D2F2D783900CA4A36 /* Frameworks */,
-				EA98FE4E2F2D783900CA4A36 /* Resources */,
+				EA493C372F45134300F878AD /* Sources */,
+				EA493C382F45134300F878AD /* Frameworks */,
+				EA493C392F45134300F878AD /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				EA98FE552F2D783900CA4A36 /* PBXTargetDependency */,
+				EA493C402F45134300F878AD /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				EA98FE512F2D783900CA4A36 /* PlayoffChallengeTests */,
+				EA493C3C2F45134300F878AD /* PlayoffChallengeUnitTests */,
 			);
-			name = PlayoffChallengeTests;
+			name = PlayoffChallengeUnitTests;
 			packageProductDependencies = (
+				EA8192032F4525A900B5A5E1 /* core */,
 			);
-			productName = PlayoffChallengeTests;
-			productReference = EA98FE502F2D783900CA4A36 /* PlayoffChallengeTests.xctest */;
+			productName = PlayoffChallengeUnitTests;
+			productReference = EA493C3B2F45134300F878AD /* PlayoffChallengeUnitTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
@@ -344,7 +364,7 @@
 					EA345EB92EA45CB700689C4E = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
-					EA98FE4F2F2D783900CA4A36 = {
+					EA493C3A2F45134300F878AD = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = EA345EB92EA45CB700689C4E;
 					};
@@ -359,13 +379,16 @@
 			);
 			mainGroup = EA345EB12EA45CB700689C4E;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				EA8191FF2F45254D00B5A5E1 /* XCLocalSwiftPackageReference "../../core" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EA345EBB2EA45CB700689C4E /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				EA345EB92EA45CB700689C4E /* PlayoffChallenge */,
-				EA98FE4F2F2D783900CA4A36 /* PlayoffChallengeTests */,
+				EA493C3A2F45134300F878AD /* PlayoffChallengeUnitTests */,
 			);
 		};
 /* End PBXProject section */
@@ -380,7 +403,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EA98FE4E2F2D783900CA4A36 /* Resources */ = {
+		EA493C392F45134300F878AD /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -424,7 +447,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EA98FE4C2F2D783900CA4A36 /* Sources */ = {
+		EA493C372F45134300F878AD /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -434,10 +457,10 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		EA98FE552F2D783900CA4A36 /* PBXTargetDependency */ = {
+		EA493C402F45134300F878AD /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = EA345EB92EA45CB700689C4E /* PlayoffChallenge */;
-			targetProxy = EA98FE542F2D783900CA4A36 /* PBXContainerItemProxy */;
+			targetProxy = EA493C3F2F45134300F878AD /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -650,16 +673,17 @@
 			};
 			name = Release;
 		};
-		EA98FE572F2D783900CA4A36 /* Debug */ = {
+		EA493C422F45134300F878AD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 24Z6R7U38A;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallengeTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallengeUnitTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -667,20 +691,21 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlayoffChallenge.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlayoffChallenge";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlayoffChallenge.app/PlayoffChallenge";
 			};
 			name = Debug;
 		};
-		EA98FE582F2D783900CA4A36 /* Release */ = {
+		EA493C432F45134300F878AD /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 24Z6R7U38A;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallengeTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallengeUnitTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -688,20 +713,21 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlayoffChallenge.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlayoffChallenge";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlayoffChallenge.app/PlayoffChallenge";
 			};
 			name = Release;
 		};
-		EA98FE592F2D783900CA4A36 /* Staging */ = {
+		EA493C442F45134300F878AD /* Staging */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 24Z6R7U38A;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallengeTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallengeUnitTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -709,7 +735,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlayoffChallenge.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlayoffChallenge";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlayoffChallenge.app/PlayoffChallenge";
 			};
 			name = Staging;
 		};
@@ -837,17 +863,36 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		EA98FE562F2D783900CA4A36 /* Build configuration list for PBXNativeTarget "PlayoffChallengeTests" */ = {
+		EA493C412F45134300F878AD /* Build configuration list for PBXNativeTarget "PlayoffChallengeUnitTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				EA98FE572F2D783900CA4A36 /* Debug */,
-				EA98FE582F2D783900CA4A36 /* Release */,
-				EA98FE592F2D783900CA4A36 /* Staging */,
+				EA493C422F45134300F878AD /* Debug */,
+				EA493C432F45134300F878AD /* Release */,
+				EA493C442F45134300F878AD /* Staging */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		EA8191FF2F45254D00B5A5E1 /* XCLocalSwiftPackageReference "../../core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../core;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		EA8192002F45254D00B5A5E1 /* core */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = core;
+		};
+		EA8192032F4525A900B5A5E1 /* core */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EA8191FF2F45254D00B5A5E1 /* XCLocalSwiftPackageReference "../../core" */;
+			productName = core;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = EA345EB22EA45CB700689C4E /* Project object */;
 }

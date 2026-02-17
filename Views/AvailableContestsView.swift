@@ -99,7 +99,7 @@ struct ContestRowView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    Text(contest.status)
+                    Text(contest.displayStatus)
                         .font(.caption)
                         .fontWeight(.medium)
                         .foregroundColor(.green)

@@ -22,11 +22,11 @@ final class AvailableContestsViewModel: ObservableObject {
 
     // MARK: - Dependencies
 
-    private let service: CustomContestService
+    private let service: ContestServiceing
 
     // MARK: - Initialization
 
-    init(service: CustomContestService = CustomContestService()) {
+    init(service: ContestServiceing = CustomContestService()) {
         self.service = service
     }
 
@@ -54,7 +54,7 @@ final class AvailableContestsViewModel: ObservableObject {
                     name: dto.contest_name,
                     entryCount: dto.entry_count,
                     maxEntries: dto.max_entries ?? 0,
-                    status: dto.status,
+                    status: ContestStatus(rawValue: dto.status) ?? .scheduled,
                     creatorName: dto.organizer_name ?? "Unknown",
                     entryFee: fee,
                     joinToken: dto.join_token,
@@ -73,7 +73,7 @@ final class AvailableContestsViewModel: ObservableObject {
 
             print("[AvailableContestsViewModel] Mapped to \(contests.count) MockContest objects")
             for (index, contest) in contests.enumerated() {
-                print("[AvailableContestsViewModel] Contest \(index): \(contest.name) (status: \(contest.status), joined: \(contest.isJoined))")
+                print("[AvailableContestsViewModel] Contest \(index): \(contest.name) (status: \(contest.displayStatus), joined: \(contest.isJoined))")
             }
 
             // 🔵 POINT C: Log after contests array is assigned

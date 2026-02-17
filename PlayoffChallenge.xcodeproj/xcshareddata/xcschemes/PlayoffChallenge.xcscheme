@@ -46,6 +46,17 @@
                ReferencedContainer = "container:PlayoffChallenge.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "EA493C3A2F45134300F878AD"
+               BuildableName = "PlayoffChallengeUnitTests.xctest"
+               BlueprintName = "PlayoffChallengeUnitTests"
+               ReferencedContainer = "container:PlayoffChallenge.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

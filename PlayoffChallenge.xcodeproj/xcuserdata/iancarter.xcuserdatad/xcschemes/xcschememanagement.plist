@@ -9,10 +9,20 @@
 			<key>orderHint</key>
 			<integer>0</integer>
 		</dict>
+		<key>PlayoffChallengeUnitTests.xcscheme_^#shared#^_</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>1</integer>
+		</dict>
 	</dict>
 	<key>SuppressBuildableAutocreation</key>
 	<dict>
 		<key>EA345EB92EA45CB700689C4E</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>EA493C3A2F45134300F878AD</key>
 		<dict>
 			<key>primary</key>
 			<true/>

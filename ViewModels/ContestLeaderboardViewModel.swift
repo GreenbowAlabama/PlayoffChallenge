@@ -16,13 +16,13 @@ final class ContestLeaderboardViewModel: ObservableObject {
 
     // MARK: - Published State
 
-    @Published private(set) var leaderboardContract: LeaderboardResponseContract?
+    @Published internal(set) var leaderboardContract: LeaderboardResponseContract?
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
     // MARK: - Dependencies
 
-    private let contestId: UUID
+    internal let contestId: UUID
     private let fetcher: ContestDetailFetching
 
     // MARK: - Initialization

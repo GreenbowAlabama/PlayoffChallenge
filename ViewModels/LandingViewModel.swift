@@ -26,7 +26,7 @@ struct MockContest: Identifiable, Hashable, Codable {
     let name: String
     let entryCount: Int
     let maxEntries: Int
-    let status: String
+    let status: ContestStatus
     let creatorName: String
     let entryFee: Double
     let joinToken: String?
@@ -42,7 +42,7 @@ struct MockContest: Identifiable, Hashable, Codable {
         name: String,
         entryCount: Int,
         maxEntries: Int,
-        status: String,
+        status: ContestStatus,
         creatorName: String,
         entryFee: Double = 0.0,
         joinToken: String? = nil,
@@ -69,6 +69,10 @@ struct MockContest: Identifiable, Hashable, Codable {
         self.actions = actions
     }
 
+    var displayStatus: String {
+        status.rawValue.capitalized
+    }
+
     var formattedEntryFee: String {
         if entryFee == 0 {
             return "Free"
@@ -86,7 +90,7 @@ struct MockContest: Identifiable, Hashable, Codable {
             name: "NFL Playoffs 2026",
             entryCount: 45,
             maxEntries: 100,
-            status: "Open",
+            status: .scheduled,
             creatorName: "Admin",
             entryFee: 50.00,
             joinToken: "nfl2026token"
@@ -96,7 +100,7 @@ struct MockContest: Identifiable, Hashable, Codable {
             name: "Friends League",
             entryCount: 8,
             maxEntries: 20,
-            status: "Open",
+            status: .scheduled,
             creatorName: "JohnDoe",
             entryFee: 25.00,
             joinToken: "friendstoken"
@@ -106,7 +110,7 @@ struct MockContest: Identifiable, Hashable, Codable {
             name: "Office Pool",
             entryCount: 12,
             maxEntries: 50,
-            status: "Open",
+            status: .scheduled,
             creatorName: "Sarah",
             entryFee: 10.00,
             joinToken: "officetoken"
@@ -119,7 +123,7 @@ struct MockContest: Identifiable, Hashable, Codable {
             name: "My Custom Contest",
             entryCount: 5,
             maxEntries: 25,
-            status: "Open",
+            status: .scheduled,
             creatorName: "Player1",
             entryFee: 20.00,
             joinToken: "mycustomtoken",

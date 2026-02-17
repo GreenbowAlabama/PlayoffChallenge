@@ -43,6 +43,11 @@ struct ContestSummary: Codable, Equatable {
 
     var slotsRemaining: Int { totalSlots - filledSlots }
 
+    /// Whether the contest is at full capacity.
+    var isFull: Bool {
+        totalSlots > 0 && filledSlots >= totalSlots
+    }
+
     init(
         id: UUID,
         name: String,
