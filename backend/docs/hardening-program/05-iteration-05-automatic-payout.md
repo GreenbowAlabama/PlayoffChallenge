@@ -692,15 +692,146 @@ After iteration closure:
 
 ---
 
+## Iteration Status: IN PROGRESS
+
+**Current State**: Engine architecture complete. Services, repositories, and tests exist and are validated. Operational integration and end-to-end verification incomplete.
+
+**Blocking Items (Must Complete Before Iteration 05 Closure)**:
+1. ❌ Destination account lookup implementation (currently stubbed)
+2. ❌ Scheduler registration in server.js (not wired)
+3. ❌ End-to-end staging payout verification (not explicitly confirmed)
+4. ❌ Full payout execution without manual invocation (not tested)
+
+**When These Are Complete**: Iteration 05 closes and transitions to 06.
+
+---
+
+## Remaining Work Before Closure
+
+### 1. Destination Account Lookup Implementation
+
+**File**: `services/PayoutExecutionService.js:200`
+
+**Current**: Placeholder throws "Destination account lookup not yet implemented"
+
+**Required**:
+- Query `user_stripe_accounts` or equivalent table
+- Get user's connected Stripe account ID for contest
+- Return `acct_*` account ID for Stripe transfer destination
+- Handle missing account gracefully (transition to failed_terminal with clear error reason)
+
+**Dependency**: User/Stripe account mapping table must exist in schema
+
+### 2. Scheduler Wiring in server.js
+
+**File**: `server.js` (not yet modified)
+
+**Current**: No integration with background scheduler
+
+**Required**:
+```javascript
+const adminJobs = require('./services/adminJobs.service');
+const pool = require('./db/pool');
+
+// Register payout scheduler job
+adminJobs.registerJob('payout-scheduler', { interval_ms: 300000 });
+
+// Wire scheduler to run every 5 minutes
+setInterval(async () => {
+  try {
+    adminJobs.markJobRunning('payout-scheduler');
+    const result = await adminJobs.runPayoutScheduler(pool);
+    adminJobs.updateJobStatus('payout-scheduler', {
+      success: result.success,
+      processed: result.jobs_processed,
+      created: result.transfers_created,
+      failed: result.failures
+    });
+  } catch (error) {
+    adminJobs.updateJobStatus('payout-scheduler', {
+      success: false,
+      error: error.message
+    });
+  }
+}, 300000); // 5 minutes
+```
+
+**Dependency**: adminJobs service must be stable and available
+
+### 3. End-to-End Staging Verification
+
+**Procedure**:
+1. Create contest with payment requirement
+2. Complete ingestion (trigger SCHEDULED → LOCKED → LIVE → COMPLETE)
+3. Verify settlement completes
+4. Verify settlement_complete event triggers payout_job creation
+5. Wait for scheduler to run (or manually invoke `adminJobs.runPayoutScheduler()`)
+6. Verify all payout_transfers reach terminal state (completed OR failed_terminal)
+7. Verify Stripe transfer IDs are persisted
+8. Verify ledger entries created for all transfers
+9. Verify idempotency: re-run scheduler, confirm no duplicate transfers
+
+**Success Criteria**: All transfers either completed (with Stripe ID) or failed_terminal (with clear reason). No stuck transfers. No duplicate Stripe transfers.
+
+**Failure Criteria**: Any transfer left in pending/processing/retryable state. Any Stripe API error not logged. Any missing ledger entry.
+
+---
+
 ## Iteration Boundary Clarification
 
-Iteration 05 scope ends at:
+Iteration 05 scope includes:
 
-- Schema invariants (05A)
-- Deterministic orchestration (05B)
-- Stripe execution + idempotency guarantees (05C)
+- Schema invariants (05A): ✅ Complete
+- Deterministic orchestration (05B): ✅ Complete
+- Stripe execution + idempotency guarantees (05C): ✅ Complete
+- Destination account lookup (05D): ⏳ TODO
+- Scheduler wiring and operational verification (05E): ⏳ TODO
 
-Durable queue infrastructure intentionally deferred.
-See: ../infrastructure-enhancements/07-durable-queue-hardening.md
+---
 
-Iteration 05 is COMPLETE.
+## Explicit Non-Goals (Deferred to Iteration 07)
+
+**The following are explicitly OUT of Iteration 05 scope and deferred to infrastructure-enhancements/07-future-queue-hardening.md:**
+
+- ❌ Durable job queue (BullMQ, RabbitMQ, or equivalent distributed queue system)
+- ❌ Distributed worker node support (multi-instance scheduler coordination)
+- ❌ Queue persistence beyond database-backed idempotency
+- ❌ Job state replication across services
+- ❌ Custom queue monitoring and metrics infrastructure
+
+**Current Iteration 05 Capability**: Scheduler-based execution with database-level locking and idempotency keys.
+
+**Why This Is Production-Ready for Iteration 05**:
+- All payout operations are idempotent via Stripe idempotency keys + unique DB constraints
+- Job state is persisted in PostgreSQL with `payout_jobs` and `payout_transfers` tables
+- Row-level locking (SELECT ... FOR UPDATE) ensures safe concurrent processing
+- Retry logic is bounded (max_attempts = 3) and classified (transient vs. permanent)
+- Re-running failed jobs is safe; duplicates are prevented at database layer
+- Single-node scheduler (every 5 minutes) is sufficient for 30-day survivability window
+
+**What This Defers**:
+- Durable queue infrastructure (BullMQ or equivalent) is NOT required for Iteration 05
+- Multi-node scheduler coordination is NOT required for Iteration 05
+- Job state replication across workers is NOT required for Iteration 05
+
+**Iteration 07 Scope**: Infrastructure-enhancements/07-future-queue-hardening.md will define:
+- When/if BullMQ becomes necessary (scale trigger: > 1000 simultaneous payout jobs pending)
+- Architecture for multi-node scheduler deployment
+- Queue persistence and replication patterns
+- Monitoring and observability for distributed job system
+
+---
+
+**Iteration 05 Closure Gate**:
+
+Iteration 05 cannot close until:
+1. ✅ Schema is deployed (payout_jobs, payout_transfers tables with indexes)
+2. ✅ Services are implemented and tested (PayoutOrchestrationService, PayoutExecutionService, PayoutJobService, StripePayoutAdapter)
+3. ✅ All unit tests pass (idempotency, error classification, state transitions, retry logic)
+4. ❌ Destination account lookup is implemented (currently TODO)
+5. ❌ Scheduler is wired in server.js (currently TODO)
+6. ❌ End-to-end staging payout is verified (currently TODO)
+
+**Status**: Iteration 05 is IN PROGRESS. Complete the remaining work above before declaring closure.
+
+Queue durability infrastructure is deferred to Iteration 07 (infrastructure-enhancements phase).

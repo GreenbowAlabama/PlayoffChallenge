@@ -1,5 +1,17 @@
 # Iteration 06 – Operational + Technical Runbooks + Founder Absence Simulation
 
+## Overview
+
+Iteration 06 has three distinct sub-phases that must complete sequentially:
+
+- **06A – Runbook Audit Schema** (Required: runbook_executions table for audit trail)
+- **06B – Operational Runbooks Documentation** (Required: Procedures for all failure modes)
+- **06C – Founder Absence Simulation** (Required: Technical validation of operational autonomy)
+
+All three phases must complete before Iteration 06 closes.
+
+---
+
 ## Objective
 
 Establish step-by-step runbooks for every known failure mode and operational procedure.
@@ -7,47 +19,117 @@ Establish step-by-step runbooks for every known failure mode and operational pro
 Runbooks must:
 - Be executable by ops without engineering knowledge
 - Include exact commands, no "engineering will handle it"
-- Cover all known failure modes from iterations 01-04
+- Cover all known failure modes from iterations 01-05 (including automatic payout from Iteration 05)
 - Be tested in staging before production use
 - Include alerting rules and detection procedures
 - Enable 30-day autonomy without founder intervention
 
 ---
 
-## Architectural Constraints
+## Phase 06A – Runbook Audit Schema
 
-### Runbooks Are Not Code
+### Decision: runbook_executions Table Implementation
+
+**Question**: Does Iteration 06 require a `runbook_executions` table for audit trail?
+
+**Answer**: YES. The `runbook_executions` table is required in Iteration 06.
+
+**Table Purpose**: Every runbook execution must be logged with:
+- Timestamp
+- Operator (who ran it)
+- Which runbook executed
+- Which step within the runbook
+- Result (success, failure, partial)
+- Outcome state (before/after)
+
+This creates an audit trail essential for postmortem analysis.
+
+### Schema Changes Required (06A)
+
+**runbook_executions Table**
+```sql
+CREATE TABLE runbook_executions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  runbook_name TEXT NOT NULL,
+  runbook_version TEXT NOT NULL,
+  executed_by TEXT NOT NULL,
+  executed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  execution_phase TEXT NOT NULL,
+  phase_step INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'partial')),
+  start_time TIMESTAMPTZ,
+  end_time TIMESTAMPTZ,
+  duration_seconds INTEGER,
+  result_json JSONB,
+  error_reason TEXT,
+  system_state_before JSONB,
+  system_state_after JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_runbook_executions_runbook_executed_at
+  ON runbook_executions(runbook_name, executed_at);
+
+CREATE INDEX idx_runbook_executions_status
+  ON runbook_executions(status);
+```
+
+### Constraints (06A)
+- Append-only: No edits to runbook_executions rows after creation
+- Complete audit trail: Every execution step is logged before moving to next step
+- Before/after state snapshots: capture system state to verify recovery worked
+- No silent partial recovery: If any step fails, the entire execution is marked `failed` and escalation required
+
+### Completion Criteria (06A)
+✓ `runbook_executions` table created and migrated to staging
+✓ Table includes all required fields for full audit trail
+✓ Indexes are in place for query performance
+✓ Schema snapshot updated to include new table
+
+---
+
+## Phase 06B – Operational Runbooks Documentation
+
+### Objective
+
+Document step-by-step executable procedures for all failure modes.
+
+### Constraints
+
+### Runbook Documentation Constraints
+
+**Runbooks Are Not Code**
 - Runbooks are documentation; they are executable procedures
 - No "ask engineering" steps; every step must be runnable by ops
 - Commands are exact; no interpreting instructions
 - Each runbook is tested and verified before production
 
-### Runbooks Are Comprehensive
-- Every failure mode has a runbook
+**Runbooks Are Comprehensive**
+- Every failure mode has a runbook (including Iteration 05 payout failures)
 - Every operational task (backup, restore, config change) has a runbook
 - Every escalation path is documented
 - Every procedure has success criteria and rollback steps
 
-### Single Source of Truth
+**Single Source of Truth**
 - Runbooks are stored in `/backend/docs/runbooks/`
 - Each runbook is versioned and dated
 - Runbooks are linked from monitoring dashboards
-- Changes to runbooks are audited and approved
+- Changes to runbooks are audited and approved (via runbook_executions table)
 
 ---
 
-## SOLID Enforcement
+### SOLID Enforcement (06B)
 
-### Explicit Procedures
+**Explicit Procedures**
 - **Detection**: How to identify the failure (exact metric, log pattern, alert)
 - **Diagnosis**: How to confirm the root cause (exact commands, not guesses)
 - **Recovery**: Step-by-step procedure to restore service
 - **Verification**: How to confirm the fix worked
 - **Documentation**: What happened and why (for postmortem)
 
-**Document these procedures** in `/backend/docs/runbooks/` with templates for each type
+**Document these procedures** in `/backend/docs/runbooks/` with templates for each type.
 
-### No Hidden Knowledge
+**No Hidden Knowledge**
 - Every procedure is documented with inputs and outputs
 - Every command includes the exact syntax and expected output
 - Every conditional (if X, then Y) is explicit
@@ -64,32 +146,171 @@ Runbooks are self-contained; no runbook depends on another.
 
 ---
 
-## Data Model Impact
+## Phase 06B – Operational Runbooks Documentation (continued)
 
-### Schema Changes Required
-- `runbook_executions` table: audit trail of every runbook execution
-- No custom operational_alerts table; alerts integrate with managed monitoring provider
-- No application schema changes; runbooks are documentation and procedures
+### Monitoring and Alerting Infrastructure (06B)
 
-### Critical Constraint
-- Runbook execution is logged with timestamp, who ran it, which step, and result
-- This creates an audit trail for all operational procedures
-- Postmortems can review exactly what was done and when
-
-### Monitoring and Alerting Infrastructure
+**Constraints**:
 - Alerts must integrate with managed monitoring provider (Railway, Datadog, PagerDuty, or equivalent)
 - Do NOT create custom `operational_alerts` table; use hosted alerting from your infrastructure provider
 - Alerting rules are configured via provider (not database); changes do not require migrations
 - This respects the Infrastructure Tooling Constraints: no custom implementations of solved infrastructure problems
 
-### Automatic Payout Runbooks Required
-- Iteration 05 (Automatic Payout) must be complete before this iteration starts
-- Runbooks now include payout failure modes (transfer failure, partial batch, Stripe outage, etc.)
+### Automatic Payout Runbooks Required (06B)
+
+**Critical Dependency**:
+- Iteration 05 (Automatic Payout) must be complete before Iteration 06 begins
+- Runbooks now include payout failure modes: transfer failure, partial batch, Stripe outage, destination account invalid, user deleted post-settlement, idempotency conflicts
 - Founder Absence Simulation must test end-to-end payout execution without intervention
+
+**Payout Runbooks Must Cover**:
+- Detection of failed payout transfers
+- Diagnosis of retryable vs. terminal failures
+- Recovery procedure for transient payout failures (automatic retry)
+- Manual intervention procedure for permanent payout failures
+- Audit trail verification (ledger entries for all payout attempts)
 
 ---
 
-## Contract Impact
+## Phase 06C – Founder Absence Simulation
+
+### Objective
+
+Validate that the entire platform operates autonomously for 14 consecutive simulated days without any founder or engineering intervention.
+
+### Technical Definition: Founder Absence Simulation
+
+**What Is It**:
+A staged test in a production-like environment where all founder access is explicitly revoked, and automated systems must complete a full contest lifecycle without manual intervention.
+
+**Measurable Constraints**:
+
+1. **No Direct Production Database Access**
+   - Founder cannot execute SQL queries or run migrations during simulation
+   - All database state changes must happen via application layer
+   - Database access is monitored; any manual access fails the test
+
+2. **No Manual Stripe Dashboard Interventions**
+   - Founder cannot manually create, modify, or cancel Stripe payment intents
+   - Founder cannot manually initiate refunds or transfers
+   - Founder cannot adjust Stripe webhook configurations
+   - All payment and payout operations must occur via automated application logic
+
+3. **No Code Deploys or Configuration Changes**
+   - No new code can be deployed during simulation
+   - No environment variable changes
+   - No database configuration updates
+   - System must operate on production-deployed code and committed configuration
+
+4. **No Manual State Repairs**
+   - No running corrective SQL scripts
+   - No manual ledger entries or adjustments
+   - No triggering of internal functions via admin endpoints (except those exposed for normal operations)
+   - Only runbook procedures are permitted (and they must not require engineering knowledge)
+
+5. **All Contest Lifecycle Stages Must Complete Via Automated Systems**
+   - **SCHEDULED** → **LOCKED**: Automatic on configured lock time
+   - **LOCKED** → **LIVE**: Automatic on ingestion completion + configured start time
+   - **LIVE** → **COMPLETE**: Automatic on tournament completion signal from provider (or explicit end time)
+   - **COMPLETE** → Settlement execution (automatic via scheduler)
+   - **Settlement Complete** → Payout execution (automatic via scheduler)
+
+6. **All Ingestion Operations Automated**
+   - Provider score updates ingested automatically
+   - Ingestion validation must not require manual review
+   - Corrections must be applied via documented ingestion procedures only
+   - Scoring replay must run automatically
+
+7. **All Failure Recovery Automated or Runbook-Driven**
+   - Transient failures (network, API timeouts) must retry automatically
+   - Permanent failures must trigger documented runbook procedures (executable by ops)
+   - Escalation to engineering only if a failure has no matching runbook
+   - No "ask founder to debug this" steps
+
+### Test Scenario
+
+**Duration**: 14 simulated days (compressed to ~3 hours real time)
+
+**Sequence**:
+1. Create 3-5 contests with varied configurations (different prize pools, entry fees, participant counts)
+2. Lock contests automatically
+3. Trigger contests to LIVE state
+4. Inject 2-3 simulated rounds of score updates via provider API
+5. Intentionally trigger 1-2 failure modes:
+   - One payout transfer fails with transient error (timeout)
+   - One webhook duplicate arrives (to test idempotency)
+   - One payment webhook delayed (to test eventual consistency)
+6. Verify runbooks successfully recover all failures
+7. Complete all contests
+8. Execute settlement for all contests
+9. Execute payouts for all contests
+10. Verify all winners received correct amounts
+11. Verify audit trail is complete and accurate
+
+**Success Criteria**:
+- ✓ No founder intervention required at any point
+- ✓ All contests completed SCHEDULED → LOCKED → LIVE → COMPLETE → SETTLED → PAID_OUT
+- ✓ All injected failures were recovered via runbooks
+- ✓ All ledger entries correct and auditable
+- ✓ All payout transfers executed (or marked terminal failed)
+- ✓ Audit trail shows every operation with timestamp and reason
+- ✓ Admin dashboards reflect real-time state accurately
+- ✓ No errors requiring database access to resolve
+
+**Failure Criteria** (test fails if any of these occur):
+- ✗ Founder access required at any point
+- ✗ Any manual database edit needed
+- ✗ Runbook procedure fails when executed exactly as documented
+- ✗ Ingestion validation fails silently (no error logged)
+- ✗ Payment or payout requires manual Stripe intervention
+- ✗ Audit trail has gaps or missing entries
+- ✗ Payout execution requires manual trigger
+- ✗ System enters ERROR state with no documented recovery
+
+### Execution Checklist (06C)
+
+**Before Starting Simulation**:
+- [ ] All Iteration 05 (Automatic Payout) services are deployed to staging
+- [ ] All Iteration 06B runbooks are tested in staging (at least once per procedure)
+- [ ] Monitoring dashboards are active and reporting
+- [ ] runbook_executions table is created and tested
+- [ ] Founder access is explicitly revoked (verified by access control audit)
+- [ ] Engineering on-call is muted for non-emergency issues (test only)
+
+**During Simulation**:
+- [ ] All state transitions logged in real-time
+- [ ] No manual interventions recorded (access audit clean)
+- [ ] Runbooks executed for all injected failures
+- [ ] All runbook steps produce expected output
+- [ ] runbook_executions table populated for each procedure
+
+**After Simulation**:
+- [ ] All contests completed (no stuck states)
+- [ ] All winners paid out correctly (audit trail verified)
+- [ ] No data inconsistencies discovered
+- [ ] Audit trail is complete (no gaps)
+- [ ] Postmortem review completed (what went wrong, what worked)
+
+### Completion Criteria (06C)
+
+✓ **Founder Absence Simulation** passes with zero engineering intervention
+✓ All documented runbooks successfully execute in sequence without failure
+✓ All contest lifecycle stages complete automatically
+✓ All payout transfers either complete or transition to failed_terminal with documented reason
+✓ Audit trail is append-only and complete
+✓ 14-day simulation completes without system entering ERROR state
+✓ Ledger reconciliation shows correct balances for all participants
+✓ No data corrections required; system is self-healing
+
+**If Simulation Fails**:
+- Document the failure mode (which step failed and why)
+- Add runbook for the failure mode (or fix existing runbook if it failed)
+- Re-run simulation once fix is deployed
+- Iteration 06 cannot close until simulation passes
+
+---
+
+## Contract Impact (06B)
 
 ### Breaking Changes (None)
 - Runbooks do not change API contracts
@@ -325,27 +546,62 @@ Runbooks are self-contained; no runbook depends on another.
 
 ---
 
-## Completion Criteria
+## Completion Criteria (All Phases)
 
-✓ All known failure modes have runbooks
+### Phase 06A – Runbook Audit Schema
+✓ `runbook_executions` table created with all required fields
+✓ Append-only constraint enforced (no edits after creation)
+✓ Indexes created for query performance
+✓ Schema snapshot updated and committed
+
+### Phase 06B – Operational Runbooks Documentation
+✓ All known failure modes (01-05 iterations) have runbooks
 ✓ All operational tasks have runbooks
 ✓ All escalation procedures are documented
 ✓ Every runbook step is executable without interpretation
-✓ Every runbook is tested in staging
+✓ Every runbook is tested in staging (at least once)
 ✓ All recovery procedures are verified to work
 ✓ All rollback procedures are tested
 ✓ Monitoring and alerting rules are in place
 ✓ Dashboards display critical operational metrics
-✓ Audit trail captures all procedure executions
 ✓ Postmortem template is ready for use
 ✓ No "ask engineering" steps remain in runbooks
-✓ **Founder Absence Simulation (14-day test in staging)**:
-  - Disable all engineering access to production
-  - Run ingestion automatically for 14 simulated days
-  - Run settlement automatically for all contests
-  - Trigger one payment failure and execute refund runbook end-to-end
-  - All operations complete without engineering intervention
-  - Runbooks cannot close without passing this mandatory test
+✓ All Iteration 05 payout failure modes have documented runbooks:
+  - Transient payout failures (timeout, rate limit, 5xx)
+  - Terminal payout failures (invalid account, 4xx validation)
+  - Partial batch execution (mixed success/failure)
+  - Stripe API outage
+  - Webhook delays
+  - User deleted post-settlement
+
+### Phase 06C – Founder Absence Simulation
+✓ 14-day staging simulation completes without founder/engineering access
+✓ No manual database edits during simulation
+✓ No manual Stripe dashboard interventions
+✓ No code deploys or configuration changes during simulation
+✓ All runbooks executed successfully when needed
+✓ All contest lifecycle stages completed automatically (SCHEDULED → LOCKED → LIVE → COMPLETE → SETTLED → PAID_OUT)
+✓ All injected failures recovered via documented procedures
+✓ Payout transfers executed automatically (either completed or failed_terminal with logged reason)
+✓ Audit trail is complete and append-only
+✓ Ledger reconciliation shows correct final balances
+✓ Zero engineering intervention required during entire 14-day simulation
+
+---
+
+## Iteration 06 Closure Gate
+
+**Iteration 06 cannot close until ALL of the following are true:**
+1. Phase 06A: `runbook_executions` table created and tested
+2. Phase 06B: All runbooks documented, tested, and passing
+3. Phase 06C: Founder Absence Simulation passes with zero intervention
+
+If Phase 06C fails:
+- Document the failure mode
+- Create or update runbook for that mode
+- Deploy fix to staging
+- Re-run simulation
+- Repeat until Phase 06C passes
 
 ---
 
@@ -396,14 +652,14 @@ See iteration 05 (Automatic Payout) for payout failure definitions.
 ## Program Completion
 
 Once this iteration closes:
-- **All iterations 01-06 are complete**
-  - Iteration 01: Masters Config-Driven Golf Engine
-  - Iteration 02: Ingestion Validation + Replay
-  - Iteration 03: Payment Integration + Ledger Governance
-  - Iteration 04: Contract Freeze
-  - Iteration 05: Automatic Payout Execution ✓
-  - Iteration 06: Operational Runbooks + Founder Absence Simulation ✓
-- **30-Day Survivability is achieved**
+- **All iterations 01-06 are complete** (prerequisite for survivability claim)
+  - Iteration 01: Masters Config-Driven Golf Engine ✓
+  - Iteration 02: Ingestion Validation + Replay ✓
+  - Iteration 03: Payment Integration + Ledger Governance ✓
+  - Iteration 04: Contract Freeze ✓
+  - Iteration 05: Automatic Payout Execution (must complete all three blockers)
+  - Iteration 06: Operational Runbooks + Founder Absence Simulation (current)
+- **30-Day Survivability is achieved** (once all iterations 01-06 are complete, and Founder Absence Simulation passes)
   - All automatic systems verified working without manual intervention
   - Founder Absence Simulation passed: 14-day staging simulation with zero engineering access
   - All failure modes have documented recovery procedures

@@ -248,11 +248,11 @@ async function countTerminalByJobId(pool, job_id) {
     [job_id]
   );
 
-  const row = result.rows[0];
+  const row = result.rows[0] || {};
   return {
-    completed: row.completed || 0,
-    failed: row.failed || 0,
-    total: row.total || 0
+    completed: Number(row.completed) || 0,
+    failed: Number(row.failed) || 0,
+    total: Number(row.total) || 0
   };
 }
 

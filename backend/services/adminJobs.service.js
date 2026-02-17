@@ -174,14 +174,33 @@ async function runPayoutScheduler(pool) {
       transferBatchSize: 50
     });
 
+    // INSTRUMENTATION: Log result before returning
+    console.log('[adminJobs.runPayoutScheduler] Execution complete', {
+      success: true,
+      jobs_processed: result.jobs_processed,
+      jobs_completed: result.jobs_completed,
+      total_transfers_processed: result.total_transfers_processed,
+      errors_count: result.errors.length
+    });
+
     return {
       success: true,
       ...result
     };
   } catch (error) {
+    // INSTRUMENTATION: Capture full error context - never return empty error
+    const errorMessage = error && error.message ? error.message : String(error);
+    const fullError = errorMessage || 'Unknown scheduler error (no error message)';
+
+    console.error('[adminJobs.runPayoutScheduler] FAILED', {
+      error: fullError,
+      error_type: error?.constructor?.name || 'Unknown',
+      has_stack: !!(error && error.stack)
+    });
+
     return {
       success: false,
-      error: error.message
+      error: fullError
     };
   }
 }

@@ -24,6 +24,7 @@ const PayoutExecutionService = require('./PayoutExecutionService');
  *
  * Processes all pending and retryable transfers in the job.
  * Updates job status to 'processing' and then 'complete' when all transfers are terminal.
+ * ALWAYS checks and finalizes job state, even if no transfers need processing.
  *
  * @param {Object} pool - Database connection pool
  * @param {string} payoutJobId - UUID of payout job
@@ -62,13 +63,15 @@ async function processJob(pool, payoutJobId, options = {}) {
     };
   }
 
-  // Mark job as processing (idempotent)
+  // Mark job as processing (transition from pending → processing, idempotent)
+  let jobStatus = job.status;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    if (job.status === 'pending') {
+    if (jobStatus === 'pending') {
       await PayoutJobsRepository.updateStatus(client, payoutJobId, 'processing', true);
+      jobStatus = 'processing';
     }
 
     await client.query('COMMIT');
@@ -115,39 +118,96 @@ async function processJob(pool, payoutJobId, options = {}) {
     }
   }
 
-  // Check if job should transition to complete
-  // Job is complete when all transfers are in terminal state (completed or failed_terminal)
+  // CRITICAL: Always check and finalize job state, even if no transfers processed in this execution.
+  // This handles the case where all transfers are already terminal from a previous scheduler run.
+  // Must be idempotent: calling multiple times with same job state is safe.
+  let finalJobStatus = jobStatus;
+  let jobCompleted = false;
+
   const terminalCounts = await PayoutTransfersRepository.countTerminalByJobId(pool, payoutJobId);
 
-  let jobCompleted = false;
-  if (terminalCounts.completed + terminalCounts.failed === terminalCounts.total && terminalCounts.total > 0) {
-    // All transfers are terminal - mark job as complete
-    const updateClient = await pool.connect();
-    try {
-      await updateClient.query('BEGIN');
+  // INSTRUMENTATION: Log terminal state
+  console.log('[PayoutJobService.processJob] Terminal counts', {
+    job_id: payoutJobId,
+    completed: terminalCounts.completed,
+    failed: terminalCounts.failed,
+    total: terminalCounts.total
+  });
 
-      await PayoutJobsRepository.updateCounts(
-        updateClient,
+  // Explicit validation: ensure counts are numbers (not null/undefined)
+  if (typeof terminalCounts.total !== 'number' || terminalCounts.total < 0) {
+    throw new Error(`Invalid terminal count for job ${payoutJobId}: total=${terminalCounts.total}`);
+  }
+
+  // All transfers must be in terminal state (completed or failed_terminal)
+  const allTerminal = terminalCounts.completed + terminalCounts.failed === terminalCounts.total;
+  const hasTransfers = terminalCounts.total > 0;
+
+  // INSTRUMENTATION: Log finalization decision
+  console.log('[PayoutJobService.processJob] Finalization check', {
+    job_id: payoutJobId,
+    all_terminal: allTerminal,
+    has_transfers: hasTransfers,
+    will_finalize: allTerminal && hasTransfers
+  });
+
+  if (allTerminal && hasTransfers) {
+    // All transfers are terminal - finalize job immediately
+    console.log('[PayoutJobService.processJob] Finalization starting', {
+      job_id: payoutJobId,
+      completed_count: terminalCounts.completed,
+      failed_count: terminalCounts.failed
+    });
+
+    const finalizeClient = await pool.connect();
+    try {
+      await finalizeClient.query('BEGIN');
+
+      // Update counts AND transition to 'complete' atomically
+      const updateResult = await PayoutJobsRepository.updateCounts(
+        finalizeClient,
         payoutJobId,
         terminalCounts.completed,
         terminalCounts.failed
       );
 
-      await updateClient.query('COMMIT');
+      if (!updateResult) {
+        throw new Error(`Failed to update job counts: no row returned`);
+      }
+
+      await finalizeClient.query('COMMIT');
+      finalJobStatus = 'complete';
       jobCompleted = true;
-    } catch (error) {
-      await updateClient.query('ROLLBACK');
-      errors.push({
-        error: `Failed to mark job complete: ${error.message}`
+
+      // INSTRUMENTATION: Log successful finalization
+      console.log('[PayoutJobService.processJob] Finalization succeeded', {
+        job_id: payoutJobId,
+        new_status: 'complete'
       });
+    } catch (error) {
+      await finalizeClient.query('ROLLBACK');
+
+      // INSTRUMENTATION: Log finalization failure
+      console.error('[PayoutJobService.processJob] Finalization FAILED', {
+        job_id: payoutJobId,
+        error: error.message
+      });
+
+      // Do NOT swallow finalization errors - they indicate data consistency issues
+      errors.push({
+        error: `CRITICAL: Failed to finalize job ${payoutJobId}: ${error.message}`
+      });
+      // Preserve original job status in return (finalization failed)
+      finalJobStatus = jobStatus;
+      jobCompleted = false;
     } finally {
-      updateClient.release();
+      finalizeClient.release();
     }
   }
 
   return {
     job_id: payoutJobId,
-    status: jobCompleted ? 'complete' : job.status,
+    status: finalJobStatus,
     transfers_processed: transfersProcessed,
     transfers_completed: transfersCompleted,
     transfers_failed: transfersFailed,
@@ -160,7 +220,7 @@ async function processJob(pool, payoutJobId, options = {}) {
  * Process all pending and processing payout jobs.
  *
  * Called by scheduler. Finds all non-complete jobs and processes them.
- * Uses SKIP LOCKED for concurrent safety (multiple scheduler instances).
+ * Ensures job finalization completes even if job is stuck in 'processing' state.
  *
  * @param {Object} pool - Database connection pool
  * @param {Object} options - Processing options
@@ -173,12 +233,32 @@ async function processJob(pool, payoutJobId, options = {}) {
  *   total_transfers_processed: number,
  *   errors: Array of error messages
  * }
+ * @throws {Error} If job selection fails (with full context in error message)
  */
 async function processPendingJobs(pool, options = {}) {
   const { jobBatchSize = 10, transferBatchSize = 50 } = options;
 
-  // Fetch pending/processing jobs
-  const jobs = await PayoutJobsRepository.findPendingOrProcessing(pool, jobBatchSize);
+  let jobs = [];
+
+  // Fetch pending/processing jobs with explicit error handling
+  try {
+    jobs = await PayoutJobsRepository.findPendingOrProcessing(pool, jobBatchSize);
+  } catch (error) {
+    // Throw with full context if job selection fails
+    const errorMessage = error && error.message ? error.message : String(error);
+    throw new Error(
+      `CRITICAL: Failed to select pending/processing jobs: ${errorMessage}. ` +
+      `This blocks all payout processing. Check database connection and payout_jobs table.`
+    );
+  }
+
+  // INSTRUMENTATION: Log job selection results
+  const jobIds = jobs.map(j => j.id);
+  console.log('[PayoutJobService.processPendingJobs] Job selection complete', {
+    jobs_selected: jobs.length,
+    job_ids: jobIds,
+    batch_size: jobBatchSize
+  });
 
   let jobsProcessed = 0;
   let jobsCompleted = 0;
@@ -187,7 +267,24 @@ async function processPendingJobs(pool, options = {}) {
 
   for (const job of jobs) {
     try {
+      // INSTRUMENTATION: Log per-job entry
+      console.log('[PayoutJobService.processPendingJobs] Processing job', {
+        job_id: job.id,
+        initial_status: job.status
+      });
+
       const result = await processJob(pool, job.id, { transferBatchSize });
+
+      // INSTRUMENTATION: Log per-job result
+      console.log('[PayoutJobService.processPendingJobs] Job processing result', {
+        job_id: job.id,
+        final_status: result.status,
+        transfers_processed: result.transfers_processed,
+        transfers_completed: result.transfers_completed,
+        transfers_failed: result.transfers_failed,
+        transfers_retryable: result.transfers_retryable,
+        errors_count: result.errors.length
+      });
 
       jobsProcessed += 1;
       if (result.status === 'complete') {
@@ -202,13 +299,30 @@ async function processPendingJobs(pool, options = {}) {
         });
       }
     } catch (error) {
+      // Capture full error context, not just error.message
+      const errorMessage = error && error.message ? error.message : String(error);
+
+      // INSTRUMENTATION: Log job processing exception
+      console.error('[PayoutJobService.processPendingJobs] Job processing FAILED', {
+        job_id: job.id,
+        error: errorMessage
+      });
+
       errors.push({
         job_id: job.id,
-        error: error.message
+        error: `processJob failed: ${errorMessage}`
       });
       jobsProcessed += 1;
     }
   }
+
+  // INSTRUMENTATION: Log final scheduler results
+  console.log('[PayoutJobService.processPendingJobs] Scheduler cycle complete', {
+    jobs_processed: jobsProcessed,
+    jobs_completed: jobsCompleted,
+    total_transfers_processed: totalTransfersProcessed,
+    total_errors: errors.length
+  });
 
   return {
     jobs_processed: jobsProcessed,

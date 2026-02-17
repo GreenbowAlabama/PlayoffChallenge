@@ -1,15 +1,16 @@
-# Iteration 05B - Automatic Payout Implementation Status
+# Iteration 05 - Automatic Payout Implementation Status
 
 ## Overview
-Iteration 05B implements the core automatic payout service infrastructure. This document tracks what was implemented and what remains.
+Iteration 05 implements the core automatic payout service infrastructure. This document tracks what was implemented and what remains.
 
-**Status**: PARTIAL IMPLEMENTATION
+**Status**: IN PROGRESS (Engine Complete, Operational Wiring Incomplete)
 - ✅ Database schema deployed (migrations complete)
 - ✅ Service layer implemented and tested
 - ✅ Repository layer for data access
-- ⏳ Destination account lookup (TODO - requires Stripe account setup)
-- ⏳ Scheduler wiring to server (TODO - requires server integration)
-- ⏳ End-to-end integration tests (TODO - requires full environment setup)
+- ✅ All unit tests passing
+- ❌ Destination account lookup (BLOCKING - required before closure)
+- ❌ Scheduler wiring to server.js (BLOCKING - required before closure)
+- ❌ End-to-end staging verification (BLOCKING - required before closure)
 
 ---
 
@@ -108,63 +109,117 @@ Iteration 05B implements the core automatic payout service infrastructure. This 
 
 ---
 
-## What Remains (TODO)
+## Blocking Work (Must Complete Before Iteration 05 Closure)
 
-### 1. Destination Account Lookup
+### BLOCKER 1: Destination Account Lookup Implementation
 **File**: `services/PayoutExecutionService.js:200`
 
-Current: Placeholder throws "Destination account lookup not yet implemented"
+**Current State**: Placeholder throws "Destination account lookup not yet implemented"
 
-Required:
-- Query `user_stripe_accounts` (or equivalent) table
-- Get user's connected Stripe account ID for contest
-- Return `acct_*` account ID for Stripe transfer
+**What's Required**:
+- Query `user_stripe_accounts` (or equivalent) table to retrieve user's connected Stripe account
+- Get user's connected Stripe account ID for the contest
+- Return `acct_*` account ID for Stripe transfer destination
+- Handle missing account gracefully: transition transfer to `failed_terminal` with error reason "stripe_account_not_connected"
 
-This blocks actual Stripe transfer execution but doesn't block testing infrastructure.
+**Why This Blocks**:
+- Without this, payout execution fails on every transfer (no destination account to send to)
+- Completion criterion explicitly requires this in original 05 docs
+- Iteration 06 Founder Absence Simulation cannot run without working payouts
 
-### 2. Scheduler Wiring
+**Testing**: Unit test must verify:
+- Valid account ID returns correctly
+- Missing account returns error
+- Invalid account returns error
+
+### BLOCKER 2: Scheduler Wiring in server.js
 **File**: `server.js` (not yet modified)
 
-Required:
-- Fetch database pool
-- Call `adminJobs.runPayoutScheduler(pool)` periodically
-- Register job with `adminJobs.registerJob()`
-- Update job status after each run with `adminJobs.updateJobStatus()`
-- Recommended: Every 5 minutes (300 seconds)
+**Current State**: No scheduler integration
 
-Example:
+**What's Required**:
 ```javascript
 const adminJobs = require('./services/adminJobs.service');
-const pool = require('./db/pool'); // or however pool is initialized
+const pool = require('./db/pool');
 
-adminJobs.registerJob('payout-scheduler', { interval_ms: 300000 });
+// Register payout scheduler job
+adminJobs.registerJob('payout-scheduler', {
+  interval_ms: 300000, // 5 minutes
+  description: 'Process pending payout jobs'
+});
 
+// Wire scheduler to run automatically
 setInterval(async () => {
-  adminJobs.markJobRunning('payout-scheduler');
-  const result = await adminJobs.runPayoutScheduler(pool);
-  adminJobs.updateJobStatus('payout-scheduler', { success: result.success });
+  try {
+    adminJobs.markJobRunning('payout-scheduler');
+    const result = await adminJobs.runPayoutScheduler(pool);
+    adminJobs.updateJobStatus('payout-scheduler', {
+      success: result.success,
+      jobs_processed: result.jobs_processed,
+      transfers_created: result.transfers_created,
+      failures: result.failures
+    });
+  } catch (error) {
+    console.error('Payout scheduler error:', error);
+    adminJobs.updateJobStatus('payout-scheduler', {
+      success: false,
+      error: error.message
+    });
+  }
 }, 300000);
 ```
 
-### 3. Integration Tests
-**Files**: Not yet created
+**Why This Blocks**:
+- Without scheduler wiring, payouts never execute automatically
+- Completion criterion requires: "Payout scheduler runs every 5 minutes"
+- Completion criterion requires: "Automatic payout verified in staging"
+- Iteration 06 Founder Absence Simulation requires automatic execution
 
-Required:
-- End-to-end test with real database
-- Settlement completion → automatic payout job creation
-- Job processing with mocked Stripe
-- Verify transfers, ledger entries, and state transitions
-- Verify deterministic re-runs produce no duplicates
+**Testing**: Verify:
+- Scheduler starts without errors on server initialization
+- Job appears in `/admin/jobs` diagnostics
+- Job executes every 5 minutes
+- Job status updates with results
 
-### 4. Documentation Updates
+### BLOCKER 3: End-to-End Staging Verification
+**Procedure** (must complete before closure):
 
-**Completed**:
-- This implementation status file (05-IMPLEMENTATION-STATUS.md)
+1. **Setup**: Create test contest with payment requirement and configured participants
+2. **Ingestion**: Complete contest lifecycle (SCHEDULED → LOCKED → LIVE → COMPLETE) via provider API
+3. **Settlement**: Trigger settlement; verify settlement_complete event fires
+4. **Payout Job**: Verify payout_job created automatically (via orchestration layer observer)
+5. **Scheduler**: Let scheduler run (or manually invoke for testing)
+6. **Transfers**: Verify all payout_transfers reach terminal state
+7. **Stripe**: Verify Stripe transfer IDs persisted in database
+8. **Ledger**: Verify ledger entries created for all transfers (success or failure)
+9. **Idempotency**: Re-run scheduler; confirm NO duplicate transfers created
 
-**Pending**:
-- Update DECISION-LOG.md with implementation decisions
-- Update LESSONS-LEARNED.md with learnings
-- Add runbook for operational monitoring
+**Success Criteria** (ALL must be true):
+- All transfers reach terminal state (completed OR failed_terminal)
+- Stripe transfer IDs populated for all completed transfers
+- Ledger entries exist for all transfers
+- No stuck transfers in pending/processing/retryable
+- No duplicate Stripe transfers (idempotency verified)
+
+**Failure Criteria** (ANY of these fails closure):
+- Any transfer stuck in non-terminal state
+- Missing Stripe transfer ID on completed transfer
+- Missing ledger entry
+- Duplicate Stripe transfer detected
+- Scheduler did not run or crashed
+
+---
+
+## Non-Blocking Remaining Work (Can Be Done in Parallel or After Closure)
+
+### Documentation Updates
+**Status**: Partially complete
+- Implementation status file: Updated
+- Decision log: Updated
+- Lessons learned: TODO
+- Operational runbook: TODO (moves to Iteration 06)
+
+These do not block closure but should be completed soon after blocking work completes.
 
 ---
 
@@ -243,6 +298,7 @@ ON CONFLICT (idempotency_key) DO NOTHING;
 - PostgreSQL 12+ (for gen_random_uuid())
 - Stripe API key (for testing, but service doesn't require it without destination account)
 - Node.js 14+ (for async/await)
+- **All payout operations must be executable via adminJobs scheduler without manual DB intervention** (prerequisite for Iteration 06 Founder Absence Simulation)
 
 ### Optional
 - Redis (not used in this iteration; added for future scheduler scaling)
@@ -274,42 +330,106 @@ ON CONFLICT (idempotency_key) DO NOTHING;
 
 ---
 
-## Next Steps
+## Path to Iteration 05 Closure
 
-1. **Implement destination account lookup**
-   - Requires coordination with Stripe account setup
-   - May need new migration for user_stripe_accounts table
+### Phase 1: Complete Blocking Work (Required Before Closure)
 
-2. **Wire scheduler to server**
-   - Add setInterval in server.js
-   - Register with adminJobs
-   - Log execution
+**Order** (must complete in sequence):
 
-3. **Create integration tests**
-   - Test with real database
-   - Mock Stripe API
-   - Verify full flow
+1. **Implement destination account lookup** (PayoutExecutionService.js:200)
+   - Replace stub with actual user_stripe_accounts query
+   - Add error handling for missing account
+   - Add unit tests for valid/missing/invalid accounts
 
-4. **Update documentation**
+2. **Wire scheduler in server.js**
+   - Add adminJobs registration
+   - Add setInterval with error handling
+   - Verify job appears in `/admin/jobs` diagnostics
+   - Add startup log confirming scheduler is active
+
+3. **Verify end-to-end in staging**
+   - Execute full contest → settlement → payout flow
+   - Confirm all transfers reach terminal state
+   - Verify Stripe transfer IDs persisted
+   - Confirm ledger entries exist
+   - Test idempotency (re-run scheduler, no duplicates)
+
+### Phase 2: Verification & Documentation (Can Parallel Phase 1)
+
+4. **Staging deployment**
+   - Deploy all changes to staging
+   - Run all unit tests
+   - Monitor first scheduler runs
+
+5. **Update documentation**
    - Add to DECISION-LOG.md
    - Add to LESSONS-LEARNED.md
-   - Add operational runbook
 
-5. **Deploy to staging**
-   - Run migrations
-   - Deploy service code
-   - Enable scheduler
-   - Monitor first executions
+### Phase 3: Iteration Closure (After Phase 1 & 2 Complete)
+
+6. **Mark Iteration 05 as COMPLETE**
+   - Update this status file: "Status: COMPLETE"
+   - Update 05-iteration-05-automatic-payout.md: "Iteration 05 is COMPLETE"
+   - Commit schema snapshot
+   - Close iteration
+
+### If Blocking Work Discovers Issues
+
+- **Bug in implementation**: Fix in PayoutExecutionService or PayoutJobService; add unit test
+- **Missing schema**: Deploy migration; update snapshot
+- **Staging infrastructure issue**: Escalate to DevOps; do not proceed to closure
+- Do NOT proceed to closure until all blockers are resolved
 
 ---
 
-## Rollback Plan
+## Issue Discovery & Escalation
 
-If issues discovered:
-1. Disable scheduler (comment out setInterval)
-2. No data cleanup needed (append-only ledger)
-3. Manually retry failed transfers once fixed
-4. Re-run migrations if schema changes needed
+If blocking work discovers issues:
+
+### For Implementation Bugs (PayoutExecutionService, PayoutJobService, etc.)
+1. Add test case that reproduces the bug
+2. Fix the implementation
+3. Verify all unit tests pass
+4. Re-deploy to staging
+5. Re-run end-to-end verification
+6. Continue to closure
+
+### For Missing Infrastructure (user_stripe_accounts table, etc.)
+1. Create migration
+2. Update schema snapshot
+3. Deploy migration to staging
+4. Re-run end-to-end verification
+5. Continue to closure
+
+### For Staging Environment Issues (scheduler can't start, pool unavailable, etc.)
+1. Document the issue with full error logs
+2. Escalate to infrastructure team
+3. Do NOT proceed to closure until resolved
+
+### Rollback (if fatal issue found)
+1. Disable scheduler (comment out setInterval in server.js)
+2. Keep schema (append-only ledger is safe)
+3. Document the issue in DECISION-LOG.md
+4. Escalate to architecture team
+5. Iteration 05 remains IN PROGRESS until fixed
+
+---
+
+---
+
+## Explicit Non-Goals (Deferred to Iteration 07)
+
+**The following are explicitly OUT of Iteration 05 scope and deferred to infrastructure-enhancements/07-future-queue-hardening.md:**
+
+- ❌ Durable job queue (BullMQ, RabbitMQ, or equivalent distributed queue system)
+- ❌ Distributed worker node support (multi-instance scheduler coordination)
+- ❌ Queue persistence beyond database-backed idempotency
+- ❌ Job state replication across services
+- ❌ Custom queue monitoring and metrics infrastructure
+
+**Status**: Iteration 05 will implement scheduler-based execution with database-level idempotency guarantees. Once scheduler is wired and end-to-end verified, this approach will be production-ready for 30-day survivability window. Queue durability infrastructure is a future enhancement, not required for Iteration 05 closure.
+
+See: `../infrastructure-enhancements/07-future-queue-hardening.md`
 
 ---
 

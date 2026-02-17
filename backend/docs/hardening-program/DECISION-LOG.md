@@ -438,6 +438,66 @@ All mutating operations must be idempotent. Duplicate external events must be sa
 
 ---
 
+### Decision: Iteration 05 Governance — Strict Closure Path (PATH A)
+
+**Date**: 2026-02-16
+**Iteration**: 05 Status Realignment
+**Context**: Documentation claimed "Iteration 05 is COMPLETE" but implementation status showed TODOs (destination account lookup, scheduler wiring, E2E verification). Governance mismatch created risk: Iteration 06 depends on working automatic payouts, but 05 was not actually complete.
+**Decision**: Adopt strict closure path (PATH A). Iteration 05 remains IN PROGRESS until all three blockers are resolved:
+  1. Destination account lookup implemented (no stubs)
+  2. Scheduler wired in server.js (automatic execution)
+  3. End-to-end staging payout verified (all transfers terminal, no stuck transfers, idempotency verified)
+**Rationale**:
+- Completion criteria in original Iteration 05 docs explicitly require: "Scheduled job registered" + "Automatic payout verified in staging"
+- Iteration 06 Founder Absence Simulation requires automatic payout to work
+- Governance integrity requires: if we claim iteration complete, all completion criteria must be met
+- Alternative (PATH B - marking as "engine complete") would create ambiguity about operational readiness
+- Honest status prevents scope drift and ensures clear handoff to 06
+**Alternatives Rejected**:
+  - PATH B (Engine Complete — Wiring Finalized Before 06C): Creates ambiguity; doesn't clarify what "complete" means; still blocks 06 on completion
+  - Proceed to 06 with 05 incomplete: Violates dependency chain; 06C (simulation) requires working payouts; cannot test without 05 complete
+**Impact**:
+- Iteration 05 status: IN PROGRESS (not COMPLETE)
+- All files updated to reflect true state
+- Blockers explicitly documented in 05-IMPLEMENTATION-STATUS.md
+- Iteration 06 cannot start until these blockers are resolved
+- Clear path to closure documented
+**Owner**: Architecture Team
+**Status**: Active (governance decision for Iteration 05)
+
+---
+
+### Decision: Queue Durability Deferred to Iteration 07
+
+**Date**: 2026-02-16
+**Iteration**: 05 Infrastructure Planning
+**Context**: Iteration 05 (Automatic Payout) is IN PROGRESS with scheduler-based execution architecture. Risk: over-engineering queue infrastructure prematurely when simpler solution will be sufficient for 30-day survivability window.
+**Decision**: Durable queue infrastructure (BullMQ or equivalent) is deferred to Iteration 07 (infrastructure-enhancements phase). Iteration 05 will use scheduler-based execution with database-level locking and idempotency keys.
+**Rationale**:
+- Database-backed idempotency (unique constraints, deterministic keys) will prevent duplicates without a queue system
+- Scheduler will run every 5 minutes; sufficient for 30-day survivability window (low-volume contests)
+- Row-level locking (SELECT ... FOR UPDATE) will ensure safe concurrent processing on single node
+- Retry logic is classified and bounded (transient errors get retried; permanent errors transition to failed_terminal)
+- Adding BullMQ now adds operational complexity without current scale justification
+- Future trigger: when scale requires multi-node scheduler or > 1000 pending payout jobs
+
+**Alternatives Rejected**:
+  - Implement BullMQ in Iteration 05: Adds complexity; not needed for 30-day window; violates "no over-engineering" principle
+  - Defer payout to Iteration 07 after queue is ready: Blocks autonomy testing; payout must complete before runbooks can be validated
+
+**Impact**:
+- Iteration 05 deployment includes scheduler, not queue infrastructure
+- Iteration 06 Founder Absence Simulation uses single-node scheduler (sufficient for test)
+- Iteration 07 infrastructure-enhancements will define queue system, multi-node scheduler, and migration path
+- No Iteration 05 scope change; no re-implementation needed
+
+**Owner**: Architecture Team
+**Status**: Active
+
+Trigger for revisiting: Scale hits 1000+ pending payouts, or multi-node deployment becomes necessary.
+
+---
+
 ## Superseded Decisions
 
 (None yet. First decisions logged at program start.)

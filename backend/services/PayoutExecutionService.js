@@ -63,20 +63,40 @@ async function executeTransfer(pool, transferId, getDestinationAccountFn) {
     // Step 2: Mark as processing and increment attempt_count
     const processingTransfer = await PayoutTransfersRepository.markProcessing(client, transferId);
 
-    // Step 3: Call Stripe with idempotency key
+    // Step 3: Lookup destination Stripe account
     // Idempotency key is deterministic: payout:<transfer_id>
-    // TODO: Implement destination account lookup from user_stripe_accounts or similar
     const destination = getDestinationAccountFn
       ? await getDestinationAccountFn(pool, transfer.contest_id, transfer.user_id)
       : await getDestinationAccount(pool, transfer.contest_id, transfer.user_id);
 
+    // If destination account not connected, mark as failed_terminal immediately
+    // Do NOT call Stripe - account connectivity is a permanent, non-retryable issue
+    // Do NOT create ledger entry - no financial event occurred (Stripe was never contacted)
+    if (!destination) {
+      await PayoutTransfersRepository.markFailedTerminal(
+        client,
+        transferId,
+        'DESTINATION_ACCOUNT_MISSING'
+      );
+
+      await client.query('COMMIT');
+
+      return {
+        transfer_id: transferId,
+        status: 'failed_terminal',
+        stripe_transfer_id: null,
+        failure_reason: 'DESTINATION_ACCOUNT_MISSING'
+      };
+    }
+
+    // Step 4: Call Stripe with idempotency key (account is connected)
     const stripeResult = await StripePayoutAdapter.createTransfer({
       amountCents: transfer.amount_cents,
       destination,
       idempotencyKey: `payout:${transferId}`
     });
 
-    // Step 4: Handle Stripe result and update transfer state
+    // Step 5: Handle Stripe result and update transfer state
     let updatedTransfer;
     let ledgerEntryType;
     let ledgerDirection;
@@ -126,7 +146,7 @@ async function executeTransfer(pool, transferId, getDestinationAccountFn) {
       throw new Error(`Invalid error classification: ${stripeResult.classification}`);
     }
 
-    // Step 5: Create ledger entry for this attempt
+    // Step 6: Create ledger entry for this attempt
     await LedgerRepository.insertLedgerEntry(client, {
       contest_instance_id: transfer.contest_id,
       user_id: transfer.user_id,
@@ -163,21 +183,54 @@ async function executeTransfer(pool, transferId, getDestinationAccountFn) {
 /**
  * Get destination Stripe account for user payout.
  *
- * Placeholder for fetching connected Stripe account ID for a user.
- * In production, this would query user_stripe_accounts or similar table.
+ * Performs lookup only; does NOT modify state or transition payout status.
+ * State transitions (failed_terminal for missing account) happen in executeTransfer().
+ *
+ * Queries users.stripe_connected_account_id (Stripe connected account ID in acct_* format).
+ * Returns null if user has not connected their Stripe account.
+ * Throws if user not found (data consistency error).
  *
  * @private
  * @param {Object} pool - Database connection pool
- * @param {string} contestId - UUID of contest
+ * @param {string} contestId - UUID of contest (unused, kept for interface consistency)
  * @param {string} userId - UUID of user
- * @returns {Promise<string>} Destination Stripe account ID
- * @throws {Error} If destination account not found
+ * @returns {Promise<string|null>} Destination Stripe account ID (acct_*) or null if not connected
+ * @throws {Error} USER_NOT_FOUND if user does not exist in database
+ * @throws {Error} INVALID_USER_ID if userId is falsy
  */
 async function getDestinationAccount(pool, contestId, userId) {
-  // TODO: Implement in production
-  // This should query a user_stripe_accounts or contest_connected_accounts table
-  // For now, return placeholder that will cause Stripe error
-  throw new Error('Destination account lookup not yet implemented');
+  // Defensive guard: userId must be provided
+  if (!userId) {
+    throw new Error('INVALID_USER_ID');
+  }
+
+  const result = await pool.query(
+    `SELECT stripe_connected_account_id FROM users WHERE id = $1`,
+    [userId]
+  );
+
+  // User not found - DB referential integrity error
+  if (result.rows.length === 0) {
+    const error = new Error(`User not found: ${userId}`);
+    error.code = 'USER_NOT_FOUND';
+    throw error;
+  }
+
+  const stripeConnectedAccountId = result.rows[0].stripe_connected_account_id;
+
+  // If null (user hasn't connected Stripe account), return null for caller to handle
+  if (!stripeConnectedAccountId) {
+    return null;
+  }
+
+  // Validate format: must be Stripe connected account ID (acct_*)
+  // If invalid format, treat as not connected (return null, not error)
+  // This prevents corrupt data from blocking all payouts
+  if (typeof stripeConnectedAccountId !== 'string' || !stripeConnectedAccountId.startsWith('acct_')) {
+    return null;
+  }
+
+  return stripeConnectedAccountId;
 }
 
 module.exports = {

@@ -3347,6 +3347,10 @@ app.put('/api/admin/settings', async (req, res) => {
 let liveStatsInterval = null;
 const LIVE_STATS_INTERVAL_MS = 2 * 60 * 1000;
 
+// Payout scheduler (every 5 minutes)
+let payoutSchedulerInterval = null;
+const PAYOUT_SCHEDULER_INTERVAL_MS = 5 * 60 * 1000;
+
 async function startLiveStatsPolling() {
   // Register the job with diagnostics service
   jobsService.registerJob('live-stats-polling', {
@@ -3390,6 +3394,60 @@ async function runLiveStatsWithTracking(week) {
   } catch (err) {
     console.error('[Live Stats Job] Error:', err.message);
     jobsService.updateJobStatus('live-stats-polling', { success: false, error: err.message });
+  }
+}
+
+// Start background payout scheduler (every 5 minutes)
+async function startPayoutScheduler() {
+  // Register the job with diagnostics service (once at startup, not on every tick)
+  jobsService.registerJob('payout-scheduler', {
+    interval_ms: PAYOUT_SCHEDULER_INTERVAL_MS,
+    description: 'Process pending payout jobs'
+  });
+
+  console.log('Payout scheduler initialized (runs every 5 minutes)');
+
+  // Poll every 5 minutes
+  payoutSchedulerInterval = setInterval(async () => {
+    await runPayoutSchedulerWithTracking();
+  }, PAYOUT_SCHEDULER_INTERVAL_MS);
+}
+
+// Wrapper to track payout job status for diagnostics
+async function runPayoutSchedulerWithTracking() {
+  jobsService.markJobRunning('payout-scheduler');
+  try {
+    const result = await jobsService.runPayoutScheduler(pool);
+
+    // INSTRUMENTATION: Log full result object
+    console.log('[runPayoutSchedulerWithTracking] Scheduler result:', {
+      success: result.success,
+      jobs_processed: result.jobs_processed,
+      jobs_completed: result.jobs_completed,
+      total_transfers_processed: result.total_transfers_processed,
+      errors_count: result.errors?.length || 0,
+      error: result.error || null
+    });
+
+    jobsService.updateJobStatus('payout-scheduler', {
+      success: result.success,
+      jobs_processed: result.jobs_processed,
+      transfers_created: result.transfers_created,
+      failures: result.failures
+    });
+  } catch (err) {
+    // INSTRUMENTATION: Log full error object, not just err.message
+    console.error('[runPayoutSchedulerWithTracking] Exception caught:', {
+      error_message: err?.message || 'No message',
+      error_code: err?.code || 'No code',
+      error_type: err?.constructor?.name || 'Unknown',
+      full_error: err || 'Unknown error'
+    });
+
+    jobsService.updateJobStatus('payout-scheduler', {
+      success: false,
+      error: err?.message || String(err) || 'Unknown scheduler error'
+    });
   }
 }
 
@@ -4247,6 +4305,11 @@ function startServer() {
     if (process.env.NODE_ENV === 'production') {
       setTimeout(startLiveStatsPolling, 5000); // Start after 5 seconds
     }
+
+    // Start payout scheduler if not in test environment
+    if (process.env.NODE_ENV !== 'test') {
+      setTimeout(startPayoutScheduler, 5000); // Start after 5 seconds
+    }
   });
 }
 
@@ -4259,6 +4322,7 @@ if (require.main === module) {
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, closing server...');
   if (liveStatsInterval) clearInterval(liveStatsInterval);
+  if (payoutSchedulerInterval) clearInterval(payoutSchedulerInterval);
   process.exit(0);
 });
 

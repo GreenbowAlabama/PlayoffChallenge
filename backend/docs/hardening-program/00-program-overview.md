@@ -194,12 +194,21 @@ Payment integration must be deterministic, auditable, and never inject fragility
 
 ## Iteration Schedule
 
+### Infrastructure Hardening (Iterations 01–05)
+
 - **Iteration 01**: Masters Config-Driven Golf Engine
 - **Iteration 02**: Ingestion Validation + Replay + Safeguards
 - **Iteration 03**: Payment Integration + Ledger Governance
 - **Iteration 04**: Backend Contract Freeze + Canonical Documentation
 - **Iteration 05**: Automatic Payout Execution
+
+### Operational Autonomy Validation (Iteration 06)
+
 - **Iteration 06**: Operational + Technical Runbooks + Founder Absence Simulation
+
+### Infrastructure Enhancements (Iteration 07+)
+
+- **Iteration 07**: Durable Queue Infrastructure (BullMQ or equivalent) — Deferred, see `infrastructure-enhancements/07-future-queue-hardening.md`
 
 Each iteration is a complete, independent closure before the next begins.
 
@@ -211,7 +220,7 @@ Each iteration is a complete, independent closure before the next begins.
   - Error codes are enumerated (PAYMENT_FAILED, DUPLICATE_INTENT, WEBHOOK_INVALID, etc.)
   - Payment state transitions are explicit (no hidden state)
 
-### Automatic Payout Dependencies
+### Automatic Payout Dependencies (Iteration 05)
 - Automatic Payout (Iteration 05) cannot begin until:
   - Stripe integration complete (Iteration 03)
   - Contract Freeze stable (Iteration 04)
@@ -222,13 +231,30 @@ Each iteration is a complete, independent closure before the next begins.
   - External API changes or upgrades
   - Changes to contest configuration or scoring rules
   - Changes to payment collection workflow (Iteration 03 is canonical)
+  - **Durable queue infrastructure** (BullMQ or equivalent) — Deferred to Iteration 07
 
 - Iteration 05 implementation is self-contained: PayoutOrchestrationService, PayoutExecutionService, PayoutJobService, StripePayoutAdapter
 
-- Runbooks (Iteration 06) cannot close until:
+- Iteration 05 will use scheduler-based execution with database-level locking and idempotency (will be production-ready for 30-day survivability window once all blockers are completed)
+
+### Runbooks and Founder Absence Simulation (Iteration 06)
+
+**Prerequisite**: Iteration 05 must be COMPLETE before Iteration 06 begins.
+
+**Iteration 05 Completion Requires**:
+1. ✅ Database schema deployed (payout_jobs, payout_transfers tables)
+2. ✅ Services implemented and all unit tests passing
+3. ❌ Destination account lookup implemented (NOT STUBBED)
+4. ❌ Scheduler wired in server.js (automatic execution)
+5. ❌ End-to-end staging payout verified (no blockers, all transfers terminal)
+
+**Current Status**: Iteration 05 is IN PROGRESS. Items 3-5 must be completed before declaring closure.
+
+- Runbooks (Iteration 06) cannot begin until:
   - Automatic Payout (Iteration 05) is complete and verified operational
-  - Payout failure modes are documented and tested
+  - All payout failure modes are documented in runbooks and tested
   - Founder Absence Simulation passes: 14-day staging test with zero engineering access
+  - All runbook procedures execute successfully without engineering involvement
 
 ---
 
@@ -243,8 +269,9 @@ These are merge blockers. Any code that violates these invariants must be reject
 - **Payment cannot mutate contest lifecycle**: Payment state is independent; payment failures do not lock, cancel, or settle contests
 - **Completion requires deterministic terminal signal**: COMPLETE state triggered only by explicit provider signal or verified final round completion; never by inferred absence
 - **No silent errors allowed anywhere in stack**: All validation failures, errors, and anomalies must be logged explicitly with full context
-- **Automatic payout required for survivability**: Iteration 05 implements automatic payout execution. Manual payout exists in iteration 03 only for initial implementation. 30-Day Survivability requires automatic payout (Iteration 05) to be complete and verified operational.
+- **Automatic payout required for survivability**: Iteration 05 will implement automatic payout execution. Manual payout exists in iteration 03 only for initial implementation. 30-Day Survivability requires automatic payout (Iteration 05) to be complete and verified operational. Iteration 05 is currently IN PROGRESS; completion is a blocker for Iteration 06.
 - **User participation contingent on payment success**: Unpaid users cannot be active participants; participation requires SUCCEEDED payment status
+- **Queue durability deferred to Iteration 07**: Iteration 05 will use scheduler-based execution with database-level locking. Durable queue infrastructure (BullMQ or equivalent) is not required for 30-day survivability and is deferred to Iteration 07 (infrastructure-enhancements phase).
 
 Violations of these invariants are blocking defects.
 

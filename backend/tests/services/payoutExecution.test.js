@@ -242,5 +242,124 @@ describe('PayoutExecutionService', () => {
         })
       );
     });
+
+    it('should mark failed_terminal if destination account not connected (no ledger entry)', async () => {
+      mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce(undefined); // COMMIT
+
+      PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(mockTransfer);
+      PayoutTransfersRepository.markProcessing.mockResolvedValueOnce({ ...mockTransfer, attempt_count: 1 });
+      PayoutTransfersRepository.markFailedTerminal.mockResolvedValueOnce({
+        ...mockTransfer,
+        status: 'failed_terminal',
+        failure_reason: 'DESTINATION_ACCOUNT_MISSING'
+      });
+
+      // Mock destination account lookup returning null (not connected)
+      const mockGetDestination = jest.fn().mockResolvedValue(null);
+      const result = await PayoutExecutionService.executeTransfer(mockPool, transferId, mockGetDestination);
+
+      expect(result.status).toBe('failed_terminal');
+      expect(result.failure_reason).toBe('DESTINATION_ACCOUNT_MISSING');
+      expect(result.stripe_transfer_id).toBeNull();
+
+      // Verify Stripe was NOT called
+      expect(StripePayoutAdapter.createTransfer).not.toHaveBeenCalled();
+
+      // Verify NO ledger entry created (no financial event occurred)
+      expect(LedgerRepository.insertLedgerEntry).not.toHaveBeenCalled();
+
+      expect(mockClient.query).toHaveBeenCalledWith('COMMIT');
+    });
+  });
+
+  describe('Destination Account Lookup Integration', () => {
+    it('should pass valid destination account to Stripe when account is connected', async () => {
+      mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce(undefined); // COMMIT
+
+      PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(mockTransfer);
+      PayoutTransfersRepository.markProcessing.mockResolvedValueOnce({ ...mockTransfer, attempt_count: 1 });
+      PayoutTransfersRepository.markCompleted.mockResolvedValueOnce({
+        ...mockTransfer,
+        status: 'completed',
+        stripe_transfer_id: 'tr_123'
+      });
+
+      StripePayoutAdapter.createTransfer.mockResolvedValueOnce({
+        success: true,
+        transferId: 'tr_123'
+      });
+
+      LedgerRepository.insertLedgerEntry.mockResolvedValueOnce({ id: 'ledger-1' });
+
+      // Mock destination lookup returning valid acct_* ID
+      const mockGetDestination = jest.fn().mockResolvedValue('acct_test123abc');
+      const result = await PayoutExecutionService.executeTransfer(mockPool, transferId, mockGetDestination);
+
+      expect(result.status).toBe('completed');
+      expect(StripePayoutAdapter.createTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          destination: 'acct_test123abc'
+        })
+      );
+    });
+
+    it('should mark failed_terminal when destination account lookup returns null', async () => {
+      mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce(undefined); // COMMIT
+
+      PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(mockTransfer);
+      PayoutTransfersRepository.markProcessing.mockResolvedValueOnce({ ...mockTransfer, attempt_count: 1 });
+      PayoutTransfersRepository.markFailedTerminal.mockResolvedValueOnce({
+        ...mockTransfer,
+        status: 'failed_terminal',
+        failure_reason: 'DESTINATION_ACCOUNT_MISSING'
+      });
+
+      // Mock destination lookup returning null
+      const mockGetDestination = jest.fn().mockResolvedValue(null);
+      const result = await PayoutExecutionService.executeTransfer(mockPool, transferId, mockGetDestination);
+
+      expect(result.status).toBe('failed_terminal');
+      expect(result.failure_reason).toBe('DESTINATION_ACCOUNT_MISSING');
+      expect(StripePayoutAdapter.createTransfer).not.toHaveBeenCalled();
+    });
+
+    it('should mark failed_terminal when destination account lookup throws USER_NOT_FOUND', async () => {
+      mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce(undefined); // ROLLBACK
+
+      PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(mockTransfer);
+      PayoutTransfersRepository.markProcessing.mockResolvedValueOnce({ ...mockTransfer, attempt_count: 1 });
+
+      // Mock destination lookup throwing USER_NOT_FOUND error
+      const mockGetDestination = jest.fn().mockRejectedValue(
+        Object.assign(new Error('User not found'), { code: 'USER_NOT_FOUND' })
+      );
+
+      await expect(PayoutExecutionService.executeTransfer(mockPool, transferId, mockGetDestination))
+        .rejects
+        .toThrow('User not found');
+
+      expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+    });
+
+    it('should mark failed_terminal when destination account lookup throws INVALID_USER_ID', async () => {
+      mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce(undefined); // ROLLBACK
+
+      PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(mockTransfer);
+      PayoutTransfersRepository.markProcessing.mockResolvedValueOnce({ ...mockTransfer, attempt_count: 1 });
+
+      // Mock destination lookup throwing INVALID_USER_ID error
+      const mockGetDestination = jest.fn().mockRejectedValue(new Error('INVALID_USER_ID'));
+
+      await expect(PayoutExecutionService.executeTransfer(mockPool, transferId, mockGetDestination))
+        .rejects
+        .toThrow('INVALID_USER_ID');
+
+      expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+    });
   });
 });
