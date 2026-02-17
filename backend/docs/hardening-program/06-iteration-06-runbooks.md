@@ -310,6 +310,9 @@ Runbooks are self-contained; no runbook depends on another.
 - Manual intervention procedure for permanent payout failures
 - Audit trail verification (ledger entries for all payout attempts)
 
+**Payout Runbooks Published**:
+- [Payout Transfer Stuck in Retryable State](./runbooks/payout-transfer-stuck-retryable.md)
+
 ---
 
 ## Phase 06C – Founder Absence Simulation
