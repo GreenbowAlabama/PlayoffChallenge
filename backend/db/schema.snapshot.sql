@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 3mPVnFZgxSeXISdgqpnQgtJ2LW7aAN4XfRDoqppc48pdwLQdc0KFeCowlCSjbgF
+\restrict SDt7oEyKeDUntcG5tzkPJaRa3Ia91umT2yg2FhQf9ER3JKHsBlRRCUSNGdFx2ny
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -19,255 +19,18 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
-ALTER TABLE IF EXISTS ONLY public.tournament_configs DROP CONSTRAINT IF EXISTS tournament_configs_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.tournament_config_versions DROP CONSTRAINT IF EXISTS tournament_config_versions_tournament_config_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.settlement_records DROP CONSTRAINT IF EXISTS settlement_records_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.settlement_audit DROP CONSTRAINT IF EXISTS settlement_audit_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.scoring_audit DROP CONSTRAINT IF EXISTS scoring_audit_tournament_config_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.scoring_audit DROP CONSTRAINT IF EXISTS scoring_audit_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.scores DROP CONSTRAINT IF EXISTS scores_user_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.scores DROP CONSTRAINT IF EXISTS scores_player_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.score_history DROP CONSTRAINT IF EXISTS score_history_settlement_audit_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.score_history DROP CONSTRAINT IF EXISTS score_history_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.player_swaps DROP CONSTRAINT IF EXISTS player_swaps_user_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.player_swaps DROP CONSTRAINT IF EXISTS player_swaps_old_player_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.player_swaps DROP CONSTRAINT IF EXISTS player_swaps_new_player_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.picks DROP CONSTRAINT IF EXISTS picks_user_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.picks DROP CONSTRAINT IF EXISTS picks_player_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.picks DROP CONSTRAINT IF EXISTS picks_contest_instance_fk;
-ALTER TABLE IF EXISTS ONLY public.pick_multipliers DROP CONSTRAINT IF EXISTS pick_multipliers_pick_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.payout_transfers DROP CONSTRAINT IF EXISTS payout_transfers_user_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.payout_transfers DROP CONSTRAINT IF EXISTS payout_transfers_payout_job_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.payout_transfers DROP CONSTRAINT IF EXISTS payout_transfers_contest_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.payout_requests DROP CONSTRAINT IF EXISTS payout_requests_user_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.payout_requests DROP CONSTRAINT IF EXISTS payout_requests_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.payout_jobs DROP CONSTRAINT IF EXISTS payout_jobs_contest_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.payment_intents DROP CONSTRAINT IF EXISTS payment_intents_user_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.payment_intents DROP CONSTRAINT IF EXISTS payment_intents_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.ledger DROP CONSTRAINT IF EXISTS ledger_user_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.ledger DROP CONSTRAINT IF EXISTS ledger_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.ingestion_validation_errors DROP CONSTRAINT IF EXISTS ingestion_validation_errors_ingestion_event_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.ingestion_validation_errors DROP CONSTRAINT IF EXISTS ingestion_validation_errors_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.ingestion_events DROP CONSTRAINT IF EXISTS ingestion_events_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.contest_participants DROP CONSTRAINT IF EXISTS fk_contest_participant_user;
-ALTER TABLE IF EXISTS ONLY public.contest_participants DROP CONSTRAINT IF EXISTS fk_contest_participant_instance;
-ALTER TABLE IF EXISTS ONLY public.contest_instances DROP CONSTRAINT IF EXISTS fk_contest_instance_template;
-ALTER TABLE IF EXISTS ONLY public.contest_instances DROP CONSTRAINT IF EXISTS fk_contest_instance_organizer;
-ALTER TABLE IF EXISTS ONLY public.field_selections DROP CONSTRAINT IF EXISTS field_selections_tournament_config_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.field_selections DROP CONSTRAINT IF EXISTS field_selections_contest_instance_id_fkey;
-ALTER TABLE IF EXISTS ONLY public.admin_contest_audit DROP CONSTRAINT IF EXISTS admin_contest_audit_contest_fk;
-ALTER TABLE IF EXISTS ONLY public.admin_contest_audit DROP CONSTRAINT IF EXISTS admin_contest_audit_admin_user_id_fkey;
-DROP TRIGGER IF EXISTS update_users_updated_at ON public.users;
-DROP TRIGGER IF EXISTS update_scoring_rules_updated_at ON public.scoring_rules;
-DROP TRIGGER IF EXISTS update_rules_content_updated_at ON public.rules_content;
-DROP TRIGGER IF EXISTS update_position_requirements_updated_at ON public.position_requirements;
-DROP TRIGGER IF EXISTS update_pick_multipliers_updated_at ON public.pick_multipliers;
-DROP TRIGGER IF EXISTS update_payout_structure_updated_at ON public.payout_structure;
-DROP TRIGGER IF EXISTS trg_prevent_config_update ON public.tournament_configs;
-DROP TRIGGER IF EXISTS trg_payout_transfers_set_updated_at ON public.payout_transfers;
-DROP TRIGGER IF EXISTS stripe_events_no_update ON public.stripe_events;
-DROP TRIGGER IF EXISTS settlement_audit_guard ON public.settlement_audit;
-DROP TRIGGER IF EXISTS score_history_no_update ON public.score_history;
-DROP TRIGGER IF EXISTS ledger_no_update ON public.ledger;
-DROP TRIGGER IF EXISTS ingestion_validation_errors_no_update ON public.ingestion_validation_errors;
-DROP TRIGGER IF EXISTS ingestion_events_no_update ON public.ingestion_events;
-DROP TRIGGER IF EXISTS api_error_codes_block_update ON public.api_error_codes;
-DROP TRIGGER IF EXISTS api_error_codes_block_delete ON public.api_error_codes;
-DROP TRIGGER IF EXISTS api_contract_snapshots_block_update ON public.api_contract_snapshots;
-DROP TRIGGER IF EXISTS api_contract_snapshots_block_delete ON public.api_contract_snapshots;
-DROP INDEX IF EXISTS public.users_stripe_connected_account_id_unique;
-DROP INDEX IF EXISTS public.unique_espn_id;
-DROP INDEX IF EXISTS public.uniq_active_config;
-DROP INDEX IF EXISTS public.stripe_webhook_dead_letters_event_id_idx;
-DROP INDEX IF EXISTS public.stripe_events_stripe_event_id_uq;
-DROP INDEX IF EXISTS public.payout_requests_idempotency_key_uq;
-DROP INDEX IF EXISTS public.payment_intents_stripe_pi_id_uq;
-DROP INDEX IF EXISTS public.payment_intents_idempotency_key_uq;
-DROP INDEX IF EXISTS public.ledger_stripe_event_id_uq;
-DROP INDEX IF EXISTS public.idx_users_state;
-DROP INDEX IF EXISTS public.idx_users_eligibility;
-DROP INDEX IF EXISTS public.idx_signup_attempts_state;
-DROP INDEX IF EXISTS public.idx_signup_attempts_blocked;
-DROP INDEX IF EXISTS public.idx_signup_attempts_attempted_at;
-DROP INDEX IF EXISTS public.idx_signup_attempts_apple_id;
-DROP INDEX IF EXISTS public.idx_settlement_records_settled_at;
-DROP INDEX IF EXISTS public.idx_settlement_records_contest_instance;
-DROP INDEX IF EXISTS public.idx_settlement_audit_status;
-DROP INDEX IF EXISTS public.idx_settlement_audit_contest_started;
-DROP INDEX IF EXISTS public.idx_scoring_rules_stat_name;
-DROP INDEX IF EXISTS public.idx_scoring_rules_category;
-DROP INDEX IF EXISTS public.idx_scores_week_user;
-DROP INDEX IF EXISTS public.idx_scores_week_number;
-DROP INDEX IF EXISTS public.idx_scores_week;
-DROP INDEX IF EXISTS public.idx_scores_user_week;
-DROP INDEX IF EXISTS public.idx_scores_user_id;
-DROP INDEX IF EXISTS public.idx_score_history_contest_created;
-DROP INDEX IF EXISTS public.idx_players_team;
-DROP INDEX IF EXISTS public.idx_players_sleeper_id;
-DROP INDEX IF EXISTS public.idx_players_position;
-DROP INDEX IF EXISTS public.idx_players_espn_id;
-DROP INDEX IF EXISTS public.idx_players_active;
-DROP INDEX IF EXISTS public.idx_player_swaps_user_week;
-DROP INDEX IF EXISTS public.idx_player_swaps_user_id;
-DROP INDEX IF EXISTS public.idx_picks_week_user;
-DROP INDEX IF EXISTS public.idx_picks_week_number;
-DROP INDEX IF EXISTS public.idx_picks_week;
-DROP INDEX IF EXISTS public.idx_picks_user_week;
-DROP INDEX IF EXISTS public.idx_picks_user_id;
-DROP INDEX IF EXISTS public.idx_pick_multipliers_pick_week;
-DROP INDEX IF EXISTS public.idx_payout_transfers_status;
-DROP INDEX IF EXISTS public.idx_payout_transfers_job_id;
-DROP INDEX IF EXISTS public.idx_payout_transfers_contest_status;
-DROP INDEX IF EXISTS public.idx_payout_requests_contest_user;
-DROP INDEX IF EXISTS public.idx_payout_jobs_contest_id;
-DROP INDEX IF EXISTS public.idx_payment_intents_contest_user;
-DROP INDEX IF EXISTS public.idx_ledger_user_created;
-DROP INDEX IF EXISTS public.idx_ledger_stripe_event_id;
-DROP INDEX IF EXISTS public.idx_ledger_contest_created;
-DROP INDEX IF EXISTS public.idx_ingestion_validation_errors_contest;
-DROP INDEX IF EXISTS public.idx_ingestion_validation_errors_code;
-DROP INDEX IF EXISTS public.idx_ingestion_events_validation_status;
-DROP INDEX IF EXISTS public.idx_ingestion_events_payload_hash;
-DROP INDEX IF EXISTS public.idx_ingestion_events_contest_received;
-DROP INDEX IF EXISTS public.idx_contest_templates_template_type;
-DROP INDEX IF EXISTS public.idx_contest_templates_sport;
-DROP INDEX IF EXISTS public.idx_contest_templates_active;
-DROP INDEX IF EXISTS public.idx_contest_participants_user;
-DROP INDEX IF EXISTS public.idx_contest_participants_instance;
-DROP INDEX IF EXISTS public.idx_contest_instances_template;
-DROP INDEX IF EXISTS public.idx_contest_instances_status;
-DROP INDEX IF EXISTS public.idx_contest_instances_organizer;
-DROP INDEX IF EXISTS public.idx_contest_instances_lock_at;
-DROP INDEX IF EXISTS public.idx_contest_instances_is_platform_owned;
-DROP INDEX IF EXISTS public.idx_admin_contest_audit_status_transition;
-DROP INDEX IF EXISTS public.idx_admin_contest_audit_created_at_desc;
-DROP INDEX IF EXISTS public.idx_admin_contest_audit_contest;
-DROP INDEX IF EXISTS public.idx_admin_contest_audit_admin;
-DROP INDEX IF EXISTS public.api_contract_snapshots_unique;
-ALTER TABLE IF EXISTS ONLY public.users DROP CONSTRAINT IF EXISTS users_pkey;
-ALTER TABLE IF EXISTS ONLY public.users DROP CONSTRAINT IF EXISTS users_email_key;
-ALTER TABLE IF EXISTS ONLY public.users DROP CONSTRAINT IF EXISTS users_apple_id_key;
-ALTER TABLE IF EXISTS ONLY public.scores DROP CONSTRAINT IF EXISTS unique_user_player_week_score;
-ALTER TABLE IF EXISTS ONLY public.ingestion_events DROP CONSTRAINT IF EXISTS unique_payload_per_contest;
-ALTER TABLE IF EXISTS ONLY public.tournament_configs DROP CONSTRAINT IF EXISTS tournament_configs_pkey;
-ALTER TABLE IF EXISTS ONLY public.tournament_config_versions DROP CONSTRAINT IF EXISTS tournament_config_versions_pkey;
-ALTER TABLE IF EXISTS ONLY public.stripe_webhook_dead_letters DROP CONSTRAINT IF EXISTS stripe_webhook_dead_letters_pkey;
-ALTER TABLE IF EXISTS ONLY public.stripe_events DROP CONSTRAINT IF EXISTS stripe_events_pkey;
-ALTER TABLE IF EXISTS ONLY public.signup_attempts DROP CONSTRAINT IF EXISTS signup_attempts_pkey;
-ALTER TABLE IF EXISTS ONLY public.settlement_records DROP CONSTRAINT IF EXISTS settlement_records_pkey;
-ALTER TABLE IF EXISTS ONLY public.settlement_records DROP CONSTRAINT IF EXISTS settlement_records_one_per_contest;
-ALTER TABLE IF EXISTS ONLY public.settlement_audit DROP CONSTRAINT IF EXISTS settlement_audit_pkey;
-ALTER TABLE IF EXISTS ONLY public.settlement_audit DROP CONSTRAINT IF EXISTS settlement_audit_contest_instance_id_settlement_run_id_key;
-ALTER TABLE IF EXISTS ONLY public.scoring_rules DROP CONSTRAINT IF EXISTS scoring_rules_pkey;
-ALTER TABLE IF EXISTS ONLY public.scoring_audit DROP CONSTRAINT IF EXISTS scoring_audit_pkey;
-ALTER TABLE IF EXISTS ONLY public.scores DROP CONSTRAINT IF EXISTS scores_pkey;
-ALTER TABLE IF EXISTS ONLY public.score_history DROP CONSTRAINT IF EXISTS score_history_pkey;
-ALTER TABLE IF EXISTS ONLY public.score_history DROP CONSTRAINT IF EXISTS score_history_contest_instance_id_settlement_audit_id_key;
-ALTER TABLE IF EXISTS ONLY public.rules_content DROP CONSTRAINT IF EXISTS rules_content_section_key;
-ALTER TABLE IF EXISTS ONLY public.rules_content DROP CONSTRAINT IF EXISTS rules_content_pkey;
-ALTER TABLE IF EXISTS ONLY public.position_requirements DROP CONSTRAINT IF EXISTS position_requirements_position_key;
-ALTER TABLE IF EXISTS ONLY public.position_requirements DROP CONSTRAINT IF EXISTS position_requirements_pkey;
-ALTER TABLE IF EXISTS ONLY public.players DROP CONSTRAINT IF EXISTS players_sleeper_id_unique;
-ALTER TABLE IF EXISTS ONLY public.players DROP CONSTRAINT IF EXISTS players_pkey;
-ALTER TABLE IF EXISTS ONLY public.player_swaps DROP CONSTRAINT IF EXISTS player_swaps_pkey;
-ALTER TABLE IF EXISTS ONLY public.picks DROP CONSTRAINT IF EXISTS picks_pkey;
-ALTER TABLE IF EXISTS ONLY public.picks DROP CONSTRAINT IF EXISTS picks_contest_user_player_week_key;
-ALTER TABLE IF EXISTS ONLY public.pick_multipliers DROP CONSTRAINT IF EXISTS pick_multipliers_pkey;
-ALTER TABLE IF EXISTS ONLY public.pick_multipliers DROP CONSTRAINT IF EXISTS pick_multipliers_pick_id_week_number_key;
-ALTER TABLE IF EXISTS ONLY public.payouts DROP CONSTRAINT IF EXISTS payouts_place_key;
-ALTER TABLE IF EXISTS ONLY public.payouts DROP CONSTRAINT IF EXISTS payouts_pkey;
-ALTER TABLE IF EXISTS ONLY public.payout_transfers DROP CONSTRAINT IF EXISTS payout_transfers_pkey;
-ALTER TABLE IF EXISTS ONLY public.payout_transfers DROP CONSTRAINT IF EXISTS payout_transfers_idempotency_key_key;
-ALTER TABLE IF EXISTS ONLY public.payout_transfers DROP CONSTRAINT IF EXISTS payout_transfers_contest_id_user_id_key;
-ALTER TABLE IF EXISTS ONLY public.payout_structure DROP CONSTRAINT IF EXISTS payout_structure_place_key;
-ALTER TABLE IF EXISTS ONLY public.payout_structure DROP CONSTRAINT IF EXISTS payout_structure_pkey;
-ALTER TABLE IF EXISTS ONLY public.payout_requests DROP CONSTRAINT IF EXISTS payout_requests_pkey;
-ALTER TABLE IF EXISTS ONLY public.payout_jobs DROP CONSTRAINT IF EXISTS payout_jobs_settlement_id_key;
-ALTER TABLE IF EXISTS ONLY public.payout_jobs DROP CONSTRAINT IF EXISTS payout_jobs_pkey;
-ALTER TABLE IF EXISTS ONLY public.payment_intents DROP CONSTRAINT IF EXISTS payment_intents_pkey;
-ALTER TABLE IF EXISTS ONLY public.ledger DROP CONSTRAINT IF EXISTS ledger_pkey;
-ALTER TABLE IF EXISTS ONLY public.ledger DROP CONSTRAINT IF EXISTS ledger_idempotency_key_unique;
-ALTER TABLE IF EXISTS ONLY public.ingestion_validation_errors DROP CONSTRAINT IF EXISTS ingestion_validation_errors_pkey;
-ALTER TABLE IF EXISTS ONLY public.ingestion_events DROP CONSTRAINT IF EXISTS ingestion_events_pkey;
-ALTER TABLE IF EXISTS ONLY public.game_settings DROP CONSTRAINT IF EXISTS game_settings_pkey;
-ALTER TABLE IF EXISTS ONLY public.field_selections DROP CONSTRAINT IF EXISTS field_selections_pkey;
-ALTER TABLE IF EXISTS ONLY public.contest_templates DROP CONSTRAINT IF EXISTS contest_templates_pkey;
-ALTER TABLE IF EXISTS ONLY public.contest_participants DROP CONSTRAINT IF EXISTS contest_participants_pkey;
-ALTER TABLE IF EXISTS ONLY public.contest_participants DROP CONSTRAINT IF EXISTS contest_participants_instance_user_unique;
-ALTER TABLE IF EXISTS ONLY public.contest_instances DROP CONSTRAINT IF EXISTS contest_instances_pkey;
-ALTER TABLE IF EXISTS ONLY public.contest_instances DROP CONSTRAINT IF EXISTS contest_instances_join_token_key;
-ALTER TABLE IF EXISTS ONLY public.api_error_codes DROP CONSTRAINT IF EXISTS api_error_codes_pkey;
-ALTER TABLE IF EXISTS ONLY public.api_contract_snapshots DROP CONSTRAINT IF EXISTS api_contract_snapshots_pkey;
-ALTER TABLE IF EXISTS ONLY public.admin_contest_audit DROP CONSTRAINT IF EXISTS admin_contest_audit_pkey;
-ALTER TABLE IF EXISTS public.signup_attempts ALTER COLUMN id DROP DEFAULT;
-ALTER TABLE IF EXISTS public.scoring_rules ALTER COLUMN id DROP DEFAULT;
-ALTER TABLE IF EXISTS public.rules_content ALTER COLUMN id DROP DEFAULT;
-ALTER TABLE IF EXISTS public.position_requirements ALTER COLUMN id DROP DEFAULT;
-ALTER TABLE IF EXISTS public.player_swaps ALTER COLUMN id DROP DEFAULT;
-ALTER TABLE IF EXISTS public.pick_multipliers ALTER COLUMN id DROP DEFAULT;
-ALTER TABLE IF EXISTS public.payouts ALTER COLUMN id DROP DEFAULT;
-ALTER TABLE IF EXISTS public.payout_structure ALTER COLUMN id DROP DEFAULT;
-DROP VIEW IF EXISTS public.v_game_status;
-DROP TABLE IF EXISTS public.users;
-DROP TABLE IF EXISTS public.tournament_configs;
-DROP TABLE IF EXISTS public.tournament_config_versions;
-DROP TABLE IF EXISTS public.stripe_webhook_dead_letters;
-DROP TABLE IF EXISTS public.stripe_events;
-DROP SEQUENCE IF EXISTS public.signup_attempts_id_seq;
-DROP TABLE IF EXISTS public.signup_attempts;
-DROP TABLE IF EXISTS public.settlement_records;
-DROP TABLE IF EXISTS public.settlement_audit;
-DROP SEQUENCE IF EXISTS public.scoring_rules_id_seq;
-DROP TABLE IF EXISTS public.scoring_rules;
-DROP TABLE IF EXISTS public.scoring_audit;
-DROP TABLE IF EXISTS public.scores;
-DROP TABLE IF EXISTS public.score_history;
-DROP SEQUENCE IF EXISTS public.rules_content_id_seq;
-DROP TABLE IF EXISTS public.rules_content;
-DROP SEQUENCE IF EXISTS public.position_requirements_id_seq;
-DROP TABLE IF EXISTS public.position_requirements;
-DROP TABLE IF EXISTS public.players;
-DROP SEQUENCE IF EXISTS public.player_swaps_id_seq;
-DROP TABLE IF EXISTS public.player_swaps;
-DROP TABLE IF EXISTS public.picks;
-DROP SEQUENCE IF EXISTS public.pick_multipliers_id_seq;
-DROP TABLE IF EXISTS public.pick_multipliers;
-DROP SEQUENCE IF EXISTS public.payouts_id_seq;
-DROP TABLE IF EXISTS public.payouts;
-DROP TABLE IF EXISTS public.payout_transfers;
-DROP SEQUENCE IF EXISTS public.payout_structure_id_seq;
-DROP TABLE IF EXISTS public.payout_structure;
-DROP TABLE IF EXISTS public.payout_requests;
-DROP TABLE IF EXISTS public.payout_jobs;
-DROP TABLE IF EXISTS public.payment_intents;
-DROP TABLE IF EXISTS public.ledger;
-DROP TABLE IF EXISTS public.ingestion_validation_errors;
-DROP TABLE IF EXISTS public.ingestion_events;
-DROP TABLE IF EXISTS public.game_settings;
-DROP TABLE IF EXISTS public.field_selections;
-DROP TABLE IF EXISTS public.contest_templates;
-DROP TABLE IF EXISTS public.contest_participants;
-DROP TABLE IF EXISTS public.contest_instances;
-DROP VIEW IF EXISTS public.api_error_codes_public;
-DROP TABLE IF EXISTS public.api_error_codes;
-DROP VIEW IF EXISTS public.api_contract_snapshots_latest;
-DROP TABLE IF EXISTS public.api_contract_snapshots;
-DROP TABLE IF EXISTS public.admin_contest_audit;
-DROP FUNCTION IF EXISTS public.update_updated_at_column();
-DROP FUNCTION IF EXISTS public.set_updated_at();
-DROP FUNCTION IF EXISTS public.prevent_updates_deletes();
-DROP FUNCTION IF EXISTS public.prevent_settlement_audit_illegal_update();
-DROP FUNCTION IF EXISTS public.prevent_config_update_when_locked();
-DROP FUNCTION IF EXISTS public.get_playoff_week_number(nfl_week integer);
-DROP FUNCTION IF EXISTS public.get_nfl_week_number(playoff_week integer);
-DROP FUNCTION IF EXISTS public.api_error_codes_no_update_delete();
-DROP FUNCTION IF EXISTS public.api_contract_snapshots_no_update_delete();
-DROP EXTENSION IF EXISTS pgcrypto;
 --
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
 --
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
 
 
 --
@@ -442,6 +205,20 @@ CREATE FUNCTION public.prevent_updates_deletes() RETURNS trigger
     AS $$
 BEGIN
     RAISE EXCEPTION 'Append-only table: updates and deletes are not allowed';
+END;
+$$;
+
+
+--
+-- Name: set_runbook_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_runbook_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
 END;
 $$;
 
@@ -651,6 +428,27 @@ CREATE TABLE public.game_settings (
 
 
 --
+-- Name: COLUMN game_settings.playoff_start_week; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.game_settings.playoff_start_week IS 'NFL week number where playoffs begin (19 = Wild Card for standard season)';
+
+
+--
+-- Name: COLUMN game_settings.current_playoff_week; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.game_settings.current_playoff_week IS 'Current active playoff week (0 = not started, 1-4 = rounds)';
+
+
+--
+-- Name: COLUMN game_settings.season_year; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.game_settings.season_year IS 'NFL season year (e.g. 2024)';
+
+
+--
 -- Name: ingestion_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -728,6 +526,13 @@ CREATE TABLE public.payment_intents (
     CONSTRAINT payment_intents_amount_cents_check CHECK ((amount_cents >= 0)),
     CONSTRAINT payment_intents_status_check CHECK ((status = ANY (ARRAY['REQUIRES_PAYMENT_METHOD'::text, 'REQUIRES_CONFIRMATION'::text, 'REQUIRES_ACTION'::text, 'PROCESSING'::text, 'SUCCEEDED'::text, 'CANCELED'::text, 'FAILED'::text])))
 );
+
+
+--
+-- Name: COLUMN payment_intents.stripe_client_secret; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.payment_intents.stripe_client_secret IS 'Stripe payment intent client_secret for Stripe.js frontend integration. Stored for idempotent retry returns.';
 
 
 --
@@ -1051,6 +856,32 @@ ALTER SEQUENCE public.rules_content_id_seq OWNED BY public.rules_content.id;
 
 
 --
+-- Name: runbook_executions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.runbook_executions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    runbook_name text NOT NULL,
+    runbook_version text NOT NULL,
+    executed_by text NOT NULL,
+    status text NOT NULL,
+    execution_phase text,
+    phase_step integer,
+    start_time timestamp with time zone DEFAULT now() NOT NULL,
+    end_time timestamp with time zone,
+    duration_seconds integer,
+    result_json jsonb,
+    error_reason text,
+    system_state_before jsonb,
+    system_state_after jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT runbook_executions_duration_seconds_check CHECK ((duration_seconds >= 0)),
+    CONSTRAINT runbook_executions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'in_progress'::text, 'completed'::text, 'failed'::text, 'partial'::text])))
+);
+
+
+--
 -- Name: score_history; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1172,6 +1003,20 @@ CREATE TABLE public.settlement_records (
 
 
 --
+-- Name: TABLE settlement_records; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.settlement_records IS 'Immutable settlement results for contests (GAP-09). One row per contest instance.';
+
+
+--
+-- Name: COLUMN settlement_records.results_sha256; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.settlement_records.results_sha256 IS 'SHA-256 hash of canonicalized settlement results JSON for tamper detection';
+
+
+--
 -- Name: signup_attempts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1186,6 +1031,48 @@ CREATE TABLE public.signup_attempts (
     blocked_reason character varying(100),
     attempted_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
+
+
+--
+-- Name: TABLE signup_attempts; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.signup_attempts IS 'Audit log of all signup attempts, including blocked ones for compliance reporting';
+
+
+--
+-- Name: COLUMN signup_attempts.apple_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.signup_attempts.apple_id IS 'Apple ID of user attempting signup';
+
+
+--
+-- Name: COLUMN signup_attempts.attempted_state; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.signup_attempts.attempted_state IS 'State user selected during signup';
+
+
+--
+-- Name: COLUMN signup_attempts.ip_state_verified; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.signup_attempts.ip_state_verified IS 'State derived from IP geolocation';
+
+
+--
+-- Name: COLUMN signup_attempts.blocked; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.signup_attempts.blocked IS 'Whether signup was blocked';
+
+
+--
+-- Name: COLUMN signup_attempts.blocked_reason; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.signup_attempts.blocked_reason IS 'Reason for blocking (e.g., "Restricted state")';
 
 
 --
@@ -1312,6 +1199,55 @@ CREATE TABLE public.users (
 
 
 --
+-- Name: COLUMN users.state; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.state IS 'User self-certified state of residence (2-letter code)';
+
+
+--
+-- Name: COLUMN users.ip_state_verified; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.ip_state_verified IS 'State derived from IP geolocation at signup (may differ from claimed state)';
+
+
+--
+-- Name: COLUMN users.state_certification_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.state_certification_date IS 'When user certified their state eligibility';
+
+
+--
+-- Name: COLUMN users.eligibility_confirmed_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.eligibility_confirmed_at IS 'When user confirmed age and eligibility requirements';
+
+
+--
+-- Name: COLUMN users.tos_version; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.tos_version IS 'Version of Terms of Service user agreed to (e.g., 2025-12-12)';
+
+
+--
+-- Name: COLUMN users.tos_accepted_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.tos_accepted_at IS 'When user accepted the Terms of Service';
+
+
+--
+-- Name: COLUMN users.age_verified; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.age_verified IS 'Whether user confirmed they are 18+ years old';
+
+
+--
 -- Name: v_game_status; Type: VIEW; Schema: public; Owner: -
 --
 
@@ -1336,6 +1272,13 @@ CREATE VIEW public.v_game_status AS
           WHERE (picks.week_number = public.get_nfl_week_number(gs.current_playoff_week))) AS users_with_picks
    FROM public.game_settings gs
  LIMIT 1;
+
+
+--
+-- Name: VIEW v_game_status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON VIEW public.v_game_status IS 'Shows current game state and week mappings';
 
 
 --
@@ -1680,6 +1623,14 @@ ALTER TABLE ONLY public.rules_content
 
 ALTER TABLE ONLY public.rules_content
     ADD CONSTRAINT rules_content_section_key UNIQUE (section);
+
+
+--
+-- Name: runbook_executions runbook_executions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.runbook_executions
+    ADD CONSTRAINT runbook_executions_pkey PRIMARY KEY (id);
 
 
 --
@@ -2129,6 +2080,27 @@ CREATE INDEX idx_players_team ON public.players USING btree (team);
 
 
 --
+-- Name: idx_runbook_executions_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_runbook_executions_created_at ON public.runbook_executions USING btree (created_at);
+
+
+--
+-- Name: idx_runbook_executions_runbook_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_runbook_executions_runbook_name ON public.runbook_executions USING btree (runbook_name);
+
+
+--
+-- Name: idx_runbook_executions_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_runbook_executions_status ON public.runbook_executions USING btree (status);
+
+
+--
 -- Name: idx_score_history_contest_created; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2399,6 +2371,13 @@ CREATE TRIGGER trg_payout_transfers_set_updated_at BEFORE UPDATE ON public.payou
 --
 
 CREATE TRIGGER trg_prevent_config_update BEFORE UPDATE ON public.tournament_configs FOR EACH ROW EXECUTE FUNCTION public.prevent_config_update_when_locked();
+
+
+--
+-- Name: runbook_executions trg_runbook_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_runbook_updated_at BEFORE UPDATE ON public.runbook_executions FOR EACH ROW EXECUTE FUNCTION public.set_runbook_updated_at();
 
 
 --
@@ -2751,5 +2730,5 @@ ALTER TABLE ONLY public.tournament_configs
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 3mPVnFZgxSeXISdgqpnQgtJ2LW7aAN4XfRDoqppc48pdwLQdc0KFeCowlCSjbgF
+\unrestrict SDt7oEyKeDUntcG5tzkPJaRa3Ia91umT2yg2FhQf9ER3JKHsBlRRCUSNGdFx2ny
 
