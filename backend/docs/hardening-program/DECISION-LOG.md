@@ -498,6 +498,113 @@ Trigger for revisiting: Scale hits 1000+ pending payouts, or multi-node deployme
 
 ---
 
+### Decision: Repository Layer Must Coerce Aggregate Return Types
+
+**Date**: 2026-02-16
+**Iteration**: 05 - Automatic Payout Execution
+**Context**: PostgreSQL aggregates (COUNT, SUM) return as strings in Node pg driver. Type mismatch prevented job finalization logic from working.
+**Decision**: Repository layer must explicitly coerce all database aggregates to correct types before returning to service layer. Service layer contracts assume typed objects.
+**Rationale**:
+- Type mismatches are silent and hard to debug in end-to-end scenarios
+- Repository is the type boundary; all DB rows are coerced here, not at service layer
+- Service contracts become clear when type expectations are met at repository layer
+- Unit tests were not sufficient to catch this; only manual E2E revealed the bug
+- Explicit coercion at boundary prevents downstream type assumptions
+**Alternatives Rejected**:
+  - Coerce at service layer: Service layer becomes defensive; hard to verify all coercions
+  - Document type caveat: Documentation doesn't prevent bugs; code enforcement is better
+  - Ignore until it breaks: Type mismatches can silently break complex logic (job finalization)
+**Impact**:
+- PayoutTransfersRepository.countTerminalByJobId() returns: `{ completed: number, failed: number, total: number }`
+- All aggregates at repository layer verified to return correct types
+- Type coercion happens once per DB call (boundary layer, not repeated)
+- Service layer receives only typed objects; no defensive coding needed
+- Unit tests verify returned types using `toBeTypeOf('number')`
+**Owner**: Payout Team, Database Team
+**Status**: Active (architectural invariant for repository layer)
+
+---
+
+### Decision: Scheduler Error Objects Must Never Be Empty
+
+**Date**: 2026-02-16
+**Iteration**: 05 - Automatic Payout Execution
+**Context**: Scheduler returned `{ success: false, error: '' }` on failures, providing zero observability. Manual testing found job failures undiagnosed.
+**Decision**: All scheduled job error responses must include contextual error message, affected resources, and recovery hint. Never return empty error objects.
+**Rationale**:
+- Observability is critical for 30-day autonomy; operators must understand failures
+- Empty error objects make diagnostics impossible without code inspection
+- Rich error context enables faster recovery and better postmortems
+- Admin endpoint visibility depends on error object completeness
+- Scheduler is a black box to operators; logs and error objects are their only visibility
+**Alternatives Rejected**:
+  - Return boolean only (success/failure): No information for diagnosis
+  - Include error text only: No context about what failed or recovery steps
+  - Log only (no return object): Operators can't query job status without log access
+**Impact**:
+- Scheduler returns: `{ success: boolean, jobs_processed: N, jobs_completed: M, total_transfers_processed: P, errors: [{ jobId, reason }] }`
+- adminJobs.updateJobStatus() receives complete result object (not just true/false)
+- `/admin/jobs` diagnostics endpoint shows detailed failure reasons
+- All scheduled operations return structured result (not just status code)
+- Error objects include: what failed, why, and what state was reached
+**Owner**: Payout Team, Operations Team
+**Status**: Active (operational visibility requirement)
+
+---
+
+### Decision: Terminal State Detection Must Query Explicit Terminal Counts
+
+**Date**: 2026-02-16
+**Iteration**: 05 - Automatic Payout Execution
+**Context**: Job finalization logic inferred terminal state from transfer attempt counts. Type coercion bug revealed this was fragile.
+**Decision**: Terminal state detection must explicitly query transfers in terminal states (completed OR failed_terminal). Job is complete only when all transfers reach terminal state.
+**Rationale**:
+- Terminal states are data-driven, not inferred from attempt counts
+- Explicit query is clearer and less fragile than complex comparison logic
+- Terminal states are the business rule; query should mirror the rule directly
+- Prevents off-by-one errors and type mismatches from causing silent failures
+- Makes finalization logic testable and auditable
+**Alternatives Rejected**:
+  - Infer from attempt_count comparison: Fragile; mixes transfer state with attempt tracking
+  - Count completed transfers only: Fails to recognize partial failures (failed_terminal also terminal)
+  - Use job-level status field: Don't duplicate state; query source of truth (transfers)
+**Impact**:
+- PayoutJobService.finalize() queries: `SELECT COUNT(*) FROM payout_transfers WHERE payout_job_id = $1 AND status IN ('completed', 'failed_terminal')`
+- Job marked complete when: `terminal_count === total_transfer_count`
+- Code comment explicitly documents: "job is complete when all transfers are in terminal state"
+- Unit tests verify: create job with N transfers, transition all to terminal, verify job marked complete
+- Audit procedure: after job completes, verify every transfer is in terminal state
+**Owner**: Payout Team, Architecture Team
+**Status**: Active (architectural invariant for batch job completion)
+
+---
+
+### Decision: Iteration Closure Requires Manual E2E Verification in Real Database
+
+**Date**: 2026-02-16
+**Iteration**: 05 - Automatic Payout Execution
+**Context**: All unit tests passed, yet manual E2E revealed three production defects. Unit test suite was insufficient for infrastructure hardening.
+**Decision**: Hardening iterations (04+) must include manual end-to-end verification phase before closure. Verification must inspect real database at multiple stages. Closure gate requires E2E verification, not just test suite.
+**Rationale**:
+- Unit tests are isolated; they miss integration defects (type mismatches, missing observability)
+- Infrastructure hardening requires proof of operational readiness, not code coverage
+- Manual inspection of database catches assumptions that tests don't verify
+- Real scheduler execution (not mocked) is required to catch timing and state transition bugs
+- Idempotency verification requires replaying real operations
+**Alternatives Rejected**:
+  - Unit tests only: Sufficient for feature development; insufficient for infrastructure
+  - Staging deployment: Better than unit tests but requires production-like environment
+  - Skip verification: Risk of defects reaching production
+**Impact**:
+- Iteration 05 closure gate includes: manual test procedure (documented, repeatable)
+- E2E verification inspects database at 5+ stages (job creation, transfer execution, terminal state, ledger entries, idempotency check)
+- Verification log is committed to repository (proof of closure)
+- Process is documented in LESSONS-LEARNED.md for future iterations
+**Owner**: QA Team, Architecture Team
+**Status**: Active (iteration closure governance)
+
+---
+
 ## Superseded Decisions
 
 (None yet. First decisions logged at program start.)
