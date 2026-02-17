@@ -1,5 +1,13 @@
 // services/helpers/contestApiResponseMapper.js
 
+const {
+  deriveLeaderboardState,
+  deriveContestActions,
+  derivePayoutTable,
+  deriveRosterConfig,
+  deriveColumnSchema
+} = require('../presentationDerivationService');
+
 const VALID_STATUSES = new Set([
   'SCHEDULED',
   'LOCKED',
@@ -16,10 +24,11 @@ const VALID_STATUSES = new Set([
  * @param {object} contestRow - The contest database row, pre-processed by the service layer.
  * @param {object} options - Options for mapping.
  * @param {number|Date} options.currentTimestamp - The current timestamp, either as milliseconds or a Date object.
+ * @param {boolean} options.settlementRecordExists - Whether a settlement_records row exists for this contest.
  * @returns {object} The contest in API response format.
  * @throws {Error} If any invariant is violated.
  */
-function mapContestToApiResponse(contestRow, { currentTimestamp }) {
+function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecordExists = false }) {
   // --- Strict Invariant Enforcement ---
 
   // 1. Validate contestRow.status against allowed values
@@ -93,10 +102,27 @@ function mapContestToApiResponse(contestRow, { currentTimestamp }) {
     ? contestRow.standings
     : undefined; // Omit entirely if not LIVE or COMPLETE
 
+  // --- Iteration 01: Derive presentation fields ---
+  const leaderboard_state = deriveLeaderboardState(contestRow, settlementRecordExists);
+  const actions = deriveContestActions(
+    contestRow,
+    leaderboard_state,
+    {
+      user_has_entered: contestRow.user_has_entered,
+      entry_count: contestRow.entry_count,
+      max_entries: contestRow.max_entries
+    },
+    nowMs
+  );
+  const payout_table = derivePayoutTable(contestRow.payout_structure);
+  const roster_config = deriveRosterConfig(contestRow.template_id);
+
   // --- Construct API Response ---
   return {
     id: contestRow.id,
+    contest_id: contestRow.id,
     template_id: contestRow.template_id,
+    type: contestRow.template_type,
     organizer_id: contestRow.organizer_id,
     entry_fee_cents: contestRow.entry_fee_cents,
     payout_structure: contestRow.payout_structure,
@@ -118,6 +144,12 @@ function mapContestToApiResponse(contestRow, { currentTimestamp }) {
     user_has_entered,
     time_until_lock,
     ...(standings !== undefined && { standings }), // Conditionally include if present
+
+    // Iteration 01: Presentation Fields
+    leaderboard_state,
+    actions,
+    payout_table,
+    roster_config
   };
 }
 
@@ -140,10 +172,11 @@ function mapContestToApiResponse(contestRow, { currentTimestamp }) {
  * @param {object} contestRow - The contest database row
  * @param {object} options - Options for mapping
  * @param {number|Date} options.currentTimestamp - The current timestamp
+ * @param {boolean} options.settlementRecordExists - Whether a settlement_records row exists for this contest
  * @returns {object} The contest in API list response format (no standings)
  * @throws {Error} If core invariants are violated
  */
-function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
+function mapContestToApiResponseForList(contestRow, { currentTimestamp, settlementRecordExists = false }) {
   // --- Strict Invariant Enforcement (subset of detail mapper) ---
 
   // 1. Validate status against allowed values
@@ -193,6 +226,21 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
 
   console.log('🔵 EXEC_MARKER:MAPPER_INPUT id:', contestRow.id, 'organizer_name:', contestRow.organizer_name);
 
+  // --- Iteration 01: Derive presentation fields ---
+  const leaderboard_state = deriveLeaderboardState(contestRow, settlementRecordExists);
+  const actions = deriveContestActions(
+    contestRow,
+    leaderboard_state,
+    {
+      user_has_entered: contestRow.user_has_entered,
+      entry_count: contestRow.entry_count,
+      max_entries: contestRow.max_entries
+    },
+    nowMs
+  );
+  const payout_table = derivePayoutTable(contestRow.payout_structure);
+  const roster_config = deriveRosterConfig(contestRow.template_id);
+
   // --- Construct API List Response (no standings) ---
   const response = {
     __exec_marker: "mapContestToApiResponseForList_ACTIVE",
@@ -223,6 +271,12 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp }) {
     user_has_entered,
     time_until_lock,
     // Explicitly omitted: standings (list endpoints are metadata-only)
+
+    // Iteration 01: Presentation Fields
+    leaderboard_state,
+    actions,
+    payout_table,
+    roster_config
   };
 
   console.log('🔵 EXEC_MARKER:MAPPER_OUTPUT id:', response.id, 'organizer_name:', response.organizer_name);

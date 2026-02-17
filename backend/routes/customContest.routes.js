@@ -508,4 +508,31 @@ router.post('/:id/join', extractUserId, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/custom-contests/:id/leaderboard
+ * Get contest leaderboard with standings and state information.
+ * Requires authentication.
+ *
+ * Response: Leaderboard data with standings, column schema, and pagination
+ */
+router.get('/:id/leaderboard', extractUserId, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: 'Invalid contest ID format' });
+    }
+
+    const leaderboard = await customContestService.getContestLeaderboard(pool, id);
+    res.json(leaderboard);
+  } catch (err) {
+    if (err.message.includes('not found')) {
+      return res.status(404).json({ error: 'Contest not found' });
+    }
+    console.error('[Custom Contest] Error fetching leaderboard:', err);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
 module.exports = router;

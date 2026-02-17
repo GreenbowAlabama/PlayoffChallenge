@@ -382,10 +382,12 @@ async function getContestInstance(pool, instanceId, requestingUserId = null) {
       ci.end_time,
       ci.settle_time,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      cct.template_type AS template_type,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
       ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
+    LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.id = $1`,
     requestingUserId ? [instanceId, requestingUserId] : [instanceId]
   );
@@ -402,8 +404,15 @@ async function getContestInstance(pool, instanceId, requestingUserId = null) {
     row.standings = await _getCompleteStandings(pool, row.id);
   }
 
+  // Check if settlement_records exists for this contest
+  const settlementResult = await pool.query(
+    'SELECT 1 FROM settlement_records WHERE contest_instance_id = $1 LIMIT 1',
+    [row.id]
+  );
+  const settlementRecordExists = settlementResult.rows.length > 0;
+
   // Map to API response format using the mapper
-  return mapContestToApiResponse(row, { currentTimestamp });
+  return mapContestToApiResponse(row, { currentTimestamp, settlementRecordExists });
 }
 
 /**
@@ -438,10 +447,12 @@ async function getContestInstanceByToken(pool, token, requestingUserId = null) {
       ci.end_time,
       ci.settle_time,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      cct.template_type AS template_type,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
       ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
+    LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.join_token = $1`,
     requestingUserId ? [token, requestingUserId] : [token]
   );
@@ -457,8 +468,15 @@ async function getContestInstanceByToken(pool, token, requestingUserId = null) {
     row.standings = await _getCompleteStandings(pool, row.id);
   }
 
+  // Check if settlement_records exists for this contest
+  const settlementResult = await pool.query(
+    'SELECT 1 FROM settlement_records WHERE contest_instance_id = $1 LIMIT 1',
+    [row.id]
+  );
+  const settlementRecordExists = settlementResult.rows.length > 0;
+
   // Map to API response format using the mapper
-  return mapContestToApiResponse(row, { currentTimestamp });
+  return mapContestToApiResponse(row, { currentTimestamp, settlementRecordExists });
 }
 
 /**
@@ -556,8 +574,15 @@ async function resolveJoinToken(pool, token) {
 
   const currentTimestamp = Date.now();
 
+  // Check if settlement_records exists for this contest
+  const settlementResult = await pool.query(
+    'SELECT 1 FROM settlement_records WHERE contest_instance_id = $1 LIMIT 1',
+    [instance.id]
+  );
+  const settlementRecordExists = settlementResult.rows.length > 0;
+
   // Map the instance to the API response format to get derived fields
-  const mappedContest = mapContestToApiResponse(instance, { currentTimestamp });
+  const mappedContest = mapContestToApiResponse(instance, { currentTimestamp, settlementRecordExists });
 
   // Explicitly enforce lock_time for SCHEDULED contests
   if (mappedContest.status === 'SCHEDULED' && instance.lock_time !== null && currentTimestamp >= new Date(instance.lock_time).getTime()) {
@@ -1306,6 +1331,86 @@ async function getAvailableContests(pool, userId) {
   return processedContests;
 }
 
+/**
+ * Get leaderboard for a contest instance.
+ *
+ * Returns standings, leaderboard state, and metadata in the format expected
+ * by the leaderboard endpoint.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} instanceId - UUID of the contest instance
+ * @returns {Promise<Object>} Leaderboard data with standings and metadata
+ */
+async function getContestLeaderboard(pool, instanceId) {
+  // Fetch contest instance
+  const contestResult = await pool.query(
+    `SELECT
+      ci.id,
+      ci.template_id,
+      ci.status,
+      ci.start_time,
+      ci.lock_time,
+      ci.end_time,
+      cct.template_type AS template_type
+    FROM contest_instances ci
+    LEFT JOIN contest_templates cct ON cct.id = ci.template_id
+    WHERE ci.id = $1`,
+    [instanceId]
+  );
+
+  if (contestResult.rows.length === 0) {
+    throw new Error('Contest not found');
+  }
+
+  const contestRow = contestResult.rows[0];
+
+  // Check if settlement_records exists
+  const settlementResult = await pool.query(
+    'SELECT 1 FROM settlement_records WHERE contest_instance_id = $1 LIMIT 1',
+    [instanceId]
+  );
+  const settlementRecordExists = settlementResult.rows.length > 0;
+
+  // Derive leaderboard state
+  const { deriveLeaderboardState, deriveColumnSchema } = require('./presentationDerivationService');
+  const leaderboard_state = deriveLeaderboardState(contestRow, settlementRecordExists);
+
+  // Error contests should not expose leaderboard
+  if (contestRow.status === 'ERROR') {
+    return {
+      contest_id: contestRow.id,
+      contest_type: contestRow.template_type,
+      leaderboard_state,
+      generated_at: new Date().toISOString(),
+      column_schema: deriveColumnSchema(contestRow),
+      rows: [],
+      pagination: { limit: 0, offset: 0, total: 0 }
+    };
+  }
+
+  // Fetch standings based on contest status
+  let standings = [];
+  if (contestRow.status === 'LIVE') {
+    standings = await _getLiveStandings(pool, instanceId);
+  } else if (contestRow.status === 'COMPLETE') {
+    standings = await _getCompleteStandings(pool, instanceId);
+  }
+
+  return {
+    contest_id: contestRow.id,
+    contest_type: contestRow.template_type,
+    leaderboard_state,
+    generated_at: new Date().toISOString(),
+    column_schema: deriveColumnSchema(contestRow),
+    rows: standings,
+    pagination: {
+      limit: standings.length,
+      offset: 0,
+      total: standings.length
+    }
+  };
+}
+
 module.exports = {
   // Template functions
   getTemplate,
@@ -1323,6 +1428,7 @@ module.exports = {
   updateContestStatusForSystem,
   publishContestInstance,
   joinContest,
+  getContestLeaderboard,
 
   // Token functions
   generateJoinToken,

@@ -1163,4 +1163,287 @@ describe('Custom Contest Routes', () => {
       expect(response.body.error_code).toBe('CONTEST_UNAVAILABLE');
     });
   });
+
+  // ============================================
+  // Iteration 01: Presentation Contract Tests
+  // ============================================
+
+  describe('GET /api/custom-contests/:id (Contest Detail Contract)', () => {
+    it('should include leaderboard_state, actions, payout_table, roster_config in response', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'LIVE',
+          entry_count: 5,
+          user_has_entered: true,
+          settle_time: null,
+          standings: [
+            { user_id: 'user1', user_display_name: 'Player 1', total_score: 100, rank: 1 },
+            { user_id: 'user2', user_display_name: 'Player 2', total_score: 90, rank: 2 }
+          ]
+        })
+      );
+
+      // Mock settlement_records query
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('leaderboard_state');
+      expect(response.body).toHaveProperty('actions');
+      expect(response.body).toHaveProperty('payout_table');
+      expect(response.body).toHaveProperty('roster_config');
+    });
+
+    it('should have actions object with boolean flags', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          settle_time: null
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      const actions = response.body.actions;
+      expect(typeof actions.can_join).toBe('boolean');
+      expect(typeof actions.can_edit_entry).toBe('boolean');
+      expect(typeof actions.is_live).toBe('boolean');
+      expect(typeof actions.is_closed).toBe('boolean');
+      expect(typeof actions.is_scoring).toBe('boolean');
+      expect(typeof actions.is_scored).toBe('boolean');
+      expect(typeof actions.is_read_only).toBe('boolean');
+    });
+
+    it('should have payout_table as array', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          payout_structure: { first: 70, second: 20, third: 10 },
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          settle_time: null
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body.payout_table)).toBe(true);
+      expect(response.body.payout_table.length).toBe(3);
+      expect(response.body.payout_table[0]).toHaveProperty('place');
+      expect(response.body.payout_table[0]).toHaveProperty('payout_percent');
+    });
+  });
+
+  describe('GET /api/custom-contests/:id/leaderboard', () => {
+    it('should return 404 for non-existent contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}/leaderboard`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should return leaderboard for LIVE contest with pending state', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          id: TEST_INSTANCE_ID,
+          template_type: 'playoff_challenge',
+          status: 'LIVE',
+          start_time: null,
+          lock_time: null,
+          end_time: new Date(Date.now() + 3600000).toISOString(),
+          template_id: TEST_TEMPLATE_ID
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      // Mock standings query
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants cp[\s\S]*LEFT JOIN picks/,
+        mockQueryResponses.multiple([
+          { user_id: 'user1', user_display_name: 'Player 1', total_score: 100 },
+          { user_id: 'user2', user_display_name: 'Player 2', total_score: 90 }
+        ])
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}/leaderboard`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.contest_id).toBe(TEST_INSTANCE_ID);
+      expect(response.body.leaderboard_state).toBe('pending');
+      expect(response.body).toHaveProperty('generated_at');
+      expect(response.body).toHaveProperty('column_schema');
+      expect(response.body).toHaveProperty('rows');
+      expect(response.body).toHaveProperty('pagination');
+      expect(Array.isArray(response.body.rows)).toBe(true);
+    });
+
+    it('should return leaderboard for COMPLETE contest with computed state', async () => {
+      const settlementResults = {
+        rankings: [
+          { user_id: 'user1', score: 100, rank: 1 },
+          { user_id: 'user2', score: 90, rank: 2 }
+        ]
+      };
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          id: TEST_INSTANCE_ID,
+          template_type: 'playoff_challenge',
+          status: 'COMPLETE',
+          start_time: null,
+          lock_time: null,
+          end_time: null,
+          template_id: TEST_TEMPLATE_ID
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.single({ id: 'settlement-1' })
+      );
+
+      // Mock settlement_records results query
+      mockPool.setQueryResponse(
+        /SELECT results FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.single({ results: settlementResults })
+      );
+
+      // Mock users query for display names
+      mockPool.setQueryResponse(
+        /SELECT id, COALESCE\(username, name, 'Unknown'\) AS user_display_name FROM users WHERE id = ANY/,
+        mockQueryResponses.multiple([
+          { id: 'user1', user_display_name: 'Player 1' },
+          { id: 'user2', user_display_name: 'Player 2' }
+        ])
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}/leaderboard`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.leaderboard_state).toBe('computed');
+      expect(Array.isArray(response.body.rows)).toBe(true);
+    });
+
+    it('should return error state for ERROR contest', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          id: TEST_INSTANCE_ID,
+          template_type: 'playoff_challenge',
+          status: 'ERROR',
+          start_time: null,
+          lock_time: null,
+          end_time: null,
+          template_id: TEST_TEMPLATE_ID
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}/leaderboard`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.leaderboard_state).toBe('error');
+      expect(response.body.rows).toEqual([]);
+    });
+
+    it('should require authentication', async () => {
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}/leaderboard`);
+
+      expect(response.status).toBe(401);
+    });
+
+    it('should include column_schema in response', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          id: TEST_INSTANCE_ID,
+          template_type: 'playoff_challenge',
+          status: 'LIVE',
+          start_time: null,
+          lock_time: null,
+          end_time: new Date(Date.now() + 3600000).toISOString(),
+          template_id: TEST_TEMPLATE_ID
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants cp[\s\S]*LEFT JOIN picks/,
+        mockQueryResponses.multiple([
+          { user_id: 'user1', user_display_name: 'Player 1', total_score: 100 }
+        ])
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}/leaderboard`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body.column_schema)).toBe(true);
+      expect(response.body.column_schema.length).toBeGreaterThan(0);
+      // Verify schema has expected fields
+      const rankColumn = response.body.column_schema.find(col => col.key === 'rank');
+      expect(rankColumn).toBeDefined();
+    });
+  });
 });
