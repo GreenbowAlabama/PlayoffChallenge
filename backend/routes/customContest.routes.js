@@ -252,6 +252,15 @@ router.post('/', extractUserId, async (req, res) => {
       return res.status(400).json({ error: 'Invalid template_id format' });
     }
 
+    // Validate lock_time: undefined -> null, null passes, string must be valid ISO date
+    let finalLockTime = lock_time === undefined ? null : lock_time;
+    if (finalLockTime !== null && typeof finalLockTime === 'string') {
+      const lockTimeDate = new Date(finalLockTime);
+      if (isNaN(lockTimeDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid lock_time format. Must be valid ISO date string or null.' });
+      }
+    }
+
     const instance = await customContestService.createContestInstance(pool, organizerId, {
       template_id,
       contest_name: contest_name ?? contestName,
@@ -259,7 +268,7 @@ router.post('/', extractUserId, async (req, res) => {
       entry_fee_cents,
       payout_structure,
       start_time,
-      lock_time,
+      lock_time: finalLockTime,
       settlement_time
     });
 

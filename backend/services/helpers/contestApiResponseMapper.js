@@ -47,11 +47,6 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
     throw new Error(`Invariant Violation: 'user_has_entered' must be a boolean, but received '${typeof contestRow.user_has_entered}'.`);
   }
 
-  // 4. Validate lock_time for SCHEDULED contests
-  if (contestRow.status === 'SCHEDULED' && contestRow.lock_time === null) {
-    throw new Error('Invariant Violation: SCHEDULED contest cannot have a null lock_time.');
-  }
-
   // 5. Standings presence and type validation
   const standingsPresentInRow = contestRow.standings !== undefined && contestRow.standings !== null;
 
@@ -93,7 +88,7 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
   const user_has_entered = contestRow.user_has_entered;
 
   let time_until_lock = null;
-  if (status === 'SCHEDULED') {
+  if (status === 'SCHEDULED' && contestRow.lock_time !== null) {
     const lockTimeMs = new Date(contestRow.lock_time).getTime();
     time_until_lock = Math.max(0, Math.floor((lockTimeMs - nowMs) / 1000));
   }
@@ -197,11 +192,6 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
     throw new Error(`Invariant Violation: 'user_has_entered' must be a boolean, but received '${typeof contestRow.user_has_entered}'.`);
   }
 
-  // 4. Validate lock_time for SCHEDULED contests
-  if (contestRow.status === 'SCHEDULED' && contestRow.lock_time === null) {
-    throw new Error('Invariant Violation: SCHEDULED contest cannot have a null lock_time.');
-  }
-
   // NOTE: We deliberately do NOT enforce standings presence/absence.
   // List endpoints are metadata-only. Standings are fetched in detail endpoints only.
 
@@ -222,7 +212,7 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
   const user_has_entered = contestRow.user_has_entered;
 
   let time_until_lock = null;
-  if (status === 'SCHEDULED') {
+  if (status === 'SCHEDULED' && contestRow.lock_time !== null) {
     const lockTimeMs = new Date(contestRow.lock_time).getTime();
     time_until_lock = Math.max(0, Math.floor((lockTimeMs - nowMs) / 1000));
   }

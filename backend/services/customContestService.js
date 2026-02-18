@@ -902,7 +902,7 @@ async function joinContest(pool, contestInstanceId, userId) {
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: `Contest is in state '${contest.status}' and not joinable` };
     }
 
-    // 3. Enforce lock_time window
+    // 3. Enforce lock_time window (optional - only if lock_time is set)
     if (contest.lock_time !== null && new Date() >= new Date(contest.lock_time)) {
       await client.query('ROLLBACK');
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest join window has closed' };

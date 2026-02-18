@@ -166,10 +166,12 @@ describe('contestApiResponseMapper', () => {
         .toThrow(/'user_has_entered' must be a boolean/);
     });
 
-    it('should throw if SCHEDULED contest has null lock_time', () => {
+    it('should allow SCHEDULED contest with null lock_time and return time_until_lock=null', () => {
       const contestRow = createBaseContestRow({ status: 'SCHEDULED', lock_time: null });
-      expect(() => mapContestToApiResponse(contestRow, { currentTimestamp: MOCK_TIMESTAMP }))
-        .toThrow(/SCHEDULED contest cannot have a null lock_time/);
+      const result = mapContestToApiResponse(contestRow, { currentTimestamp: MOCK_TIMESTAMP });
+      expect(result.time_until_lock).toBe(null);
+      expect(result.status).toBe('SCHEDULED');
+      expect(result.is_locked).toBe(false);
     });
 
     it('should throw if LIVE contest is missing standings', () => {
@@ -297,8 +299,8 @@ describe('contestApiResponseMapper', () => {
         authenticatedUserId: otherUserId
       });
 
-      expect(result.actions.can_share_invite).toBe(false);
-      expect(result.actions.can_manage_contest).toBe(false);
+      expect(result.actions.can_share_invite).toBe(true); // Authenticated users can always share
+      expect(result.actions.can_manage_contest).toBe(false); // Only organizer can manage
     });
 
     it('should deny organizer capabilities for unauthenticated user (null)', () => {

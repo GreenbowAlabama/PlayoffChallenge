@@ -376,6 +376,100 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(400);
       expect(response.body.error).toContain('payout_structure must match');
     });
+
+    describe('lock_time validation (contract enforcement)', () => {
+      it('should allow lock_time = null', async () => {
+        const scheduledInstance = { ...mockInstance, status: 'SCHEDULED', join_token: null, lock_time: null };
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_templates WHERE id/,
+          mockQueryResponses.single(mockTemplate)
+        );
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(scheduledInstance)
+        );
+
+        const response = await request(app)
+          .post('/api/custom-contests')
+          .set('X-User-Id', TEST_USER_ID)
+          .send({
+            ...validInput,
+            lock_time: null
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.lock_time).toBeNull();
+      });
+
+      it('should normalize undefined lock_time to null', async () => {
+        const scheduledInstance = { ...mockInstance, status: 'SCHEDULED', join_token: null, lock_time: null };
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_templates WHERE id/,
+          mockQueryResponses.single(mockTemplate)
+        );
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(scheduledInstance)
+        );
+
+        const response = await request(app)
+          .post('/api/custom-contests')
+          .set('X-User-Id', TEST_USER_ID)
+          .send({
+            template_id: TEST_TEMPLATE_ID,
+            contest_name: 'Test Contest',
+            entry_fee_cents: 2500,
+            payout_structure: { first: 70, second: 20, third: 10 }
+            // lock_time omitted entirely
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.lock_time).toBeNull();
+      });
+
+      it('should allow valid ISO lock_time', async () => {
+        const isoTime = new Date(Date.now() + 3600000).toISOString();
+        const scheduledInstance = { ...mockInstance, status: 'SCHEDULED', join_token: null, lock_time: isoTime };
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_templates WHERE id/,
+          mockQueryResponses.single(mockTemplate)
+        );
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(scheduledInstance)
+        );
+
+        const response = await request(app)
+          .post('/api/custom-contests')
+          .set('X-User-Id', TEST_USER_ID)
+          .send({
+            ...validInput,
+            lock_time: isoTime
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.lock_time).toBeDefined();
+        expect(response.body.lock_time).toBe(isoTime);
+      });
+
+      it('should reject invalid lock_time string with 400', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_templates WHERE id/,
+          mockQueryResponses.single(mockTemplate)
+        );
+
+        const response = await request(app)
+          .post('/api/custom-contests')
+          .set('X-User-Id', TEST_USER_ID)
+          .send({
+            ...validInput,
+            lock_time: 'not-a-date'
+          });
+
+        expect(response.status).toBe(400);
+        expect(response.body.error).toMatch(/Invalid lock_time|must be valid ISO date/);
+      });
+    });
   });
 
   describe('GET /api/custom-contests', () => {
