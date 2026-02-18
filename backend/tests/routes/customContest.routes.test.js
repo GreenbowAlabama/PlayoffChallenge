@@ -1358,6 +1358,173 @@ describe('Custom Contest Routes', () => {
       expect(response.body.payout_table[0]).toHaveProperty('place');
       expect(response.body.payout_table[0]).toHaveProperty('payout_percent');
     });
+
+    it('CONTRACT: payout_table rows must have rank_min (iOS compatibility)', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          payout_structure: { first: 70, second: 20, third: 10 },
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          settle_time: null
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.payout_table).toBeDefined();
+      expect(Array.isArray(response.body.payout_table)).toBe(true);
+      expect(response.body.payout_table.length).toBeGreaterThan(0);
+
+      // CONTRACT: All payout rows must include rank_min (required for iOS decoder)
+      response.body.payout_table.forEach(row => {
+        expect(row).toHaveProperty('rank_min');
+        expect(typeof row.rank_min).toBe('number');
+      });
+    });
+
+    it('CONTRACT: payout_table rows must have rank_max (iOS compatibility)', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          payout_structure: { first: 70, second: 20, third: 10 },
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          settle_time: null
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.payout_table).toBeDefined();
+      expect(Array.isArray(response.body.payout_table)).toBe(true);
+      expect(response.body.payout_table.length).toBeGreaterThan(0);
+
+      // CONTRACT: All payout rows must include rank_max (required for iOS decoder)
+      response.body.payout_table.forEach(row => {
+        expect(row).toHaveProperty('rank_max');
+        expect(typeof row.rank_max).toBe('number');
+      });
+    });
+
+    it('CONTRACT: payout_table rows must have payout_amount (iOS ContestDetailResponseContract)', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          payout_structure: { first: 70, second: 20, third: 10 },
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          settle_time: null
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.payout_table).toBeDefined();
+
+      // CONTRACT: All payout rows must include payout_amount (required for iOS decoder)
+      response.body.payout_table.forEach(row => {
+        expect(row).toHaveProperty('payout_amount');
+        // payout_amount is null until settlement; iOS decoder expects field to exist
+      });
+    });
+
+    it('CONTRACT: payout_table must NOT include legacy min_rank or max_rank fields', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          payout_structure: { first: 70, second: 20, third: 10 },
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          settle_time: null
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.payout_table).toBeDefined();
+
+      // CONTRACT: Must NOT include old field names (would break iOS decoder)
+      response.body.payout_table.forEach(row => {
+        expect(row).not.toHaveProperty('min_rank');
+        expect(row).not.toHaveProperty('max_rank');
+      });
+    });
+
+    it('CONTRACT: can_manage_contest must be true for organizer (case-insensitive)', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          organizer_id: TEST_USER_ID.toUpperCase(), // Test case-insensitive comparison
+          status: 'SCHEDULED',
+          payout_structure: { first: 70, second: 20, third: 10 },
+          entry_count: 5,
+          user_has_entered: true,
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          settle_time: null
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      // Request with lowercase userId
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID.toLowerCase());
+
+      expect(response.status).toBe(200);
+      expect(response.body.actions).toBeDefined();
+      // GOVERNANCE: Organizer can manage contest
+      expect(response.body.actions.can_manage_contest).toBe(true);
+    });
   });
 
   describe('GET /api/custom-contests/:id/leaderboard', () => {

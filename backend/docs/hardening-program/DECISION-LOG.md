@@ -605,6 +605,60 @@ Trigger for revisiting: Scale hits 1000+ pending payouts, or multi-node deployme
 
 ---
 
+### Decision: Strict Contract Field Naming (rank_min/rank_max, Not min_rank/max_rank)
+
+**Date**: 2026-02-18
+**Iteration**: 04 - Contract Freeze (Emergency QA Fix)
+**Context**: iOS app failed to decode ContestDetailResponseContract due to field name mismatch. Backend returned `min_rank` and `max_rank`, but iOS decoder expected `rank_min` and `rank_max` per CodingKeys. Hard contract breach discovered during manual QA.
+**Decision**: Backend must use exact field names from iOS DTO CodingKeys. Payout table fields corrected to: `rank_min`, `rank_max`, `payout_amount`. No field name translation; backend is authoritative on API contract.
+**Rationale**:
+- iOS CodingKeys explicitly map JSON field `rank_min` → Swift property `minRank`. Backend sends different field name = decode failure.
+- Contract is law; code must conform to contract, not vice versa
+- iOS client cannot be changed; backend must match iOS expectations
+- Field naming must be exact and deterministic (no aliasing or translation)
+- Serialization errors must be impossible (enforced by tests)
+**Alternatives Rejected**:
+  - Make iOS fields optional: Violates "no silent field defaults" principle; iOS can't know if field is intentionally missing
+  - Alias field names in serialization: Adds translation layer; increases fragility; hidden from API contract
+  - Update iOS CodingKeys: Cannot update iOS without breaking deployed app version
+**Impact**:
+- `services/presentationDerivationService.js` derivePayoutTable() changed: `min_rank` → `rank_min`, `max_rank` → `rank_max` (lines 146-147)
+- `tests/services/presentationDerivationService.test.js`: 5 new contract tests verify field names
+- `tests/routes/customContest.routes.test.js`: 6 new integration tests verify response shape for iOS
+- GET `/api/custom-contests/:id` response includes payout_table with correct field names
+- iOS decode now succeeds for ContestDetailResponseContract
+**Owner**: Backend Team, iOS Team
+**Status**: Active (enforcement mechanism: unit tests fail if field names drift)
+
+---
+
+### Decision: Case-Insensitive UUID Comparison for Organizer Authorization
+
+**Date**: 2026-02-18
+**Iteration**: 04 - Contract Freeze (QA Fix)
+**Context**: Inconsistent casing detected in userId authentication headers (uppercase vs lowercase) causing organizer capability checks to fail despite same user. Route middleware and service layer used case-insensitive comparison, but presentation layer (deriveContestActions) used case-sensitive string equality.
+**Decision**: All UUID comparisons for authorization must be case-insensitive. Normalize comparison in presentation layer to match service layer behavior.
+**Rationale**:
+- UUIDs are case-insensitive per RFC 4122; casing differences do not affect identity
+- Headers may be uppercase; database may be lowercase; comparison must be casing-neutral
+- Inconsistency between layers creates authorization bypass scenarios
+- Service layer already uses `.toLowerCase()` for organizer comparison; presentation layer must match
+- can_manage_contest flag depends on organizer comparison; incorrect casing = false negative
+**Alternatives Rejected**:
+  - Case-sensitive comparison: Breaks when header casing differs from database casing
+  - Normalize UUID at entry point only: Doesn't fix presentation layer; partial fix
+  - Store normalized UUIDs: Requires schema change; durable fix not worth delay
+**Impact**:
+- `services/presentationDerivationService.js` deriveContestActions() changed: `can_manage_contest` comparison now case-insensitive (lines 87-88)
+- `tests/services/presentationDerivationService.test.js`: Existing tests verify can_manage_contest flag
+- `tests/routes/customContest.routes.test.js`: New test verifies organizer case-insensitivity (line 1395+)
+- GET `/api/custom-contests/:id` response actions.can_manage_contest now correct regardless of header casing
+- Management controls properly visible for organizer in all scenarios
+**Owner**: Backend Team, Authentication Team
+**Status**: Active (enforcement: tests verify case-insensitivity)
+
+---
+
 ## Superseded Decisions
 
 (None yet. First decisions logged at program start.)

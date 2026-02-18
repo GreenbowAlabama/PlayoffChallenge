@@ -85,7 +85,9 @@ function deriveContestActions(contestRow, leaderboardState, userContext, current
   const can_share_invite = authenticatedUserId !== null && contestRow.status !== 'ERROR';
 
   // Manage capability: true only if authenticated user is the contest creator (organizer)
-  const can_manage_contest = authenticatedUserId !== null && authenticatedUserId === contestRow.organizer_id;
+  // Case-insensitive UUID comparison to handle potential casing inconsistencies
+  const can_manage_contest = authenticatedUserId !== null &&
+    authenticatedUserId.toLowerCase() === contestRow.organizer_id.toLowerCase();
 
   return {
     can_join,
@@ -141,8 +143,8 @@ function derivePayoutTable(payoutStructureJson) {
   for (const [place, payout_percent] of entries) {
     payoutTable.push({
       place,
-      min_rank: currentRank,
-      max_rank: currentRank,
+      rank_min: currentRank,
+      rank_max: currentRank,
       payout_amount: null, // Computed at settlement time
       payout_percent,
       currency: 'USD'

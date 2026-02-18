@@ -431,16 +431,16 @@ describe('presentationDerivationService', () => {
       expect(result).toHaveLength(3);
       expect(result[0]).toEqual({
         place: 'first',
-        min_rank: 1,
-        max_rank: 1,
+        rank_min: 1,
+        rank_max: 1,
         payout_amount: null,
         payout_percent: 70,
         currency: 'USD'
       });
       expect(result[1]).toEqual({
         place: 'second',
-        min_rank: 2,
-        max_rank: 2,
+        rank_min: 2,
+        rank_max: 2,
         payout_amount: null,
         payout_percent: 20,
         currency: 'USD'
@@ -459,6 +459,62 @@ describe('presentationDerivationService', () => {
     it('should handle invalid JSON string gracefully', () => {
       const result = derivePayoutTable('{ invalid json');
       expect(result).toEqual([]);
+    });
+
+    it('CONTRACT: should include rank_min (not min_rank) for iOS compatibility', () => {
+      const structure = { first: 100 };
+      const result = derivePayoutTable(structure);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toHaveProperty('rank_min');
+      expect(result[0]).not.toHaveProperty('min_rank');
+    });
+
+    it('CONTRACT: should include rank_max (not max_rank) for iOS compatibility', () => {
+      const structure = { first: 100 };
+      const result = derivePayoutTable(structure);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toHaveProperty('rank_max');
+      expect(result[0]).not.toHaveProperty('max_rank');
+    });
+
+    it('CONTRACT: should include payout_amount (required field for iOS)', () => {
+      const structure = { first: 100, second: 50 };
+      const result = derivePayoutTable(structure);
+
+      expect(result).toHaveLength(2);
+      result.forEach(row => {
+        expect(row).toHaveProperty('payout_amount');
+      });
+    });
+
+    it('CONTRACT: should have all required fields for iOS ContestDetailResponseContract', () => {
+      const structure = { first: 70, second: 20, third: 10 };
+      const result = derivePayoutTable(structure);
+
+      expect(result).toHaveLength(3);
+      result.forEach((row, index) => {
+        // Required fields per iOS contract
+        expect(row).toHaveProperty('rank_min');
+        expect(row).toHaveProperty('rank_max');
+        expect(row).toHaveProperty('payout_amount');
+        expect(typeof row.rank_min).toBe('number');
+        expect(typeof row.rank_max).toBe('number');
+        // payout_amount is null initially, computed at settlement
+      });
+    });
+
+    it('CONTRACT: rank_min and rank_max should match placement order', () => {
+      const structure = { first: 50, second: 30, third: 20 };
+      const result = derivePayoutTable(structure);
+
+      expect(result[0].rank_min).toBe(1);
+      expect(result[0].rank_max).toBe(1);
+      expect(result[1].rank_min).toBe(2);
+      expect(result[1].rank_max).toBe(2);
+      expect(result[2].rank_min).toBe(3);
+      expect(result[2].rank_max).toBe(3);
     });
   });
 
