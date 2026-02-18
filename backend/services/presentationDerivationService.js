@@ -108,8 +108,12 @@ function deriveContestActions(contestRow, leaderboardState, userContext, current
  * Transforms the stored payout_structure into a standardized array format
  * for presentation layer consumption.
  *
+ * Handles both semantic type descriptors (e.g., { type: "winner_take_all" })
+ * and numeric payout objects (e.g., { first: 100, second: 50 }).
+ *
  * @param {Object|null} payoutStructureJson - Payout structure from contest_instances.payout_structure
- * @returns {Array} Array of payout rows, or empty array if structure is missing
+ * @returns {Array} Array of payout rows with integer payout_percent
+ * @throws {Error} If semantic type is unsupported or payout values are invalid
  */
 function derivePayoutTable(payoutStructureJson) {
   if (!payoutStructureJson) {
@@ -131,6 +135,24 @@ function derivePayoutTable(payoutStructureJson) {
     return [];
   }
 
+  // Transform semantic type descriptors into numeric payout structures
+  // Handles iOS app format: { type: "winner_takes_all" | "winner_take_all" }
+  if (structure.type && typeof structure.type === 'string') {
+    const typeString = structure.type.toLowerCase().replace(/_/g, '');
+
+    switch (typeString) {
+      case 'winnertakesall':
+      case 'winnertakeall':
+        // Winner-take-all: entire pot to first place
+        structure = { first: 100 };
+        break;
+      // Other semantic types would be handled here
+      // Fail loudly on unknown types to prevent silent degradation
+      default:
+        throw new Error(`Unsupported payout structure type: ${structure.type}`);
+    }
+  }
+
   // Transform structure into array of payout rows
   // Expected format: { first: 70, second: 20, third: 10 } or { first: 100 } etc.
   const payoutTable = [];
@@ -141,12 +163,18 @@ function derivePayoutTable(payoutStructureJson) {
 
   let currentRank = 1;
   for (const [place, payout_percent] of entries) {
+    // Strict type validation: payout_percent must be number or null
+    // After semantic transformation, values should already be numeric
+    if (payout_percent !== null && typeof payout_percent !== 'number') {
+      throw new Error(`Invalid payout_percent type for place '${place}': expected number or null, got ${typeof payout_percent}`);
+    }
+
     payoutTable.push({
       place,
       rank_min: currentRank,
       rank_max: currentRank,
       amount: null, // Computed at settlement time
-      payout_percent,
+      payout_percent: payout_percent == null ? null : Math.trunc(payout_percent),
       currency: 'USD'
     });
     currentRank += 1;

@@ -516,6 +516,50 @@ describe('presentationDerivationService', () => {
       expect(result[2].rank_min).toBe(3);
       expect(result[2].rank_max).toBe(3);
     });
+
+    describe('Semantic Type Transformation', () => {
+      it('should transform { type: "winner_take_all" } to winner-takes-all payout (100)', () => {
+        const structure = { type: 'winner_take_all' };
+        const result = derivePayoutTable(structure);
+
+        expect(result).toHaveLength(1);
+        expect(result[0]).toEqual({
+          place: 'first',
+          rank_min: 1,
+          rank_max: 1,
+          amount: null,
+          payout_percent: 100,
+          currency: 'USD'
+        });
+        // CRITICAL: payout_percent must be integer, not string
+        expect(typeof result[0].payout_percent).toBe('number');
+      });
+
+      it('should transform { type: "winner_takes_all" } (camelCase variant) to payout_percent 100', () => {
+        const structure = { type: 'winner_takes_all' };
+        const result = derivePayoutTable(structure);
+
+        expect(result).toHaveLength(1);
+        expect(result[0].payout_percent).toBe(100);
+        expect(typeof result[0].payout_percent).toBe('number');
+      });
+
+      it('should throw on unsupported semantic type to prevent silent degradation', () => {
+        const structure = { type: 'tiered_percent' };
+
+        expect(() => {
+          derivePayoutTable(structure);
+        }).toThrow('Unsupported payout structure type: tiered_percent');
+      });
+
+      it('should throw on unknown semantic type with clear error message', () => {
+        const structure = { type: 'future_unknown_type' };
+
+        expect(() => {
+          derivePayoutTable(structure);
+        }).toThrow(/Unsupported payout structure type/);
+      });
+    });
   });
 
   describe('deriveRosterConfig', () => {
