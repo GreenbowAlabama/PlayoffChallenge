@@ -318,7 +318,7 @@ function normalizeContestResponse(contests) {
     // Normalize payout_table: ensure payout_percent is integer or null
     payout_table: (contest.payout_table || []).map(row => ({
       ...row,
-      payout_percent: row.payout_percent !== null ? Number(row.payout_percent) : null
+      payout_percent: row.payout_percent == null ? null : parseInt(row.payout_percent, 10)
     }))
   }));
 }
