@@ -319,16 +319,23 @@ function normalizeContestResponse(data) {
     created_at: new Date(contest.created_at).toISOString(),
     updated_at: new Date(contest.updated_at).toISOString(),
     // Normalize payout_table: ensure payout_percent is integer or null
-    payout_table: (contest.payout_table || []).map(row => ({
-      place: row.place,
-      rank_min: row.rank_min,
-      rank_max: row.rank_max,
-      amount: row.amount,
-      currency: row.currency,
-      payout_percent: row.payout_percent == null
-        ? null
-        : Math.trunc(Number(row.payout_percent))
-    }))
+    payout_table: (contest.payout_table || []).map(row => {
+      console.log('[NORMALIZER DEBUG]',
+        'type:', typeof row.payout_percent,
+        'value:', row.payout_percent,
+        'constructor:', row.payout_percent?.constructor?.name
+      );
+      return {
+        place: row.place,
+        rank_min: row.rank_min,
+        rank_max: row.rank_max,
+        amount: row.amount,
+        currency: row.currency,
+        payout_percent: row.payout_percent == null
+          ? null
+          : Math.trunc(Number(row.payout_percent))
+      };
+    })
   });
 
   // Handle both single objects and arrays
@@ -364,6 +371,7 @@ router.get('/available', extractUserId, createContractValidator('ContestListResp
     // Normalize response to ensure Date objects are ISO strings and numeric types are correct
     const normalizedInstances = normalizeContestResponse(instances);
 
+    console.log('[NORMALIZER APPLIED] Sending normalizedInstances');
     res.json(normalizedInstances);
   } catch (err) {
     console.error('[Custom Contest] Error fetching available contests:', err);
