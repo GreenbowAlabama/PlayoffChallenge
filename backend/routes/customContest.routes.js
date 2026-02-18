@@ -19,6 +19,7 @@ const router = express.Router();
 const customContestService = require('../services/customContestService');
 const { logJoinSuccess, logJoinFailure, logContestCreated, logContestPublished } = require('../services/joinAuditService');
 const { createCombinedJoinRateLimiter } = require('../middleware/joinRateLimit');
+const { createContractValidator } = require('../middleware/contractValidator');
 
 /**
  * Validate UUID format
@@ -313,7 +314,7 @@ router.post('/', extractUserId, async (req, res) => {
  *
  * Response: Array of contest instances
  */
-router.get('/available', extractUserId, async (req, res) => {
+router.get('/available', extractUserId, createContractValidator('ContestListResponse'), async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const userId = req.userId;
@@ -339,7 +340,7 @@ router.get('/available', extractUserId, async (req, res) => {
  *
  * Response: Array of contest instances
  */
-router.get('/', extractUserId, async (req, res) => {
+router.get('/', extractUserId, createContractValidator('ContestListResponse'), async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const organizerId = req.userId;
@@ -359,7 +360,7 @@ router.get('/', extractUserId, async (req, res) => {
  *
  * Response: Contest instance with template info
  */
-router.get('/:id', extractUserId, async (req, res) => {
+router.get('/:id', extractUserId, createContractValidator('ContestDetailResponse'), async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;

@@ -237,7 +237,6 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
 
   // --- Construct API List Response (no standings) ---
   const response = {
-    __exec_marker: "mapContestToApiResponseForList_ACTIVE",
     id: contestRow.id,
     organizer_id: contestRow.organizer_id,
     organizer_name: contestRow.organizer_name,

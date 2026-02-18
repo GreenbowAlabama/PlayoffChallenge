@@ -13,12 +13,16 @@ const request = require('supertest');
 const express = require('express');
 const customContestRoutes = require('../../routes/customContest.routes');
 const { createMockPool, mockQueryResponses } = require('../mocks/mockPool');
+const { assertMatchesContestDetailSchema, assertMatchesContestListSchema } = require('../helpers/assertMatchesSchema');
 
 // Test fixtures
 const TEST_USER_ID = '11111111-1111-1111-1111-111111111111';
 const OTHER_USER_ID = '22222222-2222-2222-2222-222222222222';
 const TEST_TEMPLATE_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const TEST_INSTANCE_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const CONTEST_1_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+const CONTEST_2_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+const CONTEST_3_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 
 const mockTemplate = {
   id: TEST_TEMPLATE_ID,
@@ -62,7 +66,14 @@ const mockInstanceWithTemplate = {
   template_type: mockTemplate.template_type,
   scoring_strategy_key: mockTemplate.scoring_strategy_key,
   lock_strategy_key: mockTemplate.lock_strategy_key,
-  settlement_strategy_key: mockTemplate.settlement_strategy_key
+  settlement_strategy_key: mockTemplate.settlement_strategy_key,
+  // List endpoint fields
+  organizer_name: 'Test Organizer',
+  settle_time: null,
+  end_time: null,
+  // Schema-required fields
+  entry_count: 0,
+  user_has_entered: false
 };
 
 describe('Custom Contest Routes', () => {
@@ -541,14 +552,14 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.multiple([
           {
             ...mockInstanceWithTemplate,
-            id: 'contest-1-id',
+            id: CONTEST_1_ID,
             entry_count: 5,
             user_has_entered: true,
             lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
           },
           {
             ...mockInstanceWithTemplate,
-            id: 'contest-2-id',
+            id: CONTEST_2_ID,
             entry_count: 3,
             user_has_entered: false,
             lock_time: new Date(Date.now() + 7200 * 1000).toISOString()
@@ -567,6 +578,32 @@ describe('Custom Contest Routes', () => {
       // Verify both are boolean
       expect(typeof response.body[0].user_has_entered).toBe('boolean');
       expect(typeof response.body[1].user_has_entered).toBe('boolean');
+    });
+
+    it('SCHEMA: all list items must match ContestListItem schema', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.organizer_id/,
+        mockQueryResponses.multiple([
+          {
+            ...mockInstanceWithTemplate,
+            id: TEST_INSTANCE_ID,
+            status: 'SCHEDULED',
+            entry_count: 3,
+            user_has_entered: false,
+            lock_time: new Date(Date.now() + 3600000).toISOString(),
+            settle_time: null,
+            organizer_name: 'Test Organizer'
+          }
+        ])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      // Full schema validation for each item
+      assertMatchesContestListSchema(response.body);
     });
   });
 
@@ -625,7 +662,7 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.multiple([
           {
             ...mockInstanceWithTemplate,
-            id: 'contest-1-id',
+            id: CONTEST_1_ID,
             status: 'SCHEDULED',
             join_token: 'dev_token1',
             entry_count: 3,
@@ -634,7 +671,7 @@ describe('Custom Contest Routes', () => {
           },
           {
             ...mockInstanceWithTemplate,
-            id: 'contest-2-id',
+            id: CONTEST_2_ID,
             status: 'SCHEDULED',
             join_token: 'dev_token2',
             entry_count: 8,
@@ -707,14 +744,14 @@ describe('Custom Contest Routes', () => {
     it('should preserve organizer_name from database (regression test)', async () => {
       const futureTime = new Date(Date.now() + 3600 * 1000).toISOString();
       const organizerUsername = 'Ian-testin';
-      const requestingUserId = 'B9F8EFF1-16AC-4B94-9DD7-06BA0B372E54';
+      const requestingUserId = '33333333-3333-3333-3333-333333333333';
       const contestOrganizerId = OTHER_USER_ID; // Different from requesting user
 
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.status = 'SCHEDULED'[\s\S]*AND ci\.join_token IS NOT NULL/,
         mockQueryResponses.multiple([{
           ...mockInstanceWithTemplate,
-          id: 'contest-with-different-organizer',
+          id: CONTEST_3_ID,
           organizer_id: contestOrganizerId,
           organizer_name: organizerUsername, // Key assertion: this should NOT be overwritten
           status: 'SCHEDULED',
@@ -731,11 +768,39 @@ describe('Custom Contest Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.length).toBe(1);
-      expect(response.body[0].id).toBe('contest-with-different-organizer');
+      expect(response.body[0].id).toBe(CONTEST_3_ID);
       expect(response.body[0].organizer_id).toBe(contestOrganizerId);
       // CRITICAL: organizer_name must come from DB, NOT from requesting user
       expect(response.body[0].organizer_name).toBe(organizerUsername);
       expect(response.body[0].organizer_name).not.toBe(requestingUserId);
+    });
+
+    it('SCHEMA: all available contests must match ContestListItem schema', async () => {
+      const futureTime = new Date(Date.now() + 3600 * 1000).toISOString();
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.status = 'SCHEDULED'[\s\S]*AND ci\.join_token IS NOT NULL/,
+        mockQueryResponses.multiple([
+          {
+            ...mockInstanceWithTemplate,
+            id: TEST_INSTANCE_ID,
+            status: 'SCHEDULED',
+            join_token: 'dev_available1',
+            entry_count: 5,
+            user_has_entered: false,
+            lock_time: futureTime,
+            settle_time: null,
+            organizer_name: 'Test Organizer'
+          }
+        ])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/available')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      // Full schema validation for each item
+      assertMatchesContestListSchema(response.body);
     });
   });
 
@@ -1429,7 +1494,7 @@ describe('Custom Contest Routes', () => {
       });
     });
 
-    it('CONTRACT: payout_table rows must have payout_amount (iOS ContestDetailResponseContract)', async () => {
+    it('CONTRACT: payout_table rows must have amount (iOS ContestDetailResponseContract)', async () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
         mockQueryResponses.single({
@@ -1455,10 +1520,10 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.payout_table).toBeDefined();
 
-      // CONTRACT: All payout rows must include payout_amount (required for iOS decoder)
+      // CONTRACT: All payout rows must include amount (required for iOS decoder)
       response.body.payout_table.forEach(row => {
-        expect(row).toHaveProperty('payout_amount');
-        // payout_amount is null until settlement; iOS decoder expects field to exist
+        expect(row).toHaveProperty('amount');
+        // amount is null until settlement; iOS decoder expects field to exist
       });
     });
 
@@ -1524,6 +1589,34 @@ describe('Custom Contest Routes', () => {
       expect(response.body.actions).toBeDefined();
       // GOVERNANCE: Organizer can manage contest
       expect(response.body.actions.can_manage_contest).toBe(true);
+    });
+
+    it('SCHEMA: complete response must match ContestDetailResponse schema', async () => {
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.id = \$1/,
+        mockQueryResponses.single({
+          ...mockInstanceWithTemplate,
+          status: 'SCHEDULED',
+          payout_structure: { first: 70, second: 20, third: 10 },
+          entry_count: 5,
+          user_has_entered: false,
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          settle_time: null
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT 1 FROM settlement_records WHERE contest_instance_id/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .get(`/api/custom-contests/${TEST_INSTANCE_ID}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      // Full schema validation — catches any drift from spec
+      assertMatchesContestDetailSchema(response.body);
     });
   });
 

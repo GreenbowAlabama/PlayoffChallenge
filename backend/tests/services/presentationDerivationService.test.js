@@ -433,7 +433,7 @@ describe('presentationDerivationService', () => {
         place: 'first',
         rank_min: 1,
         rank_max: 1,
-        payout_amount: null,
+        amount: null,
         payout_percent: 70,
         currency: 'USD'
       });
@@ -441,7 +441,7 @@ describe('presentationDerivationService', () => {
         place: 'second',
         rank_min: 2,
         rank_max: 2,
-        payout_amount: null,
+        amount: null,
         payout_percent: 20,
         currency: 'USD'
       });
@@ -479,13 +479,13 @@ describe('presentationDerivationService', () => {
       expect(result[0]).not.toHaveProperty('max_rank');
     });
 
-    it('CONTRACT: should include payout_amount (required field for iOS)', () => {
+    it('CONTRACT: should include amount (required field for iOS)', () => {
       const structure = { first: 100, second: 50 };
       const result = derivePayoutTable(structure);
 
       expect(result).toHaveLength(2);
       result.forEach(row => {
-        expect(row).toHaveProperty('payout_amount');
+        expect(row).toHaveProperty('amount');
       });
     });
 
@@ -498,10 +498,10 @@ describe('presentationDerivationService', () => {
         // Required fields per iOS contract
         expect(row).toHaveProperty('rank_min');
         expect(row).toHaveProperty('rank_max');
-        expect(row).toHaveProperty('payout_amount');
+        expect(row).toHaveProperty('amount');
         expect(typeof row.rank_min).toBe('number');
         expect(typeof row.rank_max).toBe('number');
-        // payout_amount is null initially, computed at settlement
+        // amount is null initially, computed at settlement
       });
     });
 

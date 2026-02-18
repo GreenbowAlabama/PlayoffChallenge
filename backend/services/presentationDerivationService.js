@@ -145,7 +145,7 @@ function derivePayoutTable(payoutStructureJson) {
       place,
       rank_min: currentRank,
       rank_max: currentRank,
-      payout_amount: null, // Computed at settlement time
+      amount: null, // Computed at settlement time
       payout_percent,
       currency: 'USD'
     });
