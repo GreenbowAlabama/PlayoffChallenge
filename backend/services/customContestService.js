@@ -412,7 +412,8 @@ async function getContestInstance(pool, instanceId, requestingUserId = null) {
   const settlementRecordExists = settlementResult.rows.length > 0;
 
   // Map to API response format using the mapper
-  return mapContestToApiResponse(row, { currentTimestamp, settlementRecordExists });
+  // Pass requestingUserId for capability-based authorization (organizer checks)
+  return mapContestToApiResponse(row, { currentTimestamp, settlementRecordExists, authenticatedUserId: requestingUserId });
 }
 
 /**
@@ -476,7 +477,8 @@ async function getContestInstanceByToken(pool, token, requestingUserId = null) {
   const settlementRecordExists = settlementResult.rows.length > 0;
 
   // Map to API response format using the mapper
-  return mapContestToApiResponse(row, { currentTimestamp, settlementRecordExists });
+  // Pass requestingUserId for capability-based authorization (organizer checks)
+  return mapContestToApiResponse(row, { currentTimestamp, settlementRecordExists, authenticatedUserId: requestingUserId });
 }
 
 /**
@@ -706,6 +708,7 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
   // Map each row to list API response format.
   // Uses mapContestToApiResponseForList which omits standings (metadata-only).
   // No lifecycle advancement, no per-row queries (non-mutating).
+  // Pass requestingUserId for capability-based authorization (organizer checks).
   const processedContests = result.rows.map(row => {
     console.log('LIST ROW:', JSON.stringify({
       id: row.id,
@@ -714,7 +717,7 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
       contest_name: row.contest_name,
       status: row.status
     }, null, 2));
-    const mapped = mapContestToApiResponseForList(row, { currentTimestamp });
+    const mapped = mapContestToApiResponseForList(row, { currentTimestamp, authenticatedUserId: requestingUserId });
     console.log('MAPPED:', JSON.stringify({
       id: mapped.id,
       template_name: mapped.template_name,
@@ -1157,8 +1160,9 @@ async function getContestsForUser(pool, userId, isAdmin = false, limit = 50, off
   // Map each row to list API response format.
   // Uses mapContestToApiResponseForList which omits standings (metadata-only).
   // No lifecycle advancement, no per-row queries (non-mutating).
+  // Pass userId for capability-based authorization (organizer checks).
   const processedContests = result.rows.map(row =>
-    mapContestToApiResponseForList(row, { currentTimestamp })
+    mapContestToApiResponseForList(row, { currentTimestamp, authenticatedUserId: userId })
   );
 
   return processedContests;
@@ -1225,8 +1229,9 @@ async function getAvailableContestInstances(pool, userId) {
   const currentTimestamp = Date.now();
 
   // Map each row to list API response format (metadata-only, no standings)
+  // Pass userId for capability-based authorization (organizer checks)
   const processedContests = result.rows.map(row => {
-    const mapped = mapContestToApiResponseForList(row, { currentTimestamp });
+    const mapped = mapContestToApiResponseForList(row, { currentTimestamp, authenticatedUserId: userId });
     console.log('🟢 EXEC_MARKER:AFTER_MAPPER id:organizer_name pair:', { id: mapped.id, organizer_name: mapped.organizer_name });
     return mapped;
   });
@@ -1323,9 +1328,10 @@ async function getAvailableContests(pool, userId) {
 
   const currentTimestamp = Date.now();
 
-  // Map each row to API response format (metadata-only, no standings)
+  // Map each row to API response format (metadata-only, no standings).
+  // Pass userId for capability-based authorization (organizer checks).
   const processedContests = result.rows.map(row =>
-    mapContestToApiResponseForList(row, { currentTimestamp })
+    mapContestToApiResponseForList(row, { currentTimestamp, authenticatedUserId: userId })
   );
 
   return processedContests;

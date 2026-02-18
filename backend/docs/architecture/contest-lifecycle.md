@@ -198,6 +198,53 @@ Clients receive contest data through the API. The following fields are derived b
 
 Clients render what the API returns. If a field is absent, the client must treat it as unavailable — not as a default value.
 
+### Contest Share Capability
+
+The `actions.can_share_invite` field determines whether a user can share a contest link with others. This capability is **NOT exclusive to the organizer** but is **lifecycle-aware for ERROR containment**.
+
+**Sharing Rules:**
+- `can_share_invite = true` when:
+  - `authenticatedUserId != null` (user is authenticated), AND
+  - `contest.status != 'ERROR'` (contest is not in system error state)
+- `can_share_invite = false` when:
+  - `authenticatedUserId = null` (unauthenticated/guest), OR
+  - `contest.status = 'ERROR'` (system failure state)
+
+**Lifecycle Alignment:**
+- **SCHEDULED, LOCKED, LIVE:** Shareable. Contest is in normal operation or promotion phase.
+- **COMPLETE:** Shareable. Final, controlled business outcome. Results may be distributed.
+- **CANCELLED:** Shareable. Cancelled is a controlled administrative decision, not a system failure.
+- **ERROR:** NOT shareable. System failure state must not be virally propagated.
+
+**Rationale for ERROR Containment:**
+ERROR represents an uncontrolled system state (failed settlement, data integrity issue, or operational failure). ERROR contests expose incomplete or unstable UI states and broken game data. Preventing share during ERROR:
+1. Contains system failures to known participants
+2. Prevents viral distribution of broken state
+3. Ensures ERROR resolution occurs before expansion
+4. Protects system integrity and operational trust
+
+COMPLETE and CANCELLED are controlled outcomes and may be shared without risk.
+
+**Management Rules (distinct from sharing):**
+- `can_manage_contest = true` only for the contest organizer (creator)
+- Management capabilities (editing, cancellation, resolution) remain organizer-exclusive
+- Organizers retain manage capability in ERROR state to resolve and recover
+
+**Backend Authority:**
+- The backend is the sole authority for both fields. No client inference is permitted.
+- iOS and all clients must gate the share UI directly on `actions.can_share_invite == true`.
+- No client shall infer share capability from user role, entry state, capacity, or any other field.
+
+**Governance Invariant:**
+`can_share_invite` depends ONLY on `authenticatedUserId` and `contest.status`. It is immune to:
+- User entry state (`user_has_entered`)
+- Capacity conditions (`entry_count`, `max_entries`)
+- Leaderboard state
+- Join eligibility or other context variables
+
+**Rationale (Broadened):**
+Sharing is a lightweight, non-privileged action that amplifies contest visibility and participation. Restricting it to organizers would artificially limit network effects. ERROR containment is the only lifecycle gate, balancing openness with system integrity.
+
 ### Mapper Invariants and Validation
 
 All derived fields are validated by the backend response mapper.

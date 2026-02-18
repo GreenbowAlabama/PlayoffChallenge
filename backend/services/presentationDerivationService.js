@@ -40,6 +40,7 @@ function deriveLeaderboardState(contestRow, settlementRecordExists) {
  *
  * @param {Object} contestRow - Contest instance database row
  * @param {string} contestRow.status - Contest status
+ * @param {string|null} contestRow.organizer_id - UUID of the contest organizer (creator)
  * @param {Date|string|null} contestRow.lock_time - Lock time for SCHEDULED contests
  * @param {string} leaderboardState - Derived leaderboard state ('error', 'computed', 'pending')
  * @param {Object} userContext - User context relative to this contest
@@ -47,9 +48,10 @@ function deriveLeaderboardState(contestRow, settlementRecordExists) {
  * @param {number} userContext.entry_count - Current participant count
  * @param {number|null} userContext.max_entries - Maximum allowed participants (null = unlimited)
  * @param {number} currentTimestamp - Current time in milliseconds
+ * @param {string|null} authenticatedUserId - UUID of authenticated user, or null if unauthenticated
  * @returns {Object} Actions object with boolean flags
  */
-function deriveContestActions(contestRow, leaderboardState, userContext, currentTimestamp) {
+function deriveContestActions(contestRow, leaderboardState, userContext, currentTimestamp, authenticatedUserId = null) {
   const nowMs = currentTimestamp || Date.now();
   const lockTimeMs = contestRow.lock_time ? new Date(contestRow.lock_time).getTime() : null;
 
@@ -77,6 +79,14 @@ function deriveContestActions(contestRow, leaderboardState, userContext, current
 
   const is_read_only = !(can_join || can_edit_entry);
 
+  // Share capability: true if authenticated user AND contest is not in ERROR state
+  // ERROR is an uncontrolled system state that must not be virally propagated.
+  // COMPLETE and CANCELLED are controlled outcomes and may be shared.
+  const can_share_invite = authenticatedUserId !== null && contestRow.status !== 'ERROR';
+
+  // Manage capability: true only if authenticated user is the contest creator (organizer)
+  const can_manage_contest = authenticatedUserId !== null && authenticatedUserId === contestRow.organizer_id;
+
   return {
     can_join,
     can_edit_entry,
@@ -84,7 +94,9 @@ function deriveContestActions(contestRow, leaderboardState, userContext, current
     is_closed,
     is_scoring,
     is_scored,
-    is_read_only
+    is_read_only,
+    can_share_invite,
+    can_manage_contest
   };
 }
 

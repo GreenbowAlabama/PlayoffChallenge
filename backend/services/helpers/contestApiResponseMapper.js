@@ -25,10 +25,11 @@ const VALID_STATUSES = new Set([
  * @param {object} options - Options for mapping.
  * @param {number|Date} options.currentTimestamp - The current timestamp, either as milliseconds or a Date object.
  * @param {boolean} options.settlementRecordExists - Whether a settlement_records row exists for this contest.
+ * @param {string|null} options.authenticatedUserId - UUID of authenticated user, or null if unauthenticated.
  * @returns {object} The contest in API response format.
  * @throws {Error} If any invariant is violated.
  */
-function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecordExists = false }) {
+function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecordExists = false, authenticatedUserId = null }) {
   // --- Strict Invariant Enforcement ---
 
   // 1. Validate contestRow.status against allowed values
@@ -112,7 +113,8 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
       entry_count: contestRow.entry_count,
       max_entries: contestRow.max_entries
     },
-    nowMs
+    nowMs,
+    authenticatedUserId
   );
   const payout_table = derivePayoutTable(contestRow.payout_structure);
   const roster_config = deriveRosterConfig(contestRow.template_id);
@@ -173,10 +175,11 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
  * @param {object} options - Options for mapping
  * @param {number|Date} options.currentTimestamp - The current timestamp
  * @param {boolean} options.settlementRecordExists - Whether a settlement_records row exists for this contest
+ * @param {string|null} options.authenticatedUserId - UUID of authenticated user, or null if unauthenticated.
  * @returns {object} The contest in API list response format (no standings)
  * @throws {Error} If core invariants are violated
  */
-function mapContestToApiResponseForList(contestRow, { currentTimestamp, settlementRecordExists = false }) {
+function mapContestToApiResponseForList(contestRow, { currentTimestamp, settlementRecordExists = false, authenticatedUserId = null }) {
   // --- Strict Invariant Enforcement (subset of detail mapper) ---
 
   // 1. Validate status against allowed values
@@ -236,7 +239,8 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
       entry_count: contestRow.entry_count,
       max_entries: contestRow.max_entries
     },
-    nowMs
+    nowMs,
+    authenticatedUserId
   );
   const payout_table = derivePayoutTable(contestRow.payout_structure);
   const roster_config = deriveRosterConfig(contestRow.template_id);

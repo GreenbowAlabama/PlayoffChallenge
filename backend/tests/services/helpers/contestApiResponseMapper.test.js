@@ -265,4 +265,70 @@ describe('contestApiResponseMapper', () => {
       expect(errorResult.is_locked).toBe(true);
     });
   });
+
+  // --- Organizer Capability Tests ---
+  describe('Organizer Capabilities: can_share_invite and can_manage_contest', () => {
+    const organizerId = '11111111-1111-1111-1111-111111111111';
+    const otherUserId = '22222222-2222-2222-2222-222222222222';
+
+    it('should grant organizer capabilities when authenticated user is creator', () => {
+      const contestRow = createBaseContestRow({
+        organizer_id: organizerId,
+        status: 'SCHEDULED'
+      });
+
+      const result = mapContestToApiResponse(contestRow, {
+        currentTimestamp: MOCK_TIMESTAMP,
+        authenticatedUserId: organizerId
+      });
+
+      expect(result.actions.can_share_invite).toBe(true);
+      expect(result.actions.can_manage_contest).toBe(true);
+    });
+
+    it('should deny organizer capabilities for non-creator participant', () => {
+      const contestRow = createBaseContestRow({
+        organizer_id: organizerId,
+        status: 'SCHEDULED'
+      });
+
+      const result = mapContestToApiResponse(contestRow, {
+        currentTimestamp: MOCK_TIMESTAMP,
+        authenticatedUserId: otherUserId
+      });
+
+      expect(result.actions.can_share_invite).toBe(false);
+      expect(result.actions.can_manage_contest).toBe(false);
+    });
+
+    it('should deny organizer capabilities for unauthenticated user (null)', () => {
+      const contestRow = createBaseContestRow({
+        organizer_id: organizerId,
+        status: 'SCHEDULED'
+      });
+
+      const result = mapContestToApiResponse(contestRow, {
+        currentTimestamp: MOCK_TIMESTAMP,
+        authenticatedUserId: null
+      });
+
+      expect(result.actions.can_share_invite).toBe(false);
+      expect(result.actions.can_manage_contest).toBe(false);
+    });
+
+    it('should deny organizer capabilities when authenticatedUserId is not provided (defaults to null)', () => {
+      const contestRow = createBaseContestRow({
+        organizer_id: organizerId,
+        status: 'SCHEDULED'
+      });
+
+      const result = mapContestToApiResponse(contestRow, {
+        currentTimestamp: MOCK_TIMESTAMP
+        // No authenticatedUserId parameter, should default to null
+      });
+
+      expect(result.actions.can_share_invite).toBe(false);
+      expect(result.actions.can_manage_contest).toBe(false);
+    });
+  });
 });
