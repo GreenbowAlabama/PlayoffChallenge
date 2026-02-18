@@ -609,6 +609,8 @@ struct ContestActions: Codable, Hashable, Equatable {
     let is_scoring: Bool
     let is_scored: Bool
     let is_read_only: Bool
+    let can_share_invite: Bool
+    let can_manage_contest: Bool
 
     enum CodingKeys: String, CodingKey {
         case can_join
@@ -618,9 +620,11 @@ struct ContestActions: Codable, Hashable, Equatable {
         case is_scoring
         case is_scored
         case is_read_only
+        case can_share_invite
+        case can_manage_contest
     }
 
-    init(can_join: Bool, can_edit_entry: Bool, is_live: Bool, is_closed: Bool, is_scoring: Bool, is_scored: Bool, is_read_only: Bool) {
+    init(can_join: Bool, can_edit_entry: Bool, is_live: Bool, is_closed: Bool, is_scoring: Bool, is_scored: Bool, is_read_only: Bool, can_share_invite: Bool, can_manage_contest: Bool) {
         self.can_join = can_join
         self.can_edit_entry = can_edit_entry
         self.is_live = is_live
@@ -628,6 +632,8 @@ struct ContestActions: Codable, Hashable, Equatable {
         self.is_scoring = is_scoring
         self.is_scored = is_scored
         self.is_read_only = is_read_only
+        self.can_share_invite = can_share_invite
+        self.can_manage_contest = can_manage_contest
     }
 
     init(from decoder: Decoder) throws {
@@ -639,6 +645,8 @@ struct ContestActions: Codable, Hashable, Equatable {
         is_scoring = try c.decode(Bool.self, forKey: .is_scoring)
         is_scored = try c.decode(Bool.self, forKey: .is_scored)
         is_read_only = try c.decode(Bool.self, forKey: .is_read_only)
+        can_share_invite = try c.decode(Bool.self, forKey: .can_share_invite)
+        can_manage_contest = try c.decode(Bool.self, forKey: .can_manage_contest)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -650,6 +658,8 @@ struct ContestActions: Codable, Hashable, Equatable {
         try c.encode(is_scoring, forKey: .is_scoring)
         try c.encode(is_scored, forKey: .is_scored)
         try c.encode(is_read_only, forKey: .is_read_only)
+        try c.encode(can_share_invite, forKey: .can_share_invite)
+        try c.encode(can_manage_contest, forKey: .can_manage_contest)
     }
 }
 
@@ -658,6 +668,19 @@ enum LeaderboardState: String, Decodable {
     case pending
     case computed
     case error
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+
+        switch rawValue.lowercased() {
+        case "pending": self = .pending
+        case "computed": self = .computed
+        case "error": self = .error
+        default: self = .unknown
+        }
+    }
 }
 
 /// Schema definition for dynamic leaderboard columns.

@@ -23,58 +23,6 @@ final class MockContestService: ContestServiceing, @unchecked Sendable {
     }
 }
 
-// MARK: - Mock Joined Store
-
-final class MockJoinedStore: JoinedContestsStoring, @unchecked Sendable {
-    private var joined: [UUID: MockContest] = [:]
-
-    func markJoined(_ contest: MockContest) {
-        let updated = MockContest(
-            id: contest.id,
-            name: contest.name,
-            entryCount: contest.entryCount,
-            maxEntries: contest.maxEntries,
-            status: contest.status,
-            creatorName: contest.creatorName,
-            entryFee: contest.entryFee,
-            joinToken: contest.joinToken,
-            joinURL: contest.joinURL,
-            isJoined: true,
-            lockTime: contest.lockTime,
-            startTime: contest.startTime,
-            endTime: contest.endTime,
-            actions: contest.actions
-        )
-        joined[contest.id] = updated
-    }
-
-    func isJoined(contestId: UUID) -> Bool {
-        guard let contest = joined[contestId] else { return false }
-        return contest.isJoined
-    }
-
-    func getJoinedIds() -> [UUID] {
-        Array(joined.keys)
-    }
-
-    func getJoinedContests() -> [MockContest] {
-        Array(joined.values)
-    }
-
-    func getContest(by id: UUID) -> MockContest? {
-        joined[id]
-    }
-
-    func updateContest(_ contest: MockContest) {
-        guard joined[contest.id] != nil else { return }
-        joined[contest.id] = contest
-    }
-
-    func clear() {
-        joined.removeAll()
-    }
-}
-
 // MARK: - Mock Contest Joiner
 
 extension MockContestJoiner {

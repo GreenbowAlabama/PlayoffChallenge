@@ -32,10 +32,6 @@ struct ContestDetailView: View {
         self.init(contestId: contest.id, placeholder: contest, contestJoiner: contestJoiner)
     }
 
-    private var isOrganizer: Bool {
-        CreatedContestsStore.shared.getAll().contains { $0.id == viewModel.contest.id }
-    }
-
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -76,7 +72,7 @@ struct ContestDetailView: View {
 
                     Spacer()
 
-                    if viewModel.isJoined {
+                    if viewModel.canSelectLineup {
                         Label("Joined", systemImage: "checkmark.circle.fill")
                             .font(.headline)
                             .foregroundColor(.green)
@@ -98,8 +94,8 @@ struct ContestDetailView: View {
 
                 // Action Buttons
                 VStack(spacing: 12) {
-                    // Join Button (only shown if not joined)
-                    if !viewModel.isJoined {
+                    // Join Button (only shown if can join)
+                    if viewModel.canJoinContest {
                         Button {
                             Task {
                                 await viewModel.joinContest()
@@ -187,7 +183,7 @@ struct ContestDetailView: View {
                     if let lockTime = viewModel.contest.lockTime {
                         InfoRowView(label: "Contest Locks", value: viewModel.formattedLockTime(lockTime))
                     }
-                    if viewModel.isJoined {
+                    if viewModel.canSelectLineup {
                         InfoRowView(label: "Your Status", value: "Joined")
                     }
                 }
@@ -198,8 +194,8 @@ struct ContestDetailView: View {
                 .padding(.horizontal)
                 .redacted(reason: viewModel.contest.displayStatus == "Loading" ? .placeholder : [])
 
-                // Share Link (for organizers)
-                if isOrganizer, let joinURL = viewModel.contest.joinURL {
+                // Share Link (contract-driven capability)
+                if viewModel.contractContest?.actions.can_share_invite == true, let joinURL = viewModel.contest.joinURL {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Text("Share Link")

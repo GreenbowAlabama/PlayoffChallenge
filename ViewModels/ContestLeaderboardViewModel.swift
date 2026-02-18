@@ -61,6 +61,10 @@ final class ContestLeaderboardViewModel: ObservableObject {
         leaderboardState == .error
     }
 
+    var hasUnknownState: Bool {
+        leaderboardState == .unknown
+    }
+
     var isEmpty: Bool {
         isComputed && rows.isEmpty
     }

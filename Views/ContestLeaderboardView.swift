@@ -34,6 +34,22 @@ struct ContestLeaderboardView: View {
                         .font(.title2)
                         .foregroundColor(.secondary)
                 }
+            } else if viewModel.hasUnknownState {
+                VStack(spacing: 16) {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 60))
+                        .foregroundColor(.orange)
+
+                    Text("Leaderboard Format Not Supported")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+
+                    Text("The leaderboard format is not yet supported on this version of the app. Please update or contact support.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
             } else if viewModel.hasError {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")

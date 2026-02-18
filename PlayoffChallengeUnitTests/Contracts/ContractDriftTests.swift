@@ -63,6 +63,34 @@ final class ContractDriftTests: XCTestCase {
         XCTAssertTrue(threwError, "Missing required 'roster_config' must fail decode")
     }
 
+    @MainActor func testContestDetailContractMissingCanShareInviteThrows() {
+        let json = ContestDetailContractFixtures.missingCanShareInviteJSON.data(using: .utf8)!
+        let decoder = JSONDecoder()
+
+        var threwError = false
+        do {
+            _ = try decoder.decode(ContestDetailResponseContract.self, from: json)
+        } catch {
+            threwError = true
+        }
+
+        XCTAssertTrue(threwError, "Missing required 'can_share_invite' in actions must fail decode")
+    }
+
+    @MainActor func testContestDetailContractMissingCanManageContestThrows() {
+        let json = ContestDetailContractFixtures.missingCanManageContestJSON.data(using: .utf8)!
+        let decoder = JSONDecoder()
+
+        var threwError = false
+        do {
+            _ = try decoder.decode(ContestDetailResponseContract.self, from: json)
+        } catch {
+            threwError = true
+        }
+
+        XCTAssertTrue(threwError, "Missing required 'can_manage_contest' in actions must fail decode")
+    }
+
     // MARK: - LeaderboardResponseContract Required Fields
 
     @MainActor func testLeaderboardContractValidComputedFixtureDecodes() {

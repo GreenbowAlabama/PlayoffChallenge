@@ -15,6 +15,22 @@ enum ContestStatus: String, Codable, Equatable {
     case complete = "COMPLETE"
     case cancelled = "CANCELLED"
     case error = "ERROR"
+    case unknown = "UNKNOWN"
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+
+        switch rawValue.uppercased() {
+        case "SCHEDULED": self = .scheduled
+        case "LOCKED": self = .locked
+        case "LIVE": self = .live
+        case "COMPLETE": self = .complete
+        case "CANCELLED": self = .cancelled
+        case "ERROR": self = .error
+        default: self = .unknown
+        }
+    }
 }
 
 /// Backend-computed join state — single source of truth for joinability
@@ -23,6 +39,20 @@ enum ComputedJoinState: String, Codable, Equatable {
     case locked = "LOCKED"
     case completed = "COMPLETED"
     case unavailable = "UNAVAILABLE"
+    case unknown = "UNKNOWN"
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+
+        switch rawValue.uppercased() {
+        case "JOINABLE": self = .joinable
+        case "LOCKED": self = .locked
+        case "COMPLETED": self = .completed
+        case "UNAVAILABLE": self = .unavailable
+        default: self = .unknown
+        }
+    }
 }
 
 /// Summary of a contest for join preview

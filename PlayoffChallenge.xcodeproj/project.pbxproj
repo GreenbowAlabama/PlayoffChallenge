@@ -20,7 +20,6 @@
 		CC001B012F3C000100000001 /* ContestTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B002F3C000100000001 /* ContestTemplate.swift */; };
 		CC001B032F3C000100000002 /* ContestTemplateValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B022F3C000100000002 /* ContestTemplateValidation.swift */; };
 		CC001B052F3C000100000003 /* ContestTemplateError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B042F3C000100000003 /* ContestTemplateError.swift */; };
-		CC001B072F3C000100000004 /* ScoringStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B062F3C000100000004 /* ScoringStrategy.swift */; };
 		CC001B092F3C000100000005 /* SettlementStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B082F3C000100000005 /* SettlementStrategy.swift */; };
 		EA345EBE2EA45CB700689C4E /* PlayoffChallengeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA345EBD2EA45CB700689C4E /* PlayoffChallengeApp.swift */; };
 		EA345EC02EA45CB700689C4E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA345EBF2EA45CB700689C4E /* ContentView.swift */; };
@@ -64,7 +63,6 @@
 		CC001B002F3C000100000001 /* ContestTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestTemplate.swift; sourceTree = "<group>"; };
 		CC001B022F3C000100000002 /* ContestTemplateValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestTemplateValidation.swift; sourceTree = "<group>"; };
 		CC001B042F3C000100000003 /* ContestTemplateError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestTemplateError.swift; sourceTree = "<group>"; };
-		CC001B062F3C000100000004 /* ScoringStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoringStrategy.swift; sourceTree = "<group>"; };
 		CC001B082F3C000100000005 /* SettlementStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementStrategy.swift; sourceTree = "<group>"; };
 		EA345EBA2EA45CB700689C4E /* PlayoffChallenge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlayoffChallenge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA345EBD2EA45CB700689C4E /* PlayoffChallengeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayoffChallengeApp.swift; sourceTree = "<group>"; };
@@ -161,7 +159,6 @@
 				CC001B002F3C000100000001 /* ContestTemplate.swift */,
 				CC001B022F3C000100000002 /* ContestTemplateValidation.swift */,
 				CC001B042F3C000100000003 /* ContestTemplateError.swift */,
-				CC001B062F3C000100000004 /* ScoringStrategy.swift */,
 				CC001B082F3C000100000005 /* SettlementStrategy.swift */,
 			);
 			path = Models;
@@ -442,7 +439,6 @@
 				CC001B012F3C000100000001 /* ContestTemplate.swift in Sources */,
 				CC001B032F3C000100000002 /* ContestTemplateValidation.swift in Sources */,
 				CC001B052F3C000100000003 /* ContestTemplateError.swift in Sources */,
-				CC001B072F3C000100000004 /* ScoringStrategy.swift in Sources */,
 				CC001B092F3C000100000005 /* SettlementStrategy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -25,7 +25,9 @@ enum ContestDetailContractFixtures {
         "is_closed": false,
         "is_scoring": false,
         "is_scored": true,
-        "is_read_only": false
+        "is_read_only": false,
+        "can_share_invite": true,
+        "can_manage_contest": false
       },
       "payout_table": [
         {
@@ -70,7 +72,9 @@ enum ContestDetailContractFixtures {
         "is_closed": false,
         "is_scoring": false,
         "is_scored": true,
-        "is_read_only": false
+        "is_read_only": false,
+        "can_share_invite": true,
+        "can_manage_contest": false
       },
       "roster_config": {}
     }
@@ -89,9 +93,53 @@ enum ContestDetailContractFixtures {
         "is_closed": false,
         "is_scoring": false,
         "is_scored": true,
-        "is_read_only": false
+        "is_read_only": false,
+        "can_share_invite": true,
+        "can_manage_contest": false
       },
       "payout_table": []
+    }
+    """
+
+    /// Missing required field: can_share_invite in actions.
+    static let missingCanShareInviteJSON = """
+    {
+      "contest_id": "550e8400-e29b-41d4-a716-446655440000",
+      "type": "playoff",
+      "leaderboard_state": "computed",
+      "actions": {
+        "can_join": false,
+        "can_edit_entry": true,
+        "is_live": true,
+        "is_closed": false,
+        "is_scoring": false,
+        "is_scored": true,
+        "is_read_only": false,
+        "can_manage_contest": false
+      },
+      "payout_table": [],
+      "roster_config": {}
+    }
+    """
+
+    /// Missing required field: can_manage_contest in actions.
+    static let missingCanManageContestJSON = """
+    {
+      "contest_id": "550e8400-e29b-41d4-a716-446655440000",
+      "type": "playoff",
+      "leaderboard_state": "computed",
+      "actions": {
+        "can_join": false,
+        "can_edit_entry": true,
+        "is_live": true,
+        "is_closed": false,
+        "is_scoring": false,
+        "is_scored": true,
+        "is_read_only": false,
+        "can_share_invite": true
+      },
+      "payout_table": [],
+      "roster_config": {}
     }
     """
 }
