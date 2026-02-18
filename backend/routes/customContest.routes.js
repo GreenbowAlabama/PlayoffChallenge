@@ -302,6 +302,28 @@ router.post('/', extractUserId, async (req, res) => {
 });
 
 /**
+ * Normalize contest response for API contract compliance.
+ * Converts Date objects to ISO strings and normalizes numeric types.
+ *
+ * @param {Array} contests - Array of contest objects from service
+ * @returns {Array} Normalized contests matching contract schema
+ */
+function normalizeContestResponse(contests) {
+  return contests.map(contest => ({
+    ...contest,
+    // Normalize timestamp fields: Date -> ISO string
+    lock_time: contest.lock_time ? new Date(contest.lock_time).toISOString() : null,
+    created_at: new Date(contest.created_at).toISOString(),
+    updated_at: new Date(contest.updated_at).toISOString(),
+    // Normalize payout_table: ensure payout_percent is integer or null
+    payout_table: (contest.payout_table || []).map(row => ({
+      ...row,
+      payout_percent: row.payout_percent !== null ? Number(row.payout_percent) : null
+    }))
+  }));
+}
+
+/**
  * GET /api/custom-contests/available
  * List publicly joinable contests (authenticated).
  *
@@ -327,7 +349,10 @@ router.get('/available', extractUserId, createContractValidator('ContestListResp
     });
     console.log('🔴 EXEC_MARKER:ROUTE_BEFORE_JSON id:organizer_name pairs:', instances.map(inst => ({ id: inst.id, organizer_name: inst.organizer_name })));
 
-    res.json(instances);
+    // Normalize response to ensure Date objects are ISO strings and numeric types are correct
+    const normalizedInstances = normalizeContestResponse(instances);
+
+    res.json(normalizedInstances);
   } catch (err) {
     console.error('[Custom Contest] Error fetching available contests:', err);
     res.status(500).json({ error: 'Failed to fetch available contests' });
