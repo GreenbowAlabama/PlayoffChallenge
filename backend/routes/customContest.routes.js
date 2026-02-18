@@ -308,19 +308,31 @@ router.post('/', extractUserId, async (req, res) => {
  * @param {Array} contests - Array of contest objects from service
  * @returns {Array} Normalized contests matching contract schema
  */
-function normalizeContestResponse(contests) {
-  return contests.map(contest => ({
+function normalizeContestResponse(data) {
+  const normalizeOne = (contest) => ({
     ...contest,
-    // Normalize timestamp fields: Date -> ISO string
+    // Normalize all timestamp fields: Date -> ISO 8601 string
+    // Per OpenAPI contract: all datetime fields must be ISO 8601 string format
+    start_time: contest.start_time ? new Date(contest.start_time).toISOString() : null,
+    end_time: contest.end_time ? new Date(contest.end_time).toISOString() : null,
     lock_time: contest.lock_time ? new Date(contest.lock_time).toISOString() : null,
     created_at: new Date(contest.created_at).toISOString(),
     updated_at: new Date(contest.updated_at).toISOString(),
     // Normalize payout_table: ensure payout_percent is integer or null
     payout_table: (contest.payout_table || []).map(row => ({
-      ...row,
-      payout_percent: row.payout_percent == null ? null : parseInt(row.payout_percent, 10)
+      place: row.place,
+      rank_min: row.rank_min,
+      rank_max: row.rank_max,
+      amount: row.amount,
+      currency: row.currency,
+      payout_percent: row.payout_percent == null
+        ? null
+        : Math.trunc(Number(row.payout_percent))
     }))
-  }));
+  });
+
+  // Handle both single objects and arrays
+  return Array.isArray(data) ? data.map(normalizeOne) : normalizeOne(data);
 }
 
 /**
@@ -372,7 +384,11 @@ router.get('/', extractUserId, createContractValidator('ContestListResponse'), a
     const requestingUserId = req.userId;
 
     const instances = await customContestService.getContestInstancesForOrganizer(pool, organizerId, requestingUserId);
-    res.json(instances);
+
+    // Normalize response to ensure Date objects are ISO strings and numeric types are correct
+    const normalizedInstances = normalizeContestResponse(instances);
+
+    res.json(normalizedInstances);
   } catch (err) {
     console.error('[Custom Contest] Error fetching contests:', err);
     res.status(500).json({ error: 'Failed to fetch contests' });
@@ -401,7 +417,10 @@ router.get('/:id', extractUserId, createContractValidator('ContestDetailResponse
       return res.status(404).json({ error: 'Contest not found' });
     }
 
-    res.json(instance);
+    // Normalize response to ensure Date objects are ISO strings and numeric types are correct
+    const normalizedInstance = normalizeContestResponse(instance);
+
+    res.json(normalizedInstance);
   } catch (err) {
     console.error('[Custom Contest] Error fetching contest:', err);
     res.status(500).json({ error: 'Failed to fetch contest' });
