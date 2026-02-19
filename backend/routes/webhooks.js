@@ -42,7 +42,8 @@ router.post(
     // Signature is required
     if (!signature) {
       return res.status(400).json({
-        error: 'Missing stripe-signature header'
+        error_code: 'STRIPE_SIGNATURE_INVALID',
+        message: 'Missing stripe-signature header'
       });
     }
 
@@ -67,19 +68,22 @@ router.post(
       // Map error codes to HTTP status
       if (err.code === PAYMENT_ERROR_CODES.STRIPE_SIGNATURE_INVALID) {
         return res.status(400).json({
-          error: 'Invalid Stripe signature'
+          error_code: 'STRIPE_SIGNATURE_INVALID',
+          message: 'Invalid Stripe signature'
         });
       }
 
       if (err.code === PAYMENT_ERROR_CODES.PAYMENT_INTENT_NOT_FOUND) {
         return res.status(409).json({
-          error: 'Payment intent not found'
+          error_code: 'PAYMENT_INTENT_NOT_FOUND',
+          message: 'Payment intent not found'
         });
       }
 
       // Unexpected errors
       return res.status(500).json({
-        error: 'Webhook processing failed'
+        error_code: 'VALIDATION_ERROR',
+        message: 'Webhook processing failed'
       });
     }
   }

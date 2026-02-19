@@ -23,7 +23,8 @@ function extractUserId(req, res, next) {
 
   if (!xUserId) {
     return res.status(401).json({
-      error: 'Missing X-User-Id header'
+      error_code: 'UNAUTHORIZED',
+      message: 'Missing X-User-Id header'
     });
   }
 
@@ -31,7 +32,8 @@ function extractUserId(req, res, next) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRegex.test(xUserId)) {
     return res.status(400).json({
-      error: 'Invalid X-User-Id format'
+      error_code: 'VALIDATION_ERROR',
+      message: 'Invalid X-User-Id format'
     });
   }
 
@@ -76,21 +78,24 @@ router.post('/intents', extractUserId, async (req, res) => {
   // Validate idempotency key
   if (!idempotencyKey || typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0) {
     return res.status(400).json({
-      error: 'Idempotency-Key header is required'
+      error_code: 'VALIDATION_ERROR',
+      message: 'Idempotency-Key header is required'
     });
   }
 
   // Validate contest instance ID
   if (!contest_instance_id || typeof contest_instance_id !== 'string') {
     return res.status(400).json({
-      error: 'contest_instance_id is required'
+      error_code: 'VALIDATION_ERROR',
+      message: 'contest_instance_id is required'
     });
   }
 
   // Validate amount
   if (!Number.isInteger(amount_cents) || amount_cents <= 0) {
     return res.status(400).json({
-      error: 'amount_cents must be a positive integer'
+      error_code: 'VALIDATION_ERROR',
+      message: 'amount_cents must be a positive integer'
     });
   }
 
@@ -108,19 +113,22 @@ router.post('/intents', extractUserId, async (req, res) => {
     // Map error codes to HTTP responses
     if (err.code === PAYMENT_ERROR_CODES.IDEMPOTENCY_KEY_REQUIRED) {
       return res.status(400).json({
-        error: 'Idempotency-Key header is required'
+        error_code: 'VALIDATION_ERROR',
+        message: 'Idempotency-Key header is required'
       });
     }
 
     if (err.code === PAYMENT_ERROR_CODES.STRIPE_API_ERROR) {
       return res.status(500).json({
-        error: 'Stripe API error'
+        error_code: 'VALIDATION_ERROR',
+        message: 'Stripe API error'
       });
     }
 
     // Unexpected errors
     return res.status(500).json({
-      error: 'Payment intent creation failed'
+      error_code: 'VALIDATION_ERROR',
+      message: 'Payment intent creation failed'
     });
   }
 });
