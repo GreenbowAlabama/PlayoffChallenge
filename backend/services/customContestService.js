@@ -1464,8 +1464,8 @@ async function deleteContestInstance(pool, contestId, organizerId) {
 
     const contest = contestResult.rows[0];
 
-    // Check if user is organizer
-    if (contest.organizer_id !== organizerId) {
+    // Check if user is organizer (case-insensitive UUID comparison)
+    if (contest.organizer_id.toLowerCase() !== organizerId.toLowerCase()) {
       await client.query('ROLLBACK');
       const error = new Error('Only the organizer can delete a contest');
       error.code = 'CONTEST_DELETE_NOT_ALLOWED';

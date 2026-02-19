@@ -1845,6 +1845,49 @@ describe('Custom Contest Routes', () => {
       expect(response.body.status).toBe('CANCELLED');
     });
 
+    it('should allow organizer to delete with case-insensitive UUID comparison → 200', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID.toLowerCase(), // Store as lowercase
+          status: 'SCHEDULED',
+          payout_structure: { first: 100 }
+        })
+      );
+
+      // Mock the COUNT(*) query for entry_count computation
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+        mockQueryResponses.single({ count: '0' })
+      );
+
+      mockPool.setQueryResponse(
+        /UPDATE contest_instances SET status/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /COMMIT/,
+        mockQueryResponses.empty()
+      );
+
+      // Request with uppercase userId (as returned by Apple Sign-In)
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}`)
+        .set('X-User-Id', TEST_USER_ID.toUpperCase());
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('id', contestId);
+      expect(response.body.status).toBe('CANCELLED');
+    });
+
     it('should return 403 CONTEST_DELETE_NOT_ALLOWED when non-organizer attempts delete', async () => {
       const contestId = TEST_INSTANCE_ID;
       mockPool.setQueryResponse(
