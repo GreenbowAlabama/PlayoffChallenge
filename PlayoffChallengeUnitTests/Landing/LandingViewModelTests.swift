@@ -66,13 +66,6 @@ final class LandingViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testNavigateToRulesPreviewWithContest() {
-        let contest = MockContest.samples[0]
-        sut.navigateToRulesPreview(contest: contest)
-        XCTAssertEqual(sut.navigationPath.count, 1)
-    }
-
-    @MainActor
     func testNavigateToContestDetailWithContestId() {
         let contest = MockContest.samples[0]
         sut.navigateToContestDetail(contestId: contest.id)

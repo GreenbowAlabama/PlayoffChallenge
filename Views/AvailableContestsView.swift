@@ -41,14 +41,14 @@ struct AvailableContestsView: View {
             } header: {
                 Text("Open Contests")
             } footer: {
-                Text("Tap a contest to view rules and join")
+                Text("Tap a contest to view details and join")
                     .font(.caption)
             }
         }
         .navigationTitle("Available Contests")
         .navigationBarTitleDisplayMode(.large)
         .navigationDestination(item: $selectedContest) { contest in
-            RulesPreviewView(contest: contest)
+            ContestDetailView(contest: contest)
         }
         .refreshable {
             await viewModel.refresh()

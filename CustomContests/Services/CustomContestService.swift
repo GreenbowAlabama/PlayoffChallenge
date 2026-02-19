@@ -73,9 +73,14 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
+        // Use X-User-Id header (not Bearer token) for custom contest endpoints
+        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
 
         print("🔐 userId from defaults:", userIdString)
+        print("📋 [fetchAvailableContests] Request headers BEFORE sending:")
+        print("   \(request.allHTTPHeaderFields ?? [:])")
+        print("   Method: \(request.httpMethod ?? "GET")")
+        print("   URL: \(request.url?.absoluteString ?? "nil")")
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -216,8 +221,10 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
+        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
 
+        print("📋 [fetchDefaultTemplate] Request headers BEFORE sending:")
+        print("   \(request.allHTTPHeaderFields ?? [:])")
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse,
@@ -260,7 +267,8 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
+        // Use X-User-Id header (not Bearer token) for custom contest endpoints
+        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
 
         var body: [String: Any] = [
             "template_id": templateId.uuidString,
@@ -319,7 +327,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
+        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
 
         let requestBody = CreateContestRequest(name: name, settings: settings, lockTime: lockTime)
 
@@ -362,6 +370,8 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
             print("[CreateDraft] Outgoing JSON: \(bodyString)")
         }
 
+        print("📋 [createDraft] Request headers BEFORE sending:")
+        print("   \(request.allHTTPHeaderFields ?? [:])")
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -393,8 +403,10 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
+        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
 
+        print("📋 [publish] Request headers BEFORE sending:")
+        print("   \(request.allHTTPHeaderFields ?? [:])")
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {

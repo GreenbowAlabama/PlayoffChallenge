@@ -1,19 +1,20 @@
 //
-//  ContestManagementView.swift
+//  MyContestsView.swift
 //  PlayoffChallenge
 //
-//  View for managing user's created contests.
+//  View for displaying contests the user has joined or created.
 //
 
 import SwiftUI
 
-struct ContestManagementView: View {
-    @ObservedObject var viewModel: ContestManagementViewModel
+struct MyContestsView: View {
+    @ObservedObject var viewModel: MyContestsViewModel
     @State private var selectedContest: MockContest?
+    @State private var isRefreshing = false
 
     var body: some View {
         Group {
-            if viewModel.isLoading {
+            if viewModel.isLoading && !isRefreshing {
                 ProgressView("Loading contests...")
             } else if viewModel.myContests.isEmpty {
                 EmptyContestsView()
@@ -21,7 +22,7 @@ struct ContestManagementView: View {
                 List {
                     Section {
                         ForEach(viewModel.myContests) { contest in
-                            ManagedContestRowView(contest: contest)
+                            MyContestRowView(contest: contest)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     selectedContest = contest
@@ -33,16 +34,18 @@ struct ContestManagementView: View {
                 }
             }
         }
-        .navigationTitle("Contest Management")
+        .navigationTitle("My Contests")
         .navigationBarTitleDisplayMode(.large)
         .navigationDestination(item: $selectedContest) { contest in
             ContestDetailView(contest: contest)
         }
         .task {
-            await viewModel.loadOrganizerContests()
+            await viewModel.loadMyContests()
         }
         .refreshable {
-            await viewModel.loadOrganizerContests()
+            isRefreshing = true
+            defer { isRefreshing = false }
+            await viewModel.loadMyContests()
         }
     }
 }
@@ -56,29 +59,29 @@ struct EmptyContestsView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.gray)
 
-            Text("No Contests Created")
+            Text("No Contests")
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Text("Create a contest to get started")
+            Text("Join or create a contest to get started")
                 .font(.body)
                 .foregroundColor(.secondary)
         }
     }
 }
 
-// MARK: - Managed Contest Row
+// MARK: - My Contest Row
 
-struct ManagedContestRowView: View {
+struct MyContestRowView: View {
     let contest: MockContest
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "gearshape.fill")
+            Image(systemName: "trophy.fill")
                 .font(.title2)
-                .foregroundColor(.orange)
+                .foregroundColor(.blue)
                 .frame(width: 44, height: 44)
-                .background(Color.orange.opacity(0.15))
+                .background(Color.blue.opacity(0.15))
                 .cornerRadius(10)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -134,6 +137,6 @@ struct StatusBadge: View {
 
 #Preview {
     NavigationStack {
-        ContestManagementView(viewModel: ContestManagementViewModel(userId: "preview-user-id"))
+        MyContestsView(viewModel: MyContestsViewModel(userId: "preview-user-id"))
     }
 }

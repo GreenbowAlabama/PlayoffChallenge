@@ -1,22 +1,22 @@
 //
-//  ContestManagementViewModelTests.swift
+//  MyContestsViewModelTests.swift
 //  PlayoffChallengeTests
 //
-//  Unit tests for ContestManagementViewModel.
+//  Unit tests for MyContestsViewModel.
 //
 
 import SwiftUI
 import XCTest
 @testable import PlayoffChallenge
 
-final class ContestManagementViewModelTests: XCTestCase {
+final class MyContestsViewModelTests: XCTestCase {
 
-    private var sut: ContestManagementViewModel!
+    private var sut: MyContestsViewModel!
 
     @MainActor
     override func setUp() {
         super.setUp()
-        sut = ContestManagementViewModel(userId: UUID().uuidString)
+        sut = MyContestsViewModel(userId: UUID().uuidString)
     }
 
     override func tearDown() {
@@ -45,34 +45,24 @@ final class ContestManagementViewModelTests: XCTestCase {
 
     @MainActor
     func testLoadMyContestsPopulatesContests() async {
-        await sut.loadContests()
+        await sut.loadMyContests()
 
         XCTAssertFalse(sut.myContests.isEmpty)
     }
 
     @MainActor
     func testLoadMyContestsSetsLoadingFalseAfterCompletion() async {
-        await sut.loadContests()
+        await sut.loadMyContests()
 
         XCTAssertFalse(sut.isLoading)
     }
 
     @MainActor
     func testLoadMyContestsClearsErrorMessage() async {
-        await sut.loadContests()
+        await sut.loadMyContests()
 
         XCTAssertNil(sut.errorMessage)
     }
-
-    // MARK: - Refresh Tests
-
-    @MainActor
-    func testRefreshReloadsContests() async {
-        await sut.refresh()
-
-        XCTAssertFalse(sut.myContests.isEmpty)
-    }
-
 
     // MARK: - Get Contest By ID Tests
 

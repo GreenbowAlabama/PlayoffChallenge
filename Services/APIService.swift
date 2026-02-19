@@ -107,13 +107,20 @@ class APIService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        var hasCustomAuthorization = false
         if let headers = headers {
             for (key, value) in headers {
                 request.setValue(value, forHTTPHeaderField: key)
+                if key.lowercased() == "authorization" || key.lowercased() == "x-user-id" {
+                    hasCustomAuthorization = true
+                }
             }
         }
         addCapabilityHeaders(to: &request)
-        addAuthorizationHeader(to: &request)
+        // Only add default Authorization if custom auth wasn't provided
+        if !hasCustomAuthorization {
+            addAuthorizationHeader(to: &request)
+        }
 
         let (data, response) = try await URLSession.shared.data(for: request)
 

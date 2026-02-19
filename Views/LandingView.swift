@@ -48,11 +48,11 @@ struct LandingView: View {
                     }
 
                     NavigationButton(
-                        title: "Contest Management",
-                        systemImage: "gearshape.fill",
-                        color: .orange
+                        title: "My Contests",
+                        systemImage: "trophy.fill",
+                        color: .blue
                     ) {
-                        viewModel.navigateToContestManagement()
+                        viewModel.navigateToMyContests()
                     }
 
                     NavigationButton(
@@ -82,17 +82,15 @@ struct LandingView: View {
             AvailableContestsView()
         case .createContest:
             CreateContestFlowView()
-        case .contestManagement:
-            ContestManagementView(
-                viewModel: ContestManagementViewModel(
+        case .myContests:
+            MyContestsView(
+                viewModel: MyContestsViewModel(
                     apiClient: APIService.shared,
                     userId: authService.currentUser?.id.uuidString ?? "00000000-0000-0000-0000-000000000000"
                 )
             )
         case .profile:
             ProfileView()
-        case .rulesPreview(let contest):
-            RulesPreviewView(contest: contest)
         case .contestDetail(let contestId):
             ContestDetailView(contestId: contestId)
         case .leaderboard(let contest):

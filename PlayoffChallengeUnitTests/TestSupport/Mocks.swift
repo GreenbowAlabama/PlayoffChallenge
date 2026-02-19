@@ -229,7 +229,7 @@ extension PayoutTierContract {
     static func fixture(
         rank_min: Int = 1,
         rank_max: Int = 1,
-        amount: Decimal = Decimal(500)
+        amount: Decimal? = Decimal(500)
     ) -> PayoutTierContract {
         PayoutTierContract(
             rank_min: rank_min,

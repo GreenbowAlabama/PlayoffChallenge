@@ -94,4 +94,34 @@ enum ContestDetailContractFixtures {
       "payout_table": []
     }
     """
+
+    /// Valid contract with null amounts (before settlement).
+    /// Tests contract compliance when payout amounts are not yet calculated.
+    static let nullAmountJSON = """
+    {
+      "contest_id": "550e8400-e29b-41d4-a716-446655440000",
+      "type": "playoff",
+      "leaderboard_state": "pending",
+      "actions": {
+        "can_join": false,
+        "can_edit_entry": true,
+        "is_live": true,
+        "is_closed": false,
+        "is_scoring": true,
+        "is_scored": false,
+        "is_read_only": false
+      },
+      "payout_table": [
+        {
+          "rank_min": 1,
+          "rank_max": 1,
+          "amount": null
+        }
+      ],
+      "roster_config": {
+        "max_entries": 10,
+        "entry_fee": 25.00
+      }
+    }
+    """
 }

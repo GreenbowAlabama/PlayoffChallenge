@@ -13,9 +13,8 @@ import SwiftUI
 enum LandingDestination: Hashable {
     case availableContests
     case createContest
-    case contestManagement
+    case myContests
     case profile
-    case rulesPreview(MockContest)
     case contestDetail(UUID)
     case leaderboard(MockContest)
 }
@@ -151,16 +150,12 @@ final class LandingViewModel: ObservableObject {
         navigationPath.append(LandingDestination.createContest)
     }
 
-    func navigateToContestManagement() {
-        navigationPath.append(LandingDestination.contestManagement)
+    func navigateToMyContests() {
+        navigationPath.append(LandingDestination.myContests)
     }
 
     func navigateToProfile() {
         navigationPath.append(LandingDestination.profile)
-    }
-
-    func navigateToRulesPreview(contest: MockContest) {
-        navigationPath.append(LandingDestination.rulesPreview(contest))
     }
 
     func navigateToContestDetail(contestId: UUID) {

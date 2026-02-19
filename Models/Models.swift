@@ -755,7 +755,7 @@ struct LeaderboardResponseContract: Decodable {
 struct PayoutTierContract: Decodable {
     let rank_min: Int
     let rank_max: Int
-    let amount: Decimal
+    let amount: Decimal?
 
     enum CodingKeys: String, CodingKey {
         case rank_min
@@ -763,7 +763,7 @@ struct PayoutTierContract: Decodable {
         case amount
     }
 
-    init(rank_min: Int, rank_max: Int, amount: Decimal) {
+    init(rank_min: Int, rank_max: Int, amount: Decimal?) {
         self.rank_min = rank_min
         self.rank_max = rank_max
         self.amount = amount
@@ -774,7 +774,7 @@ struct PayoutTierContract: Decodable {
         rank_min = try c.decode(Int.self, forKey: .rank_min)
         rank_max = try c.decode(Int.self, forKey: .rank_max)
 
-        // Handle amount as string or number — fail loudly on malformed value
+        // Handle amount as string, number, or null (before settlement)
         if let s = try? c.decode(String.self, forKey: .amount) {
             guard let parsed = Decimal(string: s) else {
                 throw DecodingError.dataCorruptedError(
@@ -784,9 +784,11 @@ struct PayoutTierContract: Decodable {
                 )
             }
             amount = parsed
-        } else {
-            let d = try c.decode(Double.self, forKey: .amount)
+        } else if let d = try? c.decode(Double.self, forKey: .amount) {
             amount = Decimal(d)
+        } else {
+            // amount is null (allowed before settlement)
+            amount = nil
         }
     }
 }
