@@ -1446,7 +1446,7 @@ async function deleteContestInstance(pool, contestId, organizerId) {
     // SELECT FOR UPDATE to lock the row
     const contestResult = await client.query(
       `SELECT
-        id, organizer_id, status, entry_count, payout_structure,
+        id, organizer_id, status, payout_structure,
         template_id, contest_name, max_entries, entry_fee_cents,
         start_time, end_time, lock_time, created_at, updated_at, join_token
       FROM contest_instances
@@ -1472,13 +1472,20 @@ async function deleteContestInstance(pool, contestId, organizerId) {
       throw error;
     }
 
+    // Compute entry_count via COUNT subquery (not a physical column)
+    const countResult = await client.query(
+      `SELECT COUNT(*) FROM contest_participants WHERE contest_instance_id = $1`,
+      [contestId]
+    );
+    const entryCount = parseInt(countResult.rows[0].count, 10) || 0;
+
     // Can only delete SCHEDULED contests with entry_count <= 1, or already CANCELLED (idempotent)
     if (contest.status === 'CANCELLED') {
       // Idempotent: already cancelled, just return it
       await client.query('COMMIT');
       const contestWithDefaults = {
         ...contest,
-        entry_count: parseInt(contest.entry_count, 10) || 0,
+        entry_count: entryCount,
         user_has_entered: false
       };
       return mapContestToApiResponse(contestWithDefaults, {
@@ -1487,10 +1494,10 @@ async function deleteContestInstance(pool, contestId, organizerId) {
       });
     }
 
-    if (contest.status !== 'SCHEDULED' || contest.entry_count > 1) {
+    if (contest.status !== 'SCHEDULED' || entryCount > 1) {
       await client.query('ROLLBACK');
       const error = new Error(
-        `Cannot delete contest in ${contest.status} status with ${contest.entry_count} participants`
+        `Cannot delete contest in ${contest.status} status with ${entryCount} participants`
       );
       error.code = 'CONTEST_DELETE_NOT_ALLOWED';
       throw error;
@@ -1508,7 +1515,7 @@ async function deleteContestInstance(pool, contestId, organizerId) {
     const updatedContest = {
       ...contest,
       status: 'CANCELLED',
-      entry_count: parseInt(contest.entry_count, 10) || 0,
+      entry_count: entryCount,
       user_has_entered: false
     };
     return mapContestToApiResponse(updatedContest, {

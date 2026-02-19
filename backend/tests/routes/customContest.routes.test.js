@@ -1816,9 +1816,14 @@ describe('Custom Contest Routes', () => {
           id: contestId,
           organizer_id: TEST_USER_ID,
           status: 'SCHEDULED',
-          entry_count: 1,
           payout_structure: { first: 100 }
         })
+      );
+
+      // Mock the COUNT(*) query for entry_count computation
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+        mockQueryResponses.single({ count: '1' })
       );
 
       mockPool.setQueryResponse(
@@ -1852,8 +1857,7 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           id: contestId,
           organizer_id: OTHER_USER_ID,
-          status: 'SCHEDULED',
-          entry_count: 1
+          status: 'SCHEDULED'
         })
       );
 
@@ -1882,9 +1886,14 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           id: contestId,
           organizer_id: TEST_USER_ID,
-          status: 'LOCKED',
-          entry_count: 1
+          status: 'LOCKED'
         })
+      );
+
+      // Code always computes entry_count after organizer check
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+        mockQueryResponses.single({ count: '0' })
       );
 
       mockPool.setQueryResponse(
@@ -1912,9 +1921,14 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           id: contestId,
           organizer_id: TEST_USER_ID,
-          status: 'LIVE',
-          entry_count: 5
+          status: 'LIVE'
         })
+      );
+
+      // Code always computes entry_count after organizer check
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+        mockQueryResponses.single({ count: '0' })
       );
 
       mockPool.setQueryResponse(
@@ -1942,9 +1956,14 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           id: contestId,
           organizer_id: TEST_USER_ID,
-          status: 'COMPLETE',
-          entry_count: 10
+          status: 'COMPLETE'
         })
+      );
+
+      // Code always computes entry_count after organizer check
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+        mockQueryResponses.single({ count: '0' })
       );
 
       mockPool.setQueryResponse(
@@ -1972,9 +1991,14 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           id: contestId,
           organizer_id: TEST_USER_ID,
-          status: 'SCHEDULED',
-          entry_count: 3
+          status: 'SCHEDULED'
         })
+      );
+
+      // Mock the COUNT(*) query returning 3 participants
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+        mockQueryResponses.single({ count: '3' })
       );
 
       mockPool.setQueryResponse(
@@ -2003,9 +2027,14 @@ describe('Custom Contest Routes', () => {
           id: contestId,
           organizer_id: TEST_USER_ID,
           status: 'CANCELLED',
-          entry_count: 0,
           payout_structure: { first: 100 }
         })
+      );
+
+      // Mock the COUNT(*) query for idempotent case
+      mockPool.setQueryResponse(
+        /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+        mockQueryResponses.single({ count: '0' })
       );
 
       mockPool.setQueryResponse(
@@ -2019,6 +2048,165 @@ describe('Custom Contest Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('CANCELLED');
+    });
+
+    // REGRESSION TESTS: Entry count validation via COUNT(*) subquery (schema drift fix)
+    describe('Regression: entry_count computation via COUNT(*)', () => {
+      it('should allow delete of SCHEDULED contest with 0 entries (organizer only)', async () => {
+        const contestId = TEST_INSTANCE_ID;
+        mockPool.setQueryResponse(
+          /BEGIN/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+          mockQueryResponses.single({
+            id: contestId,
+            organizer_id: TEST_USER_ID,
+            status: 'SCHEDULED',
+            payout_structure: { first: 100 }
+          })
+        );
+
+        // Mock the COUNT(*) query for entry_count computation
+        mockPool.setQueryResponse(
+          /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+          mockQueryResponses.single({ count: '0' })
+        );
+
+        mockPool.setQueryResponse(
+          /UPDATE contest_instances SET status/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /COMMIT/,
+          mockQueryResponses.empty()
+        );
+
+        const response = await request(app)
+          .delete(`/api/custom-contests/${contestId}`)
+          .set('X-User-Id', TEST_USER_ID);
+
+        expect(response.status).toBe(200);
+        expect(response.body.status).toBe('CANCELLED');
+      });
+
+      it('should allow delete of SCHEDULED contest with 1 entry (organizer only)', async () => {
+        const contestId = TEST_INSTANCE_ID;
+        mockPool.setQueryResponse(
+          /BEGIN/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+          mockQueryResponses.single({
+            id: contestId,
+            organizer_id: TEST_USER_ID,
+            status: 'SCHEDULED',
+            payout_structure: { first: 100 }
+          })
+        );
+
+        // Mock the COUNT(*) query for entry_count computation
+        mockPool.setQueryResponse(
+          /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+          mockQueryResponses.single({ count: '1' })
+        );
+
+        mockPool.setQueryResponse(
+          /UPDATE contest_instances SET status/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /COMMIT/,
+          mockQueryResponses.empty()
+        );
+
+        const response = await request(app)
+          .delete(`/api/custom-contests/${contestId}`)
+          .set('X-User-Id', TEST_USER_ID);
+
+        expect(response.status).toBe(200);
+        expect(response.body.status).toBe('CANCELLED');
+      });
+
+      it('should reject delete when entry_count > 1 (computed via COUNT)', async () => {
+        const contestId = TEST_INSTANCE_ID;
+        mockPool.setQueryResponse(
+          /BEGIN/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+          mockQueryResponses.single({
+            id: contestId,
+            organizer_id: TEST_USER_ID,
+            status: 'SCHEDULED',
+            payout_structure: { first: 100 }
+          })
+        );
+
+        // Mock the COUNT(*) query returning 2 participants
+        mockPool.setQueryResponse(
+          /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+          mockQueryResponses.single({ count: '2' })
+        );
+
+        mockPool.setQueryResponse(
+          /ROLLBACK/,
+          mockQueryResponses.empty()
+        );
+
+        const response = await request(app)
+          .delete(`/api/custom-contests/${contestId}`)
+          .set('X-User-Id', TEST_USER_ID);
+
+        expect(response.status).toBe(403);
+        expect(response.body.error_code).toBe('CONTEST_DELETE_NOT_ALLOWED');
+        expect(response.body.reason).toContain('2 participants');
+      });
+
+      it('should reject delete when entry_count > 1 even with many entries', async () => {
+        const contestId = TEST_INSTANCE_ID;
+        mockPool.setQueryResponse(
+          /BEGIN/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+          mockQueryResponses.single({
+            id: contestId,
+            organizer_id: TEST_USER_ID,
+            status: 'SCHEDULED',
+            payout_structure: { first: 100 }
+          })
+        );
+
+        // Mock the COUNT(*) query returning 10 participants
+        mockPool.setQueryResponse(
+          /SELECT COUNT\(\*\) FROM contest_participants WHERE contest_instance_id = \$1/,
+          mockQueryResponses.single({ count: '10' })
+        );
+
+        mockPool.setQueryResponse(
+          /ROLLBACK/,
+          mockQueryResponses.empty()
+        );
+
+        const response = await request(app)
+          .delete(`/api/custom-contests/${contestId}`)
+          .set('X-User-Id', TEST_USER_ID);
+
+        expect(response.status).toBe(403);
+        expect(response.body.error_code).toBe('CONTEST_DELETE_NOT_ALLOWED');
+        expect(response.body.reason).toContain('10 participants');
+      });
     });
 
     it('should require authentication', async () => {
