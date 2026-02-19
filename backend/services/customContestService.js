@@ -128,6 +128,15 @@ const JOIN_ERROR_CODES = {
 };
 
 /**
+ * Delete and Unjoin error codes
+ */
+const DELETE_UNJOIN_ERROR_CODES = {
+  CONTEST_DELETE_NOT_ALLOWED: 'CONTEST_DELETE_NOT_ALLOWED',
+  CONTEST_UNJOIN_NOT_ALLOWED: 'CONTEST_UNJOIN_NOT_ALLOWED',
+  CONTEST_NOT_FOUND: 'CONTEST_NOT_FOUND',
+};
+
+/**
  * Get the current environment prefix for join tokens
  * Uses centralized config module
  * @returns {string} Environment prefix (dev, test, stg, prd)
@@ -1417,6 +1426,211 @@ async function getContestLeaderboard(pool, instanceId) {
   };
 }
 
+/**
+ * Delete a contest instance.
+ * Only the organizer can delete.
+ * Can only delete SCHEDULED contests with entry_count <= 1 or already CANCELLED contests (idempotent).
+ *
+ * @param {Pool} pool - Database pool
+ * @param {string} contestId - Contest instance ID
+ * @param {string} organizerId - User ID (must be organizer)
+ * @returns {Object} Updated contest instance with status = CANCELLED
+ * @throws {Error} with code='CONTEST_NOT_FOUND' if contest not found
+ * @throws {Error} with code='CONTEST_DELETE_NOT_ALLOWED' if not organizer, wrong status, or entry_count > 1
+ */
+async function deleteContestInstance(pool, contestId, organizerId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // SELECT FOR UPDATE to lock the row
+    const contestResult = await client.query(
+      `SELECT
+        id, organizer_id, status, entry_count, payout_structure,
+        template_id, contest_name, max_entries, entry_fee_cents,
+        start_time, end_time, lock_time, created_at, updated_at, join_token
+      FROM contest_instances
+      WHERE id = $1
+      FOR UPDATE`,
+      [contestId]
+    );
+
+    if (contestResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      const error = new Error('Contest not found');
+      error.code = 'CONTEST_NOT_FOUND';
+      throw error;
+    }
+
+    const contest = contestResult.rows[0];
+
+    // Check if user is organizer
+    if (contest.organizer_id !== organizerId) {
+      await client.query('ROLLBACK');
+      const error = new Error('Only the organizer can delete a contest');
+      error.code = 'CONTEST_DELETE_NOT_ALLOWED';
+      throw error;
+    }
+
+    // Can only delete SCHEDULED contests with entry_count <= 1, or already CANCELLED (idempotent)
+    if (contest.status === 'CANCELLED') {
+      // Idempotent: already cancelled, just return it
+      await client.query('COMMIT');
+      const contestWithDefaults = {
+        ...contest,
+        entry_count: parseInt(contest.entry_count, 10) || 0,
+        user_has_entered: false
+      };
+      return mapContestToApiResponse(contestWithDefaults, {
+        currentTimestamp: Date.now(),
+        authenticatedUserId: organizerId
+      });
+    }
+
+    if (contest.status !== 'SCHEDULED' || contest.entry_count > 1) {
+      await client.query('ROLLBACK');
+      const error = new Error(
+        `Cannot delete contest in ${contest.status} status with ${contest.entry_count} participants`
+      );
+      error.code = 'CONTEST_DELETE_NOT_ALLOWED';
+      throw error;
+    }
+
+    // Update status to CANCELLED
+    await client.query(
+      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2',
+      ['CANCELLED', contestId]
+    );
+
+    await client.query('COMMIT');
+
+    // Return updated contest with new status
+    const updatedContest = {
+      ...contest,
+      status: 'CANCELLED',
+      entry_count: parseInt(contest.entry_count, 10) || 0,
+      user_has_entered: false
+    };
+    return mapContestToApiResponse(updatedContest, {
+      currentTimestamp: Date.now(),
+      authenticatedUserId: organizerId
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Unjoin a contest (remove user participation).
+ * User can only unjoin SCHEDULED contests before lock_time.
+ * Idempotent: returns 200 if user has no entry.
+ *
+ * @param {Pool} pool - Database pool
+ * @param {string} contestId - Contest instance ID
+ * @param {string} userId - User ID (participant to remove)
+ * @returns {Object} Updated contest instance
+ * @throws {Error} with code='CONTEST_NOT_FOUND' if contest not found
+ * @throws {Error} with code='CONTEST_UNJOIN_NOT_ALLOWED' if not SCHEDULED or past lock_time
+ */
+async function unJoinContest(pool, contestId, userId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // SELECT FOR UPDATE to lock the contest row
+    const contestResult = await client.query(
+      `SELECT
+        id, status, lock_time, entry_count, payout_structure,
+        template_id, organizer_id, contest_name, max_entries, entry_fee_cents,
+        start_time, end_time, created_at, updated_at, join_token
+      FROM contest_instances
+      WHERE id = $1
+      FOR UPDATE`,
+      [contestId]
+    );
+
+    if (contestResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      const error = new Error('Contest not found');
+      error.code = 'CONTEST_NOT_FOUND';
+      throw error;
+    }
+
+    const contest = contestResult.rows[0];
+
+    // Validate status == SCHEDULED
+    if (contest.status !== 'SCHEDULED') {
+      await client.query('ROLLBACK');
+      const error = new Error(`Cannot unjoin contest in ${contest.status} status`);
+      error.code = 'CONTEST_UNJOIN_NOT_ALLOWED';
+      throw error;
+    }
+
+    // Validate lock_time via DB time
+    if (contest.lock_time !== null) {
+      const lockTimeMs = new Date(contest.lock_time).getTime();
+      const nowMs = Date.now();
+      if (nowMs >= lockTimeMs) {
+        await client.query('ROLLBACK');
+        const error = new Error('Contest is locked; cannot unjoin');
+        error.code = 'CONTEST_UNJOIN_NOT_ALLOWED';
+        throw error;
+      }
+    }
+
+    // Check if participant exists (SELECT FOR UPDATE)
+    const participantResult = await client.query(
+      `SELECT contest_instance_id, user_id
+      FROM contest_participants
+      WHERE contest_instance_id = $1 AND user_id = $2
+      FOR UPDATE`,
+      [contestId, userId]
+    );
+
+    let updatedContest = contest;
+
+    // Idempotent: if entry exists, delete it and decrement count
+    if (participantResult.rows.length > 0) {
+      // Delete the participant
+      await client.query(
+        'DELETE FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
+        [contestId, userId]
+      );
+
+      // Decrement entry_count (ensure never negative)
+      await client.query(
+        'UPDATE contest_instances SET entry_count = GREATEST(entry_count - 1, 0), updated_at = NOW() WHERE id = $1',
+        [contestId]
+      );
+
+      // Update the local contest object to reflect the new count
+      const currentCount = parseInt(contest.entry_count, 10) || 0;
+      updatedContest = { ...contest, entry_count: Math.max(currentCount - 1, 0) };
+    }
+
+    await client.query('COMMIT');
+
+    // Return the contest with proper types
+    const contestWithDefaults = {
+      ...updatedContest,
+      entry_count: parseInt(updatedContest.entry_count, 10) || 0,
+      user_has_entered: false
+    };
+    return mapContestToApiResponse(contestWithDefaults, {
+      currentTimestamp: Date.now(),
+      authenticatedUserId: userId
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   // Template functions
   getTemplate,
@@ -1434,6 +1648,8 @@ module.exports = {
   updateContestStatusForSystem,
   publishContestInstance,
   joinContest,
+  deleteContestInstance,
+  unJoinContest,
   getContestLeaderboard,
 
   // Token functions
@@ -1451,4 +1667,5 @@ module.exports = {
   // Constants
   VALID_ENV_PREFIXES,
   JOIN_ERROR_CODES,
+  DELETE_UNJOIN_ERROR_CODES,
 };

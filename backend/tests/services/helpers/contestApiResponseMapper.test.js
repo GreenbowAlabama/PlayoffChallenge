@@ -13,7 +13,7 @@ describe('contestApiResponseMapper', () => {
     template_id: MOCK_UUID,
     organizer_id: MOCK_UUID,
     entry_fee_cents: 1000,
-    payout_structure: [{ rank: 1, percentage: 100 }],
+    payout_structure: { first: 100 },
     status: 'SCHEDULED', // Default status
     start_time: new Date('2026-02-12T10:00:00.000Z'),
     lock_time: new Date('2026-02-12T11:00:00.000Z'),

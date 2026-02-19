@@ -1800,4 +1800,538 @@ describe('Custom Contest Routes', () => {
       expect(rankColumn).toBeDefined();
     });
   });
+
+  // ⸻ DELETE /api/custom-contests/:id ⸻
+  describe('DELETE /api/custom-contests/:id', () => {
+    it('should allow organizer to delete SCHEDULED contest with entry_count <= 1 → 200', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID,
+          status: 'SCHEDULED',
+          entry_count: 1,
+          payout_structure: { first: 100 }
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /UPDATE contest_instances SET status/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /COMMIT/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('id', contestId);
+      expect(response.body.status).toBe('CANCELLED');
+    });
+
+    it('should return 403 CONTEST_DELETE_NOT_ALLOWED when non-organizer attempts delete', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: OTHER_USER_ID,
+          status: 'SCHEDULED',
+          entry_count: 1
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /ROLLBACK/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error_code).toBe('CONTEST_DELETE_NOT_ALLOWED');
+    });
+
+    it('should return 403 when deleting LOCKED contest', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID,
+          status: 'LOCKED',
+          entry_count: 1
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /ROLLBACK/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error_code).toBe('CONTEST_DELETE_NOT_ALLOWED');
+    });
+
+    it('should return 403 when deleting LIVE contest', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID,
+          status: 'LIVE',
+          entry_count: 5
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /ROLLBACK/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error_code).toBe('CONTEST_DELETE_NOT_ALLOWED');
+    });
+
+    it('should return 403 when deleting COMPLETE contest', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID,
+          status: 'COMPLETE',
+          entry_count: 10
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /ROLLBACK/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error_code).toBe('CONTEST_DELETE_NOT_ALLOWED');
+    });
+
+    it('should return 403 when entry_count > 1', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID,
+          status: 'SCHEDULED',
+          entry_count: 3
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /ROLLBACK/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error_code).toBe('CONTEST_DELETE_NOT_ALLOWED');
+    });
+
+    it('should allow idempotent delete of already CANCELLED contest → 200', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID,
+          status: 'CANCELLED',
+          entry_count: 0,
+          payout_structure: { first: 100 }
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /COMMIT/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('CANCELLED');
+    });
+
+    it('should require authentication', async () => {
+      const contestId = TEST_INSTANCE_ID;
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}`);
+
+      expect(response.status).toBe(401);
+    });
+  });
+
+  // ⸻ DELETE /api/custom-contests/:id/entry (UNJOIN) ⸻
+  describe('DELETE /api/custom-contests/:id/entry', () => {
+    it('should allow user to unjoin from SCHEDULED contest → 200', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID,
+          status: 'SCHEDULED',
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          entry_count: 3,
+          payout_structure: { first: 100 },
+          contest_name: 'Test Contest',
+          max_entries: 10,
+          entry_fee_cents: 2500,
+          start_time: null,
+          end_time: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          join_token: 'test_token'
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE contest_instance_id = \$1[\s\S]*AND user_id = \$2[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          contest_instance_id: contestId,
+          user_id: TEST_USER_ID
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /DELETE FROM contest_participants/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /UPDATE contest_instances SET entry_count/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /COMMIT/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}/entry`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('id', contestId);
+    });
+
+    it('should return 403 when unjoining LOCKED contest', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          status: 'LOCKED',
+          lock_time: new Date(Date.now() - 3600000).toISOString()
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /ROLLBACK/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}/entry`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error_code).toBe('CONTEST_UNJOIN_NOT_ALLOWED');
+    });
+
+    it('should return 403 when unjoining LIVE contest', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          status: 'LIVE'
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /ROLLBACK/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}/entry`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error_code).toBe('CONTEST_UNJOIN_NOT_ALLOWED');
+    });
+
+    it('should return 403 when unjoining COMPLETE contest', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          status: 'COMPLETE'
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /ROLLBACK/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}/entry`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error_code).toBe('CONTEST_UNJOIN_NOT_ALLOWED');
+    });
+
+    it('should return 200 idempotent when user has no entry (already unjoined)', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID,
+          status: 'SCHEDULED',
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          entry_count: 0,
+          payout_structure: { first: 100 },
+          contest_name: 'Test Contest',
+          max_entries: 10,
+          entry_fee_cents: 2500,
+          start_time: null,
+          end_time: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          join_token: 'test_token'
+        })
+      );
+
+      // No entry found for this user
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE contest_instance_id = \$1[\s\S]*AND user_id = \$2[\s\S]*FOR UPDATE/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /COMMIT/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}/entry`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('id', contestId);
+    });
+
+    it('should decrement entry_count correctly', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID,
+          status: 'SCHEDULED',
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          entry_count: 5,
+          payout_structure: { first: 100 },
+          contest_name: 'Test Contest',
+          max_entries: 10,
+          entry_fee_cents: 2500,
+          start_time: null,
+          end_time: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          join_token: 'test_token'
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE contest_instance_id = \$1[\s\S]*AND user_id = \$2[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          contest_instance_id: contestId,
+          user_id: TEST_USER_ID
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /DELETE FROM contest_participants/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /UPDATE contest_instances SET entry_count = GREATEST/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /COMMIT/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}/entry`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+    });
+
+    it('should ensure entry_count never becomes negative', async () => {
+      const contestId = TEST_INSTANCE_ID;
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({
+          id: contestId,
+          organizer_id: TEST_USER_ID,
+          status: 'SCHEDULED',
+          lock_time: new Date(Date.now() + 3600000).toISOString(),
+          entry_count: 0,
+          payout_structure: { first: 100 },
+          contest_name: 'Test Contest',
+          max_entries: 10,
+          entry_fee_cents: 2500,
+          start_time: null,
+          end_time: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          join_token: 'test_token'
+        })
+      );
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE contest_instance_id = \$1[\s\S]*AND user_id = \$2[\s\S]*FOR UPDATE/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /COMMIT/,
+        mockQueryResponses.empty()
+      );
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}/entry`)
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      // Verify response still has contest data
+      expect(response.body).toHaveProperty('id');
+    });
+
+    it('should require authentication', async () => {
+      const contestId = TEST_INSTANCE_ID;
+
+      const response = await request(app)
+        .delete(`/api/custom-contests/${contestId}/entry`);
+
+      expect(response.status).toBe(401);
+    });
+  });
 });

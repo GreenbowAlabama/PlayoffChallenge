@@ -587,4 +587,83 @@ router.get('/:id/leaderboard', extractUserId, async (req, res) => {
   }
 });
 
+/**
+ * DELETE /api/custom-contests/:id
+ * Delete a contest instance.
+ * Only the organizer can delete.
+ * Can only delete SCHEDULED contests with entry_count <= 1 or CANCELLED contests (idempotent).
+ *
+ * Response:
+ * - 200: Updated contest instance with status = CANCELLED
+ * - 403: { error_code: 'CONTEST_DELETE_NOT_ALLOWED', reason: '...' }
+ * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
+ */
+router.delete('/:id', extractUserId, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: 'Invalid contest ID format' });
+    }
+
+    const contest = await customContestService.deleteContestInstance(
+      pool,
+      id,
+      req.userId
+    );
+
+    return res.status(200).json(contest);
+  } catch (err) {
+    if (err.code === 'CONTEST_NOT_FOUND') {
+      return res.status(404).json({ error_code: err.code, reason: err.message });
+    }
+    if (err.code === 'CONTEST_DELETE_NOT_ALLOWED') {
+      return res.status(403).json({ error_code: err.code, reason: err.message });
+    }
+    console.error('[Custom Contest] Error deleting contest:', err);
+    res.status(500).json({ error: 'Failed to delete contest' });
+  }
+});
+
+/**
+ * DELETE /api/custom-contests/:id/entry
+ * Unjoin a contest (remove user participation).
+ * Requires authentication.
+ * User can only unjoin SCHEDULED contests before lock_time.
+ * Idempotent: returns 200 if user has no entry.
+ *
+ * Response:
+ * - 200: Updated contest instance
+ * - 403: { error_code: 'CONTEST_UNJOIN_NOT_ALLOWED', reason: '...' }
+ * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
+ */
+router.delete('/:id/entry', extractUserId, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ error: 'Invalid contest ID format' });
+    }
+
+    const contest = await customContestService.unJoinContest(
+      pool,
+      id,
+      req.userId
+    );
+
+    return res.status(200).json(contest);
+  } catch (err) {
+    if (err.code === 'CONTEST_NOT_FOUND') {
+      return res.status(404).json({ error_code: err.code, reason: err.message });
+    }
+    if (err.code === 'CONTEST_UNJOIN_NOT_ALLOWED') {
+      return res.status(403).json({ error_code: err.code, reason: err.message });
+    }
+    console.error('[Custom Contest] Error unjoining contest:', err);
+    res.status(500).json({ error: 'Failed to unjoin contest' });
+  }
+});
+
 module.exports = router;
