@@ -499,6 +499,8 @@ components:
         - is_read_only
         - can_share_invite
         - can_manage_contest
+        - can_delete
+        - can_unjoin
       properties:
         can_join:
           type: boolean
@@ -534,6 +536,16 @@ components:
           type: boolean
           description: |
             User is the contest organizer (case-insensitive UUID comparison)
+        can_delete:
+          type: boolean
+          description: |
+            User can delete the contest: user is the organizer AND status==SCHEDULED.
+            Only organizers can delete, and only before lock_time.
+        can_unjoin:
+          type: boolean
+          description: |
+            User can unjoin the contest: user is a participant (not organizer) AND user has entered AND status==SCHEDULED.
+            Organizers do not unjoin; they delete instead.
 
     PayoutRow:
       type: object

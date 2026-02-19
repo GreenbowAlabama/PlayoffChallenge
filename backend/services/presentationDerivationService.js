@@ -89,6 +89,21 @@ function deriveContestActions(contestRow, leaderboardState, userContext, current
   const can_manage_contest = authenticatedUserId !== null &&
     authenticatedUserId.toLowerCase() === contestRow.organizer_id.toLowerCase();
 
+  // Delete capability: true only if organizer AND contest is SCHEDULED
+  // Organizers may only delete before lock_time
+  const can_delete =
+    contestRow.status === 'SCHEDULED' &&
+    authenticatedUserId !== null &&
+    authenticatedUserId.toLowerCase() === contestRow.organizer_id.toLowerCase();
+
+  // Unjoin capability: true only if participant (not organizer) AND contest is SCHEDULED AND user has entered
+  // Organizers do not "unjoin". They delete.
+  const can_unjoin =
+    contestRow.status === 'SCHEDULED' &&
+    userContext.user_has_entered === true &&
+    authenticatedUserId !== null &&
+    authenticatedUserId.toLowerCase() !== contestRow.organizer_id.toLowerCase();
+
   return {
     can_join,
     can_edit_entry,
@@ -98,7 +113,9 @@ function deriveContestActions(contestRow, leaderboardState, userContext, current
     is_scored,
     is_read_only,
     can_share_invite,
-    can_manage_contest
+    can_manage_contest,
+    can_delete,
+    can_unjoin
   };
 }
 
