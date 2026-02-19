@@ -35,3 +35,6 @@ build/
 
 !backend/migrations/
 !backend/migrations/*.sql
+
+# build files
+ios-app/build/*
