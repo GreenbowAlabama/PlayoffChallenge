@@ -30,6 +30,9 @@ final class CreateCustomContestViewModel: ObservableObject {
     /// Optional lock time for closing entries.
     @Published var lockTime: Date?
 
+    /// Selected contest type for the creation flow.
+    @Published var selectedContestType: ContestType = .nflPlayoff
+
     /// The created draft (available after successful creation).
     @Published private(set) var draft: CustomContestDraft?
 

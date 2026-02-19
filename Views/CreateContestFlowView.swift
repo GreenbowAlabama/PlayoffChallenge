@@ -10,6 +10,7 @@ import UIKit
 
 struct CreateContestFlowView: View {
     @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var viewModel: LandingViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var createdContest: MockContest?
     @State private var showContestDetail = false
@@ -45,7 +46,10 @@ struct CreateContestFlowView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $showContestDetail) {
             if let contest = createdContest {
-                ContestDetailView(contest: contest)
+                ContestDetailView(contest: contest, resetOnExit: true)
+                    .onDisappear {
+                        viewModel.navigateToMyContests()
+                    }
             }
         }
     }
@@ -61,6 +65,7 @@ struct CreateContestFormView: View {
     @State private var contestName = ""
     @State private var maxEntries = 20
     @State private var entryFee: Double = 0.0
+    @State private var selectedContestType: ContestType = .nflPlayoff
     @State private var lockTimeEnabled = false
     @State private var lockTimeDate = Date().addingTimeInterval(3600)
     @State private var isCreating = false
@@ -70,6 +75,16 @@ struct CreateContestFormView: View {
 
     var body: some View {
         Form {
+            Section("Contest Type") {
+                Picker("Contest Type", selection: $selectedContestType) {
+                    ForEach(ContestType.allCases) { type in
+                        Text(type.displayName)
+                            .tag(type)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
             Section("Contest Details") {
                 TextField("Contest Name", text: $contestName)
                     .autocorrectionDisabled()

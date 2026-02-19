@@ -928,11 +928,93 @@ func replacePlayer(userId: UUID, oldPlayerId: String, newPlayerId: String, posit
 
     return try JSONDecoder().decode(PlayerReplacementResponse.self, from: data)
   }
+
+  // MARK: - Custom Contest Mutations (DELETE, UNJOIN)
+
+  /// Delete a custom contest (organizer-only)
+  /// Returns the updated contest detail on success
+  func deleteContest(id: UUID) async throws {
+      let url = URL(string: "\(baseURL)/api/custom-contests/\(id.uuidString)")!
+      let request = createV2Request(url: url, method: "DELETE")
+
+      let (data, response) = try await URLSession.shared.data(for: request)
+
+      guard let httpResponse = response as? HTTPURLResponse else {
+          throw APIError.invalidResponse
+      }
+
+      switch httpResponse.statusCode {
+
+      case 200...299:
+          return
+
+      case 401:
+          throw APIError.unauthorized
+
+      case 403:
+          if let structured = try? JSONDecoder().decode(StructuredErrorResponse.self, from: data) {
+              throw APIError.restrictedState(structured.reason)
+          }
+          throw APIError.restrictedState("Operation not allowed")
+
+      case 404:
+          throw APIError.notFound
+
+      default:
+          throw APIError.serverError(
+              "DELETE /api/custom-contests/\(id.uuidString) failed with \(httpResponse.statusCode)"
+          )
+      }
   }
-  
-  extension APIService: APIClient {}
-  
-  // MARK: - Supporting Types
+
+  /// Unjoin (leave) a custom contest (participant)
+  /// Removes user participation from contest
+  func unjoinContest(id: UUID) async throws {
+      let url = URL(string: "\(baseURL)/api/custom-contests/\(id.uuidString)/entry")!
+      let request = createV2Request(url: url, method: "DELETE")
+
+      let (data, response) = try await URLSession.shared.data(for: request)
+
+      guard let httpResponse = response as? HTTPURLResponse else {
+          throw APIError.invalidResponse
+      }
+
+      switch httpResponse.statusCode {
+
+      case 200...299:
+          return
+
+      case 401:
+          throw APIError.unauthorized
+
+      case 403:
+          if let structured = try? JSONDecoder().decode(StructuredErrorResponse.self, from: data) {
+              throw APIError.restrictedState(structured.reason)
+          }
+          throw APIError.restrictedState("Operation not allowed")
+
+      case 404:
+          throw APIError.notFound
+
+      default:
+          throw APIError.serverError(
+              "DELETE /api/custom-contests/\(id.uuidString)/entry failed with \(httpResponse.statusCode)"
+          )
+      }
+  }
+
+  // MARK: - Error Response Helper
+
+  private struct StructuredErrorResponse: Codable {
+      let error_code: String
+      let reason: String
+  }
+}
+
+// MARK: - APIClient Conformance
+extension APIService: APIClient {}
+
+// MARK: - Supporting Types
     // Leaderboard response metadata from X-Leaderboard-* headers
 // Leaderboard response metadata from X-Leaderboard-* headers
 struct LeaderboardMeta {

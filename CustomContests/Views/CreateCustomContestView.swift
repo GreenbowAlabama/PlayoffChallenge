@@ -10,6 +10,7 @@ struct CreateCustomContestView: View {
     var body: some View {
         NavigationStack {
             Form {
+                contestTypeSection
                 contestDetailsSection
                 lockTimeSection
                 actionSection
@@ -29,6 +30,18 @@ struct CreateCustomContestView: View {
     }
 
     // MARK: - Sections
+
+    private var contestTypeSection: some View {
+        Section("Contest Type") {
+            Picker("Contest Type", selection: $viewModel.selectedContestType) {
+                ForEach(ContestType.allCases) { type in
+                    Text(type.displayName)
+                        .tag(type)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+    }
 
     private var contestDetailsSection: some View {
         Section("Contest Details") {

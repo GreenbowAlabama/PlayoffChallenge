@@ -73,6 +73,7 @@ struct LandingView: View {
                 destinationView(for: destination)
             }
         }
+        .environmentObject(viewModel)
     }
 
     @ViewBuilder

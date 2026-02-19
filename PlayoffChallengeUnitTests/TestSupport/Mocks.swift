@@ -210,7 +210,11 @@ extension ContestActions {
         is_closed: Bool = false,
         is_scoring: Bool = false,
         is_scored: Bool = false,
-        is_read_only: Bool = false
+        is_read_only: Bool = false,
+        can_share_invite: Bool = true,
+        can_manage_contest: Bool = false,
+        can_delete: Bool = false,
+        can_unjoin: Bool = false
     ) -> ContestActions {
         // Direct initialization — no JSON bridging
         ContestActions(
@@ -220,7 +224,11 @@ extension ContestActions {
             is_closed: is_closed,
             is_scoring: is_scoring,
             is_scored: is_scored,
-            is_read_only: is_read_only
+            is_read_only: is_read_only,
+            can_share_invite: can_share_invite,
+            can_manage_contest: can_manage_contest,
+            can_delete: can_delete,
+            can_unjoin: can_unjoin
         )
     }
 }

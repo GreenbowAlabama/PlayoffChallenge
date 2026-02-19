@@ -23,6 +23,7 @@ final class ContestDetailViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isFetching = false
     @Published private(set) var isJoining = false
+    @Published private(set) var isDeleting = false
     @Published private(set) var errorMessage: String?
 
     // MARK: - Dependencies
@@ -32,6 +33,7 @@ final class ContestDetailViewModel: ObservableObject {
     private let detailFetcher: ContestDetailFetching
     private var currentUserId: UUID?
     private var hasFetched = false
+    private var refreshTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -88,6 +90,16 @@ final class ContestDetailViewModel: ObservableObject {
             let fetchedContract = try await detailFetcher.fetchContestDetailContract(contestId: contestId)
             contractContest = fetchedContract
 
+            // Log server-returned actions (DEBUGGING)
+            print("""
+            SERVER ACTIONS:
+            status=\(fetchedContract.leaderboard_state)
+            can_join=\(fetchedContract.actions.can_join)
+            can_delete=\(fetchedContract.actions.can_delete)
+            can_unjoin=\(fetchedContract.actions.can_unjoin)
+            can_edit_entry=\(fetchedContract.actions.can_edit_entry)
+            """)
+
             // Also fetch legacy data for backward compatibility
             let fetched = try await detailFetcher.fetchDetail(contestId: contestId)
 
@@ -112,6 +124,16 @@ final class ContestDetailViewModel: ObservableObject {
             let fetchedContract = try await detailFetcher.fetchContestDetailContract(contestId: contestId)
             contractContest = fetchedContract
 
+            // Log server-returned actions (DEBUGGING)
+            print("""
+            SERVER ACTIONS (REFRESH):
+            status=\(fetchedContract.leaderboard_state)
+            can_join=\(fetchedContract.actions.can_join)
+            can_delete=\(fetchedContract.actions.can_delete)
+            can_unjoin=\(fetchedContract.actions.can_unjoin)
+            can_edit_entry=\(fetchedContract.actions.can_edit_entry)
+            """)
+
             // Also fetch legacy data for backward compatibility
             let fetched = try await detailFetcher.fetchDetail(contestId: contestId)
             contest = fetched
@@ -135,6 +157,21 @@ final class ContestDetailViewModel: ObservableObject {
     var canSelectLineup: Bool {
         guard let contract = contractContest else { return false }
         return contract.actions.can_edit_entry
+    }
+
+    var canDeleteContest: Bool {
+        contractContest?.actions.can_delete ?? false
+    }
+
+    var canUnjoinContest: Bool {
+        // Backend is authoritative — use can_unjoin flag if contract is available
+        if let contract = contractContest {
+            return contract.actions.can_unjoin
+        }
+
+        // Fallback only for placeholder state (no contract yet loaded)
+        // Do not infer from other contract fields once contract is available
+        return false
     }
 
     var canViewRules: Bool {
@@ -216,6 +253,67 @@ final class ContestDetailViewModel: ObservableObject {
         }
 
         isJoining = false
+    }
+
+    /// Delete contest (organizer-only)
+    /// On success, dismiss the view
+    /// On 403, show alert and stay
+    /// On 404, treat as idempotent and dismiss
+    func deleteContest() async {
+        print("DELETE: canDeleteContest=\(canDeleteContest), contractContest?.actions.can_delete=\(contractContest?.actions.can_delete ?? false), contestId=\(contestId)")
+
+        // Cancel any in-flight refresh before mutation
+        refreshTask?.cancel()
+
+        isDeleting = true
+        errorMessage = nil
+
+        do {
+            _ = try await APIService.shared.deleteContest(id: contestId)
+            // Success — dismiss view (caller handles dismissal via @Environment)
+            // Return to indicate success; caller uses this to trigger dismiss
+        } catch APIError.notFound {
+            // 404 — idempotent (already deleted), dismiss anyway
+        } catch APIError.restrictedState(let reason) {
+            // 403 — cannot delete in current state
+            print("DELETE 403: \(reason)")
+            errorMessage = reason
+        } catch {
+            print("DELETE error: \(error.localizedDescription)")
+            errorMessage = error.localizedDescription
+        }
+
+        isDeleting = false
+    }
+
+    /// Unjoin contest (participant)
+    /// On success, dismiss the view
+    /// On 403, show alert and stay
+    /// On 404, treat as idempotent and dismiss
+    func unjoinContest() async {
+        print("UNJOIN: canUnjoinContest=\(canUnjoinContest), contractContest?.actions.can_unjoin=\(contractContest?.actions.can_unjoin ?? false), contestId=\(contestId)")
+
+        // Cancel any in-flight refresh before mutation
+        refreshTask?.cancel()
+
+        isDeleting = true
+        errorMessage = nil
+
+        do {
+            _ = try await APIService.shared.unjoinContest(id: contestId)
+            // Success — dismiss view (caller handles dismissal via @Environment)
+        } catch APIError.notFound {
+            // 404 — idempotent (already unjoined), dismiss anyway
+        } catch APIError.restrictedState(let reason) {
+            // 403 — cannot leave in current state
+            print("UNJOIN 403: \(reason)")
+            errorMessage = reason
+        } catch {
+            print("UNJOIN error: \(error.localizedDescription)")
+            errorMessage = error.localizedDescription
+        }
+
+        isDeleting = false
     }
 
     // MARK: - Private Helpers

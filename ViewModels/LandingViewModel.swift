@@ -34,6 +34,7 @@ struct MockContest: Identifiable, Hashable, Codable {
     let lockTime: Date?
     let startTime: Date?
     let endTime: Date?
+    let createdAt: Date?
     let actions: ContestActions?
 
     init(
@@ -50,6 +51,7 @@ struct MockContest: Identifiable, Hashable, Codable {
         lockTime: Date? = nil,
         startTime: Date? = nil,
         endTime: Date? = nil,
+        createdAt: Date? = nil,
         actions: ContestActions? = nil
     ) {
         self.id = id
@@ -65,6 +67,7 @@ struct MockContest: Identifiable, Hashable, Codable {
         self.lockTime = lockTime
         self.startTime = startTime
         self.endTime = endTime
+        self.createdAt = createdAt
         self.actions = actions
     }
 
@@ -164,5 +167,12 @@ final class LandingViewModel: ObservableObject {
 
     func navigateToLeaderboard(contest: MockContest) {
         navigationPath.append(LandingDestination.leaderboard(contest))
+    }
+
+    /// Reset navigation to MyContests root.
+    /// Used after lifecycle mutations (cancel contest, leave contest).
+    func resetToMyContests() {
+        navigationPath = NavigationPath()
+        navigationPath.append(LandingDestination.myContests)
     }
 }

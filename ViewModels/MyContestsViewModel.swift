@@ -46,6 +46,7 @@ final class MyContestsViewModel: ObservableObject {
     // MARK: - Dependencies
     private let apiClient: APIClient
     private let userId: String
+    private var refreshTask: Task<Void, Never>?
 
     init(apiClient: APIClient = APIService.shared, userId: String) {
         self.apiClient = apiClient
@@ -56,6 +57,47 @@ final class MyContestsViewModel: ObservableObject {
     @Published private(set) var myContests: [MockContest] = []
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var deletingIds: Set<UUID> = []
+
+    // MARK: - Computed Properties
+
+    /// Contests sorted by priority: LIVE → LOCKED → SCHEDULED → COMPLETE → CANCELLED
+    /// Within same status, sorted by creation date (descending, newest first).
+    var sortedContests: [MockContest] {
+        myContests.sorted { contest1, contest2 in
+            let priority1 = priority(for: contest1.status)
+            let priority2 = priority(for: contest2.status)
+
+            // Different status: sort by priority
+            if priority1 != priority2 {
+                return priority1 < priority2
+            }
+
+            // Same status: sort by createdAt descending (newest first)
+            let date1 = contest1.createdAt ?? Date.distantPast
+            let date2 = contest2.createdAt ?? Date.distantPast
+            return date1 > date2
+        }
+    }
+
+    /// Determines sort priority for a contest status.
+    /// Lower number = higher priority (appears first).
+    private func priority(for status: ContestStatus) -> Int {
+        switch status {
+        case .live:
+            return 0
+        case .locked:
+            return 1
+        case .scheduled:
+            return 2
+        case .complete:
+            return 3
+        case .cancelled:
+            return 4
+        case .error, .unknown:
+            return 5
+        }
+    }
 
     // MARK: - Actions
 
@@ -111,7 +153,10 @@ final class MyContestsViewModel: ObservableObject {
                 joinToken: dto.joinToken,
                 joinURL: nil,
                 isJoined: false,
-                lockTime: dto.lockTime
+                lockTime: dto.lockTime,
+                startTime: nil,
+                endTime: nil,
+                createdAt: dto.createdAt
             )
         }
     }
@@ -136,7 +181,10 @@ final class MyContestsViewModel: ObservableObject {
                     joinToken: dto.joinToken,
                     joinURL: nil,
                     isJoined: true,
-                    lockTime: dto.lockTime
+                    lockTime: dto.lockTime,
+                    startTime: nil,
+                    endTime: nil,
+                    createdAt: dto.createdAt
                 )
             }
     }
@@ -144,5 +192,67 @@ final class MyContestsViewModel: ObservableObject {
     /// Get a contest by ID
     func getContest(by id: UUID) -> MockContest? {
         myContests.first { $0.id == id }
+    }
+
+    // MARK: - Mutation Actions
+
+    /// Delete a contest (organizer-only, idempotent)
+    /// Removes contest from list on success or 404 (idempotent)
+    func deleteContest(_ id: UUID) async {
+        // Guard against double-tap
+        guard !deletingIds.contains(id) else { return }
+
+        // Cancel any in-flight refresh before mutation
+        refreshTask?.cancel()
+
+        deletingIds.insert(id)
+        errorMessage = nil
+
+        do {
+            _ = try await APIService.shared.deleteContest(id: id)
+            // Success — remove from list
+            myContests.removeAll { $0.id == id }
+        } catch APIError.notFound {
+            // 404 — idempotent removal (already deleted or never existed)
+            myContests.removeAll { $0.id == id }
+        } catch APIError.restrictedState(let reason) {
+            // 403 — permission or lifecycle error, don't remove
+            errorMessage = reason
+        } catch {
+            // Other errors
+            errorMessage = error.localizedDescription
+        }
+
+        deletingIds.remove(id)
+    }
+
+    /// Unjoin a contest (participant, idempotent)
+    /// Removes contest from list on success or 404 (idempotent)
+    func unjoinContest(_ id: UUID) async {
+        // Guard against double-tap
+        guard !deletingIds.contains(id) else { return }
+
+        // Cancel any in-flight refresh before mutation
+        refreshTask?.cancel()
+
+        deletingIds.insert(id)
+        errorMessage = nil
+
+        do {
+            _ = try await APIService.shared.unjoinContest(id: id)
+            // Success — remove from list
+            myContests.removeAll { $0.id == id }
+        } catch APIError.notFound {
+            // 404 — idempotent removal (already unjoined or contest gone)
+            myContests.removeAll { $0.id == id }
+        } catch APIError.restrictedState(let reason) {
+            // 403 — permission or lifecycle error, don't remove
+            errorMessage = reason
+        } catch {
+            // Other errors
+            errorMessage = error.localizedDescription
+        }
+
+        deletingIds.remove(id)
     }
 }

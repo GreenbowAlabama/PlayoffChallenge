@@ -11,25 +11,34 @@ import UIKit
 struct ContestDetailView: View {
     @StateObject private var viewModel: ContestDetailViewModel
     @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var landingViewModel: LandingViewModel
+    @Environment(\.dismiss) var dismiss
     @State private var navigateToLeaderboard = false
     @State private var navigateToLineup = false
     @State private var showRules = false
     @State private var showCopyConfirmation = false
+    @State private var showDeleteConfirmation = false
+    @State private var showUnjoinConfirmation = false
+
+    /// If true, after cancel/leave, navigate to MyContests instead of dismissing.
+    /// Used for create/deep-link flows where we need semantic redirection.
+    let resetOnExit: Bool
 
     /// Primary initializer — contestId is the source of truth, placeholder is optional.
-    init(contestId: UUID, placeholder: MockContest? = nil, contestJoiner: ContestJoining? = nil) {
+    init(contestId: UUID, placeholder: MockContest? = nil, contestJoiner: ContestJoining? = nil, resetOnExit: Bool = false) {
         let joiner = contestJoiner ?? ContestJoinService()
         _viewModel = StateObject(wrappedValue: ContestDetailViewModel(
             contestId: contestId,
             placeholder: placeholder,
             contestJoiner: joiner
         ))
+        self.resetOnExit = resetOnExit
     }
 
     /// Convenience initializer for callers that have a full MockContest.
     /// contestId is extracted from the contest; the contest is used as placeholder only.
-    init(contest: MockContest, contestJoiner: ContestJoining? = nil) {
-        self.init(contestId: contest.id, placeholder: contest, contestJoiner: contestJoiner)
+    init(contest: MockContest, contestJoiner: ContestJoining? = nil, resetOnExit: Bool = false) {
+        self.init(contestId: contest.id, placeholder: contest, contestJoiner: contestJoiner, resetOnExit: resetOnExit)
     }
 
     var body: some View {
@@ -270,6 +279,48 @@ struct ContestDetailView: View {
                     .padding(.horizontal)
                 }
 
+                // Destructive Actions (Delete/Leave)
+                if viewModel.canDeleteContest || viewModel.canUnjoinContest {
+                    VStack(spacing: 12) {
+                        if viewModel.canDeleteContest {
+                            Button(role: .destructive) {
+                                showDeleteConfirmation = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "xmark.circle")
+                                    Text("Cancel Contest")
+                                }
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.red)
+                                .cornerRadius(12)
+                            }
+                            .disabled(viewModel.isDeleting || viewModel.contractContest == nil)
+                        }
+
+                        if viewModel.canUnjoinContest {
+                            Button(role: .destructive) {
+                                showUnjoinConfirmation = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "arrow.left.circle")
+                                    Text("Leave Contest")
+                                }
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.red)
+                                .cornerRadius(12)
+                            }
+                            .disabled(viewModel.isDeleting || viewModel.contractContest == nil)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+
                 Spacer()
             }
             .padding(.top)
@@ -297,6 +348,48 @@ struct ContestDetailView: View {
                     }
             }
         }
+        .confirmationDialog(
+            "Cancel Contest?",
+            isPresented: $showDeleteConfirmation
+        ) {
+            Button("Cancel Contest", role: .destructive) {
+                Task {
+                    await viewModel.deleteContest()
+                    // On success (no error message set), exit deterministically
+                    if viewModel.errorMessage == nil {
+                        if resetOnExit {
+                            landingViewModel.resetToMyContests()
+                        } else {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            Button("Keep Contest", role: .cancel) { }
+        } message: {
+            Text("Are you sure you want to cancel this contest?\n\nThis will lock the contest and mark it as cancelled. This action cannot be undone.")
+        }
+        .confirmationDialog(
+            "Leave Contest?",
+            isPresented: $showUnjoinConfirmation
+        ) {
+            Button("Leave Contest", role: .destructive) {
+                Task {
+                    await viewModel.unjoinContest()
+                    // On success (no error message set), exit deterministically
+                    if viewModel.errorMessage == nil {
+                        if resetOnExit {
+                            landingViewModel.resetToMyContests()
+                        } else {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            Button("Stay", role: .cancel) { }
+        } message: {
+            Text("Are you sure you want to leave this contest?\n\nYour entry will be removed.")
+        }
         .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
             Button("OK") {
                 viewModel.clearError()
@@ -311,6 +404,7 @@ struct ContestDetailView: View {
             if !viewModel.isFetching {
                 viewModel.fetchContestDetailDetached()
             }
+            print("ContestDetailView.onAppear: contestId=\(viewModel.contestId), canDelete=\(viewModel.canDeleteContest), canUnjoin=\(viewModel.canUnjoinContest)")
         }
         .refreshable {
             await viewModel.refresh()
@@ -358,5 +452,6 @@ struct InfoRowView: View {
     NavigationStack {
         ContestDetailView(contest: MockContest.samples[0])
             .environmentObject(AuthService())
+            .environmentObject(LandingViewModel())
     }
 }

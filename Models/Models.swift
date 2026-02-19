@@ -611,6 +611,8 @@ struct ContestActions: Codable, Hashable, Equatable {
     let is_read_only: Bool
     let can_share_invite: Bool
     let can_manage_contest: Bool
+    let can_delete: Bool
+    let can_unjoin: Bool
 
     enum CodingKeys: String, CodingKey {
         case can_join
@@ -622,9 +624,11 @@ struct ContestActions: Codable, Hashable, Equatable {
         case is_read_only
         case can_share_invite
         case can_manage_contest
+        case can_delete
+        case can_unjoin
     }
 
-    init(can_join: Bool, can_edit_entry: Bool, is_live: Bool, is_closed: Bool, is_scoring: Bool, is_scored: Bool, is_read_only: Bool, can_share_invite: Bool, can_manage_contest: Bool) {
+    init(can_join: Bool, can_edit_entry: Bool, is_live: Bool, is_closed: Bool, is_scoring: Bool, is_scored: Bool, is_read_only: Bool, can_share_invite: Bool, can_manage_contest: Bool, can_delete: Bool = false, can_unjoin: Bool = false) {
         self.can_join = can_join
         self.can_edit_entry = can_edit_entry
         self.is_live = is_live
@@ -634,6 +638,8 @@ struct ContestActions: Codable, Hashable, Equatable {
         self.is_read_only = is_read_only
         self.can_share_invite = can_share_invite
         self.can_manage_contest = can_manage_contest
+        self.can_delete = can_delete
+        self.can_unjoin = can_unjoin
     }
 
     init(from decoder: Decoder) throws {
@@ -647,6 +653,8 @@ struct ContestActions: Codable, Hashable, Equatable {
         is_read_only = try c.decode(Bool.self, forKey: .is_read_only)
         can_share_invite = try c.decode(Bool.self, forKey: .can_share_invite)
         can_manage_contest = try c.decode(Bool.self, forKey: .can_manage_contest)
+        can_delete = (try c.decodeIfPresent(Bool.self, forKey: .can_delete)) ?? false
+        can_unjoin = (try c.decodeIfPresent(Bool.self, forKey: .can_unjoin)) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -660,6 +668,8 @@ struct ContestActions: Codable, Hashable, Equatable {
         try c.encode(is_read_only, forKey: .is_read_only)
         try c.encode(can_share_invite, forKey: .can_share_invite)
         try c.encode(can_manage_contest, forKey: .can_manage_contest)
+        try c.encode(can_delete, forKey: .can_delete)
+        try c.encode(can_unjoin, forKey: .can_unjoin)
     }
 }
 

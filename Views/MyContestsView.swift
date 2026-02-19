@@ -11,6 +11,8 @@ struct MyContestsView: View {
     @ObservedObject var viewModel: MyContestsViewModel
     @State private var selectedContest: MockContest?
     @State private var isRefreshing = false
+    @State private var pendingDeleteId: UUID?
+    @State private var pendingUnjoinId: UUID?
 
     var body: some View {
         Group {
@@ -21,11 +23,30 @@ struct MyContestsView: View {
             } else {
                 List {
                     Section {
-                        ForEach(viewModel.myContests) { contest in
+                        ForEach(viewModel.sortedContests) { contest in
                             MyContestRowView(contest: contest)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     selectedContest = contest
+                                }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    if contest.actions?.can_delete == true {
+                                        Button(role: .destructive) {
+                                            pendingDeleteId = contest.id
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                        .disabled(viewModel.deletingIds.contains(contest.id))
+                                    }
+
+                                    if contest.actions?.can_unjoin == true {
+                                        Button(role: .destructive) {
+                                            pendingUnjoinId = contest.id
+                                        } label: {
+                                            Label("Leave", systemImage: "arrow.left.circle")
+                                        }
+                                        .disabled(viewModel.deletingIds.contains(contest.id))
+                                    }
                                 }
                         }
                     } header: {
@@ -38,6 +59,32 @@ struct MyContestsView: View {
         .navigationBarTitleDisplayMode(.large)
         .navigationDestination(item: $selectedContest) { contest in
             ContestDetailView(contest: contest)
+        }
+        .confirmationDialog(
+            "Are you sure?",
+            isPresented: Binding(
+                get: { pendingDeleteId != nil || pendingUnjoinId != nil },
+                set: { if !$0 { pendingDeleteId = nil; pendingUnjoinId = nil } }
+            )
+        ) {
+            if let id = pendingDeleteId {
+                Button("Cancel Contest", role: .destructive) {
+                    Task { await viewModel.deleteContest(id) }
+                    pendingDeleteId = nil
+                }
+            }
+
+            if let id = pendingUnjoinId {
+                Button("Leave Contest", role: .destructive) {
+                    Task { await viewModel.unjoinContest(id) }
+                    pendingUnjoinId = nil
+                }
+            }
+
+            Button("Cancel", role: .cancel) {
+                pendingDeleteId = nil
+                pendingUnjoinId = nil
+            }
         }
         .task {
             await viewModel.loadMyContests()

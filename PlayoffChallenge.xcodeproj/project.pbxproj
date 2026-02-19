@@ -26,6 +26,7 @@
 		EA345EC22EA45CB900689C4E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EA345EC12EA45CB900689C4E /* Assets.xcassets */; };
 		EA8192012F45254D00B5A5E1 /* core in Frameworks */ = {isa = PBXBuildFile; productRef = EA8192002F45254D00B5A5E1 /* core */; };
 		EA8192042F4525A900B5A5E1 /* core in Frameworks */ = {isa = PBXBuildFile; productRef = EA8192032F4525A900B5A5E1 /* core */; };
+		EA8194E92F46F5E000B5A5E1 /* ContestType.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8194E82F46F5E000B5A5E1 /* ContestType.swift */; };
 		EA98FE402F2D776C00CA4A36 /* JoinErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE3C2F2D776C00CA4A36 /* JoinErrorView.swift */; };
 		EA98FE412F2D776C00CA4A36 /* ContestJoining.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE312F2D776C00CA4A36 /* ContestJoining.swift */; };
 		EA98FE422F2D776C00CA4A36 /* JoinLinkError.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE2E2F2D776C00CA4A36 /* JoinLinkError.swift */; };
@@ -69,6 +70,7 @@
 		EA345EBF2EA45CB700689C4E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		EA345EC12EA45CB900689C4E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EA493C3B2F45134300F878AD /* PlayoffChallengeUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlayoffChallengeUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		EA8194E82F46F5E000B5A5E1 /* ContestType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestType.swift; sourceTree = "<group>"; };
 		EA98FE2E2F2D776C00CA4A36 /* JoinLinkError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkError.swift; sourceTree = "<group>"; };
 		EA98FE2F2F2D776C00CA4A36 /* JoinLinkModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkModels.swift; sourceTree = "<group>"; };
 		EA98FE312F2D776C00CA4A36 /* ContestJoining.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestJoining.swift; sourceTree = "<group>"; };
@@ -160,6 +162,7 @@
 				CC001B022F3C000100000002 /* ContestTemplateValidation.swift */,
 				CC001B042F3C000100000003 /* ContestTemplateError.swift */,
 				CC001B082F3C000100000005 /* SettlementStrategy.swift */,
+				EA8194E82F46F5E000B5A5E1 /* ContestType.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -428,6 +431,7 @@
 				EA345EBE2EA45CB700689C4E /* PlayoffChallengeApp.swift in Sources */,
 				CC001A012F3A000100000001 /* CustomContestModels.swift in Sources */,
 				CC001A032F3A000100000002 /* CustomContestError.swift in Sources */,
+				EA8194E92F46F5E000B5A5E1 /* ContestType.swift in Sources */,
 				CC001A052F3A000100000003 /* CustomContestValidation.swift in Sources */,
 				CC001A072F3A000100000004 /* CustomContestCreating.swift in Sources */,
 				CC001A092F3A000100000005 /* CustomContestPublishing.swift in Sources */,
