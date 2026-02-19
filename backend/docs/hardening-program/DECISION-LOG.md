@@ -659,6 +659,33 @@ Trigger for revisiting: Scale hits 1000+ pending payouts, or multi-node deployme
 
 ---
 
+### Decision: Error Mapping Must Use Typed Error Cases, Not String Pattern Matching
+
+**Date**: 2026-02-18
+**Iteration**: STEP 2 - iOS Integration (QA/Testing)
+**Context**: Swift integration tests for ContestMutationService exposed fragility in error mapping. The service maps errors to typed enums (.notFound, .forbidden, .decoding, .unknown) by pattern matching against `error.localizedDescription` strings. This approach is brittle: custom error types get wrapped by Swift's error handling, and different error formats bypass pattern matchers silently, returning .unknown instead of proper error types.
+**Decision**: Error mapping must be refactored to use typed error cases (e.g., `if let apiError = error as? APIError { switch apiError.statusCode { ... } }`) instead of string pattern matching. Typed errors are deterministic and testable.
+**Rationale**:
+- String pattern matching is fragile: Swift wraps custom error types with framework details, causing patterns to miss
+- Different error sources (network, parsing, validation) format messages differently; no universal pattern
+- Type-safe error handling is Swift idiomatic; pattern matching on descriptions is not
+- Testing becomes easier: verify error type, not error message content
+- Refactoring enables explicit error handling per error category; no silent fallback to .unknown
+**Alternatives Rejected**:
+  - Accept fragile string matching: Works for common cases; breaks on edge cases and breaks on API evolution
+  - Add more pattern strings: False fix; doesn't address root fragility; test suite grew to 50 tests with 12 failing
+  - Document the limitation: Code behavior must be correct, not just documented
+**Impact**:
+- ContestMutationService.mapError() refactored to use typed errors instead of localizedDescription scanning
+- APIClient protocol expanded to provide typed error context
+- Error mapping tests simplified: 12 failing tests will pass when typed errors are used
+- iOS ViewModel layer receives precise error types; can show appropriate user feedback
+- Future error mapping is maintainable and testable
+**Owner**: iOS Team, Backend API Team
+**Status**: Active (discovered during integration, awaiting refactoring in next iteration)
+
+---
+
 ## Superseded Decisions
 
 (None yet. First decisions logged at program start.)
