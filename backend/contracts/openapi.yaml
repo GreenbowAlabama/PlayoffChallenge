@@ -37,6 +37,109 @@ paths:
           description: Unauthorized - authentication required
         '404':
           description: Contest not found
+    delete:
+      tags:
+        - Contests
+      summary: Delete a contest instance
+      description: |
+        Delete a contest instance. Only the organizer can delete.
+        Can only delete SCHEDULED contests with entry_count ≤ 1, or already-CANCELLED contests (idempotent).
+        Returns the updated contest with status=CANCELLED.
+      operationId: deleteContestById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Contest deleted (or already cancelled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContestDetailResponse'
+        '400':
+          description: Invalid UUID format (user ID or contest ID)
+          content:
+            application/json:
+              example:
+                error: Invalid contest ID format
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - insufficient permissions or invalid lifecycle state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: CONTEST_DELETE_NOT_ALLOWED
+                reason: Cannot delete contest in LOCKED status with 5 participants
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: CONTEST_NOT_FOUND
+                reason: Contest not found
+
+  /api/custom-contests/{id}/entry:
+    delete:
+      tags:
+        - Contests
+      summary: Remove user participation from a contest
+      description: |
+        Unjoin a contest (remove participant entry).
+        User can only unjoin SCHEDULED contests before lock_time.
+        Idempotent: returns 200 if user has no entry.
+        Returns the updated contest instance with user_has_entered=false.
+      operationId: deleteContestEntry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successfully unjoined contest (or user was not a participant)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContestDetailResponse'
+        '400':
+          description: Invalid UUID format (user ID or contest ID)
+          content:
+            application/json:
+              example:
+                error: Invalid contest ID format
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - cannot unjoin (not SCHEDULED or past lock_time)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: CONTEST_UNJOIN_NOT_ALLOWED
+                reason: Cannot unjoin contest in LIVE status
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: CONTEST_NOT_FOUND
+                reason: Contest not found
 
   /api/custom-contests:
     get:
@@ -505,3 +608,23 @@ components:
         rank:
           type: integer
           minimum: 1
+
+    ErrorResponse:
+      type: object
+      description: |
+        Structured error response for service-layer validation failures.
+        Used by DELETE operations for permission/lifecycle validation errors.
+      required:
+        - error_code
+        - reason
+      properties:
+        error_code:
+          type: string
+          enum:
+            - CONTEST_NOT_FOUND
+            - CONTEST_DELETE_NOT_ALLOWED
+            - CONTEST_UNJOIN_NOT_ALLOWED
+          description: Machine-readable error code
+        reason:
+          type: string
+          description: Human-readable error description
