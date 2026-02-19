@@ -26,6 +26,7 @@ public protocol ContestAPIClient {
 public enum ContestMutationError: Error, Equatable {
     case notFound
     case forbidden
+    case conflict(String)
     case network(String)
     case decoding(String)
     case unknown(String)
@@ -36,6 +37,8 @@ public enum ContestMutationError: Error, Equatable {
             return "Contest not found"
         case .forbidden:
             return "You do not have permission to perform this action"
+        case .conflict(let msg):
+            return "Conflict: \(msg)"
         case .network(let msg):
             return "Network error: \(msg)"
         case .decoding(let msg):
@@ -67,6 +70,7 @@ public final class ContestMutationService {
     ///   - userId: Authenticated user ID
     /// - Returns: Updated list with deleted contest replaced by server response
     /// - Throws: ContestMutationError on failure (permission, not found, network)
+    /// - Note: 404 is treated as idempotent success (contest already deleted)
     public func deleteContest(
         contests: [ContestListItemDTO],
         id: String,
@@ -84,7 +88,14 @@ public final class ContestMutationService {
             // Replace contest in list, preserving order
             return replaceContest(in: contests, with: updated)
         } catch {
-            throw classifyError(error)
+            let classified = classifyError(error)
+
+            // Idempotency: 404 means contest already deleted, treat as success
+            if case .notFound = classified {
+                return contests.filter { $0.id != id }
+            }
+
+            throw classified
         }
     }
 
@@ -95,6 +106,7 @@ public final class ContestMutationService {
     ///   - userId: Authenticated user ID
     /// - Returns: Updated list with unjoined contest replaced by server response
     /// - Throws: ContestMutationError on failure (permission, not found, network)
+    /// - Note: 404 is treated as idempotent success (already unjoined)
     public func unjoinContest(
         contests: [ContestListItemDTO],
         id: String,
@@ -112,7 +124,14 @@ public final class ContestMutationService {
             // Replace contest in list, preserving order
             return replaceContest(in: contests, with: updated)
         } catch {
-            throw classifyError(error)
+            let classified = classifyError(error)
+
+            // Idempotency: 404 means entry already unjoined, treat as success
+            if case .notFound = classified {
+                return contests.filter { $0.id != id }
+            }
+
+            throw classified
         }
     }
 
@@ -158,6 +177,10 @@ public final class ContestMutationService {
 
         if normalized.contains("403") || normalized.contains("forbidden") || normalized.contains("permission") {
             return .forbidden
+        }
+
+        if normalized.contains("409") || normalized.contains("conflict") || normalized.contains("locked") {
+            return .conflict(description)
         }
 
         if normalized.contains("decode")
