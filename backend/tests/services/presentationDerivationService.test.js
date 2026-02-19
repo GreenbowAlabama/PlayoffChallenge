@@ -405,6 +405,129 @@ describe('presentationDerivationService', () => {
           });
         });
       });
+
+      describe('Organizer unjoin capability: can_unjoin', () => {
+        const organizerId = '11111111-1111-1111-1111-111111111111';
+        const otherUserId = '22222222-2222-2222-2222-222222222222';
+
+        // Case 1: Organizer + entered + SCHEDULED → can_unjoin: true
+        it('should allow organizer to unjoin SCHEDULED contest if they have an entry', () => {
+          const result = deriveContestActions(
+            { status: 'SCHEDULED', lock_time: futureTime, organizer_id: organizerId },
+            'pending',
+            { user_has_entered: true, entry_count: 5, max_entries: 10 },
+            now,
+            organizerId
+          );
+
+          expect(result.can_unjoin).toBe(true);
+          expect(result.can_manage_contest).toBe(true);
+          expect(result.can_delete).toBe(true);
+        });
+
+        // Case 2: Organizer + not entered + SCHEDULED → can_unjoin: false
+        it('should deny unjoin for organizer who has not entered SCHEDULED contest', () => {
+          const result = deriveContestActions(
+            { status: 'SCHEDULED', lock_time: futureTime, organizer_id: organizerId },
+            'pending',
+            { user_has_entered: false, entry_count: 5, max_entries: 10 },
+            now,
+            organizerId
+          );
+
+          expect(result.can_unjoin).toBe(false);
+          expect(result.can_manage_contest).toBe(true);
+          expect(result.can_delete).toBe(true);
+        });
+
+        // Case 3: Organizer + entered + LIVE → can_unjoin: false
+        it('should deny unjoin for organizer in LIVE contest regardless of entry status', () => {
+          const result = deriveContestActions(
+            { status: 'LIVE', lock_time: pastTime, organizer_id: organizerId },
+            'pending',
+            { user_has_entered: true, entry_count: 5, max_entries: 10 },
+            now,
+            organizerId
+          );
+
+          expect(result.can_unjoin).toBe(false);
+          expect(result.can_manage_contest).toBe(true);
+          expect(result.can_delete).toBe(false);
+        });
+
+        // Case 4: Participant + entered + SCHEDULED → can_unjoin: true
+        it('should allow regular participant to unjoin SCHEDULED contest if they have an entry', () => {
+          const result = deriveContestActions(
+            { status: 'SCHEDULED', lock_time: futureTime, organizer_id: organizerId },
+            'pending',
+            { user_has_entered: true, entry_count: 5, max_entries: 10 },
+            now,
+            otherUserId
+          );
+
+          expect(result.can_unjoin).toBe(true);
+          expect(result.can_manage_contest).toBe(false);
+          expect(result.can_delete).toBe(false);
+        });
+
+        // Case 5: Participant + entered + LIVE → can_unjoin: false
+        it('should deny unjoin for participant in LIVE contest', () => {
+          const result = deriveContestActions(
+            { status: 'LIVE', lock_time: pastTime, organizer_id: organizerId },
+            'pending',
+            { user_has_entered: true, entry_count: 5, max_entries: 10 },
+            now,
+            otherUserId
+          );
+
+          expect(result.can_unjoin).toBe(false);
+          expect(result.can_manage_contest).toBe(false);
+          expect(result.can_delete).toBe(false);
+        });
+
+        // Governance: can_unjoin is solely based on user_has_entered and status, not organizer status
+        it('GOVERNANCE: can_unjoin is independent of organizer status', () => {
+          const contestRow = { status: 'SCHEDULED', lock_time: futureTime, organizer_id: organizerId };
+
+          // Both organizer and non-organizer with same entry/status should have same can_unjoin
+          const organizerResult = deriveContestActions(
+            contestRow,
+            'pending',
+            { user_has_entered: true, entry_count: 3, max_entries: 10 },
+            now,
+            organizerId
+          );
+
+          const participantResult = deriveContestActions(
+            contestRow,
+            'pending',
+            { user_has_entered: true, entry_count: 3, max_entries: 10 },
+            now,
+            otherUserId
+          );
+
+          expect(organizerResult.can_unjoin).toBe(participantResult.can_unjoin);
+          expect(organizerResult.can_unjoin).toBe(true);
+        });
+
+        // Governance: can_delete (cancel authority) remains unaffected by unjoin changes
+        it('GOVERNANCE: can_delete (cancel authority) is unaffected by unjoin changes', () => {
+          const result = deriveContestActions(
+            { status: 'SCHEDULED', lock_time: futureTime, organizer_id: organizerId },
+            'pending',
+            { user_has_entered: true, entry_count: 5, max_entries: 10 },
+            now,
+            organizerId
+          );
+
+          // Organizer can both delete (cancel) and unjoin when SCHEDULED
+          expect(result.can_delete).toBe(true);
+          expect(result.can_unjoin).toBe(true);
+
+          // But not after they leave (entry_count decrements)
+          // Note: This is contract-level; service handles entry_count atomically
+        });
+      });
     });
   });
 

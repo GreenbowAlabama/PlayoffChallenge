@@ -96,13 +96,12 @@ function deriveContestActions(contestRow, leaderboardState, userContext, current
     authenticatedUserId !== null &&
     authenticatedUserId.toLowerCase() === contestRow.organizer_id.toLowerCase();
 
-  // Unjoin capability: true only if participant (not organizer) AND contest is SCHEDULED AND user has entered
-  // Organizers do not "unjoin". They delete.
+  // Unjoin capability: true if user has entered AND contest is SCHEDULED
+  // Organizers can unjoin if they have an entry. Ownership is independent of participation.
   const can_unjoin =
     contestRow.status === 'SCHEDULED' &&
     userContext.user_has_entered === true &&
-    authenticatedUserId !== null &&
-    authenticatedUserId.toLowerCase() !== contestRow.organizer_id.toLowerCase();
+    authenticatedUserId !== null;
 
   return {
     can_join,

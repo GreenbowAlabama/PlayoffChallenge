@@ -544,8 +544,9 @@ components:
         can_unjoin:
           type: boolean
           description: |
-            User can unjoin the contest: user is a participant (not organizer) AND user has entered AND status==SCHEDULED.
-            Organizers do not unjoin; they delete instead.
+            User can unjoin the contest: user has entered AND status==SCHEDULED.
+            Applies to all users (including organizers) who have joined the contest.
+            Unjoin removes participant entry; organizers retain ownership and cancel authority.
 
     PayoutRow:
       type: object
