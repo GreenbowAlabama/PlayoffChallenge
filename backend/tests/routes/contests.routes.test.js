@@ -725,6 +725,27 @@ describe('Contests Routes', () => {
         expect(lastQueryCalled.params).toHaveLength(1);
         expect(lastQueryCalled.params[0]).toBe(TEST_USER_ID);
       });
+
+      it('should filter by lock_time in SQL query (regression test)', async () => {
+        let lastQueryCalled = null;
+        const originalQuery = mockPool.query.bind(mockPool);
+        mockPool.query = jest.fn(async function(sql, params) {
+          lastQueryCalled = { sql, params };
+          return originalQuery(sql, params);
+        });
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances[\s\S]*NOT EXISTS/,
+          mockQueryResponses.multiple([])
+        );
+
+        await request(app)
+          .get('/api/contests/available')
+          .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+        expect(lastQueryCalled).not.toBeNull();
+        expect(lastQueryCalled.sql).toMatch(/ci\.lock_time IS NULL OR ci\.lock_time > NOW\(\)/);
+      });
     });
 
     describe('Ordering (is_platform_owned DESC, created_at DESC)', () => {
