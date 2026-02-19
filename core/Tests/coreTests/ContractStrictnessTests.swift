@@ -25,7 +25,9 @@ final class ContractStrictnessTests: XCTestCase {
           "is_scored": true,
           "is_read_only": false,
           "can_share_invite": true,
-          "can_manage_contest": false
+          "can_manage_contest": false,
+          "can_delete": true,
+          "can_unjoin": false
         }
         """.data(using: .utf8)!
 
@@ -36,6 +38,8 @@ final class ContractStrictnessTests: XCTestCase {
         XCTAssertEqual(actions.can_edit_entry, true)
         XCTAssertEqual(actions.can_share_invite, true)
         XCTAssertEqual(actions.can_manage_contest, false)
+        XCTAssertEqual(actions.can_delete, true)
+        XCTAssertEqual(actions.can_unjoin, false)
     }
 
     func test_ContestActions_MissingCanShareInvite_FailsDecode() {
@@ -48,7 +52,9 @@ final class ContractStrictnessTests: XCTestCase {
           "is_scoring": false,
           "is_scored": true,
           "is_read_only": false,
-          "can_manage_contest": false
+          "can_manage_contest": false,
+          "can_delete": true,
+          "can_unjoin": false
         }
         """.data(using: .utf8)!
 
@@ -69,7 +75,9 @@ final class ContractStrictnessTests: XCTestCase {
           "is_scoring": false,
           "is_scored": true,
           "is_read_only": false,
-          "can_share_invite": true
+          "can_share_invite": true,
+          "can_delete": true,
+          "can_unjoin": false
         }
         """.data(using: .utf8)!
 
@@ -77,6 +85,52 @@ final class ContractStrictnessTests: XCTestCase {
         XCTAssertThrowsError(
             try decoder.decode(ContestActions.self, from: json),
             "Missing can_manage_contest must fail decode"
+        )
+    }
+
+    func test_ContestActions_MissingCanDelete_FailsDecode() {
+        let json = """
+        {
+          "can_join": false,
+          "can_edit_entry": true,
+          "is_live": true,
+          "is_closed": false,
+          "is_scoring": false,
+          "is_scored": true,
+          "is_read_only": false,
+          "can_share_invite": true,
+          "can_manage_contest": false,
+          "can_unjoin": false
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        XCTAssertThrowsError(
+            try decoder.decode(ContestActions.self, from: json),
+            "Missing can_delete must fail decode"
+        )
+    }
+
+    func test_ContestActions_MissingCanUnjoin_FailsDecode() {
+        let json = """
+        {
+          "can_join": false,
+          "can_edit_entry": true,
+          "is_live": true,
+          "is_closed": false,
+          "is_scoring": false,
+          "is_scored": true,
+          "is_read_only": false,
+          "can_share_invite": true,
+          "can_manage_contest": false,
+          "can_delete": true
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        XCTAssertThrowsError(
+            try decoder.decode(ContestActions.self, from: json),
+            "Missing can_unjoin must fail decode"
         )
     }
 
@@ -97,7 +151,9 @@ final class ContractStrictnessTests: XCTestCase {
             "is_scored": true,
             "is_read_only": false,
             "can_share_invite": true,
-            "can_manage_contest": false
+            "can_manage_contest": false,
+            "can_delete": true,
+            "can_unjoin": false
           },
           "payout_table": [
             {
@@ -119,6 +175,8 @@ final class ContractStrictnessTests: XCTestCase {
         XCTAssertEqual(contract.type, "playoff")
         XCTAssertEqual(contract.actions.can_share_invite, true)
         XCTAssertEqual(contract.actions.can_manage_contest, false)
+        XCTAssertEqual(contract.actions.can_delete, true)
+        XCTAssertEqual(contract.actions.can_unjoin, false)
         XCTAssertEqual(contract.payout_table.count, 1)
     }
 
@@ -140,6 +198,66 @@ final class ContractStrictnessTests: XCTestCase {
         )
     }
 
+    func test_ContestDetailResponseContract_MissingCanDeleteInActions_FailsDecode() {
+        let json = """
+        {
+          "contest_id": "550e8400-e29b-41d4-a716-446655440000",
+          "type": "playoff",
+          "leaderboard_state": "computed",
+          "actions": {
+            "can_join": false,
+            "can_edit_entry": true,
+            "is_live": true,
+            "is_closed": false,
+            "is_scoring": false,
+            "is_scored": true,
+            "is_read_only": false,
+            "can_share_invite": true,
+            "can_manage_contest": false,
+            "can_unjoin": false
+          },
+          "payout_table": [],
+          "roster_config": {}
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        XCTAssertThrowsError(
+            try decoder.decode(ContestDetailResponseContract.self, from: json),
+            "Missing can_delete in actions must fail decode"
+        )
+    }
+
+    func test_ContestDetailResponseContract_MissingCanUnjoinInActions_FailsDecode() {
+        let json = """
+        {
+          "contest_id": "550e8400-e29b-41d4-a716-446655440000",
+          "type": "playoff",
+          "leaderboard_state": "computed",
+          "actions": {
+            "can_join": false,
+            "can_edit_entry": true,
+            "is_live": true,
+            "is_closed": false,
+            "is_scoring": false,
+            "is_scored": true,
+            "is_read_only": false,
+            "can_share_invite": true,
+            "can_manage_contest": false,
+            "can_delete": true
+          },
+          "payout_table": [],
+          "roster_config": {}
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        XCTAssertThrowsError(
+            try decoder.decode(ContestDetailResponseContract.self, from: json),
+            "Missing can_unjoin in actions must fail decode"
+        )
+    }
+
     func test_ContestDetailResponseContract_MissingPayoutTable_FailsDecode() {
         let json = """
         {
@@ -155,7 +273,9 @@ final class ContractStrictnessTests: XCTestCase {
             "is_scored": true,
             "is_read_only": false,
             "can_share_invite": true,
-            "can_manage_contest": false
+            "can_manage_contest": false,
+            "can_delete": true,
+            "can_unjoin": false
           },
           "roster_config": {}
         }
@@ -183,7 +303,9 @@ final class ContractStrictnessTests: XCTestCase {
             "is_scored": true,
             "is_read_only": false,
             "can_share_invite": true,
-            "can_manage_contest": false
+            "can_manage_contest": false,
+            "can_delete": true,
+            "can_unjoin": false
           },
           "payout_table": []
         }

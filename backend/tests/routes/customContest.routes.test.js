@@ -2305,8 +2305,8 @@ describe('Custom Contest Routes', () => {
       );
 
       mockPool.setQueryResponse(
-        /UPDATE contest_instances SET entry_count/,
-        mockQueryResponses.empty()
+        /COUNT.*contest_participants/,
+        mockQueryResponses.single({ count: '2' })
       );
 
       mockPool.setQueryResponse(
@@ -2441,6 +2441,11 @@ describe('Custom Contest Routes', () => {
       );
 
       mockPool.setQueryResponse(
+        /COUNT.*contest_participants/,
+        mockQueryResponses.single({ count: '0' })
+      );
+
+      mockPool.setQueryResponse(
         /COMMIT/,
         mockQueryResponses.empty()
       );
@@ -2494,8 +2499,8 @@ describe('Custom Contest Routes', () => {
       );
 
       mockPool.setQueryResponse(
-        /UPDATE contest_instances SET entry_count = GREATEST/,
-        mockQueryResponses.empty()
+        /COUNT.*contest_participants/,
+        mockQueryResponses.single({ count: '0' })
       );
 
       mockPool.setQueryResponse(
@@ -2540,6 +2545,11 @@ describe('Custom Contest Routes', () => {
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE contest_instance_id = \$1[\s\S]*AND user_id = \$2[\s\S]*FOR UPDATE/,
         mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /COUNT.*contest_participants/,
+        mockQueryResponses.single({ count: '0' })
       );
 
       mockPool.setQueryResponse(

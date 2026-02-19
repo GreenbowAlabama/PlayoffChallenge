@@ -1550,7 +1550,7 @@ async function unJoinContest(pool, contestId, userId) {
     // SELECT FOR UPDATE to lock the contest row
     const contestResult = await client.query(
       `SELECT
-        id, status, lock_time, entry_count, payout_structure,
+        id, status, lock_time, payout_structure,
         template_id, organizer_id, contest_name, max_entries, entry_fee_cents,
         start_time, end_time, created_at, updated_at, join_token
       FROM contest_instances
@@ -1597,33 +1597,28 @@ async function unJoinContest(pool, contestId, userId) {
       [contestId, userId]
     );
 
-    let updatedContest = contest;
-
-    // Idempotent: if entry exists, delete it and decrement count
+    // Idempotent: if entry exists, delete it
     if (participantResult.rows.length > 0) {
       // Delete the participant
       await client.query(
         'DELETE FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
         [contestId, userId]
       );
-
-      // Decrement entry_count (ensure never negative)
-      await client.query(
-        'UPDATE contest_instances SET entry_count = GREATEST(entry_count - 1, 0), updated_at = NOW() WHERE id = $1',
-        [contestId]
-      );
-
-      // Update the local contest object to reflect the new count
-      const currentCount = parseInt(contest.entry_count, 10) || 0;
-      updatedContest = { ...contest, entry_count: Math.max(currentCount - 1, 0) };
     }
+
+    // Compute current entry_count via COUNT(*) after potential deletion
+    const countResult = await client.query(
+      `SELECT COUNT(*) FROM contest_participants WHERE contest_instance_id = $1`,
+      [contestId]
+    );
+    const entryCount = parseInt(countResult.rows[0].count, 10) || 0;
 
     await client.query('COMMIT');
 
     // Return the contest with proper types
     const contestWithDefaults = {
-      ...updatedContest,
-      entry_count: parseInt(updatedContest.entry_count, 10) || 0,
+      ...contest,
+      entry_count: entryCount,
       user_has_entered: false
     };
     return mapContestToApiResponse(contestWithDefaults, {
