@@ -57,12 +57,12 @@ Follow these pages in order.
 
 ### 1. Prerequisites
 
-docs/implementations/Prerequisites.md
+docs/setup/Prerequisites.md
 
 ### 2. Development Environment Setup
 
-docs/implementations/Backend-Setup.md  
-docs/implementations/iOS-Setup.md
+docs/setup/Backend-Setup.md
+docs/setup/iOS-Setup.md
 
 ### 3. Understanding the System
 
