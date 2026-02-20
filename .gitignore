@@ -17,3 +17,6 @@ backup_all_tables_*
 
 !backend/migrations/
 !backend/migrations/*.sql
+
+# no md from here goes to public repo
+INTERNAL_DOCS/
