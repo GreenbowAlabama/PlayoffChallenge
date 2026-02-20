@@ -7,74 +7,125 @@
 ## System Topology
 
 ``` mermaid
-flowchart TD
-    A[iOS Client<br/>Swift + Apple Sign-In]
-    B[Node.js + Express API<br/>Stateless Application]
-    C[(PostgreSQL DB<br/>Railway Managed)]
-    D[Stripe<br/>Payments + Webhooks]
+flowchart LR
 
-    A -->|HTTPS (TLS)| B
-    B --> C
-    B --> D
+    User[End User iOS Client]
+    Stripe[Stripe Payment Processor]
+
+    subgraph Platform Boundary
+        API[Application API Service]
+        Auth[Auth and Authorization Layer]
+        Contest[Contest Service Logic]
+        Payments[Payment Processing Logic]
+        DB[(Primary PostgreSQL Database)]
+    end
+
+    User --> API
+    API --> Auth
+    Auth --> Contest
+    Contest --> DB
+
+    API --> Payments
+    Payments --> DB
+
+    Stripe --> Payments
+    Payments --> Stripe
 ```
 
 -   Single stateless backend service\
 -   Managed PostgreSQL\
 -   Stripe fully externalized\
--   No direct client → DB access\
+-   No direct client to database access\
 -   No raw card data handled internally
 
-Blast radius: backend compromise = full database exposure.
+Blast radius: backend compromise results in full database exposure.
 
 ------------------------------------------------------------------------
 
 # 2. Trust Boundaries
 
 ``` mermaid
-flowchart TD
-    Internet[Public Internet]
-    API[API Boundary<br/>JWT Required]
-    Auth[Authorization Middleware]
-    DB[(PostgreSQL Database)]
+flowchart LR
 
-    Internet --> API
-    API --> Auth
-    Auth --> DB
-```
+    subgraph Public Zone
+        User[End User iOS Client]
+    end
 
-Current posture: - TLS enforced - JWT required for protected routes -
-Authorization enforced server-side - No client-trusted flags
+    subgraph Application Zone
+        API[Application API]
+        Auth[Auth Layer]
+        Business[Business Logic]
+        Payments[Payment Logic]
+    end
 
-Not yet implemented: - WAF - Network segmentation - Private DB
-networking beyond PaaS defaults
+    subgraph Data Zone
+        DB[(PostgreSQL Database)]
+    end
 
-------------------------------------------------------------------------
-
-# 3. Stripe Webhook Processing
-
-``` mermaid
-flowchart TD
     Stripe[Stripe]
-    Webhook[Webhook Endpoint]
-    Verify[Signature Verification]
-    Idempotent[Idempotent Event Processor]
-    Mutation[Verified State Transition + DB Write]
 
-    Stripe --> Webhook
-    Webhook --> Verify
-    Verify --> Idempotent
-    Idempotent --> Mutation
+    User --> API
+    API --> Auth
+    Auth --> Business
+    Business --> DB
+
+    API --> Payments
+    Payments --> DB
+
+    Stripe --> Payments
+    Payments --> Stripe
 ```
-
-Controls: - Idempotency key on payment intent creation - Webhook
-signature validation - Event ID deduplication - Server-side lifecycle
-validation
-
-Replay scenario: - Duplicate events ignored safely
 
 ------------------------------------------------------------------------
 
-# 4. Blast Radius Analysis
+# 3. Payment Security Model
+
+Controls: - Stripe Checkout and Payment Intents - Idempotency key on
+payment intent creation - Webhook signature verification - Event ID
+deduplication - Server side lifecycle enforcement
+
+Replay scenario: - Duplicate Stripe webhook events are ignored safely -
+State transitions are idempotent
+
+------------------------------------------------------------------------
+
+# 4. Authentication & Authorization
+
+Authentication: - Apple Sign In - Backend identity validation - JWT
+bearer token issuance - Stateless API authentication
+
+Authorization: - Role checks enforced in middleware - Contest level
+permission validation server side - Lifecycle constraints enforced
+server side - Admin routes excluded from public OpenAPI contract
+
+------------------------------------------------------------------------
+
+# 5. Data & PII Handling
+
+Stored: - Email address - Apple ID - Contest entries - Payment metadata
+
+Not stored: - Raw card numbers - Bank credentials
+
+Current: - TLS in transit - Managed database encryption at rest
+
+------------------------------------------------------------------------
+
+# 6. Monitoring & Observability
+
+Current: - Structured error schema - Enumerated error codes -
+Application logs - Stripe dashboard monitoring - Railway platform logs
+
+------------------------------------------------------------------------
+
+# 7. CI/CD & Dependency Posture
+
+Current: - GitHub source control - Staging and production branches -
+Manual promotion discipline - OpenAPI contract freeze via hash
+enforcement
+
+------------------------------------------------------------------------
+
+# 8. Blast Radius & Containment
 
 ``` mermaid
 flowchart TD
@@ -90,47 +141,10 @@ flowchart TD
 
 ------------------------------------------------------------------------
 
-# 5. Repositories & Environments
+# 9. Operational Constraint
 
-Repositories: - Backend - iOS - Governance / documentation
-
-Environments: - Staging - Production
-
-Secrets: - Environment-scoped variables - Stripe keys separated per
-environment - No secrets in source control
-
-Not yet implemented: - Dedicated secrets manager - Automated secret
-rotation - Infrastructure as code
-
-------------------------------------------------------------------------
-
-# 6. Authentication & Authorization
-
-Authentication flow: - Apple Sign-In - Backend identity validation - JWT
-issued - Bearer token required for protected routes
-
-Authorization: - Role checks enforced in middleware - Contest-level
-permission validation server-side - Lifecycle constraints enforced
-server-side
-
-Not yet implemented: - Formal RBAC matrix - Policy engine - Privilege
-escalation testing
-
-------------------------------------------------------------------------
-
-# 7. Monitoring & Observability
-
-Current: - Structured error schema - Enumerated error codes -
-Application logging - Stripe dashboard monitoring
-
-Not yet implemented: - SIEM - Centralized alerting pipeline - Intrusion
-detection - Incident response runbook
-
-------------------------------------------------------------------------
-
-# 8. Operational Constraint
-
-Current: - Solo technical founder - Part-time ops partner
+Current: - Solo technical founder - Part time operations partner
 
 Next inflection: - Security maturity requires sustained operational
-oversight - Ops partner must transition to full-time
+oversight - Operations partner must transition to full time to
+responsibly scale
