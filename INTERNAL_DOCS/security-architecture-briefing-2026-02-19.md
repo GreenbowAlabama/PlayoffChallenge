@@ -143,7 +143,7 @@ flowchart TD
 
 # 9. Operational Constraint
 
-Current: - Solo technical founder - Part time operations partner
+Current: - Solo technical founder - Full time operations partner
 
 Next inflection: - Security maturity requires sustained operational
 oversight - Operations partner must transition to full time to
