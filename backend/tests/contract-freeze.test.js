@@ -31,11 +31,11 @@ describe('Contract Freeze', () => {
       .digest('hex');
 
     // Expected hash (update this when intentionally changing the contract)
-    // This hash was generated after final hardening:
-    // - 18 error response normalizations (4xx/5xx → ErrorResponse)
-    // - JoinTokenResolution error_code typed to ErrorCode enum
-    // - PublishResponse camelCase preserved (matches runtime API behavior)
-    const expectedHash = '68096fe56d43b9a321e917446ca1d570cf351d76f9da96e14a3730724461c2fa';
+    // This hash was generated after UI-Contract Parity Audit (2026-02-19):
+    // - Added organizer_name (optional, nullable) to ContestDetailResponse
+    // - Added lock_time (optional, nullable) to ContestDetailResponse
+    // - Brings detail endpoint into parity with list endpoint
+    const expectedHash = 'b2948658b62df8635def3a22fda08c8e60c6c108bdb409051874b296b53e049d';
 
     // The hashes must match - if they don't, the contract has drifted
     expect(currentHash).toBe(expectedHash);

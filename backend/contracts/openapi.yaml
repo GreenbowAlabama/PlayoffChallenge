@@ -821,6 +821,13 @@ components:
           type: string
           format: uuid
           description: UUID of the user who created this contest
+        organizer_name:
+          type: string
+          nullable: true
+          description: |
+            Display name of the contest organizer (computed from user.username or user.name).
+            Null for legacy rows or if user record is missing.
+            iOS defaults to "Unknown" if absent.
         entry_fee_cents:
           type: integer
           minimum: 0
@@ -842,6 +849,15 @@ components:
           format: date-time
           nullable: true
           description: Optional contest end time (ISO 8601)
+        lock_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Lock time for this contest (ISO 8601, UTC).
+            Null for unlimited entry window contests.
+            Filters entries submitted after this time.
+            Derived field: time_until_lock is computed from this value.
         max_entries:
           type: integer
           nullable: true
