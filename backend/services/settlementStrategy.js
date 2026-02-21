@@ -7,7 +7,7 @@
  * a payout plan but do NOT execute payments.
  *
  * Mental Model:
- * - Template specifies a settlement_strategy_key (e.g., 'final_standings', 'weekly_winner')
+ * - Template specifies a settlement_strategy_key (registered in settlementRegistry)
  * - Settlement computation takes scores and produces rankings + payout allocations
  * - NO wallet or payment logic here - payouts are executed by a separate module
  * - Pure computation: given scores + payout structure, returns deterministic results
@@ -17,7 +17,7 @@
  * - PayoutExecution (future): "How do we transfer the money?"
  *
  * Supported Strategies:
- * 1. final_standings - Rank by total score, distribute per payout_structure
+ * 1. final_standings — Rank by total score, distribute per payout_structure (see settlementRegistry)
  * 2. weekly_winner - Rank by weekly score (for multi-week contests)
  *
  * Output Format (SettlementPlan):
@@ -47,7 +47,7 @@
 
 const crypto = require('crypto');
 
-const VALID_STRATEGIES = ['final_standings', 'weekly_winner'];
+// Strategy validity is enforced by the registry — see settlementRegistry.js
 
 /**
  * Compute rankings from scores using competition ranking
@@ -163,9 +163,8 @@ function allocatePayouts(rankings, payoutStructure, totalPoolCents) {
  * @returns {Object} SettlementPlan (see format above)
  */
 function computeSettlement(strategyKey, contestInstance, scores) {
-  if (!VALID_STRATEGIES.includes(strategyKey)) {
-    throw new Error(`Unknown settlement strategy: ${strategyKey}`);
-  }
+  const { getSettlementStrategy } = require('./settlementRegistry');
+  getSettlementStrategy(strategyKey); // throws if key is unknown
 
   // TODO: Implement strategy-specific logic
   // const rankings = computeRankings(scores);
@@ -202,7 +201,8 @@ function calculateTotalPool(contestInstance, participantCount) {
  * @returns {boolean} True if valid
  */
 function isValidStrategy(strategyKey) {
-  return VALID_STRATEGIES.includes(strategyKey);
+  const { listSettlementStrategies } = require('./settlementRegistry');
+  return listSettlementStrategies().includes(strategyKey);
 }
 
 /**
@@ -333,9 +333,25 @@ async function executeSettlement(contestInstance, pool) {
       throw new Error('INCONSISTENT_STATE: settle_time is set but no settlement_records entry exists');
     }
 
-    // 4. COMPUTE SETTLEMENT - dispatch to registered strategy
+    // 4. LOAD TEMPLATE - read settlement_strategy_key from contest template
+    // Strategy key must always come from template
+    const templateResult = await client.query(
+      `SELECT ct.settlement_strategy_key
+       FROM contest_instances ci
+       JOIN contest_templates ct ON ct.id = ci.template_id
+       WHERE ci.id = $1`,
+      [contestInstance.id]
+    );
+
+    if (templateResult.rows.length === 0) {
+      throw new Error(`No template found for contest instance ${contestInstance.id}`);
+    }
+
+    const settlementStrategyKey = templateResult.rows[0].settlement_strategy_key;
+
+    // 5. COMPUTE SETTLEMENT - dispatch to registered strategy via template key
     const { getSettlementStrategy } = require('./settlementRegistry');
-    const settleFn = getSettlementStrategy('final_standings');
+    const settleFn = getSettlementStrategy(settlementStrategyKey);
     const scoreRows = await settleFn(contestInstance.id, client);
 
     const participantCount = scoreRows.length;
@@ -351,7 +367,7 @@ async function executeSettlement(contestInstance, pool) {
       .update(JSON.stringify(canonicalizeJson(results)))
       .digest('hex');
 
-    // 5. INSERT SETTLEMENT RECORD (exactly once)
+    // 6. INSERT SETTLEMENT RECORD (exactly once)
     const insertResult = await client.query(`
       INSERT INTO settlement_records (
         contest_instance_id,
@@ -372,13 +388,13 @@ async function executeSettlement(contestInstance, pool) {
       totalPoolCents
     ]);
 
-    // 6. WRITE settle_time (exactly once)
+    // 7. WRITE settle_time (exactly once)
     await client.query(
       'UPDATE contest_instances SET settle_time = NOW() WHERE id = $1',
       [contestInstance.id]
     );
 
-    // 7. WRITE SYSTEM AUDIT RECORD
+    // 8. WRITE SYSTEM AUDIT RECORD
     const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
     await client.query(`
       INSERT INTO admin_contest_audit (contest_instance_id, admin_user_id, action, reason, payload)
@@ -422,8 +438,5 @@ module.exports = {
   canonicalizeJson,
 
   // Validation
-  isValidStrategy,
-
-  // Constants
-  VALID_STRATEGIES
+  isValidStrategy
 };

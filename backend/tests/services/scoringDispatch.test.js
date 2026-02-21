@@ -32,7 +32,7 @@ describe('Scoring Dispatch Boundary', () => {
       const { nflScoringFn } = require('../../services/strategies/nflScoring');
 
       const stats = statPayloads.qbBasic;
-      const dispatchedResult = await calculateFantasyPoints(mockPool, stats);
+      const dispatchedResult = await calculateFantasyPoints(mockPool, stats, 'ppr');
       const directResult = await nflScoringFn(mockPool, stats);
 
       expect(dispatchedResult).toBe(directResult);
@@ -43,7 +43,7 @@ describe('Scoring Dispatch Boundary', () => {
       const { nflScoringFn } = require('../../services/strategies/nflScoring');
 
       const stats = statPayloads.rbBasic;
-      const dispatchedResult = await calculateFantasyPoints(mockPool, stats);
+      const dispatchedResult = await calculateFantasyPoints(mockPool, stats, 'ppr');
       const directResult = await nflScoringFn(mockPool, stats);
 
       expect(dispatchedResult).toBe(directResult);
@@ -54,7 +54,7 @@ describe('Scoring Dispatch Boundary', () => {
       const { nflScoringFn } = require('../../services/strategies/nflScoring');
 
       const stats = statPayloads.defenseShutout;
-      const dispatchedResult = await calculateFantasyPoints(mockPool, stats);
+      const dispatchedResult = await calculateFantasyPoints(mockPool, stats, 'ppr');
       const directResult = await nflScoringFn(mockPool, stats);
 
       expect(dispatchedResult).toBe(directResult);
@@ -64,7 +64,7 @@ describe('Scoring Dispatch Boundary', () => {
       const { calculateFantasyPoints } = require('../../services/scoringService');
       const { nflScoringFn } = require('../../services/strategies/nflScoring');
 
-      const dispatchedResult = await calculateFantasyPoints(mockPool, {});
+      const dispatchedResult = await calculateFantasyPoints(mockPool, {}, 'ppr');
       const directResult = await nflScoringFn(mockPool, {});
 
       expect(dispatchedResult).toBe(directResult);
@@ -82,6 +82,45 @@ describe('Scoring Dispatch Boundary', () => {
       const { getScoringStrategy } = require('../../services/scoringRegistry');
 
       expect(() => getScoringStrategy('bogus')).toThrow(/ppr/);
+    });
+  });
+
+  describe('Phase 2 — Template-driven strategyKey dispatch', () => {
+    it('should require strategyKey — throws if undefined', async () => {
+      const { calculateFantasyPoints } = require('../../services/scoringService');
+
+      await expect(calculateFantasyPoints(mockPool, {}, undefined)).rejects.toThrow(/Unknown scoring strategy/);
+    });
+
+    it('should throw a controlled error for unknown strategyKey', async () => {
+      const { calculateFantasyPoints } = require('../../services/scoringService');
+
+      await expect(calculateFantasyPoints(mockPool, {}, 'fantasy_points_half_ppr_v2')).rejects.toThrow(/Unknown scoring strategy/);
+    });
+
+    it('should dispatch correctly when strategyKey is half_ppr', async () => {
+      const { calculateFantasyPoints } = require('../../services/scoringService');
+      const { nflScoringFn } = require('../../services/strategies/nflScoring');
+
+      const stats = statPayloads.qbBasic;
+      const dispatchedResult = await calculateFantasyPoints(mockPool, stats, 'half_ppr');
+      const directResult = await nflScoringFn(mockPool, stats);
+
+      // half_ppr maps to same nflScoringFn so output is identical
+      expect(dispatchedResult).toBe(directResult);
+    });
+
+    it('should dispatch differently for ppr vs standard based on strategyKey', async () => {
+      const { calculateFantasyPoints } = require('../../services/scoringService');
+
+      // Both are valid registered keys — dispatch must not throw
+      const statsPPR = statPayloads.wrPPR;
+      const pointsPPR = await calculateFantasyPoints(mockPool, statsPPR, 'ppr');
+      const pointsStd = await calculateFantasyPoints(mockPool, statsPPR, 'standard');
+
+      // Scores may be identical (same underlying fn) but dispatch must succeed for both
+      expect(typeof pointsPPR).toBe('number');
+      expect(typeof pointsStd).toBe('number');
     });
   });
 

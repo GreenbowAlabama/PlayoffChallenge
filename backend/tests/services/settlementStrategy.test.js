@@ -354,6 +354,7 @@ describe('Settlement Strategy', () => {
           ]
         }) // lock
         ._queueResponse({ rows: [] }) // no existing settlement
+        ._queueResponse({ rows: [{ settlement_strategy_key: 'final_standings' }] }) // template query
         ._queueResponse({ rows: [{ playoff_start_week: 19 }] }) // settings
         ._queueResponse({
           rows: [{ user_id: 'user1', total_score: 100 }]
@@ -467,6 +468,7 @@ describe('Settlement Strategy', () => {
           ]
         }) // lock
         ._queueResponse({ rows: [] }) // no existing
+        ._queueResponse({ rows: [{ settlement_strategy_key: 'final_standings' }] }) // template query
         ._queueResponse({ rows: [{ playoff_start_week: 19 }] }) // settings
         ._queueResponse({
           rows: [{ user_id: 'user1', total_score: 100 }]

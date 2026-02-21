@@ -82,6 +82,77 @@ describe('Settlement Dispatch Boundary', () => {
     });
   });
 
+  describe('Phase 2 — Template-driven settlement_strategy_key dispatch', () => {
+    let mockPool;
+    let mockClient;
+
+    beforeEach(() => {
+      mockClient = {
+        query: jest.fn(),
+        release: jest.fn()
+      };
+      mockPool = { connect: jest.fn().mockResolvedValue(mockClient) };
+
+      const queryQueue = [];
+      mockClient.query.mockImplementation((sql) => {
+        if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+          return Promise.resolve({ rows: [] });
+        }
+        const response = queryQueue.shift();
+        if (!response) throw new Error(`Unexpected query: ${sql.substring(0, 80)}`);
+        return Promise.resolve(response);
+      });
+      mockClient._queueResponse = (r) => { queryQueue.push(r); return mockClient; };
+    });
+
+    it('should load settlement_strategy_key from template after lock', async () => {
+      const { executeSettlement } = require('../../services/settlementStrategy');
+
+      const contestInstance = { id: 'ci-1', entry_fee_cents: 500, payout_structure: { '1': 100 } };
+
+      mockClient
+        ._queueResponse({ rows: [{ id: 'ci-1', status: 'LIVE', entry_fee_cents: 500, payout_structure: { '1': 100 }, settle_time: null }] }) // lock
+        ._queueResponse({ rows: [] }) // no existing settlement
+        ._queueResponse({ rows: [{ settlement_strategy_key: 'final_standings' }] }) // template query
+        ._queueResponse({ rows: [{ playoff_start_week: 19 }] }) // game_settings
+        ._queueResponse({ rows: [{ user_id: 'u1', total_score: 80 }] }) // scores
+        ._queueResponse({ rows: [{ id: 'sr-1' }] }) // insert settlement
+        ._queueResponse({ rows: [] }) // update settle_time
+        ._queueResponse({ rows: [] }); // audit
+
+      const result = await executeSettlement(contestInstance, mockPool);
+      expect(result).toEqual({ id: 'sr-1' });
+    });
+
+    it('should throw if no template found for contest instance', async () => {
+      const { executeSettlement } = require('../../services/settlementStrategy');
+
+      const contestInstance = { id: 'ci-missing', entry_fee_cents: 500, payout_structure: {} };
+
+      mockClient
+        ._queueResponse({ rows: [{ id: 'ci-missing', status: 'LIVE', entry_fee_cents: 500, payout_structure: {}, settle_time: null }] }) // lock
+        ._queueResponse({ rows: [] }) // no existing settlement
+        ._queueResponse({ rows: [] }); // template query returns nothing
+
+      await expect(executeSettlement(contestInstance, mockPool)).rejects.toThrow(/No template found/);
+      expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+    });
+
+    it('should throw for unknown settlement_strategy_key from template', async () => {
+      const { executeSettlement } = require('../../services/settlementStrategy');
+
+      const contestInstance = { id: 'ci-bad-key', entry_fee_cents: 500, payout_structure: {} };
+
+      mockClient
+        ._queueResponse({ rows: [{ id: 'ci-bad-key', status: 'LIVE', entry_fee_cents: 500, payout_structure: {}, settle_time: null }] }) // lock
+        ._queueResponse({ rows: [] }) // no existing settlement
+        ._queueResponse({ rows: [{ settlement_strategy_key: 'nonexistent_strategy' }] }); // template with bad key
+
+      await expect(executeSettlement(contestInstance, mockPool)).rejects.toThrow(/Unknown settlement strategy/);
+      expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+    });
+  });
+
   describe('executeSettlement end-to-end with dispatch', () => {
     let mockPool;
     let mockClient;
@@ -135,6 +206,7 @@ describe('Settlement Dispatch Boundary', () => {
           }]
         }) // lock
         ._queueResponse({ rows: [] }) // no existing settlement
+        ._queueResponse({ rows: [{ settlement_strategy_key: 'final_standings' }] }) // template query
         ._queueResponse({ rows: [{ playoff_start_week: 19 }] }) // game_settings (via strategy)
         ._queueResponse({
           rows: [{ user_id: 'user1', total_score: 100 }]

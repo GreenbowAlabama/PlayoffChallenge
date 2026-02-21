@@ -902,6 +902,15 @@ async function fetchDefenseStats(teamAbbrev, weekNumber) {
 
 async function savePlayerScoresToDatabase(weekNumber) {
   try {
+    // Load scoring strategy key from active contest template (once per invocation, before any loop)
+    const templateResult = await pool.query(
+      'SELECT scoring_strategy_key FROM contest_templates WHERE is_active = true LIMIT 1'
+    );
+    if (templateResult.rows.length === 0) {
+      throw new Error('No active contest template found — cannot determine scoring strategy');
+    }
+    const scoringStrategyKey = templateResult.rows[0].scoring_strategy_key;
+
     // Get teams we're tracking from picks
     const trackedTeamsResult = await pool.query(`
       SELECT DISTINCT p.team
@@ -1033,7 +1042,7 @@ async function savePlayerScoresToDatabase(weekNumber) {
         };
       }
 
-      const basePoints = await calculateFantasyPoints(scoring);
+      const basePoints = await scoringService.calculateFantasyPoints(pool, scoring, scoringStrategyKey);
       const multiplier = pick.multiplier || 1;
       const finalPoints = basePoints * multiplier;
 
@@ -1347,9 +1356,10 @@ async function updateLiveStats(weekNumber) {
 }
 
 // Calculate fantasy points from stats
-// Wrapper that delegates to scoringService with injected pool
+// Used by live scoring display endpoints only (ephemeral, not stored).
+// Pending: thread strategyKey when live endpoints are contest-scoped.
 async function calculateFantasyPoints(stats) {
-  return scoringService.calculateFantasyPoints(pool, stats);
+  return scoringService.calculateFantasyPoints(pool, stats, 'ppr');
 }
 
 // API ROUTES
