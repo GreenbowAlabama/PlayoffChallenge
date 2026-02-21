@@ -333,27 +333,15 @@ async function executeSettlement(contestInstance, pool) {
       throw new Error('INCONSISTENT_STATE: settle_time is set but no settlement_records entry exists');
     }
 
-    // 4. COMPUTE SETTLEMENT
-    // Fetch playoff start week
-    const startWeekResult = await client.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
-    const startWeek = startWeekResult.rows[0]?.playoff_start_week || 19;
-    const endWeek = startWeek + 3;
+    // 4. COMPUTE SETTLEMENT - dispatch to registered strategy
+    const { getSettlementStrategy } = require('./settlementRegistry');
+    const settleFn = getSettlementStrategy('final_standings');
+    const scoreRows = await settleFn(contestInstance.id, client);
 
-    // Fetch participant scores
-    const scoresResult = await client.query(`
-      SELECT
-        cp.user_id,
-        COALESCE(SUM(s.final_points), 0) as total_score
-      FROM contest_participants cp
-      LEFT JOIN scores s ON s.user_id = cp.user_id AND s.week_number BETWEEN $2 AND $3
-      WHERE cp.contest_instance_id = $1
-      GROUP BY cp.user_id
-    `, [contestInstance.id, startWeek, endWeek]);
-
-    const participantCount = scoresResult.rows.length;
+    const participantCount = scoreRows.length;
 
     // Compute rankings and payouts
-    const rankings = computeRankings(scoresResult.rows);
+    const rankings = computeRankings(scoreRows);
     const totalPoolCents = calculateTotalPool(lockedContest, participantCount);
     const payouts = allocatePayouts(rankings, lockedContest.payout_structure, totalPoolCents);
 
