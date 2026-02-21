@@ -12,6 +12,8 @@ const picksService = require('./services/picksService');
 const usersService = require('./services/usersService');
 const adminService = require('./services/adminService');
 const customContestService = require('./services/customContestService');
+const ingestionService = require('./services/ingestionService');
+const nflEspnIngestion = require('./services/ingestion/strategies/nflEspnIngestion');
 const config = require('./config');
 const { startCleanup, stopCleanup } = require('./auth/appleVerify');
 
@@ -47,15 +49,6 @@ const pool = new Pool({
 // Make pool available to routes
 app.locals.pool = pool;
 
-// In-memory cache for live stats
-const liveStatsCache = {
-  games: new Map(),
-  playerStats: new Map(),
-  lastScoreboardUpdate: null,
-  lastGameUpdates: new Map(),
-  activeGameIds: new Set()
-};
-
 // Player cache
 let playersCache = {
   data: [],
@@ -63,8 +56,6 @@ let playersCache = {
 };
 
 // Cache duration in milliseconds
-const SCOREBOARD_CACHE_MS = 10 * 60 * 1000; // 10 minutes
-const GAME_SUMMARY_CACHE_MS = 90 * 1000; // 90 seconds
 const PLAYERS_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
 // ==============================================
@@ -160,7 +151,7 @@ async function hasAnyGameStartedForWeek(weekNumber) {
   }
 
   try {
-    const url = getESPNScoreboardUrl(weekNumber);
+    const url = nflEspnIngestion.getESPNScoreboardUrl(weekNumber);
     const response = await axios.get(url, { timeout: 5000 });
 
     if (!response.data || !response.data.events) {
@@ -197,158 +188,6 @@ async function hasAnyGameStartedForWeek(weekNumber) {
   }
 }
 
-// Helper: Resolve actual NFL week number from iOS playoff index
-// iOS sends playoff week indices (1-4), but backend stores NFL weeks (19-22).
-// iOS LeaderboardView picker also uses 16-19 for Wild Card through Super Bowl.
-// This function performs the same remapping used in /api/leaderboard.
-async function resolveActualWeekNumber(inputWeek, pool, logPrefix = 'WeekRemap') {
-  if (!inputWeek) return null;
-
-  const weekNum = parseInt(inputWeek, 10);
-  if (isNaN(weekNum)) return null;
-
-  const settingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
-  const playoffStartWeek = settingsResult.rows[0]?.playoff_start_week || 19;
-
-  if (weekNum >= 1 && weekNum <= 4) {
-    // Treat as playoff index week (1=Wild Card, 2=Divisional, etc.)
-    const resolved = playoffStartWeek + (weekNum - 1);
-    console.log(`[${logPrefix}] Week remap: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${resolved}`);
-    return resolved;
-  } else if (weekNum >= 19) {
-    // NFL week number (19-22), use as-is
-    console.log(`[${logPrefix}] Week passthrough: received=${weekNum}, resolved=${weekNum} (literal NFL week)`);
-    return weekNum;
-  } else if (weekNum >= 16 && weekNum <= 18) {
-    // Legacy iOS picker format (16-18 only, not 19)
-    // Remap: 16→19 (Wild Card), 17→20 (Divisional), 18→21 (Conference)
-    const resolved = weekNum + 3;
-    console.log(`[${logPrefix}] Week remap (iOS picker): received=${weekNum}, resolved=${resolved}`);
-    return resolved;
-  } else {
-    // Week number outside expected range (5-15) - use as-is but log warning
-    console.log(`[${logPrefix}] Week WARNING: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${weekNum} (unexpected range)`);
-    return weekNum;
-  }
-}
-
-// Helper: Normalize player name for matching (strips suffixes, periods, normalizes case)
-function normalizePlayerName(name) {
-  if (!name) return { firstName: '', lastName: '', normalized: '' };
-
-  // Common suffixes to strip
-  const suffixes = ['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv', 'v'];
-
-  // Normalize: lowercase, remove periods, trim
-  let normalized = name.toLowerCase().replace(/\./g, '').trim();
-
-  // Split into parts
-  let parts = normalized.split(/\s+/);
-
-  // Remove suffix if last part is a suffix
-  if (parts.length > 1 && suffixes.includes(parts[parts.length - 1])) {
-    parts = parts.slice(0, -1);
-  }
-
-  const firstName = parts[0] || '';
-  const lastName = parts.length > 1 ? parts[parts.length - 1] : '';
-
-  return {
-    firstName,
-    lastName,
-    normalized: parts.join(' '),
-    parts
-  };
-}
-
-// Helper: Build ESPN scoreboard URL with correct season type for playoffs
-function getESPNScoreboardUrl(weekNumber) {
-  // Weeks 19+ are playoff weeks (seasontype=3)
-  // Regular season weeks use seasontype=2
-  if (weekNumber >= 19) {
-    const playoffWeek = weekNumber - 18; // Week 19 = playoff week 1
-    return `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=3&week=${playoffWeek}`;
-  } else {
-    return `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`;
-  }
-}
-
-// Helper: Fetch ESPN postseason week and extract teams, skipping Pro Bowl weeks entirely.
-// PRO BOWL EXCLUSION RULE: ESPN returns the Pro Bowl under postseason week numbering
-// with "AFC" and "NFC" as team abbreviations. This data has no value for our contest
-// and must never be persisted. If a week contains ONLY Pro Bowl events (all events
-// have AFC/NFC teams), the entire week is skipped and we advance to the next week.
-// This function loops forward until it finds a valid playoff week with real NFL teams.
-async function fetchValidPostseasonWeek(startingNflWeek, playoffStartWeek, maxWeeksToSearch = 3) {
-  let currentNflWeek = startingNflWeek;
-  const maxNflWeek = startingNflWeek + maxWeeksToSearch;
-
-  while (currentNflWeek <= maxNflWeek) {
-    const url = getESPNScoreboardUrl(currentNflWeek);
-    console.log(`[admin] Fetching ESPN postseason data for NFL week ${currentNflWeek}: ${url}`);
-
-    let scoreboardResponse;
-    try {
-      scoreboardResponse = await axios.get(url);
-    } catch (espnErr) {
-      throw new Error(`ESPN API call failed for week ${currentNflWeek}: ${espnErr.message}`);
-    }
-
-    const events = scoreboardResponse.data?.events || [];
-    if (events.length === 0) {
-      // No events found, try next week
-      console.log(`[admin] NFL week ${currentNflWeek} has no events, advancing...`);
-      currentNflWeek++;
-      continue;
-    }
-
-    // Check if this week is entirely Pro Bowl (all events have AFC/NFC teams)
-    const realTeams = new Set();
-    let realEventCount = 0;
-    let proBowlEventCount = 0;
-
-    for (const event of events) {
-      const competitors = event.competitions?.[0]?.competitors || [];
-      const teamAbbrs = competitors.map(c => c.team?.abbreviation).filter(Boolean);
-
-      // An event is Pro Bowl if ANY team is AFC or NFC
-      const isProBowlEvent = teamAbbrs.some(abbr => abbr === 'AFC' || abbr === 'NFC');
-
-      if (isProBowlEvent) {
-        proBowlEventCount++;
-        console.log(`[admin] NFL week ${currentNflWeek}: Detected Pro Bowl event (AFC vs NFC)`);
-      } else {
-        realEventCount++;
-        for (const abbr of teamAbbrs) {
-          realTeams.add(abbr);
-        }
-      }
-    }
-
-    // If ALL events are Pro Bowl, skip this entire week
-    if (realEventCount === 0 && proBowlEventCount > 0) {
-      console.log(`[admin] NFL week ${currentNflWeek} is entirely Pro Bowl (${proBowlEventCount} events). Skipping entire week.`);
-      currentNflWeek++;
-      continue;
-    }
-
-    // Found a valid week with real NFL teams
-    const effectivePlayoffWeek = currentNflWeek - playoffStartWeek + 1;
-    console.log(`[admin] Found valid playoff week: NFL week ${currentNflWeek} (playoff week ${effectivePlayoffWeek}) with ${realTeams.size} teams`);
-
-    return {
-      nflWeek: currentNflWeek,
-      playoffWeek: effectivePlayoffWeek,
-      activeTeams: realTeams,
-      eventCount: realEventCount,
-      skippedProBowlWeeks: currentNflWeek - startingNflWeek
-    };
-  }
-
-  // Exhausted search without finding valid data
-  throw new Error(`No valid playoff data found in weeks ${startingNflWeek}-${maxNflWeek}. All weeks appear to be Pro Bowl or empty.`);
-}
-
 // Helper: Generate image URL based on player position and sleeper_id
 function getPlayerImageUrl(sleeperId, position) {
   if (!sleeperId) return null;
@@ -362,354 +201,10 @@ function getPlayerImageUrl(sleeperId, position) {
   return `https://sleepercdn.com/content/nfl/players/${sleeperId}.jpg`;
 }
 
-// Helper: Parse stats from ESPN game summary
-function parsePlayerStatsFromSummary(boxscore) {
-  if (!boxscore || !boxscore.players) return [];
 
-  // Use a Map to accumulate stats per player across all categories
-  const playerStatsMap = new Map();
-
-  for (const team of boxscore.players) {
-    if (!team.statistics) continue;
-
-    // Get team abbreviation for fallback matching
-    const teamAbbrev = team.team?.abbreviation || null;
-
-    for (const statGroup of team.statistics) {
-      if (!statGroup.athletes) continue;
-      const categoryName = statGroup.name; // 'passing', 'rushing', 'receiving', etc.
-
-      for (const athlete of statGroup.athletes) {
-        const athleteId = athlete.athlete?.id;
-        const athleteName = athlete.athlete?.displayName || athlete.athlete?.shortName;
-
-        if (!athleteId) continue;
-
-        const athleteIdStr = athleteId.toString();
-
-
-        // Get or create player entry
-        if (!playerStatsMap.has(athleteIdStr)) {
-          playerStatsMap.set(athleteIdStr, {
-            athleteId: athleteIdStr,
-            athleteName: athleteName || 'Unknown',
-            teamAbbrev: teamAbbrev,
-            stats: {}
-          });
-        }
-
-        const playerEntry = playerStatsMap.get(athleteIdStr);
-
-        // Parse stat labels and values with category prefix to avoid collisions
-        if (statGroup.labels && athlete.stats) {
-          for (let i = 0; i < statGroup.labels.length; i++) {
-            const label = statGroup.labels[i];
-            const value = athlete.stats[i];
-
-            if (label && value) {
-              // Prefix stats with category to avoid collisions (e.g., passing_YDS, rushing_YDS)
-              const prefixedLabel = `${categoryName}_${label}`;
-              playerEntry.stats[prefixedLabel] = value;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // Convert Map to array
-  return Array.from(playerStatsMap.values());
-}
-
-// Helper: Convert ESPN stats to our scoring format
-function convertESPNStatsToScoring(espnStats) {
-  const scoring = {
-    pass_yd: 0,
-    pass_td: 0,
-    pass_int: 0,
-    pass_2pt: 0,
-    rush_yd: 0,
-    rush_td: 0,
-    rush_2pt: 0,
-    rec: 0,
-    rec_yd: 0,
-    rec_td: 0,
-    rec_2pt: 0,
-    fum_lost: 0,
-    // Kicker fields
-    fg_made: 0,
-    fg_att: 0,
-    fg_longest: 0,
-    fg_missed: 0,
-    xp_made: 0,
-    xp_att: 0,
-    xp_missed: 0
-  };
-
-  if (!espnStats) return scoring;
-
-  // Passing stats (now prefixed with 'passing_')
-  if (espnStats['passing_YDS']) {
-    scoring.pass_yd = parseFloat(espnStats['passing_YDS']) || 0;
-  }
-  if (espnStats['passing_TD']) {
-    scoring.pass_td = parseInt(espnStats['passing_TD']) || 0;
-  }
-  if (espnStats['passing_INT']) {
-    scoring.pass_int = parseInt(espnStats['passing_INT']) || 0;
-  }
-  if (espnStats['passing_2PT']) {
-    scoring.pass_2pt = parseInt(espnStats['passing_2PT']) || 0;
-  }
-
-  // Rushing stats (now prefixed with 'rushing_')
-  if (espnStats['rushing_YDS']) {
-    scoring.rush_yd = parseFloat(espnStats['rushing_YDS']) || 0;
-  }
-  if (espnStats['rushing_TD']) {
-    scoring.rush_td = parseInt(espnStats['rushing_TD']) || 0;
-  }
-  if (espnStats['rushing_2PT']) {
-    scoring.rush_2pt = parseInt(espnStats['rushing_2PT']) || 0;
-  }
-
-  // Receiving stats (now prefixed with 'receiving_')
-  if (espnStats['receiving_REC']) {
-    scoring.rec = parseInt(espnStats['receiving_REC']) || 0;
-  }
-  if (espnStats['receiving_YDS']) {
-    scoring.rec_yd = parseFloat(espnStats['receiving_YDS']) || 0;
-  }
-  if (espnStats['receiving_TD']) {
-    scoring.rec_td = parseInt(espnStats['receiving_TD']) || 0;
-  }
-  if (espnStats['receiving_2PT']) {
-    scoring.rec_2pt = parseInt(espnStats['receiving_2PT']) || 0;
-  }
-
-  // Fumbles (now prefixed with 'fumbles_')
-  if (espnStats['fumbles_LOST']) {
-    scoring.fum_lost = parseInt(espnStats['fumbles_LOST']) || 0;
-  }
-  
-  // Kicker stats
-  // ESPN provides FG and XP in "made/att" format (e.g., "2/2")
-  if (espnStats['kicking_FG']) {
-    const fgParts = espnStats['kicking_FG'].toString().split('/');
-    scoring.fg_made = parseInt(fgParts[0]) || 0;
-    scoring.fg_att = parseInt(fgParts[1]) || 0;
-    scoring.fg_missed = scoring.fg_att - scoring.fg_made;
-  }
-  if (espnStats['kicking_LONG']) {
-    scoring.fg_longest = parseInt(espnStats['kicking_LONG']) || 0;
-  }
-  if (espnStats['kicking_XP']) {
-    const xpParts = espnStats['kicking_XP'].toString().split('/');
-    scoring.xp_made = parseInt(xpParts[0]) || 0;
-    scoring.xp_att = parseInt(xpParts[1]) || 0;
-    scoring.xp_missed = scoring.xp_att - scoring.xp_made;
-  }
-
-  return scoring;
-}
-
-// Fetch individual player stats from ESPN boxscore (more reliable than summaries)
-async function fetchPlayerStats(espnId, weekNumber) {
-  try {
-    // Search through the active games for this week
-    for (const gameId of liveStatsCache.activeGameIds) {
-      try {
-        const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
-        const response = await axios.get(url);
-
-        if (!response.data || !response.data.boxscore) continue;
-
-        const boxscore = response.data.boxscore;
-        if (!boxscore.players) continue;
-
-        // Initialize stats object
-        const stats = {
-          pass_yd: 0,
-          pass_td: 0,
-          pass_int: 0,
-          pass_2pt: 0,
-          rush_yd: 0,
-          rush_td: 0,
-          rush_2pt: 0,
-          rec: 0,
-          rec_yd: 0,
-          rec_td: 0,
-          rec_2pt: 0,
-          fum_lost: 0
-        };
-
-        let foundPlayer = false;
-        const categoriesSeen = new Set();
-
-        // Search through both teams
-        for (const team of boxscore.players) {
-          if (!team.statistics) continue;
-
-          for (const statCategory of team.statistics) {
-            if (!statCategory.athletes) continue;
-
-            for (const athlete of statCategory.athletes) {
-              // ESPN returns IDs as strings, ensure comparison works
-              const athleteId = athlete.athlete?.id?.toString();
-              const searchId = espnId.toString();
-
-              if (athleteId === searchId) {
-                foundPlayer = true;
-                categoriesSeen.add(statCategory.name);
-              }
-            }
-          }
-        }
-
-        // Second pass: extract stats, prioritizing primary position
-        // If player has receiving stats, skip their passing stats (trick plays)
-        const skipPassing = categoriesSeen.has('receiving');
-
-        for (const team of boxscore.players) {
-          if (!team.statistics) continue;
-
-          for (const statCategory of team.statistics) {
-            if (!statCategory.athletes) continue;
-
-            for (const athlete of statCategory.athletes) {
-              const athleteId = athlete.athlete?.id?.toString();
-              const searchId = espnId.toString();
-
-              if (athleteId === searchId) {
-                // Skip passing if player is primarily a receiver
-                if (statCategory.name === 'passing' && skipPassing) {
-                  continue;
-                }
-
-                // Accumulate stats from this category
-                if (statCategory.name === 'passing' && athlete.stats) {
-                  // ESPN Format: ["C/ATT", "YDS", "AVG", "TD", "INT", "SACKS", "QBR", "RTG"]
-                  // Indices:        0       1      2      3     4       5       6      7
-                  const yards = parseFloat(athlete.stats[1]) || 0;
-                  stats.pass_yd += yards;
-                  stats.pass_td += parseFloat(athlete.stats[3]) || 0;  // Fixed: was [2], now [3]
-                  stats.pass_int += parseFloat(athlete.stats[4]) || 0; // Fixed: was [3], now [4]
-                }
-
-                if (statCategory.name === 'rushing' && athlete.stats) {
-                  // ESPN Format: ["CAR", "YDS", "AVG", "TD", "LONG"]
-                  // Indices:        0      1      2      3     4
-                  const yards = parseFloat(athlete.stats[1]) || 0;
-                  stats.rush_yd += yards;
-                  stats.rush_td += parseFloat(athlete.stats[3]) || 0;
-                }
-
-                if (statCategory.name === 'receiving' && athlete.stats) {
-                  // ESPN Format: ["REC", "YDS", "AVG", "TD", "LONG", "TGTS"]
-                  // Indices:        0      1      2      3     4       5
-                  stats.rec += parseFloat(athlete.stats[0]) || 0;
-                  stats.rec_yd += parseFloat(athlete.stats[1]) || 0;
-                  stats.rec_td += parseFloat(athlete.stats[3]) || 0;
-                }
-
-                if (statCategory.name === 'fumbles' && athlete.stats) {
-                  // ESPN Format: ["FUM", "LOST", "REC"]
-                  // Indices:        0      1      2
-                  stats.fum_lost += parseFloat(athlete.stats[1]) || 0;
-                }
-
-                if (statCategory.name === 'kicking' && athlete.stats) {
-                  // ESPN Format: ["FG", "PCT", "LONG", "XP", "PTS"]
-                  // Indices:        0     1      2       3     4
-                  // FG and XP are in "made/att" format
-                  const fgMadeAtt = athlete.stats[0] ? athlete.stats[0].split('/') : ['0', '0'];
-                  const fgMade = parseInt(fgMadeAtt[0]) || 0;
-                  const fgAtt = parseInt(fgMadeAtt[1]) || 0;
-                  const fgMissed = fgAtt - fgMade;
-                  const longest = parseInt(athlete.stats[2]) || 0;
-
-                  const patMadeAtt = athlete.stats[3] ? athlete.stats[3].split('/') : ['0', '0'];
-                  const patMade = parseInt(patMadeAtt[0]) || 0;
-                  const patAtt = parseInt(patMadeAtt[1]) || 0;
-                  const patMissed = patAtt - patMade;
-
-                  // Store kicker stats
-                  stats.fg_made = fgMade;
-                  stats.fg_missed = fgMissed;
-                  stats.fg_longest = longest;
-                  stats.xp_made = patMade;
-                  stats.xp_missed = patMissed;
-                }
-              }
-            }
-          }
-        }
-
-        if (foundPlayer) {
-          // Also check for 2-pt conversions in drives data
-          if (response.data.drives) {
-            const twoPointConversions = parse2PtConversions(response.data.drives);
-
-            // Try to match this player using ESPN ID
-            // We need to get the player name from the boxscore
-            let playerName = null;
-            for (const team of boxscore.players) {
-              if (!team.statistics) continue;
-              for (const statCategory of team.statistics) {
-                if (!statCategory.athletes) continue;
-                for (const athlete of statCategory.athletes) {
-                  if (athlete.athlete?.id?.toString() === espnId.toString()) {
-                    playerName = athlete.athlete.displayName;
-                    break;
-                  }
-                }
-                if (playerName) break;
-              }
-              if (playerName) break;
-            }
-
-            // Try to match 2-pt conversions
-            if (playerName) {
-              const playerAbbrev = playerName.split(' ').map((n, i) => i === 0 ? n[0] : n).join('.');
-              const possibleAbbrevs = [
-                playerAbbrev,
-                playerName.split(' ').map(n => n[0]).join('.'),
-                playerName.split(' ')[0][0] + '.' + playerName.split(' ').slice(-1)[0]
-              ];
-
-              for (const abbrev of possibleAbbrevs) {
-                if (twoPointConversions[abbrev]) {
-                  stats.pass_2pt = twoPointConversions[abbrev].pass_2pt || 0;
-                  stats.rush_2pt = twoPointConversions[abbrev].rush_2pt || 0;
-                  stats.rec_2pt = twoPointConversions[abbrev].rec_2pt || 0;
-                  break;
-                }
-              }
-            }
-          }
-
-          return stats;
-        }
-      } catch (err) {
-        // Continue to next game
-        continue;
-      }
-    }
-
-    return null;
-  } catch (err) {
-    console.error(`Error fetching player stats for ESPN ID ${espnId}:`, err.message);
-    return null;
-  }
-}
-
-// Simple wrapper to rescore an entire week using live stats pipeline
+// Simple wrapper to rescore an entire week using the ingestion pipeline
 async function processWeekScoring(weekNumber) {
   console.log(`[admin] processWeekScoring called for week ${weekNumber}`);
-  // This reuses the same logic as the live stats loop:
-  // - fetch scoreboard for that week
-  // - fetch player/DEF stats
-  // - save into scores via savePlayerScoresToDatabase
   return updateLiveStats(weekNumber);
 }
 
@@ -738,619 +233,27 @@ app.post('/admin/refresh-week', async (req, res) => {
   }
 });
 
-// Fetch defense stats from ESPN (LIVE + HISTORICAL SAFE)
-async function fetchDefenseStats(teamAbbrev, weekNumber) {
-  try {
-    const normalizedTeam = normalizeTeamAbbr(teamAbbrev);
 
-    for (const gameId of liveStatsCache.activeGameIds) {
-      try {
-        const summaryUrl =
-          `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
-        const summaryRes = await axios.get(summaryUrl);
 
-        if (!summaryRes.data || !summaryRes.data.boxscore) continue;
-
-        const competition = summaryRes.data.header?.competitions?.[0];
-        if (!competition?.competitors) continue;
-
-        let isInGame = false;
-        let opponentScore = 0;
-        let teamId = null;
-
-        // Identify team + opponent
-        for (const competitor of competition.competitors) {
-          const espnAbbr = normalizeTeamAbbr(competitor.team?.abbreviation);
-
-          if (espnAbbr === normalizedTeam) {
-            isInGame = true;
-            teamId = competitor.id;
-          } else {
-            opponentScore = parseInt(competitor.score) || 0;
-          }
-        }
-
-        if (!isInGame || !teamId) continue;
-
-        const stats = {
-          def_sack: 0,
-          def_int: 0,
-          def_fum_rec: 0,
-          def_td: 0,
-          def_safety: 0,
-          def_block: 0,
-          def_ret_td: 0,
-          def_pts_allowed: opponentScore
-        };
-
-        // ============================================================
-        // 1. Competitor defensive statistics (authoritative)
-        // ============================================================
-        const compStatsUrl =
-          `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/${gameId}` +
-          `/competitions/${gameId}/competitors/${teamId}/statistics`;
-
-        try {
-          const compRes = await axios.get(compStatsUrl);
-          const compStats = compRes.data;
-
-          if (compStats?.splits?.categories) {
-            for (const category of compStats.splits.categories) {
-              if (!category.stats) continue;
-
-              for (const stat of category.stats) {
-                switch (stat.name) {
-                  case 'sacks':
-                    stats.def_sack += Number(stat.value) || 0;
-                    break;
-
-                  case 'interceptions':
-                    if (
-                      category.name === 'defensive' ||
-                      category.name === 'defensiveInterceptions'
-                    ) {
-                      stats.def_int += Number(stat.value) || 0;
-                    }
-                    break;
-
-                  case 'fumblesRecovered':
-                  case 'fumbleRecoveries':
-                    if (
-                      category.name === 'defensive' ||
-                      category.name === 'defensiveInterceptions'
-                    ) {
-                      stats.def_fum_rec += Number(stat.value) || 0;
-                    }
-                    break;
-
-                  case 'defensiveTouchdowns':
-                    stats.def_td += Number(stat.value) || 0;
-                    break;
-
-                  case 'kickReturnTouchdowns':
-                  case 'puntReturnTouchdowns':
-                    stats.def_ret_td += Number(stat.value) || 0;
-                    break;
-
-                  case 'pointsAllowed':
-                    stats.def_pts_allowed = Number(stat.value) || opponentScore;
-                    break;
-
-                  case 'safeties':
-                    stats.def_safety += Number(stat.value) || 0;
-                    break;
-
-                  case 'kicksBlocked':
-                    stats.def_block += Number(stat.value) || 0;
-                    break;
-                }
-              }
-            }
-          }
-        } catch (_) {
-          // competitor stats may fail early in games
-        }
-
-        // ============================================================
-        // 2. Supplement sacks from team boxscore
-        // ============================================================
-        const teamBox = summaryRes.data.boxscore.teams?.find(
-          t => normalizeTeamAbbr(t.team?.abbreviation) === normalizedTeam
-        );
-
-
-        // ============================================================
-        // 3. Supplement INT + TD from defensive player boxscore
-        // ============================================================
-        const playerBox = summaryRes.data.boxscore.players;
-        if (playerBox) {
-          for (const group of playerBox) {
-            if (!group.team) continue;
-
-            const groupAbbr = normalizeTeamAbbr(group.team.abbreviation);
-            if (groupAbbr !== normalizedTeam) continue;
-            if (!group.statistics) continue;
-
-            for (const cat of group.statistics) {
-              if (cat.name === 'interceptions' && cat.athletes) {
-                for (const a of cat.athletes) {
-                  const ints = parseInt(a.stats?.[0] || '0');
-                  const td = parseInt(a.stats?.[2] || '0');
-
-                  if (!isNaN(ints)) stats.def_int += ints;
-                  if (!isNaN(td)) stats.def_td += td;
-                }
-              }
-            }
-          }
-        }
-
-        return stats;
-
-      } catch (_) {
-        continue;
-      }
-    }
-
-    return null;
-
-  } catch (err) {
-    console.error(`Defense fetch failed for ${teamAbbrev}:`, err.message);
-    return null;
-  }
-}
-
-async function savePlayerScoresToDatabase(weekNumber) {
-  try {
-    // Load scoring strategy key from active contest template (once per invocation, before any loop)
-    const templateResult = await pool.query(
-      'SELECT scoring_strategy_key FROM contest_templates WHERE is_active = true LIMIT 1'
-    );
-    if (templateResult.rows.length === 0) {
-      throw new Error('No active contest template found — cannot determine scoring strategy');
-    }
-    const scoringStrategyKey = templateResult.rows[0].scoring_strategy_key;
-
-    // Get teams we're tracking from picks
-    const trackedTeamsResult = await pool.query(`
-      SELECT DISTINCT p.team
-      FROM picks pk
-      JOIN players p ON pk.player_id = p.id::text
-      WHERE pk.week_number = $1 AND p.team IS NOT NULL
-    `, [weekNumber]);
-    const trackedTeams = new Set(trackedTeamsResult.rows.map(r => r.team?.trim()?.toUpperCase()).filter(Boolean));
-
-    const picksResult = await pool.query(`
-      SELECT pk.id as pick_id, pk.user_id, pk.player_id, pk.position, pk.multiplier
-      FROM picks pk
-      WHERE pk.week_number = $1
-    `, [weekNumber]);
-
-    let savedCount = 0;
-
-    for (const pick of picksResult.rows) {
-      const playerRes = await pool.query(
-        'SELECT espn_id, full_name, position, team FROM players WHERE id::text = $1',
-        [pick.player_id]
-      );
-      if (playerRes.rows.length === 0) {
-        continue;
-      }
-
-      const { espn_id: espnId, full_name: playerName, position: playerPosition, team: dbTeam } = playerRes.rows[0];
-      let scoring = null;
-
-      // =====================
-      // DEFENSE
-      // =====================
-      if (playerPosition === 'DEF') {
-        const defStats = await fetchDefenseStats(pick.player_id, weekNumber);
-
-        if (defStats) {
-          scoring = defStats;
-        } else if (liveStatsCache.activeTeams.has(pick.player_id)) {
-          scoring = {};
-        } else {
-          continue;
-        }
-      }
-
-      // =====================
-      // PLAYER (INCLUDING K)
-      // =====================
-      else {
-        let playerStats = null;
-        let resolvedEspnId = espnId;
-        let playerTeam = null;
-
-        // Cache lookup by ESPN ID
-        if (espnId) {
-          const cached = liveStatsCache.playerStats.get(espnId);
-          if (cached) {
-            playerStats = convertESPNStatsToScoring(cached.stats);
-            playerTeam = cached.team;
-          }
-        }
-
-        // Name-based cache lookup with team matching for safe hydration
-        if (!playerStats) {
-          const normalized = normalizePlayerName(playerName);
-          const normalizedDbTeam = normalizeTeamAbbr(dbTeam);
-
-          for (const [athleteId, cached] of liveStatsCache.playerStats) {
-            const cachedNormalized = normalizePlayerName(cached.athleteName);
-            const normalizedCachedTeam = normalizeTeamAbbr(cached.team);
-
-            // Match by name AND team for safe ESPN ID hydration
-            const nameMatches = normalized.firstName === cachedNormalized.firstName &&
-                                normalized.lastName === cachedNormalized.lastName;
-            const teamMatches = normalizedDbTeam && normalizedCachedTeam &&
-                                normalizedDbTeam === normalizedCachedTeam;
-
-            if (nameMatches && teamMatches) {
-              if (!espnId) {
-                await pool.query(
-                  'UPDATE players SET espn_id = $1 WHERE id::text = $2',
-                  [athleteId, pick.player_id]
-                );
-                resolvedEspnId = athleteId;
-                console.log(`[lazy-hydration] Assigned ESPN ID ${athleteId} to player ${playerName} (${dbTeam})`);
-              }
-
-              playerStats = convertESPNStatsToScoring(cached.stats);
-              playerTeam = cached.team;
-              break;
-            }
-          }
-        }
-
-        // ESPN fallback
-        if (!playerStats && resolvedEspnId) {
-          const fetched = await fetchPlayerStats(resolvedEspnId, weekNumber);
-          if (fetched) {
-            playerStats = fetched;
-
-            const cached = liveStatsCache.playerStats.get(resolvedEspnId);
-            if (cached?.team) {
-              playerTeam = cached.team;
-            }
-          }
-        }
-
-        // Final scoring decision
-        if (playerStats) {
-          scoring = playerStats;
-        } else {
-          const rawTeam = playerTeam || dbTeam;
-          const teamToCheck = rawTeam?.trim()?.toUpperCase();
-          const isTracked = teamToCheck && trackedTeams.has(teamToCheck);
-          if (isTracked) {
-            scoring = {};
-          } else {
-            continue;
-          }
-        }
-      }
-
-      // =====================
-      // KICKER ZERO FILL
-      // =====================
-      if (playerPosition === 'K' && Object.keys(scoring).length === 0) {
-        scoring = {
-          fg_made: 0,
-          xp_made: 0
-        };
-      }
-
-      const basePoints = await scoringService.calculateFantasyPoints(pool, scoring, scoringStrategyKey);
-      const multiplier = pick.multiplier || 1;
-      const finalPoints = basePoints * multiplier;
-
-      await pool.query(`
-        INSERT INTO scores (
-          id, user_id, player_id, week_number,
-          points, base_points, multiplier, final_points,
-          stats_json, updated_at
-        )
-        VALUES (
-          gen_random_uuid(), $1, $2, $3,
-          $4, $4, $5, $6,
-          $7, NOW()
-        )
-        ON CONFLICT (user_id, player_id, week_number) DO UPDATE SET
-          points = $4,
-          base_points = $4,
-          multiplier = $5,
-          final_points = $6,
-          stats_json = $7,
-          updated_at = NOW()
-      `, [
-        pick.user_id,
-        pick.player_id,
-        weekNumber,
-        basePoints,
-        multiplier,
-        finalPoints,
-        JSON.stringify(scoring)
-      ]);
-
-      savedCount++;
-    }
-
-    console.log(`Scores persisted`, { week: weekNumber, score_count: savedCount });
-    return savedCount;
-  } catch (err) {
-    console.error('Error persisting scores:', { week: weekNumber, error: err.message });
-    return 0;
-  }
-}
-
-// Fetch scoreboard to get active games
-async function fetchScoreboard(weekNumber) {
-  try {
-    const now = Date.now();
-
-    // Check cache (include week in cache key)
-    const cacheKey = `week_${weekNumber}`;
-    if (
-      liveStatsCache.lastScoreboardUpdate &&
-      liveStatsCache.currentCachedWeek === weekNumber &&
-      (now - liveStatsCache.lastScoreboardUpdate) < SCOREBOARD_CACHE_MS
-    ) {
-      console.log('Scoreboard cache hit', { cachedGames: liveStatsCache.activeGameIds.size, cacheAgeMs: now - liveStatsCache.lastScoreboardUpdate });
-      return Array.from(liveStatsCache.activeGameIds);
-    }
-
-    const url = getESPNScoreboardUrl(weekNumber);
-    console.log('Fetching fresh scoreboard', { url });
-    const response = await axios.get(url);
-
-    // CRITICAL: Clear stale caches when week changes to prevent cross-week stat leakage
-    if (liveStatsCache.currentCachedWeek !== weekNumber) {
-      liveStatsCache.playerStats.clear();
-      liveStatsCache.games.clear();
-      liveStatsCache.lastGameUpdates.clear();
-
-      // IMPORTANT: lock cache to this week
-      liveStatsCache.currentCachedWeek = weekNumber;
-    }
-
-    const activeGames = [];
-
-    if (response.data && response.data.events) {
-      for (const event of response.data.events) {
-        const gameId = event.id;
-        const status = event.status?.type?.state;
-
-        // Only track in-progress or recently completed games
-        if (status === 'in' || status === 'post') {
-          activeGames.push(gameId);
-
-          liveStatsCache.games.set(gameId, {
-            id: gameId,
-            name: event.name,
-            shortName: event.shortName,
-            status: status,
-            homeTeam: event.competitions?.[0]?.competitors?.find(
-              c => c.homeAway === 'home'
-            )?.team?.abbreviation,
-            awayTeam: event.competitions?.[0]?.competitors?.find(
-              c => c.homeAway === 'away'
-            )?.team?.abbreviation
-          });
-        }
-      }
-    }
-
-    liveStatsCache.activeGameIds = new Set(activeGames);
-    console.log('Fresh scoreboard fetched', { activeGames: activeGames.length, totalEvents: response.data?.events?.length || 0 });
-
-    // FIX: derive activeTeams from active games
-    liveStatsCache.activeTeams = new Set(
-      Array.from(liveStatsCache.games.values())
-        .flatMap(g => [g.homeTeam, g.awayTeam])
-        .filter(Boolean)
-    );
-
-    liveStatsCache.currentCachedWeek = weekNumber;
-    // Only cache timestamp when games found - prevents stale empty cache blocking live game detection
-    if (activeGames.length > 0) {
-      liveStatsCache.lastScoreboardUpdate = now;
-    }
-
-    return activeGames;
-  } catch (err) {
-    console.error('Error fetching scoreboard:', err.message);
-    return [];
-  }
-}
-
-// Helper: Parse 2-pt conversions from drives data
-function parse2PtConversions(drivesData) {
-  const conversions = {}; // Map of player name -> { pass_2pt, rush_2pt, rec_2pt }
-
-  if (!drivesData || !drivesData.previous) return conversions;
-
-  for (const drive of drivesData.previous) {
-    if (!drive.plays) continue;
-
-    for (const play of drive.plays) {
-      // Check for 2-pt conversion attempt
-      if (!play.pointAfterAttempt || play.pointAfterAttempt.value !== 2) continue;
-
-      const text = play.text || '';
-      const succeeded = text.includes('ATTEMPT SUCCEEDS');
-
-      if (!succeeded) continue; // Only count successful conversions
-
-      // Parse the play text to determine passer/rusher/receiver
-      // Format examples:
-      // "TWO-POINT CONVERSION ATTEMPT. J.Allen pass to D.Knox is complete. ATTEMPT SUCCEEDS."
-      // "TWO-POINT CONVERSION ATTEMPT. J.Allen rush up the middle. ATTEMPT SUCCEEDS."
-
-      const conversionMatch = text.match(/TWO-POINT CONVERSION ATTEMPT\.\s+([A-Z]\.[A-Za-z]+)\s+(pass|rush)/i);
-
-      if (conversionMatch) {
-        const playerAbbrev = conversionMatch[1]; // e.g., "J.Allen"
-        const actionType = conversionMatch[2].toLowerCase(); // "pass" or "rush"
-
-        // Initialize player entry
-        if (!conversions[playerAbbrev]) {
-          conversions[playerAbbrev] = { pass_2pt: 0, rush_2pt: 0, rec_2pt: 0 };
-        }
-
-        if (actionType === 'pass') {
-          conversions[playerAbbrev].pass_2pt += 1;
-
-          // Also credit the receiver
-          const receiverMatch = text.match(/pass (?:to|short|left|right|middle)?\s*(?:to)?\s*([A-Z]\.[A-Za-z]+)/i);
-          if (receiverMatch) {
-            const receiverAbbrev = receiverMatch[1];
-            if (receiverAbbrev !== playerAbbrev) {
-              if (!conversions[receiverAbbrev]) {
-                conversions[receiverAbbrev] = { pass_2pt: 0, rush_2pt: 0, rec_2pt: 0 };
-              }
-              conversions[receiverAbbrev].rec_2pt += 1;
-            }
-          }
-        } else if (actionType === 'rush') {
-          conversions[playerAbbrev].rush_2pt += 1;
-        }
-      }
-    }
-  }
-
-  return conversions;
-}
-
-// Fetch game summary for specific game
-async function fetchGameSummary(gameId) {
-  try {
-    const now = Date.now();
-    const lastUpdate = liveStatsCache.lastGameUpdates.get(gameId);
-
-    // Check cache
-    if (lastUpdate && (now - lastUpdate) < GAME_SUMMARY_CACHE_MS) {
-      return false; // Already up to date
-    }
-
-    const response = await axios.get(
-      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`
-    );
-
-    if (response.data && response.data.boxscore) {
-      const playerStats = parsePlayerStatsFromSummary(response.data.boxscore);
-
-      // Parse 2-pt conversions from drives data
-      const twoPointConversions = parse2PtConversions(response.data.drives);
-
-      // Update cache
-      for (const stat of playerStats) {
-        // Check if this player has 2-pt conversions
-        const playerName = stat.athleteName;
-        const playerAbbrev = playerName.split(' ').map((n, i) => i === 0 ? n[0] : n).join('.');
-
-        // Try multiple abbreviation formats
-        const possibleAbbrevs = [
-          playerAbbrev, // "J.Allen"
-          playerName.split(' ').map(n => n[0]).join('.'), // "J.A." for "Josh Allen"
-          playerName.split(' ')[0][0] + '.' + playerName.split(' ').slice(-1)[0] // "J.Allen"
-        ];
-
-        // Add 2-pt conversion stats if found
-        for (const abbrev of possibleAbbrevs) {
-          if (twoPointConversions[abbrev]) {
-            if (!stat.stats) stat.stats = {};
-
-            // Add prefixed 2-pt conversion stats
-            if (twoPointConversions[abbrev].pass_2pt > 0) {
-              stat.stats['passing_2PT'] = twoPointConversions[abbrev].pass_2pt.toString();
-            }
-            if (twoPointConversions[abbrev].rush_2pt > 0) {
-              stat.stats['rushing_2PT'] = twoPointConversions[abbrev].rush_2pt.toString();
-            }
-            if (twoPointConversions[abbrev].rec_2pt > 0) {
-              stat.stats['receiving_2PT'] = twoPointConversions[abbrev].rec_2pt.toString();
-            }
-            break;
-          }
-        }
-
-        liveStatsCache.playerStats.set(stat.athleteId, {
-          ...stat,
-          gameId: gameId,
-          updatedAt: now
-        });
-      }
-
-      liveStatsCache.lastGameUpdates.set(gameId, now);
-      return true;
-    }
-
-    return false;
-  } catch (err) {
-    console.error(`Error fetching game summary ${gameId}:`, err.message);
-    return false;
-  }
-}
-
-// Get teams that have active picks this week
-// Wrapper that delegates to gameStateService with injected pool
-async function getActiveTeamsForWeek(weekNumber) {
-  return gameStateService.getActiveTeamsForWeek(pool, weekNumber);
-}
-
-// Main live stats update function
 async function updateLiveStats(weekNumber) {
   const startTime = Date.now();
+  console.log(`Scoring job started`, { week: weekNumber });
   try {
-    console.log(`Scoring job started`, { week: weekNumber });
-
-    // Step 1: Get active games for this specific week
-    const activeGameIds = await fetchScoreboard(weekNumber);
-    if (activeGameIds.length === 0) {
-      console.log('No active games found', { week: weekNumber });
-      return { success: true, message: 'No active games', gamesUpdated: 0 };
+    // Find active contest instance for contest-scoped ingestion
+    const ciResult = await pool.query(
+      "SELECT id FROM contest_instances WHERE status IN ('OPEN', 'LOCKED', 'LIVE') ORDER BY created_at DESC LIMIT 1"
+    );
+    const contestInstanceId = ciResult.rows[0]?.id;
+    if (!contestInstanceId) {
+      console.log('No active contest instance found for ingestion', { week: weekNumber });
+      return { success: true, message: 'No active contest instance', gamesUpdated: 0 };
     }
-
-    // Step 2: Get teams we care about
-    const activeTeams = await getActiveTeamsForWeek(weekNumber);
-
-    // Step 3: Filter games to only those with our teams
-    const relevantGames = [];
-    for (const gameId of activeGameIds) {
-      const gameInfo = liveStatsCache.games.get(gameId);
-      if (gameInfo &&
-          (activeTeams.includes(gameInfo.homeTeam) || activeTeams.includes(gameInfo.awayTeam))) {
-        relevantGames.push(gameId);
-      }
-    }
-
-    // Step 4: Fetch summaries for relevant games
-    let gamesUpdated = 0;
-    for (const gameId of relevantGames) {
-      const updated = await fetchGameSummary(gameId);
-      if (updated) gamesUpdated++;
-
-      // Small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    // Step 5: Save scores to database
-    const scoreCount = await savePlayerScoresToDatabase(weekNumber);
-
+    const summary = await ingestionService.run(contestInstanceId, pool);
     const durationMs = Date.now() - startTime;
-    console.log(`Scoring job completed successfully`, { week: weekNumber, scores_written: scoreCount, duration_ms: durationMs });
-
-    return {
-      success: true,
-      message: `Updated ${gamesUpdated} games`,
-      gamesUpdated: gamesUpdated,
-      totalActiveGames: activeGameIds.length,
-      relevantGames: relevantGames.length
-    };
+    console.log(`Scoring job completed`, { week: weekNumber, ...summary, duration_ms: durationMs });
+    return { success: true, message: `Ingestion complete`, ...summary };
   } catch (err) {
-    console.error('Scoring job failed', { week: weekNumber, error: err.message, stack: err.stack });
+    console.error('Scoring job failed', { week: weekNumber, error: err.message });
     return { success: false, error: err.message };
   }
 }
@@ -1841,10 +744,10 @@ app.get('/api/live-stats/player/:playerId', async (req, res) => {
 
     // Check cache for live stats
     if (player.espn_id) {
-      const liveStats = liveStatsCache.playerStats.get(player.espn_id);
+      const liveStats = nflEspnIngestion.getCachedPlayerStats(player.espn_id);
 
       if (liveStats) {
-        const scoringStats = convertESPNStatsToScoring(liveStats.stats);
+        const scoringStats = nflEspnIngestion.convertESPNStatsToScoring(liveStats.stats);
         const points = await calculateFantasyPoints(scoringStats);
 
         return res.json({
@@ -1908,10 +811,10 @@ app.get('/api/live-stats/week/:weekNumber', async (req, res) => {
       let isLive = false;
 
       if (pick.espn_id) {
-        const cached = liveStatsCache.playerStats.get(pick.espn_id);
+        const cached = nflEspnIngestion.getCachedPlayerStats(pick.espn_id);
 
         if (cached) {
-          const scoringStats = convertESPNStatsToScoring(cached.stats);
+          const scoringStats = nflEspnIngestion.convertESPNStatsToScoring(cached.stats);
           points = await calculateFantasyPoints(scoringStats);
           liveStats = scoringStats;
           isLive = true;
@@ -1950,7 +853,7 @@ app.get('/api/live-scores', async (req, res) => {
     }
 
     // Remap playoff week index (1-4) to NFL week (19-22)
-    const actualWeekNumber = await resolveActualWeekNumber(weekNumber, pool, 'LiveScores');
+    const actualWeekNumber = await nflEspnIngestion.resolveActualWeekNumber(weekNumber, pool, 'LiveScores');
     if (!actualWeekNumber) {
       return res.status(400).json({ error: 'Invalid weekNumber' });
     }
@@ -1980,10 +883,10 @@ app.get('/api/live-scores', async (req, res) => {
       let isLive = false;
 
       if (pick.espn_id) {
-        const cached = liveStatsCache.playerStats.get(pick.espn_id);
+        const cached = nflEspnIngestion.getCachedPlayerStats(pick.espn_id);
 
         if (cached) {
-          const scoringStats = convertESPNStatsToScoring(cached.stats);
+          const scoringStats = nflEspnIngestion.convertESPNStatsToScoring(cached.stats);
           points = await calculateFantasyPoints(scoringStats);
           liveStats = scoringStats;
           isLive = true;
@@ -2031,16 +934,7 @@ app.post('/api/admin/update-live-stats', async (req, res) => {
 
 // Get cache status
 app.get('/api/admin/cache-status', (req, res) => {
-  res.json({
-    activeGames: Array.from(liveStatsCache.games.values()),
-    cachedPlayerCount: liveStatsCache.playerStats.size,
-    lastScoreboardUpdate: liveStatsCache.lastScoreboardUpdate ?
-      new Date(liveStatsCache.lastScoreboardUpdate).toISOString() : null,
-    gameUpdateTimes: Array.from(liveStatsCache.lastGameUpdates.entries()).map(([gameId, time]) => ({
-      gameId,
-      lastUpdate: new Date(time).toISOString()
-    }))
-  });
+  res.json(nflEspnIngestion.getCacheStatus());
 });
 
 // ============================================
@@ -2182,14 +1076,14 @@ app.get('/api/admin/check-espn-ids', (req, res) => {
 
   if (!espnIds) {
     return res.json({
-      totalCached: liveStatsCache.playerStats.size,
+      totalCached: nflEspnIngestion.getCacheStatus().cachedPlayerCount,
       message: 'Provide ?espnIds=123,456,789 to check specific players'
     });
   }
 
   const ids = espnIds.split(',');
   const results = ids.map(espnId => {
-    const cached = liveStatsCache.playerStats.get(espnId);
+    const cached = nflEspnIngestion.getCachedPlayerStats(espnId);
     return {
       espnId,
       found: !!cached,
@@ -2199,7 +1093,7 @@ app.get('/api/admin/check-espn-ids', (req, res) => {
   });
 
   res.json({
-    totalCached: liveStatsCache.playerStats.size,
+    totalCached: nflEspnIngestion.getCacheStatus().cachedPlayerCount,
     results
   });
 });
@@ -2232,7 +1126,7 @@ app.post('/api/admin/set-active-week', async (req, res) => {
 // This endpoint does NOT mutate any state. It only fetches and returns preview data.
 app.get('/api/admin/preview-week-transition', async (req, res) => {
   try {
-    const preview = await adminService.getWeekTransitionPreview(pool, fetchValidPostseasonWeek);
+    const preview = await adminService.getWeekTransitionPreview(pool, nflEspnIngestion.fetchValidPostseasonWeek);
     res.json({ success: true, preview });
   } catch (err) {
     if (err.statusCode === 400) {
@@ -2270,8 +1164,8 @@ app.post('/api/admin/process-week-transition', async (req, res) => {
 
     const result = await adminService.processWeekTransition(client, {
       userId,
-      fetchValidPostseasonWeek,
-      getESPNScoreboardUrl
+      fetchValidPostseasonWeek: nflEspnIngestion.fetchValidPostseasonWeek,
+      getESPNScoreboardUrl: nflEspnIngestion.getESPNScoreboardUrl
     });
 
     res.json(result);
@@ -2303,7 +1197,7 @@ app.get('/api/picks/eliminated/:userId/:weekNumber', async (req, res) => {
     }
 
     // Fetch scoreboard for this week to see which teams are active
-    const scoreboardResponse = await axios.get(getESPNScoreboardUrl(weekNumber));
+    const scoreboardResponse = await axios.get(nflEspnIngestion.getESPNScoreboardUrl(weekNumber));
 
     const activeTeams = new Set();
 
@@ -2357,7 +1251,7 @@ app.post('/api/picks/replace-player', async (req, res) => {
       ? playoff_start_week + Math.min(current_playoff_week - 1, 3)
       : weekNumber;
 
-    const scoreboardResponse = await axios.get(getESPNScoreboardUrl(effectiveWeekNumber));
+    const scoreboardResponse = await axios.get(nflEspnIngestion.getESPNScoreboardUrl(effectiveWeekNumber));
     const activeTeams = new Set();
     if (scoreboardResponse.data && scoreboardResponse.data.events) {
       for (const event of scoreboardResponse.data.events) {
@@ -3025,7 +1919,7 @@ app.get('/api/picks/v2', async (req, res) => {
     // For reads: allow viewing historical weeks, default to server week when omitted
     let effectiveWeek;
     if (weekNumber !== undefined) {
-      effectiveWeek = await resolveActualWeekNumber(weekNumber, pool, 'PicksV2');
+      effectiveWeek = await nflEspnIngestion.resolveActualWeekNumber(weekNumber, pool, 'PicksV2');
       if (!effectiveWeek) {
         return res.status(400).json({ error: 'Invalid weekNumber' });
       }
@@ -3110,7 +2004,7 @@ app.get('/api/users/:userId/picks/:weekNumber', async (req, res) => {
     const { userId, weekNumber } = req.params;
 
     // Remap playoff week index (1-4) to NFL week (19-22)
-    const actualWeekNumber = await resolveActualWeekNumber(weekNumber, pool, 'UserPicks');
+    const actualWeekNumber = await nflEspnIngestion.resolveActualWeekNumber(weekNumber, pool, 'UserPicks');
     if (!actualWeekNumber) {
       return res.status(400).json({ error: 'Invalid weekNumber' });
     }
@@ -3789,7 +2683,7 @@ app.get('/api/scores', async (req, res) => {
 async function getWeekMatchupMap(weekNumber) {
   try {
     // Fetch ESPN scoreboard for this week
-    const response = await axios.get(getESPNScoreboardUrl(weekNumber));
+    const response = await axios.get(nflEspnIngestion.getESPNScoreboardUrl(weekNumber));
 
     if (!response.data || !response.data.events) {
       return new Map();

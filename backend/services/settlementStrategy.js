@@ -206,46 +206,6 @@ function isValidStrategy(strategyKey) {
 }
 
 /**
- * Check if a contest is ready for settlement
- *
- * Verifies that all contest participants have scores for all required playoff weeks.
- * Uses a single SQL query with COUNT(DISTINCT week_number) to detect missing scores.
- *
- * @param {Object} pool - Database connection pool
- * @param {string} contestInstanceId - Contest instance UUID
- * @returns {Promise<boolean>} True if all participants have complete scores
- * @throws {Error} If any participant is missing scores (with user_id details)
- */
-async function isReadyForSettlement(pool, contestInstanceId) {
-  // Fetch playoff start week from game settings
-  const settingsResult = await pool.query('SELECT playoff_start_week FROM game_settings LIMIT 1');
-  const startWeek = settingsResult.rows[0]?.playoff_start_week || 19;
-  const endWeek = startWeek + 3; // 4 playoff weeks
-
-  // Query: Find any participants missing scores for any of the 4 weeks
-  const result = await pool.query(`
-    SELECT
-      cp.user_id,
-      COUNT(DISTINCT s.week_number) as weeks_with_scores
-    FROM contest_participants cp
-    LEFT JOIN scores s ON s.user_id = cp.user_id
-      AND s.week_number BETWEEN $2 AND $3
-    WHERE cp.contest_instance_id = $1
-    GROUP BY cp.user_id
-    HAVING COUNT(DISTINCT s.week_number) < 4
-  `, [contestInstanceId, startWeek, endWeek]);
-
-  if (result.rows.length > 0) {
-    // At least one participant is missing scores
-    const missingUsers = result.rows.map(r => `${r.user_id} (${r.weeks_with_scores}/4 weeks)`).join(', ');
-    throw new Error(`Settlement readiness check failed: ${result.rows.length} participant(s) missing scores: ${missingUsers}`);
-  }
-
-  // All participants have scores for all 4 weeks
-  return true;
-}
-
-/**
  * Canonicalize a JSON object for deterministic hashing
  *
  * Recursively sorts all object keys alphabetically, preserves array order.
@@ -425,8 +385,7 @@ async function executeSettlement(contestInstance, pool) {
 }
 
 module.exports = {
-  // Settlement readiness and execution
-  isReadyForSettlement,
+  // Settlement execution
   executeSettlement,
 
   // Ranking and payout computation

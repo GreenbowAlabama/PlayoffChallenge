@@ -248,54 +248,6 @@ describe('Settlement Strategy', () => {
     });
   });
 
-  describe('isReadyForSettlement', () => {
-    let mockPool;
-
-    beforeEach(() => {
-      mockPool = {
-        query: jest.fn()
-      };
-    });
-
-    it('should return true when all participants have scores for all weeks', async () => {
-      mockPool.query
-        .mockResolvedValueOnce({ rows: [{ playoff_start_week: 19 }] }) // game_settings
-        .mockResolvedValueOnce({ rows: [] }); // no missing scores
-
-      const result = await settlementStrategy.isReadyForSettlement(mockPool, 'contest-id');
-
-      expect(result).toBe(true);
-      expect(mockPool.query).toHaveBeenCalledTimes(2);
-    });
-
-    it('should throw when a participant is missing scores', async () => {
-      mockPool.query
-        .mockResolvedValueOnce({ rows: [{ playoff_start_week: 19 }] }) // game_settings
-        .mockResolvedValueOnce({
-          rows: [
-            { user_id: 'user1', weeks_with_scores: 3 }, // only 3 weeks
-            { user_id: 'user2', weeks_with_scores: 2 }  // only 2 weeks
-          ]
-        });
-
-      await expect(
-        settlementStrategy.isReadyForSettlement(mockPool, 'contest-id')
-      ).rejects.toThrow('Settlement readiness check failed');
-    });
-
-    it('should default playoff_start_week to 19', async () => {
-      mockPool.query
-        .mockResolvedValueOnce({ rows: [{}] }) // no playoff_start_week
-        .mockResolvedValueOnce({ rows: [] });
-
-      await settlementStrategy.isReadyForSettlement(mockPool, 'contest-id');
-
-      // Second query should use weeks 19-22
-      const call = mockPool.query.mock.calls[1];
-      expect(call[1]).toEqual(['contest-id', 19, 22]);
-    });
-  });
-
   describe('executeSettlement', () => {
     let mockPool;
     let mockClient;

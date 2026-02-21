@@ -11,14 +11,17 @@
  * - Payout structures must be non-empty arrays
  */
 
+const { listScoringStrategies } = require('./scoringRegistry');
+const { listSettlementStrategies } = require('./settlementRegistry');
+
 /**
  * Valid strategy keys for templates
  * These correspond to backend strategy implementations
  */
-const VALID_SCORING_STRATEGIES = ['ppr', 'half_ppr', 'standard'];
+const VALID_SCORING_STRATEGIES = listScoringStrategies();
 const VALID_LOCK_STRATEGIES = ['first_game_kickoff', 'manual', 'scheduled'];
-const VALID_SETTLEMENT_STRATEGIES = ['final_standings', 'weekly', 'manual'];
-const VALID_SPORTS = ['NFL', 'NBA', 'MLB', 'NHL'];
+const VALID_SETTLEMENT_STRATEGIES = listSettlementStrategies();
+const VALID_SPORTS = ['NFL', 'NBA', 'MLB', 'NHL', 'PGA'];
 
 /**
  * List all active templates (for admin view)

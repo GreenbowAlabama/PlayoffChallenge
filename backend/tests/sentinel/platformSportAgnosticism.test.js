@@ -92,25 +92,28 @@ describe('Platform Sport-Agnosticism Sentinel', () => {
     });
   });
 
-  describe('server.js batch scoring reads scoring_strategy_key from contest_templates (Phase 2)', () => {
-    let content;
+  describe('scoring_strategy_key dispatch — Phase 2 + V1 ingestion boundary', () => {
+    // Phase 2: scoring_strategy_key reading moved from server.js to ingestionService.js
+    // (ingestionService joins contest_templates and passes key through adapter ctx)
 
-    beforeAll(() => {
+    it('server.js delegates scoring to ingestionService (no direct contest_templates query)', () => {
       const serverPath = path.join(__dirname, '../../server.js');
-      content = fs.readFileSync(serverPath, 'utf8');
+      const serverContent = fs.readFileSync(serverPath, 'utf8');
+      expect(serverContent).toMatch(/ingestionService\.run/);
     });
 
-    it('should query contest_templates for scoring_strategy_key in the scoring path', () => {
-      expect(content).toMatch(/contest_templates/);
-      expect(content).toMatch(/scoring_strategy_key/);
+    it('ingestionService.js loads scoring_strategy_key from contest_templates', () => {
+      const svcPath = path.join(servicesDir, 'ingestionService.js');
+      const svcContent = fs.readFileSync(svcPath, 'utf8');
+      expect(svcContent).toMatch(/contest_templates/);
+      expect(svcContent).toMatch(/scoring_strategy_key/);
     });
 
-    it('should NOT hardcode scoring strategy key in savePlayerScoresToDatabase', () => {
-      // Extract the savePlayerScoresToDatabase function body
-      const fnStart = content.indexOf('async function savePlayerScoresToDatabase');
-      const fnEnd = content.indexOf('\nasync function ', fnStart + 1);
-      const fnBody = content.slice(fnStart, fnEnd > fnStart ? fnEnd : undefined);
-      expect(fnBody).not.toMatch(/'ppr'/);
+    it('nflEspnIngestion adapter does NOT hardcode scoring strategy key', () => {
+      const adapterPath = path.join(servicesDir, 'ingestion', 'strategies', 'nflEspnIngestion.js');
+      const adapterContent = fs.readFileSync(adapterPath, 'utf8');
+      // Strategy key must come from ctx.template, not be hardcoded as 'ppr'
+      expect(adapterContent).not.toMatch(/'ppr'/);
     });
   });
 
