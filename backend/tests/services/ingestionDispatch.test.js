@@ -54,8 +54,9 @@ describe('Ingestion Registry', () => {
 describe('pgaEspnIngestion stub', () => {
   const adapter = require('../../services/ingestion/strategies/pgaEspnIngestion');
 
-  it('validateConfig throws not-implemented', () => {
-    expect(() => adapter.validateConfig()).toThrow(/pga_espn.*not yet implemented/i);
+  it('validateConfig enforces PGA template shape', () => {
+    expect(() => adapter.validateConfig({}))
+      .toThrow(/INVALID_PGA_TEMPLATE/);
   });
 
   it('getWorkUnits throws not-implemented', async () => {

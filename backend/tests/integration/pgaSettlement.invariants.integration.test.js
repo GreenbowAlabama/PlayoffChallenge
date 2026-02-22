@@ -422,7 +422,10 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
       expect(settlement.results).toBeDefined();
 
       // Results should contain rankings and payouts (PGA settlement output)
-      const results = JSON.parse(settlement.results);
+      // JSONB columns return as objects; handle both string and object
+      const results = typeof settlement.results === 'string'
+        ? JSON.parse(settlement.results)
+        : settlement.results;
       expect(results).toHaveProperty('rankings');
       expect(results).toHaveProperty('payouts');
       expect(Array.isArray(results.rankings)).toBe(true);
@@ -445,8 +448,11 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
 
       // Verify hash can be validated
       const crypto = require('crypto');
+      const resultsParsed = typeof settlement.results === 'string'
+        ? JSON.parse(settlement.results)
+        : settlement.results;
       const computed = crypto.createHash('sha256')
-        .update(JSON.stringify(settlementStrategy.canonicalizeJson(JSON.parse(settlement.results))))
+        .update(JSON.stringify(settlementStrategy.canonicalizeJson(resultsParsed)))
         .digest('hex');
 
       expect(settlement.results_sha256).toBe(computed);

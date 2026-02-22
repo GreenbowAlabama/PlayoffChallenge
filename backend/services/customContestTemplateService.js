@@ -13,13 +13,14 @@
 
 const { listScoringStrategies } = require('./scoringRegistry');
 const { listSettlementStrategies } = require('./settlementRegistry');
+const { VALID_STRATEGIES: VALID_LOCK_STRATEGIES } = require('./lockStrategy');
+const { getIngestionStrategy } = require('./ingestionRegistry');
 
 /**
  * Valid strategy keys for templates
  * These correspond to backend strategy implementations
  */
 const VALID_SCORING_STRATEGIES = listScoringStrategies();
-const VALID_LOCK_STRATEGIES = ['first_game_kickoff', 'manual', 'scheduled'];
 const VALID_SETTLEMENT_STRATEGIES = listSettlementStrategies();
 const VALID_SPORTS = ['NFL', 'NBA', 'MLB', 'NHL', 'PGA'];
 
@@ -142,6 +143,21 @@ function validateTemplateInput(input) {
     const keys = Object.keys(structure);
     if (keys.length === 0) {
       throw new Error('Each payout structure must define at least one payout');
+    }
+  }
+
+  // Ingestion strategy validation (optional, if strategy is registered)
+  if (input.ingestion_strategy_key) {
+    let strategy = null;
+
+    try {
+      strategy = getIngestionStrategy(input.ingestion_strategy_key);
+    } catch {
+      strategy = null; // Unknown strategy → no-op
+    }
+
+    if (strategy?.validateConfig) {
+      strategy.validateConfig(input);
     }
   }
 }

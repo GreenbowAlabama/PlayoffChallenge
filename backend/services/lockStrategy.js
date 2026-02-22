@@ -12,15 +12,21 @@
  * - NO background jobs in this module - scheduling is handled elsewhere
  * - Pure computation: given inputs, returns deterministic lock time
  *
- * Supported Strategies:
- * 1. first_game_kickoff - Lock when first game of the week/round kicks off
- * 2. fixed_time - Lock at a specific configured time
+ * Supported Strategies (from LOCK_STRATEGY_REGISTRY):
+ * 1. first_game_kickoff - Lock when first game of the week/round kicks off (NFL)
+ * 2. fixed_time - Lock at a specific configured time (TODO: implement)
  * 3. manual - No automatic lock (organizer triggers manually)
+ * 4. time_based_lock_v1 - Generic time-based lock (sport-agnostic, suitable for golf, custom contests)
  *
  * Integration Points:
  * - Called during contest publish to compute lock_time
  * - Called by external scheduler to check if lock should occur
  * - Read-only: does not modify contest state directly
+ *
+ * Registry Architecture:
+ * - LOCK_STRATEGY_REGISTRY is the single source of truth
+ * - VALID_STRATEGIES is derived from Object.keys(LOCK_STRATEGY_REGISTRY)
+ * - This prevents drift: all registered strategies are automatically whitelisted
  *
  * TODO: Implementation steps:
  * 1. Implement computeLockTime(strategyKey, context) for each strategy
@@ -28,15 +34,16 @@
  * 3. Integrate with external scheduler (cron job or event-driven)
  */
 
-const VALID_STRATEGIES = ['first_game_kickoff', 'fixed_time', 'manual'];
-
 /**
- * Registry of lock strategy implementations
+ * Registry of lock strategy implementations (SINGLE SOURCE OF TRUTH)
  *
  * Each strategy is a function that computes the lock time
  * given a context object containing relevant data.
+ *
+ * IMPORTANT: Add new strategies here. VALID_STRATEGIES is auto-derived
+ * from this registry via Object.keys(), preventing duplication and drift.
  */
-const strategyImplementations = {
+const LOCK_STRATEGY_REGISTRY = {
   /**
    * first_game_kickoff: Lock at the kickoff time of the first game
    *
@@ -80,8 +87,29 @@ const strategyImplementations = {
    */
   manual: (context) => {
     return null;
+  },
+
+  /**
+   * time_based_lock_v1: Generic time-based lock (sport-agnostic)
+   *
+   * Behavior: Contest locks when now >= lock_time.
+   * No sport-specific logic, no provider lookups, no schedule dependency.
+   * Suitable for contests where the organizer sets a fixed lock time
+   * (e.g., golf, custom contests).
+   *
+   * Context required:
+   * - lock_time: Date (explicit lock time from contest instance)
+   *
+   * Returns: The lock_time if present, null otherwise
+   */
+  time_based_lock_v1: (context) => {
+    const { lock_time } = context;
+    return lock_time ? new Date(lock_time) : null;
   }
 };
+
+// Derive valid strategies from registry (single source of truth)
+const VALID_STRATEGIES = Object.freeze(Object.keys(LOCK_STRATEGY_REGISTRY));
 
 /**
  * Compute the lock time for a contest based on its strategy
@@ -97,7 +125,7 @@ function computeLockTime(strategyKey, context) {
     throw new Error(`Unknown lock strategy: ${strategyKey}`);
   }
 
-  const strategy = strategyImplementations[strategyKey];
+  const strategy = LOCK_STRATEGY_REGISTRY[strategyKey];
   return strategy(context);
 }
 
