@@ -42,8 +42,9 @@ async function pgaSettlementFn(contestInstanceId, client) {
     }
 
     // Only include golfers with scores (not null)
+    // Coerce golfer_total to number (database may return as string)
     if (row.golfer_id !== null && row.golfer_total !== null) {
-      participantGolfers[row.user_id][row.golfer_id] = row.golfer_total;
+      participantGolfers[row.user_id][row.golfer_id] = Number(row.golfer_total);
     }
   });
 

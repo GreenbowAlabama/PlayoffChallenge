@@ -349,21 +349,27 @@ async function executeSettlement(contestInstance, pool) {
     ]);
 
     // 7. WRITE settle_time (exactly once)
+    const previousStatus = lockedContest.status;
+    const newStatus = 'COMPLETE';
+
     await client.query(
-      'UPDATE contest_instances SET settle_time = NOW() WHERE id = $1',
-      [contestInstance.id]
+      'UPDATE contest_instances SET settle_time = NOW(), status = $1 WHERE id = $2',
+      [newStatus, contestInstance.id]
     );
 
     // 8. WRITE SYSTEM AUDIT RECORD
     const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
     await client.query(`
-      INSERT INTO admin_contest_audit (contest_instance_id, admin_user_id, action, reason, payload)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO admin_contest_audit
+      (contest_instance_id, admin_user_id, action, reason, from_status, to_status, payload)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
     `, [
       contestInstance.id,
       SYSTEM_USER_ID,
       'system_settlement_complete',
       'Settlement executed successfully',
+      previousStatus,
+      newStatus,
       JSON.stringify({
         participant_count: participantCount,
         total_pool_cents: totalPoolCents,
