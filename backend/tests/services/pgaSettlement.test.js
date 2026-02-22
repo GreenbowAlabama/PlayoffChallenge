@@ -759,3 +759,245 @@ describe('pgaSettlement — integration flow', () => {
     expect(results[1]).toEqual(results[2]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 8. Edge Case Hardening — Production-grade robustness
+// ---------------------------------------------------------------------------
+
+describe('pgaSettlement — edge cases', () => {
+  it('handles participant with zero golfer_scores rows', () => {
+    // Participant in contest_participants but no golfer_scores
+    const golferScoresMap = {
+      'user-with-no-golfers': {}
+    };
+
+    const golfersWithTotals = Object.entries(golferScoresMap['user-with-no-golfers']).map(
+      ([id, points]) => ({
+        golfer_id: id,
+        total_points: points
+      })
+    );
+
+    const result = aggregateEntryScore(golfersWithTotals);
+
+    expect(result.entry_total).toBe(0);
+    expect(result.dropped_golfer_id).toBe(null);
+  });
+
+  it('handles contest with zero participants (empty settlement)', () => {
+    const scores = [];
+    const rankings = settlementStrategy.computeRankings(scores);
+
+    expect(rankings).toEqual([]);
+  });
+
+  it('handles NULL total_points by treating as 0', () => {
+    // Simulates golfer with NULL total_points from DB
+    const golfersWithTotals = [
+      { golfer_id: 'g1', total_points: 100 },
+      { golfer_id: 'g2', total_points: null }, // NULL
+      { golfer_id: 'g3', total_points: 80 }
+    ];
+
+    // aggregateEntryScore coerces with || 0
+    const result = aggregateEntryScore(golfersWithTotals);
+
+    // Only 3 golfers, no drop, sum = 100 + 0 + 80 = 180
+    expect(result.entry_total).toBe(180);
+  });
+
+  it('handles negative golfer scores correctly', () => {
+    const golferScores = [
+      { golfer_id: 'g1', total_points: -10 },
+      { golfer_id: 'g2', total_points: 50 },
+      { golfer_id: 'g3', total_points: 30 },
+      { golfer_id: 'g4', total_points: 20 },
+      { golfer_id: 'g5', total_points: 10 },
+      { golfer_id: 'g6', total_points: 5 },
+      { golfer_id: 'g7', total_points: -5 }
+    ];
+
+    const result = aggregateEntryScore(golferScores);
+
+    // Drops g1 (-10, lowest)
+    // Sums: 50 + 30 + 20 + 10 + 5 + (-5) = 110
+    expect(result.dropped_golfer_id).toBe('g1');
+    expect(result.best_6_sum).toBe(110);
+  });
+
+  it('handles all-negative scores deterministically', () => {
+    const golferScores = [
+      { golfer_id: 'g1', total_points: -10 },
+      { golfer_id: 'g2', total_points: -20 },
+      { golfer_id: 'g3', total_points: -5 },
+      { golfer_id: 'g4', total_points: -15 },
+      { golfer_id: 'g5', total_points: -12 },
+      { golfer_id: 'g6', total_points: -8 },
+      { golfer_id: 'g7', total_points: -100 }
+    ];
+
+    const result = aggregateEntryScore(golferScores);
+
+    // Drops g7 (-100, lowest / most negative)
+    // Sums: -10 + -20 + -5 + -15 + -12 + -8 = -70
+    expect(result.dropped_golfer_id).toBe('g7');
+    expect(result.best_6_sum).toBe(-70);
+  });
+
+  it('ranks participants with identical zero scores deterministically', () => {
+    const scores = [
+      { user_id: 'user-c', total_score: 0 },
+      { user_id: 'user-a', total_score: 0 },
+      { user_id: 'user-b', total_score: 0 }
+    ];
+
+    const rankings = settlementStrategy.computeRankings(scores);
+
+    // All rank 1, but sorted by user_id
+    expect(rankings[0].user_id).toBe('user-a');
+    expect(rankings[1].user_id).toBe('user-b');
+    expect(rankings[2].user_id).toBe('user-c');
+    rankings.forEach(r => expect(r.rank).toBe(1));
+  });
+
+  it('preserves determinism with tie-breaking across insertion orders', () => {
+    const scores1 = [
+      { user_id: 'zzz', total_score: 100 },
+      { user_id: 'aaa', total_score: 100 },
+      { user_id: 'mmm', total_score: 100 }
+    ];
+
+    const scores2 = [
+      { user_id: 'aaa', total_score: 100 },
+      { user_id: 'mmm', total_score: 100 },
+      { user_id: 'zzz', total_score: 100 }
+    ];
+
+    const rankings1 = settlementStrategy.computeRankings(scores1);
+    const rankings2 = settlementStrategy.computeRankings(scores2);
+
+    // Both calls must produce identical order (sorted by user_id)
+    expect(rankings1).toEqual(rankings2);
+    expect(rankings1[0].user_id).toBe('aaa');
+    expect(rankings1[1].user_id).toBe('mmm');
+    expect(rankings1[2].user_id).toBe('zzz');
+  });
+
+  it('handles single participant', () => {
+    const scores = [{ user_id: 'sole-participant', total_score: 150 }];
+    const rankings = settlementStrategy.computeRankings(scores);
+
+    expect(rankings).toHaveLength(1);
+    expect(rankings[0].rank).toBe(1);
+    expect(rankings[0].score).toBe(150);
+  });
+
+  it('preserves integer arithmetic without floating-point errors', () => {
+    const golferScores = [
+      { golfer_id: 'g1', total_points: 33 },
+      { golfer_id: 'g2', total_points: 33 },
+      { golfer_id: 'g3', total_points: 33 },
+      { golfer_id: 'g4', total_points: 33 },
+      { golfer_id: 'g5', total_points: 33 },
+      { golfer_id: 'g6', total_points: 33 },
+      { golfer_id: 'g7', total_points: 1 }
+    ];
+
+    const result = aggregateEntryScore(golferScores);
+
+    // 33 * 6 = 198 (exact integer)
+    expect(result.best_6_sum).toBe(198);
+    expect(Number.isInteger(result.best_6_sum)).toBe(true);
+  });
+
+  it('payout allocation preserves integers via Math.floor', () => {
+    const rankings = [
+      { user_id: 'user-1', rank: 1, score: 100 },
+      { user_id: 'user-2', rank: 2, score: 90 }
+    ];
+    const payoutStructure = { '1': 60, '2': 40 };
+    const totalPoolCents = 10001; // Odd number to test rounding
+
+    const payouts = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
+
+    // All amounts must be integers (cents)
+    payouts.forEach(payout => {
+      expect(Number.isInteger(payout.amount_cents)).toBe(true);
+    });
+
+    // Sum should not exceed total pool
+    const totalPayout = payouts.reduce((sum, p) => sum + p.amount_cents, 0);
+    expect(totalPayout).toBeLessThanOrEqual(totalPoolCents);
+  });
+
+  it('handles large positive scores without overflow', () => {
+    const golferScores = [
+      { golfer_id: 'g1', total_points: 1000000 },
+      { golfer_id: 'g2', total_points: 2000000 },
+      { golfer_id: 'g3', total_points: 3000000 },
+      { golfer_id: 'g4', total_points: 4000000 },
+      { golfer_id: 'g5', total_points: 5000000 },
+      { golfer_id: 'g6', total_points: 6000000 },
+      { golfer_id: 'g7', total_points: 100 }
+    ];
+
+    const result = aggregateEntryScore(golferScores);
+
+    // Sum: 1M + 2M + 3M + 4M + 5M + 6M = 21,000,000
+    expect(result.best_6_sum).toBe(21000000);
+    expect(result.dropped_golfer_id).toBe('g7');
+  });
+
+  it('ranks complex tie scenario with competition ranking', () => {
+    const scores = [
+      { user_id: 'user-5', total_score: 100 },
+      { user_id: 'user-1', total_score: 100 },
+      { user_id: 'user-10', total_score: 100 },
+      { user_id: 'user-2', total_score: 90 },
+      { user_id: 'user-20', total_score: 90 }
+    ];
+
+    const rankings = settlementStrategy.computeRankings(scores);
+
+    // First three tied at rank 1, sorted by user_id
+    expect(rankings[0].user_id).toBe('user-1');
+    expect(rankings[1].user_id).toBe('user-10');
+    expect(rankings[2].user_id).toBe('user-5');
+    rankings.slice(0, 3).forEach(r => expect(r.rank).toBe(1));
+
+    // Next two tied at rank 4 (competition ranking: 1, 1, 1, 4, 4)
+    expect(rankings[3].rank).toBe(4);
+    expect(rankings[4].rank).toBe(4);
+    expect(rankings[3].user_id).toBe('user-2');
+    expect(rankings[4].user_id).toBe('user-20');
+  });
+
+  it('settlement function idempotency across multiple invocations', async () => {
+    // Build mock client that returns consistent data
+    const mockClient = {
+      query: async (sql, params) => {
+        if (sql.includes('golfer') && params?.[0]) {
+          return Promise.resolve({
+            rows: [
+              { user_id: 'user-1', golfer_id: 'g1', total_points: 100 },
+              { user_id: 'user-1', golfer_id: 'g2', total_points: 90 },
+              { user_id: 'user-1', golfer_id: 'g3', total_points: 85 },
+              { user_id: 'user-2', golfer_id: 'g1', total_points: 95 }
+            ]
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      }
+    };
+
+    // Execute settlement function 3 times
+    const { pgaSettlementFn } = require('../../services/strategies/pgaSettlement');
+    const result1 = await pgaSettlementFn('contest-1', mockClient);
+    const result2 = await pgaSettlementFn('contest-1', mockClient);
+    const result3 = await pgaSettlementFn('contest-1', mockClient);
+
+    // All must be identical
+    expect(result1).toEqual(result2);
+    expect(result2).toEqual(result3);
+  });
+});
