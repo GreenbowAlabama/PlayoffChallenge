@@ -10,9 +10,11 @@
  */
 
 const { nflSettlementFn } = require('./strategies/nflSettlement');
+const { pgaSettlementFn } = require('./strategies/pgaSettlement');
 
 const settlementStrategies = Object.freeze({
   'final_standings': nflSettlementFn,
+  'pga_standard_v1': pgaSettlementFn,
   'weekly': () => { throw new Error("Settlement strategy 'weekly' is not yet implemented"); },
   'manual': () => { throw new Error("Settlement strategy 'manual' is not yet implemented"); }
 });

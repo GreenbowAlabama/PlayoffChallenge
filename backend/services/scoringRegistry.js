@@ -6,11 +6,13 @@
  */
 
 const { nflScoringFn } = require('./strategies/nflScoring');
+const { scoreRound: pgaStandardScoring } = require('./scoring/strategies/pgaStandardScoring');
 
 const scoringStrategies = Object.freeze({
   'ppr': nflScoringFn,
   'half_ppr': nflScoringFn,
-  'standard': nflScoringFn
+  'standard': nflScoringFn,
+  'pga_standard_v1': pgaStandardScoring
 });
 
 function getScoringStrategy(key) {
