@@ -20,6 +20,7 @@
 const request = require('supertest');
 const { randomUUID } = require('crypto');
 const { createTestApp, createMockAdminToken } = require('../mocks/testAppFactory');
+const { ensureNflPlayoffChallengeTemplate } = require('../helpers/templateFactory');
 
 describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
   let app;
@@ -70,38 +71,12 @@ describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
       ]
     );
 
-    // Create test template (required FK)
-    const templateId = randomUUID();
-    await pool.query(
-      `INSERT INTO contest_templates (
-        id,
-        name,
-        sport,
-        template_type,
-        scoring_strategy_key,
-        lock_strategy_key,
-        settlement_strategy_key,
-        default_entry_fee_cents,
-        allowed_entry_fee_min_cents,
-        allowed_entry_fee_max_cents,
-        allowed_payout_structures,
-        is_active
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [
-        templateId,
-        'Test Template',
-        'NFL',
-        'playoff_challenge',
-        'ppr',
-        'first_game_kickoff',
-        'final_standings',
-        0,
-        0,
-        100000,
-        JSON.stringify([{ '1': 100 }]),
-        true
-      ]
-    );
+    // Ensure active template (deactivates other active templates for same sport/type)
+    const template = await ensureNflPlayoffChallengeTemplate(pool, {
+      scoringKey: 'ppr',
+      lockKey: 'first_game_kickoff',
+      settlementKey: 'final_standings'
+    });
 
     // Create test contest in SCHEDULED status
     contestId = randomUUID();
@@ -114,7 +89,7 @@ describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
       RETURNING *`,
       [
         contestId,
-        templateId,
+        template.id,
         organizerId,
         'SCHEDULED',
         'Test Contest',

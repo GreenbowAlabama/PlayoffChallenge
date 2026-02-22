@@ -1,0 +1,70 @@
+{
+  "contest_id": "550e8401-e29b-41d4-a716-446655440001",
+  "type": "future_sport_we_dont_know_yet",
+  "leaderboard_state": "computed",
+  "actions": {
+    "can_join": false,
+    "can_edit_entry": false,
+    "is_live": true,
+    "is_closed": false,
+    "is_scoring": true,
+    "is_scored": false,
+    "is_read_only": false,
+    "can_share_invite": true,
+    "can_manage_contest": true,
+    "can_delete": false,
+    "can_unjoin": false
+  },
+  "payout_table": [
+    {
+      "rank_min": 1,
+      "rank_max": 1,
+      "amount": "500.50"
+    },
+    {
+      "rank_min": 2,
+      "rank_max": 2,
+      "amount": "300.25"
+    },
+    {
+      "rank_min": 3,
+      "rank_max": 3,
+      "amount": "199.25"
+    },
+    {
+      "rank_min": 4,
+      "rank_max": 10,
+      "amount": "0.00"
+    }
+  ],
+  "roster_config": {
+    "scoring_strategy_key": "unknown_sport_specific_strategy",
+    "settlement_strategy_key": "unknown_settlement_algorithm",
+    "max_entries": 1000,
+    "nested_structure": {
+      "level_2": {
+        "level_3": {
+          "deeply_nested_value": "this should not break AnyCodable",
+          "array_in_nested": [1, "mixed", true, null, {"inner": "object"}]
+        }
+      }
+    },
+    "large_array": [
+      {"id": 1, "value": "a"},
+      {"id": 2, "value": "b"},
+      {"id": 3, "value": "c"}
+    ],
+    "nulls_present": null,
+    "empty_object": {},
+    "empty_array": [],
+    "mixed_types": {
+      "string": "value",
+      "number": 42,
+      "float": 3.14,
+      "boolean": true,
+      "null_value": null,
+      "array": [1, 2, 3],
+      "object": {"nested": "value"}
+    }
+  }
+}

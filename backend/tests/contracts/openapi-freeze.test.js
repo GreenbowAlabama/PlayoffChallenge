@@ -1,18 +1,28 @@
 /**
- * OpenAPI Contract Freeze Test
+ * OpenAPI Contract Freeze Test (Read-Only)
  *
  * Validates that the current OpenAPI spec matches the frozen contract snapshot.
+ * This test is read-only enforcement: it queries the database but never modifies it.
  *
  * Test flow:
  * 1. Generate canonical OpenAPI spec from app routes
  * 2. Hash the spec JSON with SHA256
  * 3. Query database for latest api_contract_snapshots row (contract_name = 'public-api')
- * 4. Assert generated hash matches stored sha256
+ * 4. Compare generated hash with frozen hash
+ * 5. Fail with clear instructions if mismatch
  *
- * Read-only enforcement: No writes to database. Only SELECT queries.
+ * Governance Model:
+ * - Test detects API changes (READ-ONLY query)
+ * - Developer runs: npm run freeze:openapi
+ * - Script inserts new snapshot row (APPEND-ONLY, never delete)
+ * - This forces intentional, auditable API change approval
  *
- * If this test fails: Generated API differs from frozen contract.
- * This blocks CI/CD merge → prevents silent API changes.
+ * If test fails:
+ *   Your code changed the API contract.
+ *   Run: npm run freeze:openapi
+ *   This appends a new snapshot row (audit trail preserved).
+ *   Commit the snapshot change.
+ *   Your PR must document why the API changed.
  */
 
 const crypto = require('crypto');
@@ -51,7 +61,7 @@ describe('OpenAPI Contract Freeze', () => {
       .update(specJson)
       .digest('hex');
 
-    // Step 3: Query database for latest snapshot
+    // Step 3: Query database for latest snapshot (READ-ONLY)
     const result = await pool.query(
       `SELECT id, contract_name, sha256, spec_json, created_at
        FROM api_contract_snapshots
@@ -62,16 +72,36 @@ describe('OpenAPI Contract Freeze', () => {
     );
 
     // Step 4: Validate snapshot exists
-    expect(result.rows.length).toBe(1);
-    const snapshot = result.rows[0];
+    if (result.rows.length === 0) {
+      throw new Error(
+        `No OpenAPI contract snapshot found for 'public-api'.\n` +
+        `Run: npm run freeze:openapi\n` +
+        `This creates the initial snapshot and seeds the audit trail.`
+      );
+    }
 
+    const snapshot = result.rows[0];
     expect(snapshot).toBeDefined();
     expect(snapshot.contract_name).toBe('public-api');
     expect(snapshot.sha256).toBeDefined();
     expect(typeof snapshot.sha256).toBe('string');
     expect(snapshot.sha256.length).toBe(64); // SHA256 is 64 hex characters
 
-    // Step 5: Assert hashes match
+    // Step 5: Assert hashes match (governance enforcement)
+    if (generatedHash !== snapshot.sha256) {
+      throw new Error(
+        `OpenAPI contract mismatch! Your code changed the API.\n\n` +
+        `Generated hash: ${generatedHash}\n` +
+        `Frozen hash:    ${snapshot.sha256}\n\n` +
+        `To approve this API change:\n` +
+        `1. Run: npm run freeze:openapi\n` +
+        `2. Review the changes in api_contract_snapshots\n` +
+        `3. Commit the new snapshot row\n` +
+        `4. Your PR description MUST explain why the API changed\n\n` +
+        `This forces intentional, auditable API governance.`
+      );
+    }
+
     expect(generatedHash).toBe(snapshot.sha256);
   });
 

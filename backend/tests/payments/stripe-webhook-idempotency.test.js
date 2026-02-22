@@ -69,8 +69,8 @@ describe('Stripe Webhook Idempotency & Replay Safety', () => {
     await pool.query(
       `INSERT INTO contest_templates
        (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
-        default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents, allowed_payout_structures)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents, allowed_payout_structures, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false)`,
       [templateId, 'Test', 'golf', 'standard', 'golf_scoring', 'golf_lock', 'golf_settlement',
        0, 0, 1000000, JSON.stringify({})]
     );

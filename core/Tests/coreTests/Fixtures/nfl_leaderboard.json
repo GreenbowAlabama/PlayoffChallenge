@@ -1,0 +1,60 @@
+{
+  "contest_id": "550e8402-e29b-41d4-a716-446655440002",
+  "contest_type": "nfl",
+  "leaderboard_state": "computed",
+  "generated_at": "2025-02-22T14:00:00Z",
+  "column_schema": [
+    {
+      "key": "rank",
+      "label": "Rank",
+      "type": "number"
+    },
+    {
+      "key": "username",
+      "label": "Player",
+      "type": "string"
+    },
+    {
+      "key": "total_score",
+      "label": "Total",
+      "type": "number",
+      "format": "decimal"
+    },
+    {
+      "key": "qb_points",
+      "label": "QB",
+      "type": "number",
+      "format": "decimal"
+    },
+    {
+      "key": "rb_points",
+      "label": "RB",
+      "type": "number",
+      "format": "decimal"
+    },
+    {
+      "key": "wr_points",
+      "label": "WR",
+      "type": "number",
+      "format": "decimal"
+    }
+  ],
+  "rows": [
+    {
+      "rank": 1,
+      "username": "Winner",
+      "total_score": 155.5,
+      "qb_points": 45.2,
+      "rb_points": 38.1,
+      "wr_points": 72.2
+    },
+    {
+      "rank": 2,
+      "username": "Second Place",
+      "total_score": 142.3,
+      "qb_points": 38.5,
+      "rb_points": 42.8,
+      "wr_points": 61.0
+    }
+  ]
+}

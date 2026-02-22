@@ -16,6 +16,7 @@
 const crypto = require('crypto');
 const request = require('supertest');
 const { getIntegrationApp } = require('../mocks/testAppFactory');
+const { ensureActiveTemplate } = require('../helpers/templateFactory');
 
 describe('DELETE Route Hardening (Append-Only Governance)', () => {
   let pool;
@@ -35,7 +36,6 @@ describe('DELETE Route Hardening (Append-Only Governance)', () => {
 
   beforeEach(async () => {
     organizerId = crypto.randomUUID();
-    templateId = crypto.randomUUID();
     contestId = crypto.randomUUID();
 
     // Create user
@@ -44,15 +44,18 @@ describe('DELETE Route Hardening (Append-Only Governance)', () => {
       [organizerId, `org-${organizerId}@test.example`]
     );
 
-    // Create template
-    await pool.query(
-      `INSERT INTO contest_templates
-       (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
-        default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents, allowed_payout_structures)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [templateId, 'Test Template', 'golf', 'standard', 'golf_scoring', 'golf_lock', 'golf_settlement',
-       0, 0, 1000000, JSON.stringify({})]
-    );
+    // Create template (deterministic, prevents accumulation)
+    const template = await ensureActiveTemplate(pool, {
+      sport: 'golf',
+      templateType: 'playoff',
+      name: 'Test Template',
+      scoringKey: 'pga_standard_v1',
+      lockKey: 'time_based_lock_v1',
+      settlementKey: 'pga_standard_v1',
+      allowedPayoutStructures: {},
+      entryFeeCents: 0
+    });
+    templateId = template.id;
 
     // Create SCHEDULED contest (required status for deletion)
     await pool.query(
@@ -79,7 +82,7 @@ describe('DELETE Route Hardening (Append-Only Governance)', () => {
       await pool.query('DELETE FROM ingestion_events WHERE contest_instance_id = $1', [contestId]);
       await pool.query('DELETE FROM contest_participants WHERE contest_instance_id = $1', [contestId]);
       await pool.query('DELETE FROM contest_instances WHERE id = $1', [contestId]);
-      await pool.query('DELETE FROM contest_templates WHERE id = $1', [templateId]);
+      // Note: contest_templates no longer deleted; templateFactory handles deactivation
       await pool.query('DELETE FROM users WHERE id = $1', [organizerId]);
     } catch (err) {
       // Cleanup non-fatal

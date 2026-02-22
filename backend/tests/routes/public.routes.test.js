@@ -16,11 +16,21 @@ const { getIntegrationApp, createRequestFactory } = require('../mocks/testAppFac
 describe('Public Routes Contract Tests', () => {
   let app;
   let requestFactory;
+  let pool;
 
-  beforeAll(() => {
-    const { app: integrationApp } = getIntegrationApp();
+  beforeAll(async () => {
+    const { app: integrationApp, pool: dbPool } = getIntegrationApp();
     app = integrationApp;
+    pool = dbPool;
     requestFactory = createRequestFactory(app);
+
+    // Seed rules_content with terms of service (required by GET /api/terms endpoint)
+    await pool.query(
+      `INSERT INTO rules_content (section, content, display_order, created_at, updated_at)
+       VALUES ($1, $2, $3, NOW(), NOW())
+       ON CONFLICT (section) DO UPDATE SET content = $2, updated_at = NOW()`,
+      ['terms_of_service', 'Test terms of service content', 100]
+    );
   });
 
   describe('GET /health', () => {

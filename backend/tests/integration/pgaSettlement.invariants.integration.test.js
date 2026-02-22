@@ -24,6 +24,7 @@
 const { Pool } = require('pg');
 const crypto = require('crypto');
 const settlementStrategy = require('../../services/settlementStrategy');
+const { ensureGolfMajorTemplate, ensureActiveTemplate } = require('../helpers/templateFactory');
 
 describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
   let pool;
@@ -62,7 +63,6 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
 
     // Generate test IDs
     contestId = crypto.randomUUID();
-    templateId = crypto.randomUUID();
     organizerId = crypto.randomUUID();
     participant1Id = crypto.randomUUID();
     participant2Id = crypto.randomUUID();
@@ -81,19 +81,9 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
       [participant2Id, `participant2-${participant2Id}@test.com`]
     );
 
-    // Create PGA contest template (settlement_strategy_key = 'pga_standard_v1')
-    await testPool.query(
-      `INSERT INTO contest_templates
-       (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key,
-        settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
-        allowed_entry_fee_max_cents, allowed_payout_structures)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [
-        templateId, 'PGA Test Template', 'golf', 'playoff', 'pga_standard_v1',
-        'golf_lock', 'pga_standard_v1', 10000, 0, 1000000,
-        JSON.stringify({ '1': 60, '2': 40 })
-      ]
-    );
+    // Create PGA Golf Major template (deterministic, prevents accumulation)
+    const template = await ensureGolfMajorTemplate(testPool);
+    templateId = template.id;
 
     // Create contest instance (LIVE status for settlement)
     await testPool.query(
@@ -278,20 +268,18 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
     it('should rollback all changes if settlement fails', async () => {
       // Create contest with invalid state (no participants)
       const badContestId = crypto.randomUUID();
-      const badTemplateId = crypto.randomUUID();
 
-      await testPool.query(
-        `INSERT INTO contest_templates
-         (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key,
-          settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
-          allowed_entry_fee_max_cents, allowed_payout_structures)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [
-          badTemplateId, 'Bad Template', 'golf', 'playoff', 'invalid_strategy',
-          'golf_lock', 'invalid_strategy', 10000, 0, 1000000,
-          JSON.stringify({})
-        ]
-      );
+      // Create bad template with different templateType to avoid collision with main test template
+      const badTemplate = await ensureActiveTemplate(testPool, {
+        sport: 'golf',
+        templateType: 'invalid_strategy_test',  // Intentionally invalid to test error handling
+        name: 'Bad Template (Invalid Strategy)',
+        scoringKey: 'invalid_strategy',
+        lockKey: 'time_based_lock_v1',  // Valid lock key (error is in scoring/settlement)
+        settlementKey: 'invalid_strategy',
+        allowedPayoutStructures: {},
+        entryFeeCents: 10000
+      });
 
       await testPool.query(
         `INSERT INTO contest_instances
@@ -299,7 +287,7 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
           contest_name, max_entries)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
-          badContestId, badTemplateId, organizerId, 'LIVE', 10000,
+          badContestId, badTemplate.id, organizerId, 'LIVE', 10000,
           JSON.stringify({}),
           'Bad Contest', 100
         ]
@@ -327,7 +315,7 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
 
       // Cleanup
       await testPool.query('DELETE FROM contest_instances WHERE id = $1', [badContestId]);
-      await testPool.query('DELETE FROM contest_templates WHERE id = $1', [badTemplateId]);
+      // Note: bad template no longer deleted; templateFactory handles deactivation
     });
   });
 

@@ -1458,7 +1458,6 @@ async function deleteContestInstance(pool, contestId, organizerId) {
     );
 
     if (contestResult.rows.length === 0) {
-      await client.query('ROLLBACK');
       const error = new Error('Contest not found');
       error.code = 'CONTEST_NOT_FOUND';
       throw error;
@@ -1468,7 +1467,6 @@ async function deleteContestInstance(pool, contestId, organizerId) {
 
     // Check if user is organizer (case-insensitive UUID comparison)
     if (contest.organizer_id.toLowerCase() !== organizerId.toLowerCase()) {
-      await client.query('ROLLBACK');
       const error = new Error('Only the organizer can delete a contest');
       error.code = 'CONTEST_DELETE_NOT_ALLOWED';
       throw error;
@@ -1497,7 +1495,6 @@ async function deleteContestInstance(pool, contestId, organizerId) {
     }
 
     if (contest.status !== 'SCHEDULED' || entryCount > 1) {
-      await client.query('ROLLBACK');
       const error = new Error(
         `Cannot delete contest in ${contest.status} status with ${entryCount} participants`
       );
@@ -1525,7 +1522,13 @@ async function deleteContestInstance(pool, contestId, organizerId) {
       authenticatedUserId: organizerId
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    // Rollback transaction exactly once, swallow secondary errors
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      // Swallow rollback errors - connection may already be in bad state
+      console.error('[deleteContestInstance] Rollback error (swallowed):', rollbackErr.message);
+    }
     throw err;
   } finally {
     client.release();
@@ -1562,7 +1565,6 @@ async function unJoinContest(pool, contestId, userId) {
     );
 
     if (contestResult.rows.length === 0) {
-      await client.query('ROLLBACK');
       const error = new Error('Contest not found');
       error.code = 'CONTEST_NOT_FOUND';
       throw error;
@@ -1572,7 +1574,6 @@ async function unJoinContest(pool, contestId, userId) {
 
     // Validate status == SCHEDULED
     if (contest.status !== 'SCHEDULED') {
-      await client.query('ROLLBACK');
       const error = new Error(`Cannot unjoin contest in ${contest.status} status`);
       error.code = 'CONTEST_UNJOIN_NOT_ALLOWED';
       throw error;
@@ -1583,7 +1584,6 @@ async function unJoinContest(pool, contestId, userId) {
       const lockTimeMs = new Date(contest.lock_time).getTime();
       const nowMs = Date.now();
       if (nowMs >= lockTimeMs) {
-        await client.query('ROLLBACK');
         const error = new Error('Contest is locked; cannot unjoin');
         error.code = 'CONTEST_UNJOIN_NOT_ALLOWED';
         throw error;
@@ -1628,7 +1628,13 @@ async function unJoinContest(pool, contestId, userId) {
       authenticatedUserId: userId
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    // Rollback transaction exactly once, swallow secondary errors
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      // Swallow rollback errors - connection may already be in bad state
+      console.error('[unJoinContest] Rollback error (swallowed):', rollbackErr.message);
+    }
     throw err;
   } finally {
     client.release();

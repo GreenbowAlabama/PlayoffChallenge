@@ -17,7 +17,8 @@ public struct AnyCodable: Codable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
-        if let b = try? c.decode(Bool.self) { value = b }
+        if c.decodeNil() { value = NSNull() }
+        else if let b = try? c.decode(Bool.self) { value = b }
         else if let i = try? c.decode(Int.self) { value = i }
         else if let d = try? c.decode(Double.self) { value = d }
         else if let s = try? c.decode(String.self) { value = s }
@@ -31,6 +32,7 @@ public struct AnyCodable: Codable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.singleValueContainer()
         switch value {
+        case is NSNull: try c.encodeNil()
         case let b as Bool: try c.encode(b)
         case let i as Int: try c.encode(i)
         case let d as Double: try c.encode(d)
@@ -46,6 +48,7 @@ public struct AnyCodable: Codable {
 
     public static func == (lhs: AnyCodable, rhs: AnyCodable) -> Bool {
         switch (lhs.value, rhs.value) {
+        case (is NSNull, is NSNull): return true
         case let (l as Bool, r as Bool): return l == r
         case let (l as Int, r as Int): return l == r
         case let (l as Double, r as Double): return l == r

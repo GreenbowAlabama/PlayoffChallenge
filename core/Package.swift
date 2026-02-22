@@ -19,7 +19,8 @@ let package = Package(
         ),
         .testTarget(
             name: "coreTests",
-            dependencies: ["core"]
+            dependencies: ["core"],
+            resources: [.copy("Fixtures")]
         ),
     ]
 )

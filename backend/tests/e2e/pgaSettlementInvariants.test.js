@@ -84,8 +84,8 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       `INSERT INTO contest_templates
        (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key,
         settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
-        allowed_entry_fee_max_cents, allowed_payout_structures)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        allowed_entry_fee_max_cents, allowed_payout_structures, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false)`,
       [
         templateId,
         'Invariants Test Template',
@@ -690,8 +690,8 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         `INSERT INTO contest_templates
          (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key,
           settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
-          allowed_entry_fee_max_cents, allowed_payout_structures)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          allowed_entry_fee_max_cents, allowed_payout_structures, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false)`,
         [
           tieTestTemplateId,
           'Tie-Split Test Template',
@@ -1139,8 +1139,8 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         `INSERT INTO contest_templates
          (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key,
           settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
-          allowed_entry_fee_max_cents, allowed_payout_structures)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          allowed_entry_fee_max_cents, allowed_payout_structures, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false)`,
         [
           invalidTemplateId,
           'Invalid Payout Template',
@@ -1258,8 +1258,8 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         `INSERT INTO contest_templates
          (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key,
           settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
-          allowed_entry_fee_max_cents, allowed_payout_structures)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          allowed_entry_fee_max_cents, allowed_payout_structures, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false)`,
         [
           emptyTemplateId,
           'Empty Contest Template',

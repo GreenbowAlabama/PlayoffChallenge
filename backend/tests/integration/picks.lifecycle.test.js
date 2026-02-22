@@ -22,6 +22,7 @@ const request = require('supertest');
 const { v4: uuidv4 } = require('uuid');
 const { app, pool } = require('../../server');
 const picksService = require('../../services/picksService'); // Keep this as it's used in afterAll cleanup
+const { ensureNflPlayoffChallengeTemplate } = require('../helpers/templateFactory');
 // Removed axios and mock imports as per instruction to not touch mocks/ESPN for this fix.
 // Note: gameStateService import is removed as it's now mocked at the top.
 
@@ -32,6 +33,7 @@ describe('Picks Lifecycle Integration Tests (GAP-10 Step 2) - Baseline', () => {
   let testPlayerId;
   let testContestInstanceId;
   let testUser2Id; // For race condition testing (not used in baseline)
+  let nflPlayoffChallengeTemplateId; // Template ID for contest instances
 
   // Variables for player replacement tests (declared but not used in baseline)
   let oldPlayerIdForReplacement;
@@ -60,12 +62,9 @@ describe('Picks Lifecycle Integration Tests (GAP-10 Step 2) - Baseline', () => {
        ON CONFLICT (id) DO UPDATE SET current_playoff_week = 1, playoff_start_week = 19, is_week_active = TRUE, active_teams = EXCLUDED.active_teams`,
        [gameSettingsId]
     );
-    // Ensure a contest template exists for contest creation
-    await pool.query(
-      `INSERT INTO contest_templates (id, name, template_type, sport, default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents, allowed_payout_structures, scoring_strategy_key, lock_strategy_key, settlement_strategy_key)
-       VALUES ('1c3c3333-3333-4333-b333-333333333333', 'Default Template', 'FREE', 'NFL', 0, 0, 0, '[]'::jsonb, 'default', 'default', 'default')
-       ON CONFLICT (id) DO NOTHING`
-    );
+    // Ensure NFL Playoff Challenge template exists (deterministic, prevents accumulation)
+    const nflTemplate = await ensureNflPlayoffChallengeTemplate(pool);
+    nflPlayoffChallengeTemplateId = nflTemplate.id;
   });
 
   afterAll(async () => {
@@ -75,7 +74,7 @@ describe('Picks Lifecycle Integration Tests (GAP-10 Step 2) - Baseline', () => {
     await pool.query('DELETE FROM contest_instances WHERE organizer_id = $1', [testUserId]);
     await pool.query('DELETE FROM users WHERE id = $1 OR id = $2', [testUserId, testUser2Id]);
     await pool.query('DELETE FROM players WHERE id = $1', [testPlayerId]);
-    await pool.query('DELETE FROM contest_templates WHERE id = $1', ['1c3c3333-3333-4333-b333-333333333333']);
+    // Note: contest_templates no longer deleted; templateFactory handles deactivation
     // Clean up players created in player replacement beforeEach (if they were used)
     if (oldPlayerIdForReplacement) await pool.query('DELETE FROM players WHERE id = $1', [oldPlayerIdForReplacement]);
     if (newPlayerIdForReplacement) await pool.query('DELETE FROM players WHERE id = $1', [newPlayerIdForReplacement]);
@@ -113,11 +112,10 @@ describe('Picks Lifecycle Integration Tests (GAP-10 Step 2) - Baseline', () => {
 
   // Helper to create a contest instance and add a participant
   const createContestAndParticipant = async (status = 'SCHEDULED') => {
-    const templateId = '1c3c3333-3333-4333-b333-333333333333'; // Reusing the default template
     testContestInstanceId = uuidv4();
     await pool.query(
       'INSERT INTO contest_instances (id, template_id, organizer_id, contest_name, max_entries, entry_fee_cents, payout_structure, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-      [testContestInstanceId, templateId, testUserId, 'Test Contest', 10, 0, '{}', status]
+      [testContestInstanceId, nflPlayoffChallengeTemplateId, testUserId, 'Test Contest', 10, 0, '{}', status]
     );
     await pool.query('INSERT INTO contest_participants (contest_instance_id, user_id) VALUES ($1, $2)', [testContestInstanceId, testUserId]);
   };
