@@ -11,7 +11,7 @@ import Foundation
 /// LeaderboardState: Backend computation state for leaderboards.
 /// Must be present in every leaderboard response.
 /// Enum enforces valid states only; unknown values fail decode.
-public enum LeaderboardState: String, Decodable, Sendable, Equatable {
+public enum LeaderboardState: String, Codable, Sendable, Equatable {
     case pending
     case computed
     case error
@@ -26,6 +26,16 @@ public enum LeaderboardState: String, Decodable, Sendable, Equatable {
         case "computed": self = .computed
         case "error": self = .error
         default: self = .unknown
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .pending: try container.encode("pending")
+        case .computed: try container.encode("computed")
+        case .error: try container.encode("error")
+        case .unknown: try container.encode("unknown")
         }
     }
 }
