@@ -109,8 +109,10 @@ function extractOptionalUserId(req, res, next) {
 /**
  * GET /api/custom-contests/templates
  * Returns all active contest templates.
+ * Enforces OpenAPI contract: all templates must have non-empty allowed_payout_structures.
  *
  * Response: Array of templates
+ * - Each template contains allowed_payout_structures: [{ type: string, max_winners?: integer }]
  */
 router.get('/templates', async (req, res) => {
   try {
@@ -118,6 +120,15 @@ router.get('/templates', async (req, res) => {
     const templates = await customContestService.listActiveTemplates(pool);
     res.json(templates);
   } catch (err) {
+    // Contract violations are logged and cause 500 (backend is authoritative)
+    if (err.message.includes('[Template Contract Violation]')) {
+      console.error('[Custom Contest Templates] Contract violation:', err.message);
+      return res.status(500).json({
+        error: 'Template contract violation',
+        reason: err.message
+      });
+    }
+
     console.error('[Custom Contest] Error fetching templates:', err);
     res.status(500).json({ error: 'Failed to fetch templates' });
   }

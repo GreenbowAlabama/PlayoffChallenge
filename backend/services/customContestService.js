@@ -250,6 +250,69 @@ function validatePayoutStructureAgainstTemplate(payoutStructure, template) {
 }
 
 /**
+ * Validates allowed_payout_structures per OpenAPI contract.
+ * Throws if missing, empty, not an array, or any item lacks 'type'.
+ *
+ * Contract requirements:
+ * - Must be a non-empty array
+ * - Each item must be an object with required 'type' string field
+ * - Optional field: max_winners integer (nullable, must be > 0 if present)
+ *
+ * @param {Object} template - Template object to validate
+ * @throws {Error} If contract validation fails
+ * @returns {Object} The template (for chaining)
+ */
+function assertTemplatePayoutStructuresContract(template) {
+  const aps = template.allowed_payout_structures;
+
+  if (!Array.isArray(aps) || aps.length === 0) {
+    throw new Error(`[Template Contract Violation] Template "${template.id}" has missing or empty allowed_payout_structures`);
+  }
+
+  for (let i = 0; i < aps.length; i++) {
+    const item = aps[i];
+
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`[Template Contract Violation] Template "${template.id}" allowed_payout_structures[${i}] is not an object`);
+    }
+
+    if (!item.type || typeof item.type !== 'string') {
+      throw new Error(`[Template Contract Violation] Template "${template.id}" allowed_payout_structures[${i}] missing required 'type' string field`);
+    }
+
+    if (item.max_winners !== undefined && item.max_winners !== null) {
+      if (!Number.isInteger(item.max_winners) || item.max_winners <= 0) {
+        throw new Error(`[Template Contract Violation] Template "${template.id}" allowed_payout_structures[${i}] has invalid max_winners: ${item.max_winners}`);
+      }
+    }
+  }
+
+  return template;
+}
+
+/**
+ * Maps a contest template database row to API response format.
+ * Transforms DB fields to match OpenAPI contract:
+ * - template_type (DB field) → type (API field)
+ *
+ * @param {Object} row - Database row from contest_templates
+ * @returns {Object} Template in API response format
+ */
+function mapTemplateToApiResponse(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.template_type, // Maps DB field to API contract
+    sport: row.sport,
+    is_active: row.is_active,
+    allowed_payout_structures: row.allowed_payout_structures,
+    default_entry_fee_cents: row.default_entry_fee_cents,
+    allowed_entry_fee_min_cents: row.allowed_entry_fee_min_cents,
+    allowed_entry_fee_max_cents: row.allowed_entry_fee_max_cents
+  };
+}
+
+/**
  * Get a contest template by ID
  * @param {Object} pool - Database connection pool
  * @param {string} templateId - UUID of the template
@@ -265,14 +328,35 @@ async function getTemplate(pool, templateId) {
 
 /**
  * List all active templates
+ * Enforces OpenAPI contract compliance:
+ * - All templates must have non-empty allowed_payout_structures array
+ * - Each payout structure must have required 'type' string field
+ * - Fails loudly if any template violates contract
+ *
  * @param {Object} pool - Database connection pool
- * @returns {Promise<Array>} Array of active templates
+ * @returns {Promise<Array>} Array of active templates in API response format
+ * @throws {Error} If any template violates contract
  */
 async function listActiveTemplates(pool) {
   const result = await pool.query(
-    `SELECT * FROM contest_templates WHERE is_active = true ORDER BY name`
+    `SELECT
+      id, name, sport, template_type, is_active,
+      allowed_payout_structures,
+      default_entry_fee_cents,
+      allowed_entry_fee_min_cents,
+      allowed_entry_fee_max_cents
+    FROM contest_templates
+    WHERE is_active = true
+    ORDER BY name`
   );
-  return result.rows;
+
+  // Validate each template before returning
+  for (const template of result.rows) {
+    assertTemplatePayoutStructuresContract(template);
+  }
+
+  // Map all templates to API response format
+  return result.rows.map(mapTemplateToApiResponse);
 }
 
 /**
@@ -1645,6 +1729,8 @@ module.exports = {
   // Template functions
   getTemplate,
   listActiveTemplates,
+  assertTemplatePayoutStructuresContract,
+  mapTemplateToApiResponse,
 
   // Instance lifecycle
   createContestInstance,

@@ -152,7 +152,7 @@ function derivePayoutTable(payoutStructureJson) {
   }
 
   // Transform semantic type descriptors into numeric payout structures
-  // Handles iOS app format: { type: "winner_takes_all" | "winner_take_all" }
+  // Handles iOS app format: { type: "winner_takes_all" | "winner_take_all" | "top_n_split", max_winners?: number }
   if (structure.type && typeof structure.type === 'string') {
     const typeString = structure.type.toLowerCase().replace(/_/g, '');
 
@@ -162,6 +162,31 @@ function derivePayoutTable(payoutStructureJson) {
         // Winner-take-all: entire pot to first place
         structure = { first: 100 };
         break;
+
+      case 'topnsplit':
+        // Top N split: evenly distribute pot across max_winners positions
+        if (!structure.max_winners || structure.max_winners <= 0) {
+          throw new Error(
+            `[Template Contract Violation] Invalid max_winners for top_n_split: ${structure.max_winners}`
+          );
+        }
+        // Calculate percentage per winner
+        const percentPerWinner = 100 / structure.max_winners;
+        // Generate numeric payout: { first: X, second: X, third: X, ... }
+        const placeNames = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+        const numericPayouts = {};
+        for (let i = 0; i < structure.max_winners; i++) {
+          const placeName = placeNames[i] || `place_${i + 1}`;
+          numericPayouts[placeName] = percentPerWinner;
+        }
+        structure = numericPayouts;
+        break;
+
+      case 'prizepool':
+        // Prize pool: entire pot to first place (similar to winner-take-all)
+        structure = { first: 100 };
+        break;
+
       // Other semantic types would be handled here
       // Fail loudly on unknown types to prevent silent degradation
       default:

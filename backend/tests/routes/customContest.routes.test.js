@@ -36,8 +36,8 @@ const mockTemplate = {
   allowed_entry_fee_min_cents: 0,
   allowed_entry_fee_max_cents: 10000,
   allowed_payout_structures: [
-    { first: 70, second: 20, third: 10 },
-    { first: 100 }
+    { type: 'top_n_split', max_winners: 3 },
+    { type: 'winner_take_all', max_winners: 1 }
   ],
   is_active: true
 };
@@ -49,12 +49,13 @@ const mockInstance = {
   contest_name: 'Test Contest',
   max_entries: 20,
   entry_fee_cents: 2500,
-  payout_structure: { first: 70, second: 20, third: 10 },
+  payout_structure: { type: 'top_n_split', max_winners: 3 },
   status: 'SCHEDULED',
   join_token: 'dev_abc123def456abc123def456abc123',
   start_time: null,
   lock_time: null,
   settlement_time: null,
+  prize_pool_cents: 10000, // For payout table derivation
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString()
 };
@@ -101,7 +102,7 @@ describe('Custom Contest Routes', () => {
   describe('GET /api/custom-contests/templates', () => {
     it('should return 200 with list of templates', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_templates WHERE is_active/,
+        /WHERE is_active/,
         mockQueryResponses.multiple([mockTemplate])
       );
 
@@ -115,7 +116,7 @@ describe('Custom Contest Routes', () => {
 
     it('should return empty array if no templates', async () => {
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_templates WHERE is_active/,
+        /WHERE is_active/,
         mockQueryResponses.empty()
       );
 
@@ -124,6 +125,164 @@ describe('Custom Contest Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual([]);
+    });
+
+    it('should include allowed_payout_structures in response', async () => {
+      mockPool.setQueryResponse(
+        /WHERE is_active/,
+        mockQueryResponses.multiple([mockTemplate])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/templates');
+
+      expect(response.status).toBe(200);
+      expect(response.body[0]).toHaveProperty('allowed_payout_structures');
+      expect(Array.isArray(response.body[0].allowed_payout_structures)).toBe(true);
+      expect(response.body[0].allowed_payout_structures.length).toBeGreaterThan(0);
+    });
+
+    it('should map template_type to type in API response', async () => {
+      mockPool.setQueryResponse(
+        /WHERE is_active/,
+        mockQueryResponses.multiple([mockTemplate])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/templates');
+
+      expect(response.status).toBe(200);
+      expect(response.body[0]).toHaveProperty('type');
+      expect(response.body[0].type).toBe(mockTemplate.template_type);
+      expect(response.body[0]).not.toHaveProperty('template_type');
+    });
+
+    it('should include entry fee constraints in response', async () => {
+      mockPool.setQueryResponse(
+        /WHERE is_active/,
+        mockQueryResponses.multiple([mockTemplate])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/templates');
+
+      expect(response.status).toBe(200);
+      expect(response.body[0]).toHaveProperty('default_entry_fee_cents');
+      expect(response.body[0]).toHaveProperty('allowed_entry_fee_min_cents');
+      expect(response.body[0]).toHaveProperty('allowed_entry_fee_max_cents');
+    });
+
+    it('should return 500 when template missing allowed_payout_structures', async () => {
+      const badTemplate = {
+        ...mockTemplate,
+        allowed_payout_structures: undefined
+      };
+      mockPool.setQueryResponse(
+        /WHERE is_active/,
+        mockQueryResponses.multiple([badTemplate])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/templates');
+
+      expect(response.status).toBe(500);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('contract violation');
+    });
+
+    it('should return 500 when template has empty allowed_payout_structures', async () => {
+      const badTemplate = {
+        ...mockTemplate,
+        allowed_payout_structures: []
+      };
+      mockPool.setQueryResponse(
+        /WHERE is_active/,
+        mockQueryResponses.multiple([badTemplate])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/templates');
+
+      expect(response.status).toBe(500);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('contract violation');
+    });
+
+    it('should return 500 when payout structure missing required type field', async () => {
+      const badTemplate = {
+        ...mockTemplate,
+        allowed_payout_structures: [
+          { max_winners: 3 } // missing type
+        ]
+      };
+      mockPool.setQueryResponse(
+        /WHERE is_active/,
+        mockQueryResponses.multiple([badTemplate])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/templates');
+
+      expect(response.status).toBe(500);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('contract violation');
+    });
+
+    it('should return 500 when payout structure has invalid max_winners', async () => {
+      const badTemplate = {
+        ...mockTemplate,
+        allowed_payout_structures: [
+          { type: 'top_n_split', max_winners: -1 } // invalid: <= 0
+        ]
+      };
+      mockPool.setQueryResponse(
+        /WHERE is_active/,
+        mockQueryResponses.multiple([badTemplate])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/templates');
+
+      expect(response.status).toBe(500);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('contract violation');
+    });
+
+    it('should validate all templates and stop on first contract violation', async () => {
+      const goodTemplate = mockTemplate;
+      const badTemplate = {
+        ...mockTemplate,
+        id: 'template-2',
+        allowed_payout_structures: [] // empty array
+      };
+      mockPool.setQueryResponse(
+        /WHERE is_active/,
+        mockQueryResponses.multiple([goodTemplate, badTemplate])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/templates');
+
+      expect(response.status).toBe(500);
+      expect(response.body.error).toContain('contract violation');
+    });
+
+    it('should include reason field in error response for debugging', async () => {
+      const badTemplate = {
+        ...mockTemplate,
+        allowed_payout_structures: null
+      };
+      mockPool.setQueryResponse(
+        /WHERE is_active/,
+        mockQueryResponses.multiple([badTemplate])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/templates');
+
+      expect(response.status).toBe(500);
+      expect(response.body).toHaveProperty('reason');
+      expect(response.body.reason).toContain('[Template Contract Violation]');
     });
   });
 
@@ -261,7 +420,7 @@ describe('Custom Contest Routes', () => {
       template_id: TEST_TEMPLATE_ID,
       contest_name: 'Test Contest',
       entry_fee_cents: 2500,
-      payout_structure: { first: 70, second: 20, third: 10 }
+      payout_structure: { type: 'top_n_split', max_winners: 3 }
     };
 
     it('should return 401 without authentication', async () => {
@@ -317,7 +476,7 @@ describe('Custom Contest Routes', () => {
         .set('X-User-Id', TEST_USER_ID)
         .send({
           entry_fee_cents: 2500,
-          payout_structure: { first: 100 }
+          payout_structure: { type: 'winner_take_all', max_winners: 1 }
         });
 
       expect(response.status).toBe(400);
@@ -430,7 +589,7 @@ describe('Custom Contest Routes', () => {
             template_id: TEST_TEMPLATE_ID,
             contest_name: 'Test Contest',
             entry_fee_cents: 2500,
-            payout_structure: { first: 70, second: 20, third: 10 }
+            payout_structure: { type: 'top_n_split', max_winners: 3 }
             // lock_time omitted entirely
           });
 
@@ -1432,7 +1591,7 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           ...mockInstanceWithTemplate,
           status: 'SCHEDULED',
-          payout_structure: { first: 70, second: 20, third: 10 },
+          payout_structure: { type: 'top_n_split', max_winners: 3 },
           entry_count: 5,
           user_has_entered: false,
           lock_time: new Date(Date.now() + 3600000).toISOString(),
@@ -1462,7 +1621,7 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           ...mockInstanceWithTemplate,
           status: 'SCHEDULED',
-          payout_structure: { first: 70, second: 20, third: 10 },
+          payout_structure: { type: 'top_n_split', max_winners: 3 },
           entry_count: 5,
           user_has_entered: false,
           lock_time: new Date(Date.now() + 3600000).toISOString(),
@@ -1497,7 +1656,7 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           ...mockInstanceWithTemplate,
           status: 'SCHEDULED',
-          payout_structure: { first: 70, second: 20, third: 10 },
+          payout_structure: { type: 'top_n_split', max_winners: 3 },
           entry_count: 5,
           user_has_entered: false,
           lock_time: new Date(Date.now() + 3600000).toISOString(),
@@ -1532,7 +1691,7 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           ...mockInstanceWithTemplate,
           status: 'SCHEDULED',
-          payout_structure: { first: 70, second: 20, third: 10 },
+          payout_structure: { type: 'top_n_split', max_winners: 3 },
           entry_count: 5,
           user_has_entered: false,
           lock_time: new Date(Date.now() + 3600000).toISOString(),
@@ -1565,7 +1724,7 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           ...mockInstanceWithTemplate,
           status: 'SCHEDULED',
-          payout_structure: { first: 70, second: 20, third: 10 },
+          payout_structure: { type: 'top_n_split', max_winners: 3 },
           entry_count: 5,
           user_has_entered: false,
           lock_time: new Date(Date.now() + 3600000).toISOString(),
@@ -1599,7 +1758,7 @@ describe('Custom Contest Routes', () => {
           ...mockInstanceWithTemplate,
           organizer_id: TEST_USER_ID.toUpperCase(), // Test case-insensitive comparison
           status: 'SCHEDULED',
-          payout_structure: { first: 70, second: 20, third: 10 },
+          payout_structure: { type: 'top_n_split', max_winners: 3 },
           entry_count: 5,
           user_has_entered: true,
           lock_time: new Date(Date.now() + 3600000).toISOString(),
@@ -1629,7 +1788,7 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single({
           ...mockInstanceWithTemplate,
           status: 'SCHEDULED',
-          payout_structure: { first: 70, second: 20, third: 10 },
+          payout_structure: { type: 'top_n_split', max_winners: 3 },
           entry_count: 5,
           user_has_entered: false,
           lock_time: new Date(Date.now() + 3600000).toISOString(),
@@ -1848,7 +2007,7 @@ describe('Custom Contest Routes', () => {
           id: contestId,
           organizer_id: TEST_USER_ID,
           status: 'SCHEDULED',
-          payout_structure: { first: 100 }
+          payout_structure: { type: 'winner_take_all', max_winners: 1 }
         })
       );
 
@@ -1890,7 +2049,7 @@ describe('Custom Contest Routes', () => {
           id: contestId,
           organizer_id: TEST_USER_ID.toLowerCase(), // Store as lowercase
           status: 'SCHEDULED',
-          payout_structure: { first: 100 }
+          payout_structure: { type: 'winner_take_all', max_winners: 1 }
         })
       );
 
@@ -2102,7 +2261,7 @@ describe('Custom Contest Routes', () => {
           id: contestId,
           organizer_id: TEST_USER_ID,
           status: 'CANCELLED',
-          payout_structure: { first: 100 }
+          payout_structure: { type: 'winner_take_all', max_winners: 1 }
         })
       );
 
@@ -2140,7 +2299,7 @@ describe('Custom Contest Routes', () => {
             id: contestId,
             organizer_id: TEST_USER_ID,
             status: 'SCHEDULED',
-            payout_structure: { first: 100 }
+            payout_structure: { type: 'winner_take_all', max_winners: 1 }
           })
         );
 
@@ -2181,7 +2340,7 @@ describe('Custom Contest Routes', () => {
             id: contestId,
             organizer_id: TEST_USER_ID,
             status: 'SCHEDULED',
-            payout_structure: { first: 100 }
+            payout_structure: { type: 'winner_take_all', max_winners: 1 }
           })
         );
 
@@ -2222,7 +2381,7 @@ describe('Custom Contest Routes', () => {
             id: contestId,
             organizer_id: TEST_USER_ID,
             status: 'SCHEDULED',
-            payout_structure: { first: 100 }
+            payout_structure: { type: 'winner_take_all', max_winners: 1 }
           })
         );
 
@@ -2259,7 +2418,7 @@ describe('Custom Contest Routes', () => {
             id: contestId,
             organizer_id: TEST_USER_ID,
             status: 'SCHEDULED',
-            payout_structure: { first: 100 }
+            payout_structure: { type: 'winner_take_all', max_winners: 1 }
           })
         );
 
@@ -2311,7 +2470,7 @@ describe('Custom Contest Routes', () => {
           status: 'SCHEDULED',
           lock_time: new Date(Date.now() + 3600000).toISOString(),
           entry_count: 3,
-          payout_structure: { first: 100 },
+          payout_structure: { type: 'winner_take_all', max_winners: 1 },
           contest_name: 'Test Contest',
           max_entries: 10,
           entry_fee_cents: 2500,
@@ -2454,7 +2613,7 @@ describe('Custom Contest Routes', () => {
           status: 'SCHEDULED',
           lock_time: new Date(Date.now() + 3600000).toISOString(),
           entry_count: 0,
-          payout_structure: { first: 100 },
+          payout_structure: { type: 'winner_take_all', max_winners: 1 },
           contest_name: 'Test Contest',
           max_entries: 10,
           entry_fee_cents: 2500,
@@ -2505,7 +2664,7 @@ describe('Custom Contest Routes', () => {
           status: 'SCHEDULED',
           lock_time: new Date(Date.now() + 3600000).toISOString(),
           entry_count: 5,
-          payout_structure: { first: 100 },
+          payout_structure: { type: 'winner_take_all', max_winners: 1 },
           contest_name: 'Test Contest',
           max_entries: 10,
           entry_fee_cents: 2500,
@@ -2562,7 +2721,7 @@ describe('Custom Contest Routes', () => {
           status: 'SCHEDULED',
           lock_time: new Date(Date.now() + 3600000).toISOString(),
           entry_count: 0,
-          payout_structure: { first: 100 },
+          payout_structure: { type: 'winner_take_all', max_winners: 1 },
           contest_name: 'Test Contest',
           max_entries: 10,
           entry_fee_cents: 2500,

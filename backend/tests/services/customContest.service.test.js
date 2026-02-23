@@ -28,8 +28,8 @@ const mockTemplate = {
   allowed_entry_fee_min_cents: 0,
   allowed_entry_fee_max_cents: 10000,
   allowed_payout_structures: [
-    { first: 70, second: 20, third: 10 },
-    { first: 100 }
+    { type: 'top_n_split', max_winners: 3 },
+    { type: 'winner_take_all', max_winners: 1 }
   ],
   is_active: true,
   created_at: new Date(),
@@ -43,12 +43,13 @@ const mockInstance = {
   contest_name: 'Test Contest',
   max_entries: 20,
   entry_fee_cents: 2500,
-  payout_structure: { first: 70, second: 20, third: 10 },
+  payout_structure: { type: 'top_n_split', max_winners: 3 },
   status: 'SCHEDULED',
   join_token: null,
   start_time: null,
   lock_time: new Date(Date.now() + 3600 * 1000).toISOString(), // 1 hour from now (required for SCHEDULED)
   settle_time: null,
+  prize_pool_cents: 10000, // For payout table derivation
   created_at: new Date(),
   updated_at: new Date()
 };
@@ -150,15 +151,275 @@ describe('Custom Contest Service Unit Tests', () => {
       });
     });
 
+    describe('assertTemplatePayoutStructuresContract', () => {
+      it('should pass for template with valid payout structures', () => {
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(mockTemplate);
+        }).not.toThrow();
+      });
+
+      it('should throw if allowed_payout_structures is missing', () => {
+        const badTemplate = { ...mockTemplate, allowed_payout_structures: undefined };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('[Template Contract Violation]');
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('missing or empty allowed_payout_structures');
+      });
+
+      it('should throw if allowed_payout_structures is null', () => {
+        const badTemplate = { ...mockTemplate, allowed_payout_structures: null };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('[Template Contract Violation]');
+      });
+
+      it('should throw if allowed_payout_structures is empty array', () => {
+        const badTemplate = { ...mockTemplate, allowed_payout_structures: [] };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('[Template Contract Violation]');
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('missing or empty allowed_payout_structures');
+      });
+
+      it('should throw if allowed_payout_structures is not an array', () => {
+        const badTemplate = { ...mockTemplate, allowed_payout_structures: { type: 'top_n_split' } };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('[Template Contract Violation]');
+      });
+
+      it('should throw if item in allowed_payout_structures is not an object', () => {
+        const badTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [
+            { type: 'top_n_split', max_winners: 3 },
+            'not_an_object'
+          ]
+        };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('[Template Contract Violation]');
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('is not an object');
+      });
+
+      it('should throw if item is an array', () => {
+        const badTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [['not', 'an', 'object']]
+        };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('[Template Contract Violation]');
+      });
+
+      it('should throw if item missing required type field', () => {
+        const badTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [
+            { max_winners: 3 } // missing type
+          ]
+        };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('[Template Contract Violation]');
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('missing required \'type\' string field');
+      });
+
+      it('should throw if type field is not a string', () => {
+        const badTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [
+            { type: 123, max_winners: 3 }
+          ]
+        };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('[Template Contract Violation]');
+      });
+
+      it('should throw if max_winners is invalid (not integer)', () => {
+        const badTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [
+            { type: 'top_n_split', max_winners: 3.5 }
+          ]
+        };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('[Template Contract Violation]');
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('invalid max_winners');
+      });
+
+      it('should throw if max_winners is <= 0', () => {
+        const badTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [
+            { type: 'top_n_split', max_winners: 0 }
+          ]
+        };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('[Template Contract Violation]');
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(badTemplate);
+        }).toThrow('invalid max_winners');
+      });
+
+      it('should accept null max_winners (optional)', () => {
+        const goodTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [
+            { type: 'top_n_split', max_winners: null }
+          ]
+        };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(goodTemplate);
+        }).not.toThrow();
+      });
+
+      it('should accept undefined max_winners (optional)', () => {
+        const goodTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [
+            { type: 'top_n_split' }
+          ]
+        };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(goodTemplate);
+        }).not.toThrow();
+      });
+
+      it('should accept multiple items with valid structures', () => {
+        const goodTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [
+            { type: 'top_n_split', max_winners: 3 },
+            { type: 'winner_take_all', max_winners: 1 },
+            { type: 'prize_pool' } // no max_winners
+          ]
+        };
+        expect(() => {
+          customContestService.assertTemplatePayoutStructuresContract(goodTemplate);
+        }).not.toThrow();
+      });
+    });
+
+    describe('mapTemplateToApiResponse', () => {
+      it('should map template_type field to type in API response', () => {
+        const dbRow = {
+          ...mockTemplate,
+          template_type: 'playoff_challenge'
+        };
+        const mapped = customContestService.mapTemplateToApiResponse(dbRow);
+        expect(mapped.type).toBe('playoff_challenge');
+        expect(mapped).not.toHaveProperty('template_type');
+      });
+
+      it('should preserve all other fields', () => {
+        const dbRow = mockTemplate;
+        const mapped = customContestService.mapTemplateToApiResponse(dbRow);
+        expect(mapped.id).toBe(dbRow.id);
+        expect(mapped.name).toBe(dbRow.name);
+        expect(mapped.sport).toBe(dbRow.sport);
+        expect(mapped.is_active).toBe(dbRow.is_active);
+      });
+
+      it('should preserve allowed_payout_structures unchanged', () => {
+        const dbRow = mockTemplate;
+        const mapped = customContestService.mapTemplateToApiResponse(dbRow);
+        expect(mapped.allowed_payout_structures).toEqual(dbRow.allowed_payout_structures);
+      });
+
+      it('should include fee constraints', () => {
+        const dbRow = mockTemplate;
+        const mapped = customContestService.mapTemplateToApiResponse(dbRow);
+        expect(mapped.default_entry_fee_cents).toBe(2500);
+        expect(mapped.allowed_entry_fee_min_cents).toBe(0);
+        expect(mapped.allowed_entry_fee_max_cents).toBe(10000);
+      });
+    });
+
     describe('listActiveTemplates', () => {
-      it('should return all active templates', async () => {
+      it('should return all active templates with validation and mapping', async () => {
         mockPool.setQueryResponse(
-          /SELECT[\s\S]*FROM contest_templates WHERE is_active/,
+          /WHERE is_active/,
           mockQueryResponses.multiple([mockTemplate, { ...mockTemplate, id: 'template-2', name: 'March Madness' }])
         );
 
         const templates = await customContestService.listActiveTemplates(mockPool);
         expect(templates).toHaveLength(2);
+        // Verify mapping: template_type -> type
+        expect(templates[0].type).toBe(mockTemplate.template_type);
+        expect(templates[0]).not.toHaveProperty('template_type');
+      });
+
+      it('should validate all templates and throw on contract violation', async () => {
+        const badTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [] // empty - violates contract
+        };
+        mockPool.setQueryResponse(
+          /WHERE is_active/,
+          mockQueryResponses.single(badTemplate)
+        );
+
+        await expect(
+          customContestService.listActiveTemplates(mockPool)
+        ).rejects.toThrow('[Template Contract Violation]');
+      });
+
+      it('should throw if any template missing required type field', async () => {
+        const badTemplate = {
+          ...mockTemplate,
+          allowed_payout_structures: [
+            { max_winners: 3 } // missing type
+          ]
+        };
+        mockPool.setQueryResponse(
+          /WHERE is_active/,
+          mockQueryResponses.single(badTemplate)
+        );
+
+        await expect(
+          customContestService.listActiveTemplates(mockPool)
+        ).rejects.toThrow('[Template Contract Violation]');
+      });
+
+      it('should return empty array if no active templates', async () => {
+        mockPool.setQueryResponse(
+          /WHERE is_active/,
+          mockQueryResponses.empty()
+        );
+
+        const templates = await customContestService.listActiveTemplates(mockPool);
+        expect(templates).toEqual([]);
+      });
+
+      it('should query only required fields for efficiency', async () => {
+        mockPool.setQueryResponse(
+          /WHERE is_active/,
+          mockQueryResponses.multiple([mockTemplate])
+        );
+
+        await customContestService.listActiveTemplates(mockPool);
+        const queries = mockPool.getQueryHistory();
+        expect(queries).toHaveLength(1);
+        const sql = queries[0].sql;
+        // Verify SELECT includes key fields
+        expect(sql).toContain('id');
+        expect(sql).toContain('name');
+        expect(sql).toContain('template_type');
+        expect(sql).toContain('allowed_payout_structures');
       });
     });
   });
@@ -207,7 +468,7 @@ describe('Custom Contest Service Unit Tests', () => {
       it('should accept payout structure that matches allowed', () => {
         expect(() => {
           customContestService.validatePayoutStructureAgainstTemplate(
-            { first: 70, second: 20, third: 10 },
+            { type: 'top_n_split', max_winners: 3 },
             mockTemplate
           );
         }).not.toThrow();
@@ -216,7 +477,7 @@ describe('Custom Contest Service Unit Tests', () => {
       it('should accept winner-take-all if allowed', () => {
         expect(() => {
           customContestService.validatePayoutStructureAgainstTemplate(
-            { first: 100 },
+            { type: 'winner_take_all', max_winners: 1 },
             mockTemplate
           );
         }).not.toThrow();
@@ -241,7 +502,7 @@ describe('Custom Contest Service Unit Tests', () => {
         const badTemplate = { ...mockTemplate, allowed_payout_structures: null };
         expect(() => {
           customContestService.validatePayoutStructureAgainstTemplate(
-            { first: 100 },
+            { type: 'winner_take_all', max_winners: 1 },
             badTemplate
           );
         }).toThrow('Template has no allowed payout structures defined');
@@ -270,7 +531,7 @@ describe('Custom Contest Service Unit Tests', () => {
           template_id: TEST_TEMPLATE_ID,
           contest_name: 'Test Contest',
           entry_fee_cents: 2500,
-          payout_structure: { first: 70, second: 20, third: 10 }
+          payout_structure: { type: 'top_n_split', max_winners: 3 }
         });
 
         expect(instance).toBeDefined();

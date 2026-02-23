@@ -35,7 +35,7 @@ describe('Contract Freeze', () => {
     // - Added organizer_name (optional, nullable) to ContestDetailResponse
     // - Added lock_time (optional, nullable) to ContestDetailResponse
     // - Brings detail endpoint into parity with list endpoint
-    const expectedHash = 'b2948658b62df8635def3a22fda08c8e60c6c108bdb409051874b296b53e049d';
+    const expectedHash = 'ac4418fb2ffd764558c1749c308fc2806b92cdc42019c6840d9da38f84268a2c';
 
     // The hashes must match - if they don't, the contract has drifted
     expect(currentHash).toBe(expectedHash);

@@ -1183,6 +1183,20 @@ components:
           type: string
           description: Currency code (always USD)
 
+    PayoutStructure:
+      type: object
+      description: Selected payout distribution for a contest
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          description: Identifier of payout strategy (e.g. winner_take_all, top_n_split)
+        max_winners:
+          type: integer
+          nullable: true
+          description: Maximum winners if payout strategy supports multiple winners
+
     RosterConfig:
       type: object
       description: |
@@ -1258,6 +1272,7 @@ components:
         - type
         - sport
         - is_active
+        - allowed_payout_structures
       properties:
         id:
           type: string
@@ -1272,6 +1287,11 @@ components:
           description: Sport type (e.g., NFL, NBA)
         is_active:
           type: boolean
+        allowed_payout_structures:
+          type: array
+          description: List of payout structures allowed for this template. Backend authoritative.
+          items:
+            $ref: '#/components/schemas/PayoutStructure'
 
     JoinTokenResolution:
       type: object
@@ -1315,18 +1335,7 @@ components:
           minimum: 0
           description: Entry fee in cents
         payout_structure:
-          type: object
-          description: Selected payout distribution for this contest
-          required:
-            - type
-          properties:
-            type:
-              type: string
-              description: Identifier of payout strategy (e.g. winner_take_all, top_n_split)
-            max_winners:
-              type: integer
-              nullable: true
-              description: Maximum winners if payout strategy supports multiple winners
+          $ref: '#/components/schemas/PayoutStructure'
         start_time:
           type: string
           format: date-time
