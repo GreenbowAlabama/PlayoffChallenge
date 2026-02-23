@@ -1297,6 +1297,7 @@ components:
       required:
         - template_id
         - entry_fee_cents
+        - payout_structure
       properties:
         template_id:
           type: string
