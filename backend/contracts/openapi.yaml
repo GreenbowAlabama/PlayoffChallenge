@@ -1293,7 +1293,6 @@ components:
 
     CreateContestRequest:
       type: object
-      description: Request body for creating a new contest instance
       required:
         - template_id
         - entry_fee_cents
@@ -1302,34 +1301,24 @@ components:
         template_id:
           type: string
           format: uuid
-          description: Template to use for this contest
         contest_name:
           type: string
-          description: Display name for the contest
         max_entries:
           type: integer
           nullable: true
-          description: Maximum number of participants (null = unlimited)
         entry_fee_cents:
           type: integer
           minimum: 0
-          description: Entry fee in cents
         payout_structure:
           type: object
-          nullable: true
-          description: Payout distribution
-        start_time:
-          type: string
-          format: date-time
-          nullable: true
-        lock_time:
-          type: string
-          format: date-time
-          nullable: true
-        settlement_time:
-          type: string
-          format: date-time
-          nullable: true
+          required:
+            - type
+          properties:
+            type:
+              type: string
+            max_winners:
+              type: integer
+              nullable: true
 
     PublishResponse:
       type: object
