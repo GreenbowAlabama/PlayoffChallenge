@@ -24,30 +24,37 @@ struct MyContestsView: View {
                 List {
                     Section {
                         ForEach(viewModel.sortedContests) { contest in
-                            MyContestRowView(contest: contest)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    selectedContest = contest
-                                }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    if contest.actions?.can_delete == true {
-                                        Button(role: .destructive) {
-                                            pendingDeleteId = contest.id
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
-                                        .disabled(viewModel.deletingIds.contains(contest.id))
+                            ContestRowView(
+                                contestName: contest.name,
+                                isJoined: contest.isJoined,
+                                entryCountText: "\(contest.entryCount)/\(contest.maxEntries)",
+                                statusText: contest.displayStatus,
+                                lockText: formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)?.text,
+                                entryFeeText: contest.entryFee > 0 ? String(format: "$%.0f Entry", contest.entryFee) : nil
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedContest = contest
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if contest.actions?.can_delete == true {
+                                    Button(role: .destructive) {
+                                        pendingDeleteId = contest.id
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
                                     }
+                                    .disabled(viewModel.deletingIds.contains(contest.id))
+                                }
 
-                                    if contest.actions?.can_unjoin == true {
-                                        Button(role: .destructive) {
-                                            pendingUnjoinId = contest.id
-                                        } label: {
-                                            Label("Leave", systemImage: "arrow.left.circle")
-                                        }
-                                        .disabled(viewModel.deletingIds.contains(contest.id))
+                                if contest.actions?.can_unjoin == true {
+                                    Button(role: .destructive) {
+                                        pendingUnjoinId = contest.id
+                                    } label: {
+                                        Label("Leave", systemImage: "arrow.left.circle")
                                     }
+                                    .disabled(viewModel.deletingIds.contains(contest.id))
                                 }
+                            }
                         }
                     } header: {
                         Text("My Contests")
@@ -117,70 +124,6 @@ struct EmptyContestsView: View {
     }
 }
 
-// MARK: - My Contest Row
-
-struct MyContestRowView: View {
-    let contest: MockContest
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "trophy.fill")
-                .font(.title2)
-                .foregroundColor(.blue)
-                .frame(width: 44, height: 44)
-                .background(Color.blue.opacity(0.15))
-                .cornerRadius(10)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(contest.name)
-                    .font(.headline)
-
-                HStack(spacing: 8) {
-                    Label("\(contest.entryCount)/\(contest.maxEntries)", systemImage: "person.2")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    StatusBadge(status: contest.displayStatus)
-                }
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .foregroundColor(.secondary)
-        }
-        .padding(.vertical, 8)
-    }
-}
-
-// MARK: - Status Badge
-
-struct StatusBadge: View {
-    let status: String
-
-    var body: some View {
-        Text(status)
-            .font(.caption)
-            .fontWeight(.medium)
-            .foregroundColor(statusColor)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(statusColor.opacity(0.15))
-            .cornerRadius(4)
-    }
-
-    private var statusColor: Color {
-        switch status {
-        case "SCHEDULED": return .green
-        case "LOCKED": return .orange
-        case "COMPLETE": return .blue
-        case "LIVE": return .red
-        case "CANCELLED": return .gray
-        case "ERROR": return .red
-        default: return .secondary
-        }
-    }
-}
 
 #Preview {
     NavigationStack {

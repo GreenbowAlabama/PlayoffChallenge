@@ -9,11 +9,32 @@ import SwiftUI
 
 struct LandingView: View {
     @EnvironmentObject var authService: AuthService
-    @StateObject private var viewModel = LandingViewModel()
+    @EnvironmentObject var availableVM: AvailableContestsViewModel
+    @EnvironmentObject var myVM: MyContestsViewModel
+    @ObservedObject var viewModel: LandingViewModel
 
     var body: some View {
         NavigationStack(path: $viewModel.navigationPath) {
             VStack(spacing: 24) {
+                // Next Lock Banner (if applicable)
+                if let nextContest = viewModel.nextRelevantScheduledContest(
+                    available: availableVM.contests,
+                    mine: myVM.myContests
+                ),
+                   let display = formatLockTimeForDisplay(
+                       lockTime: nextContest.lockTime,
+                       status: nextContest.status
+                   ) {
+                    NextLockBanner(
+                        contestName: nextContest.name,
+                        lockTimeText: display.text,
+                        urgency: display.urgency,
+                        isJoinable: !nextContest.isJoined
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                }
+
                 Spacer()
 
                 // App Title
@@ -72,24 +93,27 @@ struct LandingView: View {
             .navigationDestination(for: LandingDestination.self) { destination in
                 destinationView(for: destination)
             }
+            .onAppear { print("LandingView appear") }
         }
-        .environmentObject(viewModel)
     }
 
     @ViewBuilder
     private func destinationView(for destination: LandingDestination) -> some View {
+        let _ = print("RESOLVE: \(destination)")
         switch destination {
         case .availableContests:
-            AvailableContestsView()
+            AvailableContestsView(viewModel: availableVM)
         case .createContest:
-            CreateContestFlowView()
-        case .myContests:
-            MyContestsView(
-                viewModel: MyContestsViewModel(
-                    apiClient: APIService.shared,
-                    userId: authService.currentUser?.id.uuidString ?? "00000000-0000-0000-0000-000000000000"
+            CreateCustomContestView(
+                viewModel: CreateCustomContestViewModel(
+                    service: CustomContestService(
+                        apiService: APIService.shared
+                    ),
+                    userId: authService.currentUser!.id
                 )
             )
+        case .myContests:
+            MyContestsView(viewModel: myVM)
         case .profile:
             ProfileView()
         case .contestDetail(let contestId):
@@ -136,6 +160,6 @@ struct NavigationButton: View {
 }
 
 #Preview {
-    LandingView()
+    LandingView(viewModel: LandingViewModel())
         .environmentObject(AuthService())
 }

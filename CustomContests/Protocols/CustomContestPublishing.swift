@@ -12,5 +12,5 @@ protocol CustomContestPublishing {
     func publish(
         contestId: UUID,
         userId: UUID
-    ) async throws -> PublishContestResult
+    ) async throws -> PublishResult
 }

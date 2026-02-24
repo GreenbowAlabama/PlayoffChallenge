@@ -9,8 +9,12 @@ import SwiftUI
 
 struct AvailableContestsView: View {
     @EnvironmentObject var authService: AuthService
-    @StateObject private var viewModel = AvailableContestsViewModel()
+    @ObservedObject var viewModel: AvailableContestsViewModel
     @State private var selectedContest: MockContest?
+
+    init(viewModel: AvailableContestsViewModel) {
+        self.viewModel = viewModel
+    }
 
     var body: some View {
         List {
@@ -31,11 +35,18 @@ struct AvailableContestsView: View {
                         }
                 } else {
                     ForEach(viewModel.contests) { contest in
-                        ContestRowView(contest: contest)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedContest = contest
-                            }
+                        ContestRowView(
+                            contestName: contest.name,
+                            isJoined: contest.isJoined,
+                            entryCountText: "\(contest.entryCount)/\(contest.maxEntries)",
+                            statusText: contest.displayStatus,
+                            lockText: formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)?.text,
+                            entryFeeText: contest.entryFee > 0 ? String(format: "$%.0f Entry", contest.entryFee) : nil
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedContest = contest
+                        }
                     }
                 }
             } header: {
@@ -54,73 +65,15 @@ struct AvailableContestsView: View {
             await viewModel.refresh()
         }
         .task(id: authService.isAuthenticated) {
-            if authService.isAuthenticated {
+            if authService.isAuthenticated && viewModel.contests.isEmpty && !viewModel.isLoading {
                 await viewModel.loadContests()
             }
         }
     }
 }
 
-// MARK: - Contest Row
-
-struct ContestRowView: View {
-    let contest: MockContest
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Contest Icon
-            Image(systemName: contest.isJoined ? "checkmark.circle.fill" : "trophy.fill")
-                .font(.title2)
-                .foregroundColor(contest.isJoined ? .green : .orange)
-                .frame(width: 44, height: 44)
-                .background((contest.isJoined ? Color.green : Color.orange).opacity(0.15))
-                .cornerRadius(10)
-
-            // Contest Info
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(contest.name)
-                        .font(.headline)
-
-                    if contest.isJoined {
-                        Text("Joined")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.green)
-                            .cornerRadius(4)
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    Label("\(contest.entryCount)/\(contest.maxEntries)", systemImage: "person.2")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Text(contest.displayStatus)
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(.green)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.green.opacity(0.15))
-                        .cornerRadius(4)
-                }
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .foregroundColor(.secondary)
-        }
-        .padding(.vertical, 8)
-    }
-}
-
 #Preview {
     NavigationStack {
-        AvailableContestsView()
+        AvailableContestsView(viewModel: AvailableContestsViewModel())
     }
 }

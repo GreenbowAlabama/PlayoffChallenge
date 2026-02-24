@@ -9,6 +9,7 @@
 
 import Combine
 import Foundation
+import Core
 
 /// ViewModel for Contest Detail screen.
 /// Sole owner of join logic — all join paths terminate here.
@@ -19,7 +20,7 @@ final class ContestDetailViewModel: ObservableObject {
     // MARK: - Published State
 
     @Published private(set) var contest: MockContest
-    @Published private(set) var contractContest: ContestDetailResponseContract?
+    @Published private(set) var actionState: ContestActionState?
     @Published private(set) var isLoading = false
     @Published private(set) var isFetching = false
     @Published private(set) var isJoining = false
@@ -77,36 +78,31 @@ final class ContestDetailViewModel: ObservableObject {
         }
     }
 
-    /// Fetches contest detail from the backend.
+    /// Fetches contest action state from the backend.
     /// Overwrites all placeholder data with the authoritative backend response.
     /// Always fetches on explicit refresh, skips duplicate fetch only on initial load.
     func fetchContestDetail() async {
         guard !hasFetched || isFetching else { return }
         isFetching = true
-        print("JOIN PREVIEW FETCHING CONTEST DETAIL \(contestId)")
+        print("JOIN PREVIEW FETCHING CONTEST ACTION STATE \(contestId)")
 
         do {
-            // Fetch the authoritative contract from backend
-            let fetchedContract = try await detailFetcher.fetchContestDetailContract(contestId: contestId)
-            contractContest = fetchedContract
+            // Fetch the authoritative action state from backend
+            let fetchedActionState = try await detailFetcher.fetchContestActionState(contestId: contestId)
+            actionState = fetchedActionState
 
             // Log server-returned actions (DEBUGGING)
             print("""
             SERVER ACTIONS:
-            status=\(fetchedContract.leaderboard_state)
-            can_join=\(fetchedContract.actions.can_join)
-            can_delete=\(fetchedContract.actions.can_delete)
-            can_unjoin=\(fetchedContract.actions.can_unjoin)
-            can_edit_entry=\(fetchedContract.actions.can_edit_entry)
+            leaderboardState=\(fetchedActionState.leaderboardState)
+            can_join=\(fetchedActionState.actions.canJoin)
+            can_delete=\(fetchedActionState.actions.canDelete)
+            can_unjoin=\(fetchedActionState.actions.canUnjoin)
+            can_edit_entry=\(fetchedActionState.actions.canEditEntry)
             """)
 
-            // Also fetch legacy data for backward compatibility
-            let fetched = try await detailFetcher.fetchDetail(contestId: contestId)
-
-            // Backend response is the single source of truth — no merging with placeholder
-            contest = fetched
             hasFetched = true
-            print("ContestDetailViewModel: contest set → \(fetched.id)")
+            print("ContestDetailViewModel: action state set → \(fetchedActionState.contestId)")
         } catch {
             // On fetch failure, keep placeholder data — don't blank the screen
             print("ContestDetailViewModel: fetch failed — \(error.localizedDescription)")
@@ -120,24 +116,21 @@ final class ContestDetailViewModel: ObservableObject {
         isFetching = true
 
         do {
-            // Fetch the authoritative contract from backend
-            let fetchedContract = try await detailFetcher.fetchContestDetailContract(contestId: contestId)
-            contractContest = fetchedContract
+            // Fetch the authoritative action state from backend
+            let fetchedActionState = try await detailFetcher.fetchContestActionState(contestId: contestId)
+            actionState = fetchedActionState
 
             // Log server-returned actions (DEBUGGING)
             print("""
             SERVER ACTIONS (REFRESH):
-            status=\(fetchedContract.leaderboard_state)
-            can_join=\(fetchedContract.actions.can_join)
-            can_delete=\(fetchedContract.actions.can_delete)
-            can_unjoin=\(fetchedContract.actions.can_unjoin)
-            can_edit_entry=\(fetchedContract.actions.can_edit_entry)
+            leaderboardState=\(fetchedActionState.leaderboardState)
+            can_join=\(fetchedActionState.actions.canJoin)
+            can_delete=\(fetchedActionState.actions.canDelete)
+            can_unjoin=\(fetchedActionState.actions.canUnjoin)
+            can_edit_entry=\(fetchedActionState.actions.canEditEntry)
             """)
 
-            // Also fetch legacy data for backward compatibility
-            let fetched = try await detailFetcher.fetchDetail(contestId: contestId)
-            contest = fetched
-            print("ContestDetailViewModel: refreshed → \(fetched.id)")
+            print("ContestDetailViewModel: action state refreshed → \(fetchedActionState.contestId)")
         } catch {
             print("ContestDetailViewModel: refresh failed — \(error.localizedDescription)")
         }
@@ -150,27 +143,27 @@ final class ContestDetailViewModel: ObservableObject {
     /// Whether the user can join this contest.
     /// Gated by backend-provided actions only.
     var canJoinContest: Bool {
-        guard let contract = contractContest else { return false }
-        return contract.actions.can_join
+        guard let state = actionState else { return false }
+        return state.actions.canJoin
     }
 
     var canSelectLineup: Bool {
-        guard let contract = contractContest else { return false }
-        return contract.actions.can_edit_entry
+        guard let state = actionState else { return false }
+        return state.actions.canEditEntry
     }
 
     var canDeleteContest: Bool {
-        contractContest?.actions.can_delete ?? false
+        actionState?.actions.canDelete ?? false
     }
 
     var canUnjoinContest: Bool {
-        // Backend is authoritative — use can_unjoin flag if contract is available
-        if let contract = contractContest {
-            return contract.actions.can_unjoin
+        // Backend is authoritative — use canUnjoin flag if action state is available
+        if let state = actionState {
+            return state.actions.canUnjoin
         }
 
-        // Fallback only for placeholder state (no contract yet loaded)
-        // Do not infer from other contract fields once contract is available
+        // Fallback only for placeholder state (no action state yet loaded)
+        // Do not infer from other action fields once state is available
         return false
     }
 
@@ -183,9 +176,9 @@ final class ContestDetailViewModel: ObservableObject {
     }
 
     var joinButtonTitle: String {
-        guard let contract = contractContest else { return "Join Contest" }
-        if !contract.actions.can_join {
-            if contract.actions.can_edit_entry {
+        guard let state = actionState else { return "Join Contest" }
+        if !state.actions.canJoin {
+            if state.actions.canEditEntry {
                 return "Joined"
             }
             return "Cannot Join"
@@ -194,15 +187,15 @@ final class ContestDetailViewModel: ObservableObject {
     }
 
     var statusMessage: String? {
-        guard let contract = contractContest else { return nil }
-        if contract.actions.can_edit_entry {
+        guard let state = actionState else { return nil }
+        if state.actions.canEditEntry {
             // User is joined (can edit entry)
             return nil
         }
-        if contract.actions.can_join {
+        if state.actions.canJoin {
             return "Join this contest to select your lineup"
         }
-        if contract.actions.is_closed {
+        if state.actions.isClosed {
             return "This contest is closed"
         }
         return nil
@@ -260,7 +253,7 @@ final class ContestDetailViewModel: ObservableObject {
     /// On 403, show alert and stay
     /// On 404, treat as idempotent and dismiss
     func deleteContest() async {
-        print("DELETE: canDeleteContest=\(canDeleteContest), contractContest?.actions.can_delete=\(contractContest?.actions.can_delete ?? false), contestId=\(contestId)")
+        print("DELETE: canDeleteContest=\(canDeleteContest), actionState?.actions.canDelete=\(actionState?.actions.canDelete ?? false), contestId=\(contestId)")
 
         // Cancel any in-flight refresh before mutation
         refreshTask?.cancel()
@@ -291,7 +284,7 @@ final class ContestDetailViewModel: ObservableObject {
     /// On 403, show alert and stay
     /// On 404, treat as idempotent and dismiss
     func unjoinContest() async {
-        print("UNJOIN: canUnjoinContest=\(canUnjoinContest), contractContest?.actions.can_unjoin=\(contractContest?.actions.can_unjoin ?? false), contestId=\(contestId)")
+        print("UNJOIN: canUnjoinContest=\(canUnjoinContest), actionState?.actions.canUnjoin=\(actionState?.actions.canUnjoin ?? false), contestId=\(contestId)")
 
         // Cancel any in-flight refresh before mutation
         refreshTask?.cancel()

@@ -8,6 +8,7 @@
 
 import Combine
 import Foundation
+import Core
 
 /// ViewModel for Contest Leaderboard screen.
 /// Manages leaderboard data from the authoritative backend contract.
@@ -16,7 +17,7 @@ final class ContestLeaderboardViewModel: ObservableObject {
 
     // MARK: - Published State
 
-    @Published internal(set) var leaderboardContract: LeaderboardResponseContract?
+    @Published internal(set) var leaderboard: Leaderboard?
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
@@ -38,15 +39,15 @@ final class ContestLeaderboardViewModel: ObservableObject {
     // MARK: - Computed Properties
 
     var leaderboardState: LeaderboardState? {
-        leaderboardContract?.leaderboard_state
+        leaderboard?.state
     }
 
-    var columnSchema: [LeaderboardColumnSchema] {
-        leaderboardContract?.column_schema ?? []
+    var columns: [LeaderboardColumn] {
+        leaderboard?.columns ?? []
     }
 
-    var rows: [LeaderboardRow] {
-        leaderboardContract?.rows ?? []
+    var rows: [[String: AnyCodable]] {
+        leaderboard?.rows ?? []
     }
 
     var isPending: Bool {
@@ -61,10 +62,6 @@ final class ContestLeaderboardViewModel: ObservableObject {
         leaderboardState == .error
     }
 
-    var hasUnknownState: Bool {
-        leaderboardState == .unknown
-    }
-
     var isEmpty: Bool {
         isComputed && rows.isEmpty
     }
@@ -76,8 +73,8 @@ final class ContestLeaderboardViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let contract = try await fetcher.fetchLeaderboard(contestId: contestId)
-            leaderboardContract = contract
+            let fetched = try await fetcher.fetchLeaderboard(contestId: contestId)
+            leaderboard = fetched
         } catch {
             errorMessage = error.localizedDescription
             print("ContestLeaderboardViewModel: fetch failed — \(error.localizedDescription)")

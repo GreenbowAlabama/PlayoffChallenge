@@ -7,6 +7,7 @@
 
 import Combine
 import Foundation
+import Core
 
 /// ViewModel for the Available Contests screen.
 /// Loads and manages the list of joinable contests from backend.

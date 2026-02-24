@@ -12,8 +12,6 @@ struct CreateContestFlowView: View {
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var viewModel: LandingViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var createdContest: MockContest?
-    @State private var showContestDetail = false
 
     var body: some View {
         VStack {
@@ -21,9 +19,8 @@ struct CreateContestFlowView: View {
                 CreateContestFormView(
                     userId: userId,
                     creatorUsername: authService.currentUser?.username ?? "Unknown",
-                    onContestCreated: { contest in
-                        createdContest = contest
-                        showContestDetail = true
+                    onContestCreated: { contestId in
+                        viewModel.navigateToContestDetailAfterCreation(contestId: contestId)
                     }
                 )
             } else {
@@ -44,14 +41,6 @@ struct CreateContestFlowView: View {
         }
         .navigationTitle("Create Contest")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $showContestDetail) {
-            if let contest = createdContest {
-                ContestDetailView(contest: contest, resetOnExit: true)
-                    .onDisappear {
-                        viewModel.navigateToMyContests()
-                    }
-            }
-        }
     }
 }
 
@@ -60,7 +49,7 @@ struct CreateContestFlowView: View {
 struct CreateContestFormView: View {
     let userId: UUID
     let creatorUsername: String
-    let onContestCreated: (MockContest) -> Void
+    let onContestCreated: (UUID) -> Void
 
     @State private var contestName = ""
     @State private var maxEntries = 20
@@ -167,22 +156,10 @@ struct CreateContestFormView: View {
 
                 let result = try await service.createAndPublish(input: input, userId: userId)
 
-                let contest = MockContest(
-                    id: result.id,
-                    name: result.name,
-                    entryCount: 1,
-                    maxEntries: maxEntries,
-                    status: ContestStatus(rawValue: result.status) ?? .scheduled,
-                    creatorName: creatorUsername,
-                    entryFee: entryFee,
-                    joinToken: result.joinToken,
-                    joinURL: result.joinURL,
-                    isJoined: true,
-                    lockTime: selectedLockTime
-                )
-
                 isCreating = false
-                onContestCreated(contest)
+                // Emit contest ID to parent for navigation
+                // Parent (LandingViewModel) will handle navigating to ContestDetailView
+                onContestCreated(result.id)
             } catch {
                 print("[CreateContest] Error: \(error)")
                 isCreating = false
@@ -194,7 +171,13 @@ struct CreateContestFormView: View {
 
 #Preview {
     NavigationStack {
-        CreateContestFlowView()
-            .environmentObject(AuthService())
+        CreateCustomContestView(
+            viewModel: CreateCustomContestViewModel(
+                service: CustomContestService(
+                    apiService: APIService.shared
+                ),
+                userId: UUID()
+            )
+        )
     }
 }

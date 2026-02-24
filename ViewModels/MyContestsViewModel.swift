@@ -8,49 +8,16 @@
 import Combine
 import Foundation
 
-// MARK: - DTOs (Data Transfer Objects)
-struct ContestListDTO: Decodable, Identifiable {
-    let id: String
-    let status: String
-    let templateName: String
-    let templateSport: String
-    let templateType: String
-    let createdAt: Date
-    let lockTime: Date?
-    let joinToken: String?
-    let maxEntries: Int?
-    let entriesCurrent: Int
-    let contestName: String
-    let userHasEntered: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case status
-        case templateName = "template_name"
-        case templateSport = "template_sport"
-        case templateType = "template_type"
-        case createdAt = "created_at"
-        case lockTime = "lock_time"
-        case joinToken = "join_token"
-        case maxEntries = "max_entries"
-        case entriesCurrent = "entry_count"
-        case contestName = "contest_name"
-        case userHasEntered = "user_has_entered"
-    }
-}
-
 /// ViewModel for displaying contests user has joined or created.
 @MainActor
 final class MyContestsViewModel: ObservableObject {
 
     // MARK: - Dependencies
-    private let apiClient: APIClient
-    private let userId: String
+    private let service: ContestServiceing
     private var refreshTask: Task<Void, Never>?
 
-    init(apiClient: APIClient = APIService.shared, userId: String) {
-        self.apiClient = apiClient
-        self.userId = userId
+    init(service: ContestServiceing = CustomContestService()) {
+        self.service = service
     }
 
     // MARK: - Published State
@@ -94,7 +61,7 @@ final class MyContestsViewModel: ObservableObject {
             return 3
         case .cancelled:
             return 4
-        case .error, .unknown:
+        case .error:
             return 5
         }
     }
@@ -136,57 +103,39 @@ final class MyContestsViewModel: ObservableObject {
     }
 
     private func fetchCreatedContests() async throws -> [MockContest] {
-        let response: [ContestListDTO] = try await apiClient.get(
-            path: "/api/custom-contests",
-            headers: ["X-User-Id": userId]
-        )
-
-        return response.map { dto in
-            MockContest(
-                id: UUID(uuidString: dto.id) ?? UUID(),
-                name: dto.contestName,
-                entryCount: dto.entriesCurrent,
-                maxEntries: dto.maxEntries ?? 0,
-                status: ContestStatus(rawValue: dto.status) ?? .scheduled,
-                creatorName: "Unknown",
-                entryFee: 0.0,
-                joinToken: dto.joinToken,
-                joinURL: nil,
-                isJoined: false,
-                lockTime: dto.lockTime,
-                startTime: nil,
-                endTime: nil,
-                createdAt: dto.createdAt
-            )
-        }
+        let contests = try await service.fetchCreatedContests()
+        return contests.map(mockContestFromDomain)
     }
 
     private func fetchJoinedContests() async throws -> [MockContest] {
-        let response: [ContestListDTO] = try await apiClient.get(
-            path: "/api/custom-contests/available",
-            headers: ["X-User-Id": userId]
-        )
-
-        return response
+        let contests = try await service.fetchAvailableContests()
+        return contests
             .filter { $0.userHasEntered }
-            .map { dto in
-                MockContest(
-                    id: UUID(uuidString: dto.id) ?? UUID(),
-                    name: dto.contestName,
-                    entryCount: dto.entriesCurrent,
-                    maxEntries: dto.maxEntries ?? 0,
-                    status: ContestStatus(rawValue: dto.status) ?? .scheduled,
-                    creatorName: "Unknown",
-                    entryFee: 0.0,
-                    joinToken: dto.joinToken,
-                    joinURL: nil,
-                    isJoined: true,
-                    lockTime: dto.lockTime,
-                    startTime: nil,
-                    endTime: nil,
-                    createdAt: dto.createdAt
-                )
-            }
+            .map(mockContestFromDomain)
+    }
+
+    private func mockContestFromDomain(_ contest: Contest) -> MockContest {
+        let fee = Double(contest.entryFeeCents) / 100.0
+        let joinURL: URL? = contest.joinToken.flatMap {
+            URL(string: AppEnvironment.shared.baseURL.appendingPathComponent("join/\($0)").absoluteString)
+        }
+
+        return MockContest(
+            id: contest.id,
+            name: contest.contestName,
+            entryCount: contest.entryCount,
+            maxEntries: contest.maxEntries ?? 0,
+            status: contest.status,
+            creatorName: contest.organizerName ?? "Unknown",
+            entryFee: fee,
+            joinToken: contest.joinToken,
+            joinURL: joinURL,
+            isJoined: contest.userHasEntered,
+            lockTime: contest.lockTime,
+            startTime: contest.startTime,
+            endTime: contest.endTime,
+            createdAt: contest.createdAt
+        )
     }
 
     /// Get a contest by ID

@@ -118,20 +118,6 @@ struct MockContest: Identifiable, Hashable, Codable {
             joinToken: "officetoken"
         )
     ]
-
-    static var myContests: [MockContest] = [
-        MockContest(
-            id: UUID(),
-            name: "My Custom Contest",
-            entryCount: 5,
-            maxEntries: 25,
-            status: .scheduled,
-            creatorName: "Player1",
-            entryFee: 20.00,
-            joinToken: "mycustomtoken",
-            isJoined: true
-        )
-    ]
 }
 
 /// ViewModel for the Landing page.
@@ -150,6 +136,7 @@ final class LandingViewModel: ObservableObject {
     }
 
     func navigateToCreateContest() {
+        print("NAV: append createContest, pathCount=\(navigationPath.count+1)")
         navigationPath.append(LandingDestination.createContest)
     }
 
@@ -169,10 +156,66 @@ final class LandingViewModel: ObservableObject {
         navigationPath.append(LandingDestination.leaderboard(contest))
     }
 
+    /// Navigate to contest detail after successful creation.
+    /// Atomically replaces .createContest with .contestDetail(contestId).
+    /// This prevents CreateContestFlowView from remaining in the stack.
+    func navigateToContestDetailAfterCreation(contestId: UUID) {
+        // Remove the last item (.createContest) and append contestDetail
+        if !navigationPath.isEmpty {
+            navigationPath.removeLast()
+        }
+        navigationPath.append(LandingDestination.contestDetail(contestId))
+    }
+
     /// Reset navigation to MyContests root.
     /// Used after lifecycle mutations (cancel contest, leave contest).
     func resetToMyContests() {
         navigationPath = NavigationPath()
         navigationPath.append(LandingDestination.myContests)
+    }
+
+    // MARK: - Contest Selection (Pure Function, No State Ownership)
+
+    /// Selects the next contest to display in the lock banner.
+    /// Pure function: no side effects, no state mutation.
+    /// Filters by: status == .scheduled, lockTime exists and in future.
+    /// Priority: joinable (isJoined == false) first, then already joined.
+    /// - Parameters:
+    ///   - available: Contests from AvailableContestsViewModel (VMs own this data)
+    ///   - mine: Contests from MyContestsViewModel (VMs own this data)
+    /// - Returns: Next scheduled contest with future lock time, or nil
+    func nextRelevantScheduledContest(
+        available: [MockContest],
+        mine: [MockContest]
+    ) -> MockContest? {
+        let now = Date()
+
+        // Filter both lists: scheduled, has lock time, lock time is in future
+        let isValidForBanner: (MockContest) -> Bool = { contest in
+            contest.status == .scheduled &&
+            contest.lockTime != nil &&
+            (contest.lockTime ?? .distantPast) > now
+        }
+
+        let validAvailable = available.filter(isValidForBanner)
+        let validMine = mine.filter(isValidForBanner)
+
+        // Priority 1: Next joinable (not yet joined)
+        let joinable = validAvailable
+            .filter { !$0.isJoined }
+            .sorted { ($0.lockTime ?? .distantFuture) < ($1.lockTime ?? .distantFuture) }
+            .first
+
+        if let joinable = joinable {
+            return joinable
+        }
+
+        // Priority 2: Next already joined
+        let joined = (validAvailable + validMine)
+            .filter { $0.isJoined }
+            .sorted { ($0.lockTime ?? .distantFuture) < ($1.lockTime ?? .distantFuture) }
+            .first
+
+        return joined
     }
 }
