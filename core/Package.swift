@@ -10,17 +10,17 @@ let package = Package(
     products: [
         .library(
             name: "Core",
-            targets: ["core"]
+            targets: ["Core"]   // ← FIXED
         )
     ],
     targets: [
         .target(
-            name: "core",
+            name: "Core",      // ← uppercase
             dependencies: []
         ),
         .testTarget(
             name: "coreTests",
-            dependencies: ["core"],
+            dependencies: ["Core"],
             resources: [.copy("Fixtures")]
         )
     ]

@@ -8,7 +8,7 @@
 
 import Foundation
 import Testing
-@testable import core
+@testable import Core
 
 // MARK: - Mock API Client
 
