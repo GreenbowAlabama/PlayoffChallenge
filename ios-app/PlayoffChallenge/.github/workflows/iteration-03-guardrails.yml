@@ -1,0 +1,23 @@
+name: Iteration 03 Guardrails
+
+on:
+  pull_request:
+    paths:
+      - 'ios-app/PlayoffChallenge/**/*.swift'
+      - '.github/workflows/iteration-03-guardrails.yml'
+      - 'scripts/enforce-iteration-03.sh'
+
+jobs:
+  guardrails:
+    name: Enforce Contract Discipline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Make enforcement script executable
+        run: chmod +x scripts/enforce-iteration-03.sh
+
+      - name: Run Iteration 03 guardrails
+        run: scripts/enforce-iteration-03.sh

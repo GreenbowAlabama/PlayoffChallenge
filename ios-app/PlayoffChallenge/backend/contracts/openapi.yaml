@@ -1,0 +1,1484 @@
+openapi: 3.0.0
+info:
+  title: Custom Contests API
+  description: Canonical source of truth for all public API response shapes used by iOS
+  version: 1.1.0
+
+servers:
+  - url: https://api.playoffchallenge.com
+    description: Production
+  - url: http://localhost:3000
+    description: Development
+
+paths:
+  /api/custom-contests/{id}:
+    get:
+      tags:
+        - Contests
+      summary: Get contest by ID
+      description: Retrieve a specific contest instance with full details including standings (if LIVE or COMPLETE)
+      operationId: getContestById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Contest found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContestDetailResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Contests
+      summary: Delete a contest instance
+      description: |
+        Delete a contest instance. Only the organizer can delete.
+        Can only delete SCHEDULED contests with entry_count ≤ 1, or already-CANCELLED contests (idempotent).
+        Returns the updated contest with status=CANCELLED.
+      operationId: deleteContestById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Contest deleted (or already cancelled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContestDetailResponse'
+        '400':
+          description: Invalid UUID format (user ID or contest ID)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - insufficient permissions or invalid lifecycle state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: CONTEST_DELETE_NOT_ALLOWED
+                reason: Cannot delete contest in LOCKED status with 5 participants
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: CONTEST_NOT_FOUND
+                reason: Contest not found
+
+  /api/custom-contests/{id}/entry:
+    delete:
+      tags:
+        - Contests
+      summary: Remove user participation from a contest
+      description: |
+        Unjoin a contest (remove participant entry).
+        User can only unjoin SCHEDULED contests before lock_time.
+        Idempotent: returns 200 if user has no entry.
+        Returns the updated contest instance with user_has_entered=false.
+      operationId: deleteContestEntry
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successfully unjoined contest (or user was not a participant)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContestDetailResponse'
+        '400':
+          description: Invalid UUID format (user ID or contest ID)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - cannot unjoin (not SCHEDULED or past lock_time)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: CONTEST_UNJOIN_NOT_ALLOWED
+                reason: Cannot unjoin contest in LIVE status
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: CONTEST_NOT_FOUND
+                reason: Contest not found
+
+  /api/custom-contests:
+    get:
+      tags:
+        - Contests
+      summary: List contests for authenticated user
+      description: |
+        Retrieve all contest instances for the requesting user (as organizer).
+        Includes metadata for each contest but NOT standings (list endpoint).
+      operationId: listContestsForOrganizer
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of contests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ContestListItem'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags:
+        - Contests
+      summary: Create a new contest instance
+      description: Create a new contest instance from a template. Requires authentication.
+      operationId: createContest
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContestRequest'
+      responses:
+        '201':
+          description: Contest created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContestDetailResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/custom-contests/available:
+    get:
+      tags:
+        - Contests
+      summary: List publicly joinable contests
+      description: |
+        Retrieve all SCHEDULED contests that are published (have join_token) and publicly joinable.
+        Includes `user_has_entered` to indicate if the requesting user has already joined.
+        Does NOT filter by capacity or enrollment status.
+      operationId: listAvailableContests
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of available contests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ContestListItem'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/custom-contests/templates:
+    get:
+      tags:
+        - Contests
+      summary: List contest templates
+      description: Retrieve all active contest templates available for creating new contests.
+      operationId: listTemplates
+      responses:
+        '200':
+          description: List of available templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ContestTemplate'
+
+  /api/custom-contests/join/{token}:
+    get:
+      tags:
+        - Contests
+      summary: Resolve join token (pre-auth)
+      description: |
+        Validate and resolve a contest join token.
+        This is a pre-authentication endpoint that returns contest metadata for onboarding.
+        No authentication required.
+      operationId: resolveJoinToken
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: Join token
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token resolved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinTokenResolution'
+        '400':
+          description: Invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/custom-contests/{id}/publish:
+    post:
+      tags:
+        - Contests
+      summary: Publish a contest instance
+      description: |
+        Transition a contest from DRAFT to OPEN status.
+        Generates a join_token for sharing with participants.
+        Only the organizer can publish.
+      operationId: publishContest
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Contest published successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishResponse'
+        '400':
+          description: Invalid contest ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - insufficient permissions or invalid lifecycle state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/custom-contests/{id}/status:
+    patch:
+      tags:
+        - Contests
+      summary: Update contest status
+      description: Update the status of a contest instance. Only the organizer can update.
+      operationId: updateContestStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  description: New contest status
+      responses:
+        '200':
+          description: Contest status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContestDetailResponse'
+        '400':
+          description: Invalid request or contest ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - insufficient permissions or invalid status transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/custom-contests/{id}/join:
+    post:
+      tags:
+        - Contests
+      summary: Join a contest as a participant
+      description: |
+        Join a contest instance as a participant.
+        Enforces capacity limits, uniqueness (ALREADY_JOINED), and status checks.
+      operationId: joinContest
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successfully joined contest
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - joined
+                properties:
+                  joined:
+                    type: boolean
+                    enum: [true]
+                  participant:
+                    type: object
+        '400':
+          description: Invalid contest ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Cannot join (already joined, full, or locked)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/custom-contests/{id}/leaderboard:
+    get:
+      tags:
+        - Contests
+      summary: Get contest leaderboard
+      description: |
+        Retrieve the leaderboard for a contest with participant standings.
+        Only available when contest status is LIVE or COMPLETE.
+      operationId: getLeaderboard
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Leaderboard retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Leaderboard'
+        '400':
+          description: Invalid contest ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/payments/intents:
+    post:
+      tags:
+        - Payments
+      summary: Create a payment intent
+      description: |
+        Create a Stripe payment intent for contest entry fees.
+        Requires Idempotency-Key header to ensure safe retries.
+      operationId: createPaymentIntent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Unique key for idempotency (UUID or string)
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - contest_instance_id
+                - amount_cents
+              properties:
+                contest_instance_id:
+                  type: string
+                  format: uuid
+                  description: Contest instance UUID
+                amount_cents:
+                  type: integer
+                  minimum: 1
+                  description: Payment amount in cents
+      responses:
+        '200':
+          description: Payment intent created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentIntent'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/webhooks/stripe:
+    post:
+      tags:
+        - Webhooks
+      summary: Stripe webhook handler
+      description: |
+        Receive and process Stripe webhook events.
+        Validates stripe-signature header.
+        Idempotent: duplicate events return 200 with duplicate flag.
+      operationId: handleStripeWebhook
+      parameters:
+        - name: stripe-signature
+          in: header
+          required: true
+          description: Stripe signature for HMAC validation
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw Stripe event JSON
+      responses:
+        '200':
+          description: Webhook processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookAcknowledgment'
+        '400':
+          description: Invalid or missing stripe-signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Referenced payment intent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/users:
+    post:
+      tags:
+        - Auth
+      summary: Create a new user account
+      description: Register a new user account.
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register a new user
+      description: Register a new user account with email and password.
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login user
+      description: Authenticate a user with email and password.
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid credentials or request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/user:
+    delete:
+      tags:
+        - Auth
+      summary: Delete user account
+      description: Delete the authenticated user's account. Irreversible.
+      operationId: deleteUser
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Account deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Cannot delete account (has active contests, pending payments, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Bearer token authentication for authenticated API endpoints
+
+  schemas:
+    # --- Main Response Objects ---
+
+    ContestDetailResponse:
+      type: object
+      description: |
+        Full contest details returned by GET /api/custom-contests/:id.
+        Includes standings only when status is LIVE or COMPLETE.
+
+        Lifecycle guarantees:
+        - status: one of SCHEDULED, LOCKED, LIVE, COMPLETE, CANCELLED, ERROR
+        - is_locked: true if status != SCHEDULED
+        - is_live: true if status == LIVE
+        - is_settled: true if settle_time is not null
+        - standings: only present when status is LIVE or COMPLETE; omitted entirely for other statuses
+        - time_until_lock: seconds until lock_time (for SCHEDULED contests only); null otherwise
+      required:
+        - id
+        - contest_id
+        - template_id
+        - type
+        - organizer_id
+        - entry_fee_cents
+        - payout_structure
+        - contest_name
+        - max_entries
+        - status
+        - is_locked
+        - is_live
+        - is_settled
+        - entry_count
+        - user_has_entered
+        - time_until_lock
+        - leaderboard_state
+        - actions
+        - payout_table
+        - roster_config
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Primary identifier for this contest instance
+        contest_id:
+          type: string
+          format: uuid
+          description: Alias of id (provided for client compatibility)
+        template_id:
+          type: string
+          format: uuid
+          description: Reference to the contest template this instance is based on
+        type:
+          type: string
+          description: Contest type from template (e.g., playoff_challenge, pickem)
+        organizer_id:
+          type: string
+          format: uuid
+          description: UUID of the user who created this contest
+        organizer_name:
+          type: string
+          nullable: true
+          description: |
+            Display name of the contest organizer (computed from user.username or user.name).
+            Null for legacy rows or if user record is missing.
+            iOS defaults to "Unknown" if absent.
+        entry_fee_cents:
+          type: integer
+          minimum: 0
+          description: Entry fee in cents (0 = free contest)
+        payout_structure:
+          type: object
+          description: "JSONB payout structure (e.g., { first: 70, second: 20, third: 10 })"
+          nullable: true
+        contest_name:
+          type: string
+          description: Display name for this contest
+        start_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional contest start time (ISO 8601)
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional contest end time (ISO 8601)
+        lock_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Lock time for this contest (ISO 8601, UTC).
+            Null for unlimited entry window contests.
+            Filters entries submitted after this time.
+            Derived field: time_until_lock is computed from this value.
+        max_entries:
+          type: integer
+          nullable: true
+          description: Maximum number of participants (null = unlimited capacity)
+        join_token:
+          type: string
+          nullable: true
+          description: Token for joining this contest (null if not yet published)
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when this contest was created (ISO 8601)
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when this contest was last updated (ISO 8601)
+        is_platform_owned:
+          type: boolean
+          nullable: true
+          description: Optional flag indicating if contest is platform-owned (may be undefined in legacy rows)
+        status:
+          $ref: '#/components/schemas/ContestStatus'
+        is_locked:
+          type: boolean
+          description: Derived field - true if status != SCHEDULED
+        is_live:
+          type: boolean
+          description: Derived field - true if status == LIVE
+        is_settled:
+          type: boolean
+          description: Derived field - true if settle_time is not null
+        entry_count:
+          type: integer
+          minimum: 0
+          description: Number of participants currently joined
+        user_has_entered:
+          type: boolean
+          description: Whether the authenticated user has already joined this contest
+        time_until_lock:
+          type: integer
+          nullable: true
+          description: |
+            Seconds until lock_time for SCHEDULED contests (null otherwise).
+            Computed as max(0, floor((lock_time - now) / 1000)).
+        standings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Standing'
+          nullable: true
+          description: |
+            Participant standings (only present when status is LIVE or COMPLETE).
+            Omitted entirely for other statuses.
+        leaderboard_state:
+          $ref: '#/components/schemas/LeaderboardState'
+        actions:
+          $ref: '#/components/schemas/Actions'
+        payout_table:
+          type: array
+          items:
+            $ref: '#/components/schemas/PayoutRow'
+          description: Derived payout structure for presentation
+        roster_config:
+          $ref: '#/components/schemas/RosterConfig'
+
+    ContestListItem:
+      type: object
+      description: |
+        Contest metadata for list endpoints (GET /api/custom-contests, GET /api/custom-contests/available).
+        Similar to ContestDetailResponse but excludes standings and contest_id alias.
+        Includes additional template metadata and lock_time field.
+      required:
+        - id
+        - organizer_id
+        - organizer_name
+        - entry_fee_cents
+        - payout_structure
+        - contest_name
+        - max_entries
+        - status
+        - is_locked
+        - is_live
+        - is_settled
+        - entry_count
+        - user_has_entered
+        - time_until_lock
+        - lock_time
+        - template_name
+        - template_sport
+        - template_type
+        - leaderboard_state
+        - actions
+        - payout_table
+        - roster_config
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizer_id:
+          type: string
+          format: uuid
+        organizer_name:
+          type: string
+          description: Display name of the organizer (computed from user.username or user.name)
+        entry_fee_cents:
+          type: integer
+          minimum: 0
+        payout_structure:
+          type: object
+          nullable: true
+        contest_name:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+          nullable: true
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+        lock_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Lock time for this contest (only in list responses, not in detail).
+            Null for SCHEDULED contests without a lock window.
+        max_entries:
+          type: integer
+          nullable: true
+        join_token:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        is_platform_owned:
+          type: boolean
+          nullable: true
+        template_name:
+          type: string
+          description: Name of the template used for this contest
+        template_sport:
+          type: string
+          description: Sport type from template (e.g., NFL)
+        template_type:
+          type: string
+          description: Template type (e.g., playoff_challenge)
+        status:
+          $ref: '#/components/schemas/ContestStatus'
+        is_locked:
+          type: boolean
+        is_live:
+          type: boolean
+        is_settled:
+          type: boolean
+        entry_count:
+          type: integer
+          minimum: 0
+        user_has_entered:
+          type: boolean
+        time_until_lock:
+          type: integer
+          nullable: true
+        leaderboard_state:
+          $ref: '#/components/schemas/LeaderboardState'
+        actions:
+          $ref: '#/components/schemas/Actions'
+        payout_table:
+          type: array
+          items:
+            $ref: '#/components/schemas/PayoutRow'
+        roster_config:
+          $ref: '#/components/schemas/RosterConfig'
+
+    ContestListResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/ContestListItem'
+      description: |
+        Array of contest list items returned by GET /api/custom-contests and
+        GET /api/custom-contests/available. Each item is a ContestListItem.
+
+    # --- Derived Component Schemas ---
+
+    ContestStatus:
+      type: string
+      enum:
+        - SCHEDULED
+        - LOCKED
+        - LIVE
+        - COMPLETE
+        - CANCELLED
+        - ERROR
+      description: |
+        Contest lifecycle status.
+        - SCHEDULED: Contest is draft or published but not yet active
+        - LOCKED: Entry window has closed, pending or in contest
+        - LIVE: Contest is currently active, participants can view standings
+        - COMPLETE: Contest has finished, final standings are computed
+        - CANCELLED: Contest was cancelled (no payouts)
+        - ERROR: Contest encountered an error (standings omitted)
+
+    LeaderboardState:
+      type: string
+      enum:
+        - pending
+        - computed
+        - error
+      description: |
+        Leaderboard availability state.
+        - pending: Contest is LIVE or COMPLETE but settlement_records does not exist yet
+        - computed: settlement_records exists (final standings available)
+        - error: Contest is in ERROR status
+
+    Actions:
+      type: object
+      description: |
+        Derived capability flags indicating what actions the authenticated user can perform
+        on this contest.
+      required:
+        - can_join
+        - can_edit_entry
+        - is_live
+        - is_closed
+        - is_scoring
+        - is_scored
+        - is_read_only
+        - can_share_invite
+        - can_manage_contest
+        - can_delete
+        - can_unjoin
+      properties:
+        can_join:
+          type: boolean
+          description: |
+            User can join: status==SCHEDULED AND lock_time set AND before lock AND not full AND user not entered
+        can_edit_entry:
+          type: boolean
+          description: |
+            User can edit their entry: status==SCHEDULED AND lock_time set AND before lock AND user entered
+        is_live:
+          type: boolean
+          description: Status is LIVE
+        is_closed:
+          type: boolean
+          description: Status is COMPLETE, CANCELLED, or ERROR
+        is_scoring:
+          type: boolean
+          description: |
+            Contest is being scored: leaderboard_state==pending AND status in [LIVE, COMPLETE]
+        is_scored:
+          type: boolean
+          description: |
+            Contest has final scores: leaderboard_state==computed
+        is_read_only:
+          type: boolean
+          description: |
+            User cannot join or edit: !(can_join || can_edit_entry)
+        can_share_invite:
+          type: boolean
+          description: |
+            User can share contest invite: user is authenticated AND status != ERROR
+        can_manage_contest:
+          type: boolean
+          description: |
+            User is the contest organizer (case-insensitive UUID comparison)
+        can_delete:
+          type: boolean
+          description: |
+            User can delete the contest: user is the organizer AND status==SCHEDULED.
+            Only organizers can delete, and only before lock_time.
+        can_unjoin:
+          type: boolean
+          description: |
+            User can unjoin the contest: user has entered AND status==SCHEDULED.
+            Applies to all users (including organizers) who have joined the contest.
+            Unjoin removes participant entry; organizers retain ownership and cancel authority.
+
+    PayoutRow:
+      type: object
+      description: |
+        Single payout tier in the payout table.
+
+        Contract notes:
+        - rank_min and rank_max MUST exist (required for iOS decoder)
+        - amount field (not min/max or position names) MUST exist
+        - amount is null until settlement; iOS decoder expects field to exist
+      required:
+        - place
+        - rank_min
+        - rank_max
+        - amount
+        - payout_percent
+        - currency
+      properties:
+        place:
+          type: string
+          description: Place name (e.g., first, second, third)
+        rank_min:
+          type: integer
+          minimum: 1
+          description: Minimum rank in this tier (1-based)
+        rank_max:
+          type: integer
+          minimum: 1
+          description: Maximum rank in this tier (1-based)
+        amount:
+          type: integer
+          nullable: true
+          description: |
+            Dollar amount in cents (null until settlement).
+            Computed at settlement time from payout_percent and entry_fee_cents * entry_count.
+        payout_percent:
+          type: integer
+          nullable: true
+          description: Percentage of total pool (e.g., 70 for 70%)
+        currency:
+          type: string
+          description: Currency code (always USD)
+
+    PayoutStructure:
+      type: object
+      description: Selected payout distribution for a contest
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          description: Identifier of payout strategy (e.g. winner_take_all, top_n_split)
+        max_winners:
+          type: integer
+          nullable: true
+          description: Maximum winners if payout strategy supports multiple winners
+
+    RosterConfig:
+      type: object
+      description: |
+        Entry roster configuration for this contest.
+        In Iteration 01, stub with empty placeholders.
+      required:
+        - entry_fields
+        - validation_rules
+      properties:
+        entry_fields:
+          type: array
+          items: {}
+          description: Entry field definitions (future use)
+        validation_rules:
+          type: object
+          description: Entry validation rules (future use)
+
+    Standing:
+      type: object
+      description: Individual participant standing in the contest leaderboard
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        user_display_name:
+          type: string
+        total_score:
+          type: number
+        rank:
+          type: integer
+          minimum: 1
+
+    ErrorResponse:
+      type: object
+      description: |
+        Structured error response for service-layer validation failures.
+        Used across all public endpoints for permission, lifecycle, and validation errors.
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+          description: Human-readable error description
+        reason:
+          type: string
+          description: Additional context (for backward compatibility)
+
+    ErrorCode:
+      type: string
+      enum:
+        - CONTEST_NOT_FOUND
+        - CONTEST_DELETE_NOT_ALLOWED
+        - CONTEST_UNJOIN_NOT_ALLOWED
+        - ALREADY_JOINED
+        - CONTEST_FULL
+        - CONTEST_LOCKED
+        - VALIDATION_ERROR
+        - UNAUTHORIZED
+        - PAYMENT_INTENT_NOT_FOUND
+        - STRIPE_SIGNATURE_INVALID
+        - ACCOUNT_DELETION_BLOCKED
+      description: Machine-readable error code enumeration
+
+    ContestTemplate:
+      type: object
+      description: Contest template metadata
+      required:
+        - id
+        - name
+        - type
+        - sport
+        - is_active
+        - allowed_payout_structures
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+          description: Template type (e.g., playoff_challenge, pickem)
+        sport:
+          type: string
+          description: Sport type (e.g., NFL, NBA)
+        is_active:
+          type: boolean
+        allowed_payout_structures:
+          type: array
+          description: List of payout structures allowed for this template. Backend authoritative.
+          items:
+            $ref: '#/components/schemas/PayoutStructure'
+
+    JoinTokenResolution:
+      type: object
+      description: Result of resolving a contest join token
+      required:
+        - valid
+      properties:
+        valid:
+          type: boolean
+        contest:
+          $ref: '#/components/schemas/ContestListItem'
+          description: Contest details (only if valid=true)
+        error_code:
+          $ref: '#/components/schemas/ErrorCode'
+          description: Error code if invalid
+        reason:
+          type: string
+          description: Human-readable reason if invalid
+
+    CreateContestRequest:
+      type: object
+      description: Request body for creating a new contest instance
+      required:
+        - template_id
+        - entry_fee_cents
+        - payout_structure
+      properties:
+        template_id:
+          type: string
+          format: uuid
+          description: Template to use for this contest
+        contest_name:
+          type: string
+          description: Display name for the contest
+        max_entries:
+          type: integer
+          nullable: true
+          description: Maximum number of participants (null = unlimited)
+        entry_fee_cents:
+          type: integer
+          minimum: 0
+          description: Entry fee in cents
+        payout_structure:
+          $ref: '#/components/schemas/PayoutStructure'
+        start_time:
+          type: string
+          format: date-time
+          nullable: true
+        lock_time:
+          type: string
+          format: date-time
+          nullable: true
+        settlement_time:
+          type: string
+          format: date-time
+          nullable: true
+
+    PublishResponse:
+      type: object
+      description: Response when publishing a contest
+      required:
+        - contestId
+        - joinToken
+        - joinURL
+      properties:
+        contestId:
+          type: string
+          format: uuid
+        joinToken:
+          type: string
+          description: Token for joining this contest
+        joinURL:
+          type: string
+          description: Full URL for sharing the contest join link
+
+    PaymentIntent:
+      type: object
+      description: Stripe payment intent response
+      required:
+        - payment_intent_id
+        - status
+        - client_secret
+      properties:
+        payment_intent_id:
+          type: string
+          description: Stripe payment intent ID
+        status:
+          type: string
+          description: Stripe payment status (requires_payment_method, processing, succeeded, etc.)
+        client_secret:
+          type: string
+          description: Client secret for Stripe.js integration
+        currency:
+          type: string
+          example: USD
+          description: Currency code
+
+    WebhookAcknowledgment:
+      type: object
+      description: Acknowledgment of webhook receipt
+      required:
+        - received
+        - stripe_event_id
+      properties:
+        received:
+          type: boolean
+          enum: [true]
+        duplicate:
+          type: boolean
+          description: True if this is a duplicate event
+        stripe_event_id:
+          type: string
+          description: Stripe event ID
+
+    CreateUserRequest:
+      type: object
+      description: Request to create a new user
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          description: User password (plain text, should be over HTTPS)
+        username:
+          type: string
+
+    RegisterRequest:
+      type: object
+      description: User registration request
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        username:
+          type: string
+
+    LoginRequest:
+      type: object
+      description: User login request
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    UserResponse:
+      type: object
+      description: User account response
+      required:
+        - id
+        - email
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Leaderboard:
+      type: object
+      description: Contest leaderboard with standings
+      required:
+        - standings
+      properties:
+        standings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Standing'
+        metadata:
+          type: object
+          description: Additional leaderboard metadata
