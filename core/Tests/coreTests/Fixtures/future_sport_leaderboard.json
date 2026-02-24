@@ -1,0 +1,59 @@
+{
+  "contest_id": "550e8401-e29b-41d4-a716-446655440001",
+  "contest_type": "future_sport_we_dont_know_yet",
+  "leaderboard_state": "computed",
+  "generated_at": "2025-02-22T14:00:00Z",
+  "column_schema": [
+    {
+      "key": "rank",
+      "label": "Rank",
+      "type": "number"
+    },
+    {
+      "key": "username",
+      "label": "Player",
+      "type": "string"
+    },
+    {
+      "key": "score",
+      "label": "Score",
+      "type": "number",
+      "format": "decimal"
+    },
+    {
+      "key": "unknown_metric_1",
+      "label": "Unknown Metric 1",
+      "type": "unknown",
+      "format": "custom"
+    },
+    {
+      "key": "unknown_metric_2",
+      "label": "Unknown Metric 2"
+    }
+  ],
+  "rows": [
+    {
+      "rank": 1,
+      "username": "Player A",
+      "score": 1500.5,
+      "unknown_metric_1": "future_value",
+      "unknown_metric_2": null,
+      "custom_field": {"nested": "data"}
+    },
+    {
+      "rank": 2,
+      "username": "Player B",
+      "score": 1400.25,
+      "unknown_metric_1": 42,
+      "unknown_metric_2": [1, 2, 3],
+      "extra_field": "extra_value"
+    },
+    {
+      "rank": 3,
+      "username": "Player C",
+      "score": 1300.0,
+      "unknown_metric_1": null,
+      "unknown_metric_2": true
+    }
+  ]
+}

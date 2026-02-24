@@ -1,0 +1,73 @@
+{
+  "contest_id": "550e8403-e29b-41d4-a716-446655440003",
+  "contest_type": "pga",
+  "leaderboard_state": "computed",
+  "generated_at": "2025-02-22T14:00:00Z",
+  "column_schema": [
+    {
+      "key": "rank",
+      "label": "Position",
+      "type": "number"
+    },
+    {
+      "key": "player_name",
+      "label": "Player",
+      "type": "string"
+    },
+    {
+      "key": "total_score",
+      "label": "Total Score",
+      "type": "number",
+      "format": "decimal"
+    },
+    {
+      "key": "round_1",
+      "label": "R1",
+      "type": "number"
+    },
+    {
+      "key": "round_2",
+      "label": "R2",
+      "type": "number"
+    },
+    {
+      "key": "round_3",
+      "label": "R3",
+      "type": "number"
+    },
+    {
+      "key": "round_4",
+      "label": "R4",
+      "type": "number"
+    }
+  ],
+  "rows": [
+    {
+      "rank": 1,
+      "player_name": "Tiger",
+      "total_score": -12.0,
+      "round_1": -3,
+      "round_2": -4,
+      "round_3": -2,
+      "round_4": -3
+    },
+    {
+      "rank": 2,
+      "player_name": "Rory",
+      "total_score": -10.0,
+      "round_1": -2,
+      "round_2": -3,
+      "round_3": -3,
+      "round_4": -2
+    },
+    {
+      "rank": 3,
+      "player_name": "Phil",
+      "total_score": -8.5,
+      "round_1": -2,
+      "round_2": -2,
+      "round_3": -3,
+      "round_4": -1.5
+    }
+  ]
+}
