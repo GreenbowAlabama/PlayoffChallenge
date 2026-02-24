@@ -9,7 +9,7 @@ import SwiftUI
 
 struct MyContestsView: View {
     @ObservedObject var viewModel: MyContestsViewModel
-    @State private var selectedContest: MockContest?
+    @State private var selectedContest: Contest?
     @State private var isRefreshing = false
     @State private var pendingDeleteId: UUID?
     @State private var pendingUnjoinId: UUID?
@@ -25,19 +25,19 @@ struct MyContestsView: View {
                     Section {
                         ForEach(viewModel.sortedContests) { contest in
                             ContestRowView(
-                                contestName: contest.name,
-                                isJoined: contest.isJoined,
-                                entryCountText: "\(contest.entryCount)/\(contest.maxEntries)",
-                                statusText: contest.displayStatus,
+                                contestName: contest.contestName,
+                                isJoined: contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true,
+                                entryCountText: "\(contest.entryCount)/\(contest.maxEntries ?? 0)",
+                                statusText: contest.status.rawValue.capitalized,
                                 lockText: formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)?.text,
-                                entryFeeText: contest.entryFee > 0 ? String(format: "$%.0f Entry", contest.entryFee) : nil
+                                entryFeeText: contest.entryFeeCents > 0 ? String(format: "$%.0f Entry", Double(contest.entryFeeCents) / 100.0) : nil
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 selectedContest = contest
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if contest.actions?.can_delete == true {
+                                if contest.actions?.canDelete == true {
                                     Button(role: .destructive) {
                                         pendingDeleteId = contest.id
                                     } label: {
@@ -46,7 +46,7 @@ struct MyContestsView: View {
                                     .disabled(viewModel.deletingIds.contains(contest.id))
                                 }
 
-                                if contest.actions?.can_unjoin == true {
+                                if contest.actions?.canUnjoin == true {
                                     Button(role: .destructive) {
                                         pendingUnjoinId = contest.id
                                     } label: {

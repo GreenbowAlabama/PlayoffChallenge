@@ -1,0 +1,65 @@
+{
+  "buildCommand" : {
+    "command" : "build",
+    "skipDependencies" : false,
+    "style" : "buildOnly"
+  },
+  "configuredTargets" : [
+    {
+      "guid" : "653be7db4c00fbef755bb81ffc6e06ebce894d95cbdc71b2dba6e3d32a4057c1"
+    }
+  ],
+  "containerPath" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/PlayoffChallenge.xcodeproj",
+  "continueBuildingAfterErrors" : false,
+  "dependencyScope" : "workspace",
+  "enableIndexBuildArena" : false,
+  "hideShellScriptEnvironment" : false,
+  "parameters" : {
+    "action" : "build",
+    "activeArchitecture" : "undefined_arch",
+    "activeRunDestination" : {
+      "disableOnlyActiveArch" : true,
+      "platform" : "iphonesimulator",
+      "sdk" : "iphonesimulator26.2",
+      "sdkVariant" : "iphonesimulator",
+      "supportedArchitectures" : [
+        "i386",
+        "x86_64"
+      ],
+      "targetArchitecture" : "undefined_arch"
+    },
+    "arenaInfo" : {
+      "buildIntermediatesPath" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex",
+      "buildProductsPath" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Products",
+      "derivedDataPath" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData",
+      "indexDataStoreFolderPath" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Index.noindex/DataStore",
+      "indexEnableDataStore" : true,
+      "indexPCHPath" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Index.noindex/PrecompiledHeaders",
+      "pchPath" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders"
+    },
+    "configurationName" : "Debug",
+    "overrides" : {
+      "commandLine" : {
+        "table" : {
+
+        }
+      },
+      "synthesized" : {
+        "table" : {
+          "ACTION" : "build",
+          "CLANG_COVERAGE_MAPPING" : "YES",
+          "CLANG_PROFILE_DATA_DIRECTORY" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/ProfileData",
+          "ENABLE_PREVIEWS" : "NO",
+          "ENABLE_XOJIT_PREVIEWS" : "YES",
+          "ONLY_ACTIVE_ARCH" : "YES"
+        }
+      }
+    }
+  },
+  "schemeCommand" : "launch",
+  "showNonLoggedProgress" : true,
+  "useDryRun" : false,
+  "useImplicitDependencies" : true,
+  "useLegacyBuildLocations" : false,
+  "useParallelTargets" : true
+}

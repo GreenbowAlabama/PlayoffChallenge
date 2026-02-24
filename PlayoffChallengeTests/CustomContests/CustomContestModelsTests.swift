@@ -9,7 +9,7 @@ final class CustomContestModelsTests: XCTestCase {
     func test_settings_encodesToCorrectJSON() throws {
         let settings = CustomContestSettings(
             maxEntries: 20,
-            entryFee: 5.00,
+            entryFeeCents: 500,
             isPrivate: true
         )
 
@@ -19,15 +19,14 @@ final class CustomContestModelsTests: XCTestCase {
 
         XCTAssertEqual(json["max_entries"] as? Int, 20)
         XCTAssertEqual(json["is_private"] as? Bool, true)
-        // Decimal encodes as number
-        XCTAssertNotNil(json["entry_fee"])
+        XCTAssertEqual(json["entry_fee_cents"] as? Int, 500)
     }
 
     func test_settings_decodesFromSnakeCaseJSON() throws {
         let json = """
         {
             "max_entries": 50,
-            "entry_fee": 10.00,
+            "entry_fee_cents": 1000,
             "is_private": false
         }
         """.data(using: .utf8)!
@@ -36,7 +35,7 @@ final class CustomContestModelsTests: XCTestCase {
         let settings = try decoder.decode(CustomContestSettings.self, from: json)
 
         XCTAssertEqual(settings.maxEntries, 50)
-        XCTAssertEqual(settings.entryFee, 10.00)
+        XCTAssertEqual(settings.entryFeeCents, 1000)
         XCTAssertEqual(settings.isPrivate, false)
     }
 
@@ -44,7 +43,7 @@ final class CustomContestModelsTests: XCTestCase {
         let settings = CustomContestSettings(maxEntries: 10)
 
         XCTAssertEqual(settings.maxEntries, 10)
-        XCTAssertEqual(settings.entryFee, 0)
+        XCTAssertEqual(settings.entryFeeCents, 0)
         XCTAssertEqual(settings.isPrivate, true)
     }
 
@@ -67,7 +66,7 @@ final class CustomContestModelsTests: XCTestCase {
         let draft = CustomContestDraft(
             id: fixedId,
             name: "My Custom Contest",
-            settings: CustomContestSettings(maxEntries: 25, entryFee: 0, isPrivate: true),
+            settings: CustomContestSettings(maxEntries: 25, entryFeeCents: 0, isPrivate: true),
             status: .scheduled,
             createdAt: fixedDate,
             joinToken: nil
@@ -91,7 +90,7 @@ final class CustomContestModelsTests: XCTestCase {
             "name": "Backend Contest",
             "settings": {
                 "max_entries": 100,
-                "entry_fee": 25.00,
+                "entry_fee_cents": 2500,
                 "is_private": false
             },
             "status": "SCHEDULED",
@@ -107,7 +106,7 @@ final class CustomContestModelsTests: XCTestCase {
         XCTAssertEqual(draft.id.uuidString, "ABCD1234-ABCD-ABCD-ABCD-ABCD12345678")
         XCTAssertEqual(draft.name, "Backend Contest")
         XCTAssertEqual(draft.settings.maxEntries, 100)
-        XCTAssertEqual(draft.settings.entryFee, 25.00)
+        XCTAssertEqual(draft.settings.entryFeeCents, 2500)
         XCTAssertEqual(draft.settings.isPrivate, false)
         XCTAssertEqual(draft.status, .scheduled)
         XCTAssertEqual(draft.joinToken, "abc123")
@@ -138,18 +137,22 @@ final class CustomContestModelsTests: XCTestCase {
     // MARK: - CreateContestRequest Tests
 
     func test_createRequest_buildsFromNameAndSettings() {
-        let settings = CustomContestSettings(maxEntries: 30, entryFee: 15.00, isPrivate: false)
-        let request = CreateContestRequest(name: "New Contest", settings: settings)
+        let settings = CustomContestSettings(maxEntries: 30, entryFeeCents: 1500, isPrivate: false)
+        let payout = PayoutStructure(type: "winner_take_all", maxWinners: nil)
+        let request = CreateContestRequest(name: "New Contest", settings: settings, payoutStructure: payout)
 
         XCTAssertEqual(request.name, "New Contest")
         XCTAssertEqual(request.maxEntries, 30)
-        XCTAssertEqual(request.entryFee, 15.00)
+        XCTAssertEqual(request.entryFeeCents, 1500)
         XCTAssertEqual(request.isPrivate, false)
+        XCTAssertEqual(request.payoutStructure.type, "winner_take_all")
+        XCTAssertNil(request.payoutStructure.maxWinners)
     }
 
     func test_createRequest_encodesToExpectedShape() throws {
-        let settings = CustomContestSettings(maxEntries: 10, entryFee: 0, isPrivate: true)
-        let request = CreateContestRequest(name: "Test", settings: settings)
+        let settings = CustomContestSettings(maxEntries: 10, entryFeeCents: 0, isPrivate: true)
+        let payout = PayoutStructure(type: "winner_take_all", maxWinners: nil)
+        let request = CreateContestRequest(name: "Test", settings: settings, payoutStructure: payout)
 
         let encoder = JSONEncoder()
         let data = try encoder.encode(request)
@@ -159,10 +162,16 @@ final class CustomContestModelsTests: XCTestCase {
         XCTAssertEqual(json["name"] as? String, "Test")
         XCTAssertEqual(json["max_entries"] as? Int, 10)
         XCTAssertEqual(json["is_private"] as? Bool, true)
-        XCTAssertNotNil(json["entry_fee"])
+        XCTAssertEqual(json["entry_fee_cents"] as? Int, 0)
 
-        // Verify no unexpected keys
-        let expectedKeys: Set<String> = ["name", "max_entries", "entry_fee", "is_private"]
+        // Verify payout_structure is present
+        let payoutStructure = json["payout_structure"] as? [String: Any]
+        XCTAssertNotNil(payoutStructure)
+        XCTAssertEqual(payoutStructure?["type"] as? String, "winner_take_all")
+        XCTAssertNil(payoutStructure?["max_winners"])
+
+        // Verify expected keys
+        let expectedKeys: Set<String> = ["name", "max_entries", "entry_fee_cents", "is_private", "payout_structure"]
         let actualKeys = Set(json.keys)
         XCTAssertEqual(actualKeys, expectedKeys)
     }
@@ -190,9 +199,9 @@ final class CustomContestModelsTests: XCTestCase {
     // MARK: - Equatable Tests
 
     func test_settings_equatable() {
-        let settings1 = CustomContestSettings(maxEntries: 10, entryFee: 5, isPrivate: true)
-        let settings2 = CustomContestSettings(maxEntries: 10, entryFee: 5, isPrivate: true)
-        let settings3 = CustomContestSettings(maxEntries: 20, entryFee: 5, isPrivate: true)
+        let settings1 = CustomContestSettings(maxEntries: 10, entryFeeCents: 500, isPrivate: true)
+        let settings2 = CustomContestSettings(maxEntries: 10, entryFeeCents: 500, isPrivate: true)
+        let settings3 = CustomContestSettings(maxEntries: 20, entryFeeCents: 500, isPrivate: true)
 
         XCTAssertEqual(settings1, settings2)
         XCTAssertNotEqual(settings1, settings3)

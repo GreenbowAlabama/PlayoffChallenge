@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		CC001A012F3A000100000001 /* CustomContestModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A002F3A000100000001 /* CustomContestModels.swift */; };
 		CC001A032F3A000100000002 /* CustomContestError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A022F3A000100000002 /* CustomContestError.swift */; };
 		CC001A052F3A000100000003 /* CustomContestValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A042F3A000100000003 /* CustomContestValidation.swift */; };
 		CC001A072F3A000100000004 /* CustomContestCreating.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A062F3A000100000004 /* CustomContestCreating.swift */; };
@@ -18,15 +17,24 @@
 		CC001A172F3B000100000001 /* ContestsLandingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A162F3B000100000001 /* ContestsLandingViewModel.swift */; };
 		CC001A192F3B000100000002 /* ContestsLandingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001A182F3B000100000002 /* ContestsLandingView.swift */; };
 		CC001B012F3C000100000001 /* ContestTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B002F3C000100000001 /* ContestTemplate.swift */; };
-		CC001B032F3C000100000002 /* ContestTemplateValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B022F3C000100000002 /* ContestTemplateValidation.swift */; };
 		CC001B052F3C000100000003 /* ContestTemplateError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B042F3C000100000003 /* ContestTemplateError.swift */; };
 		CC001B092F3C000100000005 /* SettlementStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001B082F3C000100000005 /* SettlementStrategy.swift */; };
+		EA2A82D02F4D663100698663 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = EA2A82CF2F4D663100698663 /* Core */; };
 		EA345EBE2EA45CB700689C4E /* PlayoffChallengeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA345EBD2EA45CB700689C4E /* PlayoffChallengeApp.swift */; };
 		EA345EC02EA45CB700689C4E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA345EBF2EA45CB700689C4E /* ContentView.swift */; };
 		EA345EC22EA45CB900689C4E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EA345EC12EA45CB900689C4E /* Assets.xcassets */; };
-		EA8192012F45254D00B5A5E1 /* core in Frameworks */ = {isa = PBXBuildFile; productRef = EA8192002F45254D00B5A5E1 /* core */; };
-		EA8192042F4525A900B5A5E1 /* core in Frameworks */ = {isa = PBXBuildFile; productRef = EA8192032F4525A900B5A5E1 /* core */; };
+		EA8192012F45254D00B5A5E1 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = EA8192002F45254D00B5A5E1 /* Core */; };
 		EA8194E92F46F5E000B5A5E1 /* ContestType.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8194E82F46F5E000B5A5E1 /* ContestType.swift */; };
+		EA83ECF72F4C2CE2002D227A /* RosterConfigDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECE72F4C2CE1002D227A /* RosterConfigDTO.swift */; };
+		EA83ECF92F4C2CE2002D227A /* ContestListItemDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECE32F4C2CE1002D227A /* ContestListItemDTO.swift */; };
+		EA83ECFA2F4C2CE2002D227A /* PayoutRowDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECE52F4C2CE1002D227A /* PayoutRowDTO.swift */; };
+		EA83ECFC2F4C2CE2002D227A /* PublishResponseDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECE62F4C2CE1002D227A /* PublishResponseDTO.swift */; };
+		EA83ECFD2F4C2CE2002D227A /* DecoderConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECE42F4C2CE1002D227A /* DecoderConfiguration.swift */; };
+		EA83ECFE2F4C2CE2002D227A /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECF52F4C2CE1002D227A /* JSONValue.swift */; };
+		EA83ECFF2F4C2CE2002D227A /* ContestDetailResponseDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECE22F4C2CE1002D227A /* ContestDetailResponseDTO.swift */; };
+		EA83ED012F4C2CE2002D227A /* StandingDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECE82F4C2CE1002D227A /* StandingDTO.swift */; };
+		EA83ED022F4C2CE2002D227A /* ContestCreationFormState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECF32F4C2CE1002D227A /* ContestCreationFormState.swift */; };
+		EA83ED052F4C2CE2002D227A /* ActionsDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECE12F4C2CE1002D227A /* ActionsDTO.swift */; };
 		EA98FE402F2D776C00CA4A36 /* JoinErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE3C2F2D776C00CA4A36 /* JoinErrorView.swift */; };
 		EA98FE412F2D776C00CA4A36 /* ContestJoining.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE312F2D776C00CA4A36 /* ContestJoining.swift */; };
 		EA98FE422F2D776C00CA4A36 /* JoinLinkError.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA98FE2E2F2D776C00CA4A36 /* JoinLinkError.swift */; };
@@ -62,7 +70,6 @@
 		CC001A162F3B000100000001 /* ContestsLandingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestsLandingViewModel.swift; sourceTree = "<group>"; };
 		CC001A182F3B000100000002 /* ContestsLandingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestsLandingView.swift; sourceTree = "<group>"; };
 		CC001B002F3C000100000001 /* ContestTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestTemplate.swift; sourceTree = "<group>"; };
-		CC001B022F3C000100000002 /* ContestTemplateValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestTemplateValidation.swift; sourceTree = "<group>"; };
 		CC001B042F3C000100000003 /* ContestTemplateError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestTemplateError.swift; sourceTree = "<group>"; };
 		CC001B082F3C000100000005 /* SettlementStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementStrategy.swift; sourceTree = "<group>"; };
 		EA345EBA2EA45CB700689C4E /* PlayoffChallenge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlayoffChallenge.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -71,6 +78,16 @@
 		EA345EC12EA45CB900689C4E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EA493C3B2F45134300F878AD /* PlayoffChallengeUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlayoffChallengeUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA8194E82F46F5E000B5A5E1 /* ContestType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestType.swift; sourceTree = "<group>"; };
+		EA83ECE12F4C2CE1002D227A /* ActionsDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionsDTO.swift; sourceTree = "<group>"; };
+		EA83ECE22F4C2CE1002D227A /* ContestDetailResponseDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestDetailResponseDTO.swift; sourceTree = "<group>"; };
+		EA83ECE32F4C2CE1002D227A /* ContestListItemDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestListItemDTO.swift; sourceTree = "<group>"; };
+		EA83ECE42F4C2CE1002D227A /* DecoderConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderConfiguration.swift; sourceTree = "<group>"; };
+		EA83ECE52F4C2CE1002D227A /* PayoutRowDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutRowDTO.swift; sourceTree = "<group>"; };
+		EA83ECE62F4C2CE1002D227A /* PublishResponseDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublishResponseDTO.swift; sourceTree = "<group>"; };
+		EA83ECE72F4C2CE1002D227A /* RosterConfigDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosterConfigDTO.swift; sourceTree = "<group>"; };
+		EA83ECE82F4C2CE1002D227A /* StandingDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandingDTO.swift; sourceTree = "<group>"; };
+		EA83ECF32F4C2CE1002D227A /* ContestCreationFormState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestCreationFormState.swift; sourceTree = "<group>"; };
+		EA83ECF52F4C2CE1002D227A /* JSONValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONValue.swift; sourceTree = "<group>"; };
 		EA98FE2E2F2D776C00CA4A36 /* JoinLinkError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkError.swift; sourceTree = "<group>"; };
 		EA98FE2F2F2D776C00CA4A36 /* JoinLinkModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinLinkModels.swift; sourceTree = "<group>"; };
 		EA98FE312F2D776C00CA4A36 /* ContestJoining.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestJoining.swift; sourceTree = "<group>"; };
@@ -125,7 +142,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				EA8192012F45254D00B5A5E1 /* core in Frameworks */,
+				EA8192012F45254D00B5A5E1 /* Core in Frameworks */,
+				EA2A82D02F4D663100698663 /* Core in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -133,7 +151,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				EA8192042F4525A900B5A5E1 /* core in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -159,7 +176,6 @@
 				CC001A022F3A000100000002 /* CustomContestError.swift */,
 				CC001A042F3A000100000003 /* CustomContestValidation.swift */,
 				CC001B002F3C000100000001 /* ContestTemplate.swift */,
-				CC001B022F3C000100000002 /* ContestTemplateValidation.swift */,
 				CC001B042F3C000100000003 /* ContestTemplateError.swift */,
 				CC001B082F3C000100000005 /* SettlementStrategy.swift */,
 				EA8194E82F46F5E000B5A5E1 /* ContestType.swift */,
@@ -205,6 +221,10 @@
 		EA345EB12EA45CB700689C4E = {
 			isa = PBXGroup;
 			children = (
+				EA83ECE92F4C2CE1002D227A /* Contracts */,
+				EA83ECF22F4C2CE1002D227A /* Domain */,
+				EA83ECF42F4C2CE1002D227A /* UIState */,
+				EA83ECF62F4C2CE1002D227A /* Utilities */,
 				EA98FE7D2F2DBCC100CA4A36 /* PlayoffChallenge.xctestplan */,
 				EAB5744A2F28203600767979 /* PlayoffChallenge-Info.plist */,
 				EAF21C562EA5D75500B46D95 /* readme.md */,
@@ -222,6 +242,7 @@
 				EA98FE3F2F2D776C00CA4A36 /* JoinFlow */,
 				CC001A0A2F3A000100000006 /* CustomContests */,
 				EA8192022F4525A900B5A5E1 /* Frameworks */,
+				EA8194EC2F48060200B5A5E1 /* Utilities */,
 			);
 			sourceTree = "<group>";
 		};
@@ -239,6 +260,51 @@
 			children = (
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		EA8194EC2F48060200B5A5E1 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		EA83ECE92F4C2CE1002D227A /* Contracts */ = {
+			isa = PBXGroup;
+			children = (
+				EA83ECE12F4C2CE1002D227A /* ActionsDTO.swift */,
+				EA83ECE22F4C2CE1002D227A /* ContestDetailResponseDTO.swift */,
+				EA83ECE32F4C2CE1002D227A /* ContestListItemDTO.swift */,
+				EA83ECE42F4C2CE1002D227A /* DecoderConfiguration.swift */,
+				EA83ECE52F4C2CE1002D227A /* PayoutRowDTO.swift */,
+				EA83ECE62F4C2CE1002D227A /* PublishResponseDTO.swift */,
+				EA83ECE72F4C2CE1002D227A /* RosterConfigDTO.swift */,
+				EA83ECE82F4C2CE1002D227A /* StandingDTO.swift */,
+			);
+			path = Contracts;
+			sourceTree = "<group>";
+		};
+		EA83ECF22F4C2CE1002D227A /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Domain;
+			sourceTree = "<group>";
+		};
+		EA83ECF42F4C2CE1002D227A /* UIState */ = {
+			isa = PBXGroup;
+			children = (
+				EA83ECF32F4C2CE1002D227A /* ContestCreationFormState.swift */,
+			);
+			path = UIState;
+			sourceTree = "<group>";
+		};
+		EA83ECF62F4C2CE1002D227A /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				EA83ECF52F4C2CE1002D227A /* JSONValue.swift */,
+			);
+			path = Utilities;
 			sourceTree = "<group>";
 		};
 		EA98FE302F2D776C00CA4A36 /* Models */ = {
@@ -321,7 +387,8 @@
 			);
 			name = PlayoffChallenge;
 			packageProductDependencies = (
-				EA8192002F45254D00B5A5E1 /* core */,
+				EA8192002F45254D00B5A5E1 /* Core */,
+				EA2A82CF2F4D663100698663 /* Core */,
 			);
 			productName = PlayoffChallenge;
 			productReference = EA345EBA2EA45CB700689C4E /* PlayoffChallenge.app */;
@@ -345,7 +412,6 @@
 			);
 			name = PlayoffChallengeUnitTests;
 			packageProductDependencies = (
-				EA8192032F4525A900B5A5E1 /* core */,
 			);
 			productName = PlayoffChallengeUnitTests;
 			productReference = EA493C3B2F45134300F878AD /* PlayoffChallengeUnitTests.xctest */;
@@ -380,7 +446,7 @@
 			mainGroup = EA345EB12EA45CB700689C4E;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				EA8191FF2F45254D00B5A5E1 /* XCLocalSwiftPackageReference "../../core" */,
+				EA2A82CE2F4D663100698663 /* XCLocalSwiftPackageReference "../../core" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EA345EBB2EA45CB700689C4E /* Products */;
@@ -429,19 +495,27 @@
 				EA98FE492F2D776C00CA4A36 /* JoinLinkService.swift in Sources */,
 				EA98FE4B2F2D776C00CA4A36 /* JoinLinkResolving.swift in Sources */,
 				EA345EBE2EA45CB700689C4E /* PlayoffChallengeApp.swift in Sources */,
-				CC001A012F3A000100000001 /* CustomContestModels.swift in Sources */,
 				CC001A032F3A000100000002 /* CustomContestError.swift in Sources */,
 				EA8194E92F46F5E000B5A5E1 /* ContestType.swift in Sources */,
 				CC001A052F3A000100000003 /* CustomContestValidation.swift in Sources */,
 				CC001A072F3A000100000004 /* CustomContestCreating.swift in Sources */,
 				CC001A092F3A000100000005 /* CustomContestPublishing.swift in Sources */,
 				CC001A0E2F3A000100000009 /* CustomContestService.swift in Sources */,
+				EA83ECF72F4C2CE2002D227A /* RosterConfigDTO.swift in Sources */,
+				EA83ECF92F4C2CE2002D227A /* ContestListItemDTO.swift in Sources */,
+				EA83ECFA2F4C2CE2002D227A /* PayoutRowDTO.swift in Sources */,
+				EA83ECFC2F4C2CE2002D227A /* PublishResponseDTO.swift in Sources */,
+				EA83ECFD2F4C2CE2002D227A /* DecoderConfiguration.swift in Sources */,
+				EA83ECFE2F4C2CE2002D227A /* JSONValue.swift in Sources */,
+				EA83ECFF2F4C2CE2002D227A /* ContestDetailResponseDTO.swift in Sources */,
+				EA83ED012F4C2CE2002D227A /* StandingDTO.swift in Sources */,
+				EA83ED022F4C2CE2002D227A /* ContestCreationFormState.swift in Sources */,
+				EA83ED052F4C2CE2002D227A /* ActionsDTO.swift in Sources */,
 				CC001A112F3A00010000000B /* CreateCustomContestViewModel.swift in Sources */,
 				CC001A132F3A00010000000C /* CreateCustomContestView.swift in Sources */,
 				CC001A172F3B000100000001 /* ContestsLandingViewModel.swift in Sources */,
 				CC001A192F3B000100000002 /* ContestsLandingView.swift in Sources */,
 				CC001B012F3C000100000001 /* ContestTemplate.swift in Sources */,
-				CC001B032F3C000100000002 /* ContestTemplateValidation.swift in Sources */,
 				CC001B052F3C000100000003 /* ContestTemplateError.swift in Sources */,
 				CC001B092F3C000100000005 /* SettlementStrategy.swift in Sources */,
 			);
@@ -876,21 +950,20 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		EA8191FF2F45254D00B5A5E1 /* XCLocalSwiftPackageReference "../../core" */ = {
+		EA2A82CE2F4D663100698663 /* XCLocalSwiftPackageReference "../../core" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../core;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		EA8192002F45254D00B5A5E1 /* core */ = {
+		EA2A82CF2F4D663100698663 /* Core */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = core;
+			productName = Core;
 		};
-		EA8192032F4525A900B5A5E1 /* core */ = {
+		EA8192002F45254D00B5A5E1 /* Core */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = EA8191FF2F45254D00B5A5E1 /* XCLocalSwiftPackageReference "../../core" */;
-			productName = core;
+			productName = Core;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

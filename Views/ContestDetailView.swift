@@ -25,7 +25,7 @@ struct ContestDetailView: View {
     let resetOnExit: Bool
 
     /// Primary initializer — contestId is the source of truth, placeholder is optional.
-    init(contestId: UUID, placeholder: MockContest? = nil, contestJoiner: ContestJoining? = nil, resetOnExit: Bool = false) {
+    init(contestId: UUID, placeholder: Contest? = nil, contestJoiner: ContestJoining? = nil, resetOnExit: Bool = false) {
         let joiner = contestJoiner ?? ContestJoinService()
         _viewModel = StateObject(wrappedValue: ContestDetailViewModel(
             contestId: contestId,
@@ -35,9 +35,9 @@ struct ContestDetailView: View {
         self.resetOnExit = resetOnExit
     }
 
-    /// Convenience initializer for callers that have a full MockContest.
+    /// Convenience initializer for callers that have a full Contest.
     /// contestId is extracted from the contest; the contest is used as placeholder only.
-    init(contest: MockContest, contestJoiner: ContestJoining? = nil, resetOnExit: Bool = false) {
+    init(contest: Contest, contestJoiner: ContestJoining? = nil, resetOnExit: Bool = false) {
         self.init(contestId: contest.id, placeholder: contest, contestJoiner: contestJoiner, resetOnExit: resetOnExit)
     }
 
@@ -50,14 +50,14 @@ struct ContestDetailView: View {
                         .font(.system(size: 60))
                         .foregroundColor(.orange)
 
-                    Text(viewModel.contest.name)
+                    Text(viewModel.contest.contestName)
                         .font(.title)
                         .fontWeight(.bold)
 
                     HStack(spacing: 20) {
                         StatView(value: "\(viewModel.contest.entryCount)", label: "Entries")
-                        StatView(value: viewModel.contest.displayStatus, label: "Status")
-                        StatView(value: "\(viewModel.contest.maxEntries)", label: "Max")
+                        StatView(value: viewModel.contest.status.rawValue.capitalized, label: "Status")
+                        StatView(value: "\(viewModel.contest.maxEntries ?? 0)", label: "Max")
                     }
                 }
                 .padding()
@@ -65,7 +65,7 @@ struct ContestDetailView: View {
                 .background(Color(.systemGray6))
                 .cornerRadius(16)
                 .padding(.horizontal)
-                .redacted(reason: viewModel.contest.displayStatus == "Loading" ? .placeholder : [])
+                .redacted(reason: viewModel.contest.contestName == "Loading…" ? .placeholder : [])
 
                 // Entry Fee Card
                 HStack {
@@ -73,10 +73,10 @@ struct ContestDetailView: View {
                         Text("Entry Fee")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
-                        Text(viewModel.contest.formattedEntryFee)
+                        Text(viewModel.contest.entryFeeCents == 0 ? "Free" : String(format: "$%.2f", Double(viewModel.contest.entryFeeCents) / 100.0))
                             .font(.title2)
                             .fontWeight(.bold)
-                            .foregroundColor(viewModel.contest.entryFee == 0 ? .green : .primary)
+                            .foregroundColor(viewModel.contest.entryFeeCents == 0 ? .green : .primary)
                     }
 
                     Spacer()
@@ -185,10 +185,10 @@ struct ContestDetailView: View {
                     Text("Contest Info")
                         .font(.headline)
 
-                    InfoRowView(label: "Created By", value: viewModel.contest.creatorName)
-                    InfoRowView(label: "Participants", value: "\(viewModel.contest.entryCount) of \(viewModel.contest.maxEntries)")
-                    InfoRowView(label: "Entry Fee", value: viewModel.contest.formattedEntryFee)
-                    InfoRowView(label: "Status", value: viewModel.contest.displayStatus)
+                    InfoRowView(label: "Created By", value: viewModel.contest.organizerName ?? "Unknown")
+                    InfoRowView(label: "Participants", value: "\(viewModel.contest.entryCount) of \(viewModel.contest.maxEntries ?? 0)")
+                    InfoRowView(label: "Entry Fee", value: viewModel.contest.entryFeeCents == 0 ? "Free" : String(format: "$%.2f", Double(viewModel.contest.entryFeeCents) / 100.0))
+                    InfoRowView(label: "Status", value: viewModel.contest.status.rawValue.capitalized)
                     if let lockTime = viewModel.contest.lockTime {
                         InfoRowView(label: "Contest Locks", value: viewModel.formattedLockTime(lockTime))
                     }
@@ -201,10 +201,11 @@ struct ContestDetailView: View {
                 .background(Color(.systemGray6))
                 .cornerRadius(12)
                 .padding(.horizontal)
-                .redacted(reason: viewModel.contest.displayStatus == "Loading" ? .placeholder : [])
+                .redacted(reason: viewModel.contest.contestName == "Loading…" ? .placeholder : [])
 
                 // Share Link (contract-driven capability)
-                if viewModel.contractContest?.actions.can_share_invite == true, let joinURL = viewModel.contest.joinURL {
+                if viewModel.actionState?.actions.canShareInvite == true, let joinToken = viewModel.contest.joinToken {
+                    let joinURL = AppEnvironment.shared.baseURL.appendingPathComponent("join/\(joinToken)")
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Text("Share Link")
@@ -246,7 +247,7 @@ struct ContestDetailView: View {
 
                         // Share button
                         Button {
-                            let message = "Join my contest: \(viewModel.contest.name)"
+                            let message = "Join my contest: \(viewModel.contest.contestName)"
                             let items: [Any] = [message, joinURL]
                             let ac = UIActivityViewController(activityItems: items, applicationActivities: nil)
                             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,

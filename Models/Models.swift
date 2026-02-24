@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Core
 
 // MARK: - Flexible Double Decoder
 struct FlexibleDouble: Codable {
@@ -597,101 +598,15 @@ struct AnyCodable: Codable {
     }
 }
 
-// MARK: - Contract DTOs (Iteration 02 — iOS Contract Compliance)
+// MARK: - Legacy Contract Adapter Types
+// These are kept for backward compatibility with ContestDetailResponseContract and LeaderboardResponseContract
+// Production code should use Domain/ types instead
 
-/// Behavior flags driven by backend contest state.
-/// These are the source of truth for UI gating.
-struct ContestActions: Codable, Hashable, Equatable {
-    let can_join: Bool
-    let can_edit_entry: Bool
-    let is_live: Bool
-    let is_closed: Bool
-    let is_scoring: Bool
-    let is_scored: Bool
-    let is_read_only: Bool
-    let can_share_invite: Bool
-    let can_manage_contest: Bool
-    let can_delete: Bool
-    let can_unjoin: Bool
+/// Leaderboard computation state (from Domain layer, re-exported for legacy contracts)
+typealias LeaderboardState = Domain.LeaderboardState
 
-    enum CodingKeys: String, CodingKey {
-        case can_join
-        case can_edit_entry
-        case is_live
-        case is_closed
-        case is_scoring
-        case is_scored
-        case is_read_only
-        case can_share_invite
-        case can_manage_contest
-        case can_delete
-        case can_unjoin
-    }
-
-    init(can_join: Bool, can_edit_entry: Bool, is_live: Bool, is_closed: Bool, is_scoring: Bool, is_scored: Bool, is_read_only: Bool, can_share_invite: Bool, can_manage_contest: Bool, can_delete: Bool = false, can_unjoin: Bool = false) {
-        self.can_join = can_join
-        self.can_edit_entry = can_edit_entry
-        self.is_live = is_live
-        self.is_closed = is_closed
-        self.is_scoring = is_scoring
-        self.is_scored = is_scored
-        self.is_read_only = is_read_only
-        self.can_share_invite = can_share_invite
-        self.can_manage_contest = can_manage_contest
-        self.can_delete = can_delete
-        self.can_unjoin = can_unjoin
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        can_join = try c.decode(Bool.self, forKey: .can_join)
-        can_edit_entry = try c.decode(Bool.self, forKey: .can_edit_entry)
-        is_live = try c.decode(Bool.self, forKey: .is_live)
-        is_closed = try c.decode(Bool.self, forKey: .is_closed)
-        is_scoring = try c.decode(Bool.self, forKey: .is_scoring)
-        is_scored = try c.decode(Bool.self, forKey: .is_scored)
-        is_read_only = try c.decode(Bool.self, forKey: .is_read_only)
-        can_share_invite = try c.decode(Bool.self, forKey: .can_share_invite)
-        can_manage_contest = try c.decode(Bool.self, forKey: .can_manage_contest)
-        can_delete = (try c.decodeIfPresent(Bool.self, forKey: .can_delete)) ?? false
-        can_unjoin = (try c.decodeIfPresent(Bool.self, forKey: .can_unjoin)) ?? false
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(can_join, forKey: .can_join)
-        try c.encode(can_edit_entry, forKey: .can_edit_entry)
-        try c.encode(is_live, forKey: .is_live)
-        try c.encode(is_closed, forKey: .is_closed)
-        try c.encode(is_scoring, forKey: .is_scoring)
-        try c.encode(is_scored, forKey: .is_scored)
-        try c.encode(is_read_only, forKey: .is_read_only)
-        try c.encode(can_share_invite, forKey: .can_share_invite)
-        try c.encode(can_manage_contest, forKey: .can_manage_contest)
-        try c.encode(can_delete, forKey: .can_delete)
-        try c.encode(can_unjoin, forKey: .can_unjoin)
-    }
-}
-
-/// Leaderboard computation state (not UI state).
-enum LeaderboardState: String, Decodable {
-    case pending
-    case computed
-    case error
-    case unknown
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let rawValue = try container.decode(String.self)
-
-        switch rawValue.lowercased() {
-        case "pending": self = .pending
-        case "computed": self = .computed
-        case "error": self = .error
-        default: self = .unknown
-        }
-    }
-}
+/// Contest actions (from Domain layer, re-exported for legacy contracts)
+typealias ContestActions = Domain.ContestActions
 
 /// Schema definition for dynamic leaderboard columns.
 struct LeaderboardColumnSchema: Decodable {
@@ -844,3 +759,18 @@ struct ContestDetailResponseContract: Decodable {
         roster_config = try c.decode(RosterConfigContract.self, forKey: .roster_config)
     }
 }
+
+@_exported import struct Core.Contest
+@_exported import struct Core.ContestStatus
+@_exported import struct Core.ContestActionState
+@_exported import struct Core.ContestActions
+@_exported import struct Core.Leaderboard
+@_exported import struct Core.LeaderboardColumn
+@_exported import struct Core.LeaderboardRow
+@_exported import struct Core.LeaderboardState
+@_exported import struct Core.PayoutTier
+@_exported import struct Core.PublishResult
+@_exported import struct Core.ContestTemplate
+@_exported import struct Core.PayoutStructure
+@_exported import struct Core.CustomContestSettings
+@_exported import struct Core.CustomContestDraft

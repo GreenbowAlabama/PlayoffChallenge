@@ -9,7 +9,7 @@ import SwiftUI
 
 @main
 struct PlayoffChallengeApp: App {
-    @StateObject private var authService = AuthService()
+    @StateObject private var authService = AuthService.shared
     @StateObject private var deepLinkCoordinator = DeepLinkCoordinator(
         joinLinkResolver: JoinLinkService(),
         pendingJoinStore: PendingJoinManager()

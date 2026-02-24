@@ -17,7 +17,7 @@ final class AvailableContestsViewModel: ObservableObject {
 
     // MARK: - Published State
 
-    @Published private(set) var contests: [MockContest] = []
+    @Published private(set) var contests: [Contest] = []
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
@@ -38,48 +38,17 @@ final class AvailableContestsViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let dtos = try await service.fetchAvailableContests()
-            print("[AvailableContestsViewModel] Loaded \(dtos.count) DTOs from backend")
+            let domainContests = try await service.fetchAvailableContests()
+            print("[AvailableContestsViewModel] Loaded \(domainContests.count) domain objects from backend")
 
-            // Map DTO directly to MockContest.
-            // Backend handles filtering, capacity, sorting, and user_has_entered.
+            // Use Domain objects directly.
+            // Backend handles filtering, capacity, sorting, and user_has_entered (via actions.isJoined if applicable).
             // Client does NOT filter, sort, or modify entry counts.
-            contests = dtos.map { dto in
-                let fee = dto.entry_fee_cents.map { Double($0) / 100.0 } ?? 0
-                let joinURL: URL? = dto.join_token.flatMap {
-                    URL(string: AppEnvironment.shared.baseURL.appendingPathComponent("join/\($0)").absoluteString)
-                }
+            contests = domainContests
 
-                let mapped = MockContest(
-                    id: dto.id,
-                    name: dto.contest_name,
-                    entryCount: dto.entry_count,
-                    maxEntries: dto.max_entries ?? 0,
-                    status: ContestStatus(rawValue: dto.status) ?? .scheduled,
-                    creatorName: dto.organizer_name ?? "Unknown",
-                    entryFee: fee,
-                    joinToken: dto.join_token,
-                    joinURL: joinURL,
-                    isJoined: dto.user_has_entered,
-                    lockTime: dto.lock_time,
-                    startTime: dto.start_time,
-                    endTime: dto.end_time
-                )
-
-                // 🟢 POINT B: Log immediately after DTO→MockContest mapping
-                print("🟢 MAPPED \(dto.id.uuidString.prefix(8)): dto.organizer_name='\(dto.organizer_name ?? "nil")' => creatorName='\(mapped.creatorName)'")
-
-                return mapped
-            }
-
-            print("[AvailableContestsViewModel] Mapped to \(contests.count) MockContest objects")
+            print("[AvailableContestsViewModel] Loaded \(contests.count) Contest objects")
             for (index, contest) in contests.enumerated() {
-                print("[AvailableContestsViewModel] Contest \(index): \(contest.name) (status: \(contest.displayStatus), joined: \(contest.isJoined))")
-            }
-
-            // 🔵 POINT C: Log after contests array is assigned
-            for contest in contests {
-                print("🔵 VIEWMODEL contest: \(contest.id.uuidString.prefix(8)) creator: '\(contest.creatorName)'")
+                print("[AvailableContestsViewModel] Contest \(index): \(contest.contestName) (status: \(contest.status), entries: \(contest.entryCount))")
             }
 
             errorMessage = nil

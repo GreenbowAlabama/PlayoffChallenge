@@ -1,0 +1,65 @@
+{
+  "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Views/LandingView.swift" : {
+    "const-values" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LandingView.swiftconstvalues",
+    "dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LandingView.d",
+    "diagnostics" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LandingView.dia",
+    "object" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LandingView.o",
+    "swift-dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LandingView.swiftdeps"
+  },
+  "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Views/LeaderboardView.swift" : {
+    "const-values" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LeaderboardView.swiftconstvalues",
+    "dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LeaderboardView.d",
+    "diagnostics" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LeaderboardView.dia",
+    "object" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LeaderboardView.o",
+    "swift-dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LeaderboardView.swiftdeps"
+  },
+  "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Views/LineupView.swift" : {
+    "const-values" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LineupView.swiftconstvalues",
+    "dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LineupView.d",
+    "diagnostics" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LineupView.dia",
+    "object" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LineupView.o",
+    "swift-dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LineupView.swiftdeps"
+  },
+  "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Views/LockUrgency+UI.swift" : {
+    "const-values" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LockUrgency+UI.swiftconstvalues",
+    "dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LockUrgency+UI.d",
+    "diagnostics" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LockUrgency+UI.dia",
+    "object" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LockUrgency+UI.o",
+    "swift-dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/LockUrgency+UI.swiftdeps"
+  },
+  "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Views/MatchupView.swift" : {
+    "const-values" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MatchupView.swiftconstvalues",
+    "dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MatchupView.d",
+    "diagnostics" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MatchupView.dia",
+    "object" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MatchupView.o",
+    "swift-dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MatchupView.swiftdeps"
+  },
+  "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Views/MyContestsView.swift" : {
+    "const-values" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MyContestsView.swiftconstvalues",
+    "dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MyContestsView.d",
+    "diagnostics" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MyContestsView.dia",
+    "object" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MyContestsView.o",
+    "swift-dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MyContestsView.swiftdeps"
+  },
+  "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Views/MyPickView.swift" : {
+    "const-values" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MyPickView.swiftconstvalues",
+    "dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MyPickView.d",
+    "diagnostics" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MyPickView.dia",
+    "object" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MyPickView.o",
+    "swift-dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/MyPickView.swiftdeps"
+  },
+  "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Views/NextLockBanner.swift" : {
+    "const-values" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/NextLockBanner.swiftconstvalues",
+    "dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/NextLockBanner.d",
+    "diagnostics" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/NextLockBanner.dia",
+    "object" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/NextLockBanner.o",
+    "swift-dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/NextLockBanner.swiftdeps"
+  },
+  "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Views/PlayerImageView.swift" : {
+    "const-values" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/PlayerImageView.swiftconstvalues",
+    "dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/PlayerImageView.d",
+    "diagnostics" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/PlayerImageView.dia",
+    "object" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/PlayerImageView.o",
+    "swift-dependencies" : "/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/DerivedData/Build/Intermediates.noindex/PlayoffChallenge.build/Debug-iphonesimulator/PlayoffChallenge.build/Objects-normal/x86_64/PlayerImageView.swiftdeps"
+  }
+}

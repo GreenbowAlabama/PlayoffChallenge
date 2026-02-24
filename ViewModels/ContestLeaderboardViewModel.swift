@@ -38,7 +38,7 @@ final class ContestLeaderboardViewModel: ObservableObject {
 
     // MARK: - Computed Properties
 
-    var leaderboardState: LeaderboardState? {
+    var leaderboardState: LeaderboardComputationState? {
         leaderboard?.state
     }
 
@@ -46,7 +46,7 @@ final class ContestLeaderboardViewModel: ObservableObject {
         leaderboard?.columns ?? []
     }
 
-    var rows: [[String: AnyCodable]] {
+    var rows: [Standing] {
         leaderboard?.rows ?? []
     }
 
@@ -60,6 +60,10 @@ final class ContestLeaderboardViewModel: ObservableObject {
 
     var hasError: Bool {
         leaderboardState == .error
+    }
+
+    var hasUnknownState: Bool {
+        leaderboardState == .unknown || leaderboardState == nil
     }
 
     var isEmpty: Bool {

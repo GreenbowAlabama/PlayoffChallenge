@@ -78,7 +78,7 @@ struct ContestLeaderboardView: View {
                 }
             } else {
                 DynamicLeaderboardTableView(
-                    columnSchema: viewModel.columnSchema,
+                    columnSchema: viewModel.columns,
                     rows: viewModel.rows,
                     isCurrentUserRow: { row in
                         // Check if this row represents the current user (customizable based on schema)

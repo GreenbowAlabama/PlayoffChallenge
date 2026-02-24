@@ -9,9 +9,9 @@
 import SwiftUI
 
 struct DynamicLeaderboardTableView: View {
-    let columnSchema: [LeaderboardColumnSchema]
-    let rows: [LeaderboardRow]
-    var isCurrentUserRow: (LeaderboardRow) -> Bool = { _ in false }
+    let columnSchema: [LeaderboardColumn]
+    let rows: [Standing]
+    var isCurrentUserRow: (Standing) -> Bool = { _ in false }
 
     var body: some View {
         ScrollView {
@@ -37,7 +37,7 @@ struct DynamicLeaderboardTableView: View {
                 ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                     HStack(spacing: 12) {
                         ForEach(columnSchema, id: \.key) { column in
-                            let value = row[column.key]?.value ?? "—"
+                            let value = row.values[column.key]?.value ?? "—"
                             let displayValue = formatValue(value, columnType: column.type)
 
                             Text(displayValue)

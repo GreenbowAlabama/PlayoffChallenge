@@ -1,0 +1,27 @@
+{
+  "object" : {
+    "artifacts" : [
+
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "core",
+          "kind" : "fileSystem",
+          "location" : "/Users/iancarter/Documents/workspace/playoff-challenge/core",
+          "name" : "core"
+        },
+        "state" : {
+          "name" : "fileSystem",
+          "path" : "/Users/iancarter/Documents/workspace/playoff-challenge/core"
+        },
+        "subpath" : "core"
+      }
+    ],
+    "prebuilts" : [
+
+    ]
+  },
+  "version" : 7
+}

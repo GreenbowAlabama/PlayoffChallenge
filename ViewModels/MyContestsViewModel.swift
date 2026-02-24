@@ -21,7 +21,7 @@ final class MyContestsViewModel: ObservableObject {
     }
 
     // MARK: - Published State
-    @Published private(set) var myContests: [MockContest] = []
+    @Published private(set) var myContests: [Contest] = []
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var deletingIds: Set<UUID> = []
@@ -30,7 +30,7 @@ final class MyContestsViewModel: ObservableObject {
 
     /// Contests sorted by priority: LIVE → LOCKED → SCHEDULED → COMPLETE → CANCELLED
     /// Within same status, sorted by creation date (descending, newest first).
-    var sortedContests: [MockContest] {
+    var sortedContests: [Contest] {
         myContests.sorted { contest1, contest2 in
             let priority1 = priority(for: contest1.status)
             let priority2 = priority(for: contest2.status)
@@ -41,8 +41,8 @@ final class MyContestsViewModel: ObservableObject {
             }
 
             // Same status: sort by createdAt descending (newest first)
-            let date1 = contest1.createdAt ?? Date.distantPast
-            let date2 = contest2.createdAt ?? Date.distantPast
+            let date1 = contest1.createdAt
+            let date2 = contest2.createdAt
             return date1 > date2
         }
     }
@@ -81,15 +81,15 @@ final class MyContestsViewModel: ObservableObject {
             let joined = try await joinedContests
 
             // Merge and deduplicate by ID
-            var contestMap: [String: MockContest] = [:]
+            var contestMap: [UUID: Contest] = [:]
 
             for contest in created {
-                contestMap[contest.id.uuidString] = contest
+                contestMap[contest.id] = contest
             }
 
             for contest in joined {
-                if contestMap[contest.id.uuidString] == nil {
-                    contestMap[contest.id.uuidString] = contest
+                if contestMap[contest.id] == nil {
+                    contestMap[contest.id] = contest
                 }
             }
 
@@ -102,44 +102,18 @@ final class MyContestsViewModel: ObservableObject {
         isLoading = false
     }
 
-    private func fetchCreatedContests() async throws -> [MockContest] {
-        let contests = try await service.fetchCreatedContests()
-        return contests.map(mockContestFromDomain)
+    private func fetchCreatedContests() async throws -> [Contest] {
+        return try await service.fetchCreatedContests()
     }
 
-    private func fetchJoinedContests() async throws -> [MockContest] {
+    private func fetchJoinedContests() async throws -> [Contest] {
         let contests = try await service.fetchAvailableContests()
         return contests
-            .filter { $0.userHasEntered }
-            .map(mockContestFromDomain)
-    }
-
-    private func mockContestFromDomain(_ contest: Contest) -> MockContest {
-        let fee = Double(contest.entryFeeCents) / 100.0
-        let joinURL: URL? = contest.joinToken.flatMap {
-            URL(string: AppEnvironment.shared.baseURL.appendingPathComponent("join/\($0)").absoluteString)
-        }
-
-        return MockContest(
-            id: contest.id,
-            name: contest.contestName,
-            entryCount: contest.entryCount,
-            maxEntries: contest.maxEntries ?? 0,
-            status: contest.status,
-            creatorName: contest.organizerName ?? "Unknown",
-            entryFee: fee,
-            joinToken: contest.joinToken,
-            joinURL: joinURL,
-            isJoined: contest.userHasEntered,
-            lockTime: contest.lockTime,
-            startTime: contest.startTime,
-            endTime: contest.endTime,
-            createdAt: contest.createdAt
-        )
+            .filter { $0.actions?.canEditEntry == true || $0.actions?.canUnjoin == true }
     }
 
     /// Get a contest by ID
-    func getContest(by id: UUID) -> MockContest? {
+    func getContest(by id: UUID) -> Contest? {
         myContests.first { $0.id == id }
     }
 

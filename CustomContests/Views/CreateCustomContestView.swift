@@ -1,45 +1,51 @@
 import SwiftUI
+import Core
 
 /// Minimal UI for creating and publishing a custom contest.
 /// This view is intentionally simple - no design polish, just functional.
 struct CreateCustomContestView: View {
-    @ObservedObject var viewModel: CreateCustomContestViewModel
+    @StateObject private var viewModel: CreateCustomContestViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var lockTimeEnabled = false
 
+    init(viewModel: CreateCustomContestViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
+    }
+
     var body: some View {
-        NavigationStack {
-            Form {
-                contestTypeSection
-                contestDetailsSection
-                lockTimeSection
-                actionSection
-                statusSection
-            }
-            .navigationTitle("Create Contest")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+        Form {
+            contestTemplateSection
+            contestDetailsSection
+            payoutStructureSection
+            lockTimeSection
+            actionSection
+            statusSection
+        }
+        .navigationTitle("NEW TEMPLATE FLOW")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
                 }
             }
-            .disabled(viewModel.isSubmitting)
+        }
+        .disabled(viewModel.isSubmitting)
+        .task {
+            await viewModel.loadTemplates()
         }
     }
 
     // MARK: - Sections
 
-    private var contestTypeSection: some View {
-        Section("Contest Type") {
-            Picker("Contest Type", selection: $viewModel.selectedContestType) {
-                ForEach(ContestType.allCases) { type in
-                    Text(type.displayName)
-                        .tag(type)
+    private var contestTemplateSection: some View {
+        Section("Contest Template") {
+            Picker("Contest Template", selection: $viewModel.selectedTemplate) {
+                ForEach(viewModel.templates) { template in
+                    Text(template.name)
+                        .tag(Optional(template))
                 }
             }
-            .pickerStyle(.menu)
         }
     }
 
@@ -53,6 +59,47 @@ struct CreateCustomContestView: View {
                 value: $viewModel.maxEntries,
                 in: 2...1000
             )
+
+            Picker("Entry Fee", selection: $viewModel.selectedEntryFeeCents) {
+                ForEach(viewModel.allowedEntryFeeOptions, id: \.self) { fee in
+                    Text(viewModel.formatDollars(fee))
+                        .tag(fee)
+                }
+            }
+        }
+    }
+
+    private var payoutStructureSection: some View {
+        Section {
+            if let structure = viewModel.selectedPayoutStructure {
+                LabeledContent("Type", value: structure.type.replacingOccurrences(of: "_", with: " ").capitalized)
+                if let n = structure.maxWinners {
+                    LabeledContent("Max Winners", value: "\(n)")
+                }
+
+                ForEach(Array(viewModel.payoutPreview.enumerated()), id: \.offset) { _, line in
+                    HStack {
+                        Text(line.place)
+                        Spacer()
+                        Text(String(format: "%.0f%%", line.percentage))
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "$%.2f", line.amount))
+                            .monospacedDigit()
+                    }
+                }
+            } else {
+                Text("No payout structure available")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+        } header: {
+            Text("Payout Preview")
+        } footer: {
+            let feeText = viewModel.selectedEntryFeeCents == 0
+                ? "Free"
+                : viewModel.formatDollars(viewModel.selectedEntryFeeCents)
+            Text("Based on \(viewModel.maxEntries) entries × \(feeText)")
+                .font(.caption)
         }
     }
 
@@ -221,7 +268,28 @@ struct CreateCustomContestView: View {
 // MARK: - Preview Helpers
 
 private final class PreviewCustomContestCreator: CustomContestCreating {
-    func createDraft(name: String, settings: CustomContestSettings, userId: UUID, lockTime: Date?) async throws -> CustomContestDraft {
+    func loadTemplates() async throws -> [ContestTemplate] {
+        return [
+            ContestTemplate(
+                id: UUID(),
+                name: "Masters Golf V2",
+                defaultEntryFeeCents: 5000,
+                allowedEntryFeeMinCents: 0,
+                allowedEntryFeeMaxCents: 10000,
+                allowedPayoutStructures: [PayoutStructure(type: "top_n_split", maxWinners: 3)]
+            ),
+            ContestTemplate(
+                id: UUID(),
+                name: "NFL Playoff Pool",
+                defaultEntryFeeCents: 2500,
+                allowedEntryFeeMinCents: 0,
+                allowedEntryFeeMaxCents: 5000,
+                allowedPayoutStructures: [PayoutStructure(type: "winner_take_all", maxWinners: nil)]
+            )
+        ]
+    }
+
+    func createDraft(templateId: UUID, name: String, settings: CustomContestSettings, payoutStructure: PayoutStructure, userId: UUID, lockTime: Date?) async throws -> CustomContestDraft {
         try await Task.sleep(for: .seconds(1))
         return CustomContestDraft(name: name, settings: settings)
     }

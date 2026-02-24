@@ -1,6 +1,6 @@
 import Foundation
 import Combine
-import core
+import Core
 
 /// State machine for the create custom contest flow.
 enum CreateCustomContestState: Equatable {
@@ -52,10 +52,10 @@ final class CreateCustomContestViewModel: ObservableObject {
     @Published var selectedEntryFeeCents: Int = 0
 
     /// The created draft (available after successful creation).
-    @Published private(set) var draft: CustomContestDraft?
+    @Published private(set) var draft: Contest?
 
     /// The publish result (available after successful publish).
-    @Published private(set) var publishResult: PublishContestResult?
+    @Published private(set) var publishResult: PublishResult?
 
     // MARK: - Dependencies
 

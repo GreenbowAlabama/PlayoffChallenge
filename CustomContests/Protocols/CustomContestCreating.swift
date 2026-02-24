@@ -25,7 +25,7 @@ protocol CustomContestCreating {
         payoutStructure: PayoutStructure,
         userId: UUID,
         lockTime: Date?
-    ) async throws -> CustomContestDraft
+    ) async throws -> Contest
 }
 
 extension CustomContestCreating {
@@ -35,7 +35,7 @@ extension CustomContestCreating {
         settings: CustomContestSettings,
         payoutStructure: PayoutStructure,
         userId: UUID
-    ) async throws -> CustomContestDraft {
+    ) async throws -> Contest {
         try await createDraft(templateId: templateId, name: name, settings: settings, payoutStructure: payoutStructure, userId: userId, lockTime: nil)
     }
 }

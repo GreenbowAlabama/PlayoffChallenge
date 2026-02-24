@@ -19,7 +19,7 @@ final class ContestDetailViewModel: ObservableObject {
 
     // MARK: - Published State
 
-    @Published private(set) var contest: MockContest
+    @Published private(set) var contest: Contest
     @Published private(set) var actionState: ContestActionState?
     @Published private(set) var isLoading = false
     @Published private(set) var isFetching = false
@@ -40,7 +40,7 @@ final class ContestDetailViewModel: ObservableObject {
 
     init(
         contestId: UUID,
-        placeholder: MockContest? = nil,
+        placeholder: Contest? = nil,
         contestJoiner: ContestJoining,
         detailFetcher: ContestDetailFetching? = nil,
         getCurrentUserId: @escaping () -> UUID? = {
@@ -53,13 +53,10 @@ final class ContestDetailViewModel: ObservableObject {
         self.detailFetcher = detailFetcher ?? ContestDetailService(getCurrentUserId: getCurrentUserId)
 
         // Use placeholder if provided, otherwise create a minimal loading state
-        let initial = placeholder ?? MockContest(
+        let initial = placeholder ?? Contest.stub(
             id: contestId,
-            name: "Loading…",
-            entryCount: 0,
-            maxEntries: 0,
-            status: .scheduled,
-            creatorName: "—"
+            contestName: "Loading…",
+            status: .scheduled
         )
         self.contest = initial
     }
@@ -202,7 +199,7 @@ final class ContestDetailViewModel: ObservableObject {
     }
 
     var displayStatusMessage: String {
-        contest.displayStatus
+        contest.status.rawValue.capitalized
     }
 
     // MARK: - Actions

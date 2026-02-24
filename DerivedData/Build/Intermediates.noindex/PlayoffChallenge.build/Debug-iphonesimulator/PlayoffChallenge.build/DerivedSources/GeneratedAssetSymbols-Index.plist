@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>colors</key>
+	<array>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACColorNameBrandBlack</string>
+			<key>relativePath</key>
+			<string>./BrandBlack.colorset</string>
+			<key>swiftSymbol</key>
+			<string>brandBlack</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACColorNameBrandCream</string>
+			<key>relativePath</key>
+			<string>./BrandCream.colorset</string>
+			<key>swiftSymbol</key>
+			<string>brandCream</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACColorNameBrandOrange</string>
+			<key>relativePath</key>
+			<string>./BrandOrange.colorset</string>
+			<key>swiftSymbol</key>
+			<string>brandOrange</string>
+		</dict>
+	</array>
+	<key>images</key>
+	<array>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallenge/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameAppLogo</string>
+			<key>relativePath</key>
+			<string>./AppLogo.imageset</string>
+			<key>swiftSymbol</key>
+			<string>appLogo</string>
+		</dict>
+	</array>
+	<key>symbols</key>
+	<array/>
+</dict>
+</plist>

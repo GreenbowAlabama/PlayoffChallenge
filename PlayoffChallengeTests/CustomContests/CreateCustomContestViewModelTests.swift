@@ -398,7 +398,7 @@ final class CreateCustomContestViewModelTests: XCTestCase {
         XCTAssertTrue(sut.isPublishEnabled)
     }
 
-    // MARK: - Helpers
+// MARK: - Helpers
 
     private func makeDraft(
         name: String,

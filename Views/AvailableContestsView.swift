@@ -10,7 +10,7 @@ import SwiftUI
 struct AvailableContestsView: View {
     @EnvironmentObject var authService: AuthService
     @ObservedObject var viewModel: AvailableContestsViewModel
-    @State private var selectedContest: MockContest?
+    @State private var selectedContest: Contest?
 
     init(viewModel: AvailableContestsViewModel) {
         self.viewModel = viewModel
@@ -36,12 +36,12 @@ struct AvailableContestsView: View {
                 } else {
                     ForEach(viewModel.contests) { contest in
                         ContestRowView(
-                            contestName: contest.name,
-                            isJoined: contest.isJoined,
-                            entryCountText: "\(contest.entryCount)/\(contest.maxEntries)",
-                            statusText: contest.displayStatus,
+                            contestName: contest.contestName,
+                            isJoined: contest.actions?.isJoined ?? false,
+                            entryCountText: "\(contest.entryCount)/\(contest.maxEntries ?? 0)",
+                            statusText: contest.status.rawValue.capitalized,
                             lockText: formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)?.text,
-                            entryFeeText: contest.entryFee > 0 ? String(format: "$%.0f Entry", contest.entryFee) : nil
+                            entryFeeText: contest.entryFeeCents > 0 ? String(format: "$%.0f Entry", Double(contest.entryFeeCents) / 100.0) : nil
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {

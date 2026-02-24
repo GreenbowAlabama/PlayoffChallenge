@@ -7,34 +7,10 @@
 
 import Foundation
 
-/// Status of a contest
-enum ContestStatus: String, Codable, Equatable {
-    case scheduled = "SCHEDULED"
-    case locked = "LOCKED"
-    case live = "LIVE"
-    case complete = "COMPLETE"
-    case cancelled = "CANCELLED"
-    case error = "ERROR"
-    case unknown = "UNKNOWN"
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let rawValue = try container.decode(String.self)
-
-        switch rawValue.uppercased() {
-        case "SCHEDULED": self = .scheduled
-        case "LOCKED": self = .locked
-        case "LIVE": self = .live
-        case "COMPLETE": self = .complete
-        case "CANCELLED": self = .cancelled
-        case "ERROR": self = .error
-        default: self = .unknown
-        }
-    }
-}
+// Use Domain/ContestStatus instead of local definition
 
 /// Backend-computed join state — single source of truth for joinability
-enum ComputedJoinState: String, Codable, Equatable {
+enum ComputedJoinState: String, Codable, Equatable, Hashable {
     case joinable = "JOINABLE"
     case locked = "LOCKED"
     case completed = "COMPLETED"

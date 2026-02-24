@@ -16,108 +16,7 @@ enum LandingDestination: Hashable {
     case myContests
     case profile
     case contestDetail(UUID)
-    case leaderboard(MockContest)
-}
-
-/// Mock contest model for UI flow demonstration
-struct MockContest: Identifiable, Hashable, Codable {
-    let id: UUID
-    let name: String
-    let entryCount: Int
-    let maxEntries: Int
-    let status: ContestStatus
-    let creatorName: String
-    let entryFee: Double
-    let joinToken: String?
-    let joinURL: URL?
-    let isJoined: Bool
-    let lockTime: Date?
-    let startTime: Date?
-    let endTime: Date?
-    let createdAt: Date?
-    let actions: ContestActions?
-
-    init(
-        id: UUID = UUID(),
-        name: String,
-        entryCount: Int,
-        maxEntries: Int,
-        status: ContestStatus,
-        creatorName: String,
-        entryFee: Double = 0.0,
-        joinToken: String? = nil,
-        joinURL: URL? = nil,
-        isJoined: Bool = false,
-        lockTime: Date? = nil,
-        startTime: Date? = nil,
-        endTime: Date? = nil,
-        createdAt: Date? = nil,
-        actions: ContestActions? = nil
-    ) {
-        self.id = id
-        self.name = name
-        self.entryCount = entryCount
-        self.maxEntries = maxEntries
-        self.status = status
-        self.creatorName = creatorName
-        self.entryFee = entryFee
-        self.joinToken = joinToken
-        self.joinURL = joinURL
-        self.isJoined = isJoined
-        self.lockTime = lockTime
-        self.startTime = startTime
-        self.endTime = endTime
-        self.createdAt = createdAt
-        self.actions = actions
-    }
-
-    var displayStatus: String {
-        status.rawValue.capitalized
-    }
-
-    var formattedEntryFee: String {
-        if entryFee == 0 {
-            return "Free"
-        }
-        return String(format: "$%.2f", entryFee)
-    }
-
-    var slotsRemaining: Int {
-        maxEntries - entryCount
-    }
-
-    static let samples: [MockContest] = [
-        MockContest(
-            id: UUID(),
-            name: "NFL Playoffs 2026",
-            entryCount: 45,
-            maxEntries: 100,
-            status: .scheduled,
-            creatorName: "Admin",
-            entryFee: 50.00,
-            joinToken: "nfl2026token"
-        ),
-        MockContest(
-            id: UUID(),
-            name: "Friends League",
-            entryCount: 8,
-            maxEntries: 20,
-            status: .scheduled,
-            creatorName: "JohnDoe",
-            entryFee: 25.00,
-            joinToken: "friendstoken"
-        ),
-        MockContest(
-            id: UUID(),
-            name: "Office Pool",
-            entryCount: 12,
-            maxEntries: 50,
-            status: .scheduled,
-            creatorName: "Sarah",
-            entryFee: 10.00,
-            joinToken: "officetoken"
-        )
-    ]
+    case leaderboard(Contest)
 }
 
 /// ViewModel for the Landing page.
@@ -152,7 +51,7 @@ final class LandingViewModel: ObservableObject {
         navigationPath.append(LandingDestination.contestDetail(contestId))
     }
 
-    func navigateToLeaderboard(contest: MockContest) {
+    func navigateToLeaderboard(contest: Contest) {
         navigationPath.append(LandingDestination.leaderboard(contest))
     }
 
@@ -185,13 +84,13 @@ final class LandingViewModel: ObservableObject {
     ///   - mine: Contests from MyContestsViewModel (VMs own this data)
     /// - Returns: Next scheduled contest with future lock time, or nil
     func nextRelevantScheduledContest(
-        available: [MockContest],
-        mine: [MockContest]
-    ) -> MockContest? {
+        available: [Contest],
+        mine: [Contest]
+    ) -> Contest? {
         let now = Date()
 
         // Filter both lists: scheduled, has lock time, lock time is in future
-        let isValidForBanner: (MockContest) -> Bool = { contest in
+        let isValidForBanner: (Contest) -> Bool = { contest in
             contest.status == .scheduled &&
             contest.lockTime != nil &&
             (contest.lockTime ?? .distantPast) > now
@@ -202,7 +101,7 @@ final class LandingViewModel: ObservableObject {
 
         // Priority 1: Next joinable (not yet joined)
         let joinable = validAvailable
-            .filter { !$0.isJoined }
+            .filter { !($0.actions?.canEditEntry ?? false) && !($0.actions?.canUnjoin ?? false) }
             .sorted { ($0.lockTime ?? .distantFuture) < ($1.lockTime ?? .distantFuture) }
             .first
 
@@ -212,7 +111,7 @@ final class LandingViewModel: ObservableObject {
 
         // Priority 2: Next already joined
         let joined = (validAvailable + validMine)
-            .filter { $0.isJoined }
+            .filter { $0.actions?.canEditEntry == true || $0.actions?.canUnjoin == true }
             .sorted { ($0.lockTime ?? .distantFuture) < ($1.lockTime ?? .distantFuture) }
             .first
 

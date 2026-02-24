@@ -148,26 +148,33 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     // MARK: - Create Draft Tests
 
     func testCreateDraft_whenValid_callsCreatorWithCorrectParameters() async {
+        let templateId = UUID()
+        let template = ContestTemplate(id: templateId, name: "Test Template")
         let expectedDraft = makeDraft(name: "Test Contest", maxEntries: 10)
+        mockCreator.configureSuccess(templates: [template])
         mockCreator.configureSuccess(draft: expectedDraft)
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
 
         XCTAssertEqual(mockCreator.createDraftCallCount, 1)
+        XCTAssertEqual(mockCreator.lastCreateDraftTemplateId, templateId)
         XCTAssertEqual(mockCreator.lastCreateDraftName, "Test Contest")
         XCTAssertEqual(mockCreator.lastCreateDraftSettings?.maxEntries, 10)
         XCTAssertEqual(mockCreator.lastCreateDraftUserId, testUserId)
     }
 
     func testCreateDraft_whenValid_transitionsToCreatingThenCreated() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let expectedDraft = makeDraft(name: "Test Contest", maxEntries: 10)
         mockCreator.configureSuccess(draft: expectedDraft)
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         XCTAssertEqual(sut.state, .idle)
 
@@ -178,11 +185,13 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testCreateDraft_whenValid_isSubmittingDuringCreate() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let expectedDraft = makeDraft(name: "Test Contest", maxEntries: 10)
         mockCreator.configureSuccess(draft: expectedDraft)
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         // After completion, isSubmitting should be false
         await sut.createDraft()
@@ -200,10 +209,12 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testCreateDraft_whenServiceFails_transitionsToError() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         mockCreator.configureFailure(error: .networkError(underlying: "Connection failed"))
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
 
@@ -212,11 +223,13 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testCreateDraft_trimsContestName() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let expectedDraft = makeDraft(name: "My Contest", maxEntries: 10)
         mockCreator.configureSuccess(draft: expectedDraft)
 
         sut.contestName = "  My Contest  "
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
 
@@ -235,12 +248,14 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testPublish_whenDraftExists_callsPublisherWithCorrectParameters() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let draft = makeDraft(name: "Test Contest", maxEntries: 10)
         mockCreator.configureSuccess(draft: draft)
         mockPublisher.configureSuccess(result: makePublishResult(contestId: draft.id))
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
         await sut.publishDraft()
@@ -251,6 +266,7 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testPublish_whenSuccessful_transitionsToPublished() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let draft = makeDraft(name: "Test Contest", maxEntries: 10)
         let publishResult = makePublishResult(contestId: draft.id)
         mockCreator.configureSuccess(draft: draft)
@@ -258,6 +274,7 @@ final class CreateCustomContestViewModelTests: XCTestCase {
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
         await sut.publishDraft()
@@ -267,12 +284,14 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testPublish_whenServiceFails_transitionsToError() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let draft = makeDraft(name: "Test Contest", maxEntries: 10)
         mockCreator.configureSuccess(draft: draft)
         mockPublisher.configureFailure(error: .notAuthorized)
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
         await sut.publishDraft()
@@ -282,12 +301,14 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testPublish_preservesDraftAfterFailure() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let draft = makeDraft(name: "Test Contest", maxEntries: 10)
         mockCreator.configureSuccess(draft: draft)
         mockPublisher.configureFailure(error: .serverError(message: "Internal error"))
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
         await sut.publishDraft()
@@ -298,6 +319,7 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     // MARK: - State Transition Tests
 
     func testState_afterCreateThenPublish_fullFlow() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let draft = makeDraft(name: "Test Contest", maxEntries: 10)
         let publishResult = makePublishResult(contestId: draft.id)
         mockCreator.configureSuccess(draft: draft)
@@ -305,6 +327,7 @@ final class CreateCustomContestViewModelTests: XCTestCase {
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         XCTAssertEqual(sut.state, .idle)
 
@@ -316,10 +339,12 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testRetry_fromErrorState_canCreateAgain() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         mockCreator.configureFailure(error: .networkError(underlying: "First failure"))
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
         XCTAssertEqual(sut.state, .error(.networkError(underlying: "First failure")))
@@ -333,10 +358,12 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testClearError_resetsToIdleOrCreated() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         mockCreator.configureFailure(error: .networkError(underlying: "Failure"))
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
         XCTAssertEqual(sut.state, .error(.networkError(underlying: "Failure")))
@@ -346,12 +373,14 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testClearError_afterPublishFailure_returnsToCreated() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let draft = makeDraft(name: "Test Contest", maxEntries: 10)
         mockCreator.configureSuccess(draft: draft)
         mockPublisher.configureFailure(error: .serverError(message: "Error"))
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
         await sut.publishDraft()
@@ -368,11 +397,13 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testPrimaryButtonTitle_whenCreated_isPublishContest() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let draft = makeDraft(name: "Test Contest", maxEntries: 10)
         mockCreator.configureSuccess(draft: draft)
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
 
@@ -387,11 +418,13 @@ final class CreateCustomContestViewModelTests: XCTestCase {
     }
 
     func testIsPublishEnabled_whenCreated_isTrue() async {
+        let template = ContestTemplate(id: UUID(), name: "Test Template")
         let draft = makeDraft(name: "Test Contest", maxEntries: 10)
         mockCreator.configureSuccess(draft: draft)
 
         sut.contestName = "Test Contest"
         sut.maxEntries = 10
+        sut.selectedTemplate = template
 
         await sut.createDraft()
 

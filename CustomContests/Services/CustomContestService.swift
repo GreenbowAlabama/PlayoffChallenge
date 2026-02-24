@@ -1,35 +1,10 @@
 import Foundation
+import Core
 
-/// DTO for available contests from /api/contests/available endpoint
-/// Backend handles filtering, capacity logic, sorting, and user_has_entered.
-struct AvailableContestDTO: Codable {
-    let id: UUID
-    let contest_name: String
-    let status: String
-    let entry_count: Int
-    let max_entries: Int?
-    let user_has_entered: Bool
-    let is_platform_owned: Bool?
-    let join_token: String?
-    let lock_time: Date?
-    let created_at: Date?
-    let start_time: Date?
-    let end_time: Date?
-    let entry_fee_cents: Int?
-    let organizer_name: String?
-}
-
-/// Domain model returned by createAndPublish - clean interface for Views
-struct CreatedContest: Equatable {
-    let id: UUID
-    let name: String
-    let entryFeeCents: Int
-    let status: String
-    let joinToken: String
-    let joinURL: URL
-}
+// MARK: - Input Models
 
 /// Input for contest creation - what the View provides
+/// Never decodes JSON.
 struct ContestCreationInput {
     let name: String
     let entryFeeCents: Int
@@ -49,9 +24,11 @@ struct ContestCreationInput {
 final class CustomContestService: CustomContestCreating, CustomContestPublishing {
 
     private let environment: AppEnvironment
+    private let apiService: APIService
 
-    init(environment: AppEnvironment = .shared) {
+    init(environment: AppEnvironment = .shared, apiService: APIService = .shared) {
         self.environment = environment
+        self.apiService = apiService
     }
 
     // MARK: - Available Contests
@@ -60,7 +37,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
     /// Backend handles all filtering (status=SCHEDULED, not full, user hasn't joined),
     /// capacity logic, sorting, and user_has_entered flag.
     /// Client must NOT re-implement any of this logic.
-    func fetchAvailableContests() async throws -> [AvailableContestDTO] {
+    func fetchAvailableContests() async throws -> [Contest] {
         // Retrieve userId from persistence before building request
         guard let userIdString = UserDefaults.standard.string(forKey: "userId"),
               let userId = UUID(uuidString: userIdString) else {
@@ -102,11 +79,12 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
                 print("🟡 RAW JSON RESPONSE:")
                 print(rawString)
 
-                let dtos = try decoder.decode([AvailableContestDTO].self, from: data)
+                let dtos = try decoder.decode([ContestListItemDTO].self, from: data)
+                let contests = dtos.map { Contest.from($0) }
 
-                print("🟢 Successfully decoded \(dtos.count) contests")
+                print("🟢 Successfully decoded \(contests.count) contests")
 
-                return dtos
+                return contests
 
             } catch {
                 print("🔴 DECODE ERROR:", error)
@@ -175,12 +153,86 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         }
     }
 
+    // MARK: - Created Contests
+
+    /// Fetches contests created by the authenticated user.
+    /// Returns Domain [Contest] objects only.
+    func fetchCreatedContests() async throws -> [Contest] {
+        guard let userIdString = UserDefaults.standard.string(forKey: "userId"),
+              let userId = UUID(uuidString: userIdString) else {
+            print("❌ Missing userId before /created contests call")
+            throw CustomContestError.notAuthenticated
+        }
+
+        let url = environment.baseURL.appendingPathComponent("api/custom-contests")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
+
+        print("📋 [fetchCreatedContests] Request headers:")
+        print("   \(request.allHTTPHeaderFields ?? [:])")
+        print("   URL: \(request.url?.absoluteString ?? "nil")")
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CustomContestError.networkError(underlying: "Invalid response")
+        }
+
+        print("[fetchCreatedContests] HTTP status: \(httpResponse.statusCode)")
+
+        switch httpResponse.statusCode {
+        case 200:
+            let decoder = JSONDecoder.iso8601Decoder
+            do {
+                let dtos = try decoder.decode([ContestListItemDTO].self, from: data)
+                let contests = dtos.map { Contest.from($0) }
+                print("🟢 Successfully decoded \(contests.count) created contests")
+                return contests
+            } catch {
+                print("🔴 DECODE ERROR:", error)
+                throw CustomContestError.serverError(message: "Failed to decode created contests")
+            }
+        case 401, 403:
+            throw CustomContestError.notAuthorized
+        default:
+            throw CustomContestError.serverError(message: "Server returned \(httpResponse.statusCode)")
+        }
+    }
+
+    // MARK: - Template Loading
+
+    /// Loads minimal contest templates (id, name only) for display.
+    /// No authentication required.
+    func loadTemplates() async throws -> [ContestTemplate] {
+        let url = environment.baseURL.appendingPathComponent("api/custom-contests/templates")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CustomContestError.networkError(underlying: "Invalid response")
+        }
+
+        switch httpResponse.statusCode {
+        case 200:
+            let decoder = JSONDecoder()
+            return try decoder.decode([ContestTemplate].self, from: data)
+        default:
+            throw CustomContestError.serverError(message: "Failed to load templates: \(httpResponse.statusCode)")
+        }
+    }
+
     // MARK: - High-Level Orchestration
 
     /// Creates and publishes a contest in one call.
     /// Handles template fetching, contest creation, and publishing internally.
-    /// Returns a clean domain model with join URL ready for sharing.
-    func createAndPublish(input: ContestCreationInput, userId: UUID) async throws -> CreatedContest {
+    /// Returns publish result with contest ID and join URL ready for sharing.
+    func createAndPublish(input: ContestCreationInput, userId: UUID) async throws -> PublishResult {
         // Step 1: Fetch default template
         let template = try await fetchDefaultTemplate(userId: userId)
 
@@ -196,16 +248,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         )
 
         // Step 3: Publish to make joinable
-        let publishResult = try await publish(contestId: contestId, userId: userId)
-
-        return CreatedContest(
-            id: publishResult.contestId,
-            name: contestName,
-            entryFeeCents: input.entryFeeCents,
-            status: "SCHEDULED",
-            joinToken: publishResult.joinToken,
-            joinURL: publishResult.joinURL
-        )
+        return try await publish(contestId: contestId, userId: userId)
     }
 
     // MARK: - Template Fetching
@@ -289,11 +332,9 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
 
         switch httpResponse.statusCode {
         case 200, 201:
-            struct CreateResponse: Codable {
-                let id: UUID
-            }
-            let result = try JSONDecoder().decode(CreateResponse.self, from: data)
-            return result.id
+            let decoder = JSONDecoder.iso8601Decoder
+            let dto = try decoder.decode(ContestDetailResponseDTO.self, from: data)
+            return dto.id
         case 400:
             throw parseValidationError(from: data)
         case 401, 403:
@@ -305,14 +346,16 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         }
     }
 
-    // MARK: - CustomContestCreating (Legacy Protocol)
+    // MARK: - CustomContestCreating
 
     func createDraft(
+        templateId: UUID,
         name: String,
         settings: CustomContestSettings,
+        payoutStructure: PayoutStructure,
         userId: UUID,
         lockTime: Date? = nil
-    ) async throws -> CustomContestDraft {
+    ) async throws -> Contest {
         // Validate inputs before making network request
         let validationErrors = CustomContestValidation.validateDraftCreation(
             name: name,
@@ -329,23 +372,23 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
 
-        let requestBody = CreateContestRequest(name: name, settings: settings, lockTime: lockTime)
+        let requestBody = CreateContestRequest(name: name, settings: settings, payoutStructure: payoutStructure, lockTime: lockTime)
 
         struct RequestWrapper: Encodable {
-            let userId: String
+            let templateId: String
             let name: String
-            let maxEntries: Int
-            let entryFee: Decimal
-            let isPrivate: Bool
+            let maxEntries: Int?
+            let entryFeeCents: Int
             let lockTime: String?
+            let payoutStructure: PayoutStructure
 
             enum CodingKeys: String, CodingKey {
-                case userId = "user_id"
+                case templateId = "template_id"
                 case name = "contest_name"
                 case maxEntries = "max_entries"
-                case entryFee = "entry_fee"
-                case isPrivate = "is_private"
+                case entryFeeCents = "entry_fee_cents"
                 case lockTime = "lock_time"
+                case payoutStructure = "payout_structure"
             }
         }
 
@@ -354,12 +397,12 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         }
 
         let wrapper = RequestWrapper(
-            userId: userId.uuidString,
-            name: requestBody.name,
-            maxEntries: requestBody.maxEntries,
-            entryFee: requestBody.entryFee,
-            isPrivate: requestBody.isPrivate,
-            lockTime: lockTimeString
+            templateId: templateId.uuidString,
+            name: name,
+            maxEntries: settings.maxEntries,
+            entryFeeCents: settings.entryFeeCents,
+            lockTime: lockTimeString,
+            payoutStructure: requestBody.payoutStructure
         )
 
         request.httpBody = try JSONEncoder().encode(wrapper)
@@ -397,7 +440,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
     func publish(
         contestId: UUID,
         userId: UUID
-    ) async throws -> PublishContestResult {
+    ) async throws -> PublishResult {
         let url = environment.baseURL.appendingPathComponent("api/custom-contests/\(contestId.uuidString)/publish")
 
         var request = URLRequest(url: url)
@@ -434,23 +477,28 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
 
     // MARK: - Private Helpers
 
-    private func decodeResponse(_ data: Data) throws -> CustomContestDraft {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .secondsSince1970
+    private func decodeResponse(_ data: Data) throws -> Contest {
+        let decoder = JSONDecoder.iso8601Decoder
 
         do {
-            return try decoder.decode(CustomContestDraft.self, from: data)
+            let dto = try decoder.decode(ContestDetailResponseDTO.self, from: data)
+            return Contest.from(dto)
         } catch {
             print("CustomContestService: Decode error - \(error)")
             throw CustomContestError.serverError(message: "Failed to decode response")
         }
     }
 
-    private func decodePublishResponse(_ data: Data) throws -> PublishContestResult {
+    private func decodePublishResponse(_ data: Data) throws -> PublishResult {
         let decoder = JSONDecoder()
 
         do {
-            return try decoder.decode(PublishContestResult.self, from: data)
+            let dto = try decoder.decode(PublishResponseDTO.self, from: data)
+            return PublishResult(
+                contestId: dto.contestId,
+                joinToken: dto.joinToken,
+                joinURL: dto.joinURL
+            )
         } catch {
             print("CustomContestService: Decode error - \(error)")
             throw CustomContestError.serverError(message: "Failed to decode publish response")
