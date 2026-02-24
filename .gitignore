@@ -20,3 +20,12 @@ backup_all_tables_*
 
 # no md from here goes to public repo
 INTERNAL_DOCS/
+# iOS / Xcode
+DerivedData/
+*.xcworkspace
+*.xcuserstate
+*.xcuserdata
+*.bak
+
+# SwiftPM
+.build/
