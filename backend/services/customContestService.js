@@ -350,13 +350,22 @@ async function listActiveTemplates(pool) {
     ORDER BY name`
   );
 
-  // Validate each template before returning
-  for (const template of result.rows) {
-    assertTemplatePayoutStructuresContract(template);
-  }
+  // Filter: only return templates that pass contract validation
+  // Templates with missing or empty allowed_payout_structures are not createable
+  // and are excluded from the endpoint response
+  const validTemplates = result.rows.filter(template => {
+    try {
+      assertTemplatePayoutStructuresContract(template);
+      return true;
+    } catch (err) {
+      // Template fails contract - not createable, filter it out
+      console.warn(`[Template Filter] Excluding non-createable template "${template.id}": ${err.message}`);
+      return false;
+    }
+  });
 
-  // Map all templates to API response format
-  return result.rows.map(mapTemplateToApiResponse);
+  // Map only valid templates to API response format
+  return validTemplates.map(mapTemplateToApiResponse);
 }
 
 /**
