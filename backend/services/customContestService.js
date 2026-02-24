@@ -353,16 +353,21 @@ async function listActiveTemplates(pool) {
   // Filter: only return templates that pass contract validation
   // Templates with missing or empty allowed_payout_structures are not createable
   // and are excluded from the endpoint response
+  console.log(`[listActiveTemplates] Query returned ${result.rows.length} templates`);
+
   const validTemplates = result.rows.filter(template => {
     try {
       assertTemplatePayoutStructuresContract(template);
+      console.log(`[listActiveTemplates] Template "${template.name}" (${template.id}) PASSED contract validation`);
       return true;
     } catch (err) {
       // Template fails contract - not createable, filter it out
-      console.warn(`[Template Filter] Excluding non-createable template "${template.id}": ${err.message}`);
+      console.warn(`[listActiveTemplates] FILTERING OUT template "${template.name}" (${template.id}): ${err.message}`);
       return false;
     }
   });
+
+  console.log(`[listActiveTemplates] Returning ${validTemplates.length} valid templates after filtering`);
 
   // Map only valid templates to API response format
   return validTemplates.map(mapTemplateToApiResponse);
@@ -396,6 +401,16 @@ async function createContestInstance(pool, organizerId, input) {
   if (!template) {
     throw new Error('Template not found or inactive');
   }
+
+  // DEBUG: Log template object before validation
+  console.log(`[createContestInstance] Template fetched:`, {
+    id: template.id,
+    name: template.name,
+    allowed_payout_structures: template.allowed_payout_structures,
+    allowed_payout_structures_type: typeof template.allowed_payout_structures,
+    allowed_payout_structures_is_array: Array.isArray(template.allowed_payout_structures),
+    allowed_payout_structures_length: Array.isArray(template.allowed_payout_structures) ? template.allowed_payout_structures.length : 'N/A'
+  });
 
   // Validate against template constraints
   validateEntryFeeAgainstTemplate(input.entry_fee_cents, template);
