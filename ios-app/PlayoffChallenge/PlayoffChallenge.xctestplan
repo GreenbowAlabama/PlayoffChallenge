@@ -1,0 +1,30 @@
+{
+  "configurations" : [
+    {
+      "id" : "46A09081-AF71-4E97-9C53-F09EFF00C6ED",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:PlayoffChallenge.xcodeproj",
+      "identifier" : "EA345EB92EA45CB700689C4E",
+      "name" : "PlayoffChallenge"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:PlayoffChallenge.xcodeproj",
+        "identifier" : "EA98FE4F2F2D783900CA4A36",
+        "name" : "PlayoffChallengeTests"
+      }
+    }
+  ],
+  "version" : 1
+}

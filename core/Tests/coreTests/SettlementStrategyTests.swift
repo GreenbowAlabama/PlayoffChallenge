@@ -1,5 +1,5 @@
 import XCTest
-@testable import core
+@testable import Core
 
 /// Tests for SettlementStrategy protocol and implementations.
 /// Settlement strategies are pure functions: deterministic payout distributions.

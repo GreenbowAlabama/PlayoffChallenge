@@ -8,7 +8,7 @@
 //
 
 import XCTest
-@testable import core
+@testable import Core
 
 final class AnyCodableRobustnessTests: XCTestCase {
 
