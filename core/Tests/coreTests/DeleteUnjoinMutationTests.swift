@@ -7,6 +7,7 @@
 //  Tests entry count, contest status, and organizer/participant conditions.
 //
 
+
 import XCTest
 @testable import core
 
@@ -15,29 +16,29 @@ final class DeleteUnjoinMutationTests: XCTestCase {
     // MARK: - Helpers
 
     func makeContestActions(
-        can_delete: Bool,
-        can_unjoin: Bool,
-        other_can_join: Bool = false,
-        other_can_edit_entry: Bool = false
+        canDelete: Bool,
+        canUnjoin: Bool,
+        otherCanJoin: Bool = false,
+        otherCanEditEntry: Bool = false
     ) -> ContestActions {
         ContestActions(
-            can_join: other_can_join,
-            can_edit_entry: other_can_edit_entry,
-            is_live: false,
-            is_closed: false,
-            is_scoring: false,
-            is_scored: false,
-            is_read_only: false,
-            can_share_invite: false,
-            can_manage_contest: false,
-            can_delete: can_delete,
-            can_unjoin: can_unjoin
+            canJoin: otherCanJoin,
+            canEditEntry: otherCanEditEntry,
+            isLive: false,
+            isClosed: false,
+            isScoring: false,
+            isScored: false,
+            isReadOnly: false,
+            canShareInvite: false,
+            canManageContest: false,
+            canDelete: canDelete,
+            canUnjoin: canUnjoin
         )
     }
 
-    func decodeContestActions(from json: String) throws -> ContestActions {
+    func decodeContestActionsContract(from json: String) throws -> ContestActions {
         let data = json.data(using: .utf8)!
-        return try JSONDecoder().decode(ContestActions.self, from: data)
+        return ContestActions.from(try JSONDecoder().decode(ContestActionsContract.self, from: data))
     }
 
     // MARK: - Case-Insensitive ID Comparison Tests
@@ -82,10 +83,10 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertTrue(actions.can_delete, "Organizer should be able to delete SCHEDULED contest with 0 entries")
-        XCTAssertFalse(actions.can_unjoin, "Unjoin should not be available for organizer")
+        XCTAssertTrue(actions.canDelete, "Organizer should be able to delete SCHEDULED contest with 0 entries")
+        XCTAssertFalse(actions.canUnjoin, "Unjoin should not be available for organizer")
     }
 
     // MARK: - DELETE: SCHEDULED Contest with 1 Entry (Organizer)
@@ -108,9 +109,9 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertTrue(actions.can_delete, "Organizer should be able to delete SCHEDULED contest with 1 entry")
+        XCTAssertTrue(actions.canDelete, "Organizer should be able to delete SCHEDULED contest with 1 entry")
     }
 
     // MARK: - DELETE: SCHEDULED Contest with >1 Entries (Organizer)
@@ -133,9 +134,9 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertFalse(actions.can_delete, "Organizer should NOT be able to delete SCHEDULED contest with >1 entries")
+        XCTAssertFalse(actions.canDelete, "Organizer should NOT be able to delete SCHEDULED contest with >1 entries")
     }
 
     // MARK: - DELETE: LOCKED Contest (Organizer)
@@ -158,9 +159,9 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertFalse(actions.can_delete, "Organizer should NOT be able to delete LOCKED contest")
+        XCTAssertFalse(actions.canDelete, "Organizer should NOT be able to delete LOCKED contest")
     }
 
     // MARK: - DELETE: LIVE Contest (Organizer)
@@ -183,9 +184,9 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertFalse(actions.can_delete, "Organizer should NOT be able to delete LIVE contest")
+        XCTAssertFalse(actions.canDelete, "Organizer should NOT be able to delete LIVE contest")
     }
 
     // MARK: - UNJOIN: SCHEDULED Contest (Participant Joined)
@@ -208,10 +209,10 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertTrue(actions.can_unjoin, "Participant should be able to unjoin SCHEDULED contest")
-        XCTAssertTrue(actions.can_edit_entry, "Participant is joined (can_edit_entry = true)")
+        XCTAssertTrue(actions.canUnjoin, "Participant should be able to unjoin SCHEDULED contest")
+        XCTAssertTrue(actions.canEditEntry, "Participant is joined (can_edit_entry = true)")
     }
 
     // MARK: - UNJOIN: LOCKED Contest (Participant Joined)
@@ -234,9 +235,9 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertFalse(actions.can_unjoin, "Participant should NOT be able to unjoin LOCKED contest")
+        XCTAssertFalse(actions.canUnjoin, "Participant should NOT be able to unjoin LOCKED contest")
     }
 
     // MARK: - UNJOIN: LIVE Contest (Participant Joined)
@@ -259,9 +260,9 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertFalse(actions.can_unjoin, "Participant should NOT be able to unjoin LIVE contest")
+        XCTAssertFalse(actions.canUnjoin, "Participant should NOT be able to unjoin LIVE contest")
     }
 
     // MARK: - UNJOIN: COMPLETED Contest (Participant)
@@ -284,9 +285,9 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertFalse(actions.can_unjoin, "Participant should NOT be able to unjoin COMPLETED contest")
+        XCTAssertFalse(actions.canUnjoin, "Participant should NOT be able to unjoin COMPLETED contest")
     }
 
     // MARK: - Mutual Exclusivity: Cannot both delete and unjoin
@@ -309,10 +310,10 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertTrue(actions.can_delete)
-        XCTAssertFalse(actions.can_unjoin, "Organizer deleting is mutually exclusive with participant unjoin")
+        XCTAssertTrue(actions.canDelete)
+        XCTAssertFalse(actions.canUnjoin, "Organizer deleting is mutually exclusive with participant unjoin")
     }
 
     func test_CannotBothDeleteAndUnjoin_Participant() throws {
@@ -333,10 +334,10 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertFalse(actions.can_delete, "Participant unjoining is mutually exclusive with organizer delete")
-        XCTAssertTrue(actions.can_unjoin)
+        XCTAssertFalse(actions.canDelete, "Participant unjoining is mutually exclusive with organizer delete")
+        XCTAssertTrue(actions.canUnjoin)
     }
 
     // MARK: - Contract Deserialization with Entry Count Variations
@@ -377,8 +378,8 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         let contract = try decoder.decode(ContestDetailResponseContract.self, from: baseJSON)
 
         XCTAssertEqual(contract.contest_id, "550e8400-e29b-41d4-a716-446655440000")
-        XCTAssertTrue(contract.actions.can_delete, "can_delete should be true for 0 entries")
-        XCTAssertFalse(contract.actions.can_unjoin)
+        XCTAssertTrue(contract.actions.canDelete, "can_delete should be true for 0 entries")
+        XCTAssertFalse(contract.actions.canUnjoin)
     }
 
     func test_ContestDetailContract_WithCanDeleteFalse_MultipleEntries() throws {
@@ -417,7 +418,7 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         let contract = try decoder.decode(ContestDetailResponseContract.self, from: baseJSON)
 
         XCTAssertEqual(contract.contest_id, "550e8400-e29b-41d4-a716-446655440000")
-        XCTAssertFalse(contract.actions.can_delete, "can_delete should be false for >1 entries")
+        XCTAssertFalse(contract.actions.canDelete, "can_delete should be false for >1 entries")
     }
 
     // MARK: - STRUCTURAL TESTS: can_unjoin contract decoding
@@ -441,9 +442,9 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertTrue(actions.can_unjoin, "can_unjoin should decode as true")
+        XCTAssertTrue(actions.canUnjoin, "can_unjoin should decode as true")
     }
 
     /// Verify can_unjoin decodes as false
@@ -465,9 +466,9 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json))
 
-        XCTAssertFalse(actions.can_unjoin, "can_unjoin should decode as false")
+        XCTAssertFalse(actions.canUnjoin, "can_unjoin should decode as false")
     }
 
     /// Verify ContestActions fails to decode if can_unjoin is missing (required field)
@@ -488,7 +489,7 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        XCTAssertThrowsError(try decoder.decode(ContestActions.self, from: json),
+        XCTAssertThrowsError(ContestActions.from(try decoder.decode(ContestActionsContract.self, from: json)),
                              "Decoding should fail when can_unjoin is missing")
     }
 
@@ -526,7 +527,7 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         let decoder = JSONDecoder()
         let contract = try decoder.decode(ContestDetailResponseContract.self, from: json)
 
-        XCTAssertTrue(contract.actions.can_unjoin, "can_unjoin should be true in contract")
+        XCTAssertTrue(contract.actions.canUnjoin, "can_unjoin should be true in contract")
     }
 
     /// Verify full ContestDetailResponseContract decodes with can_unjoin=false
@@ -563,6 +564,6 @@ final class DeleteUnjoinMutationTests: XCTestCase {
         let decoder = JSONDecoder()
         let contract = try decoder.decode(ContestDetailResponseContract.self, from: json)
 
-        XCTAssertFalse(contract.actions.can_unjoin, "can_unjoin should be false in contract")
+        XCTAssertFalse(contract.actions.canUnjoin, "can_unjoin should be false in contract")
     }
 }

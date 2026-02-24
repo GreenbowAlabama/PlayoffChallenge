@@ -10,7 +10,7 @@ import Foundation
 
 /// AnyCodable: Type-erased Codable for contest-agnostic data structures.
 /// Decodes JSON values to Any without type loss.
-public struct AnyCodable: Codable {
+public struct AnyCodable: Codable, @unchecked Sendable {
     public let value: Any
 
     public init(_ value: Any) { self.value = value }
@@ -53,10 +53,25 @@ public struct AnyCodable: Codable {
         case let (l as Int, r as Int): return l == r
         case let (l as Double, r as Double): return l == r
         case let (l as String, r as String): return l == r
-        case let (l as [Any], r as [Any]): return l.count == r.count
-        case let (l as [String: Any], r as [String: Any]): return l.count == r.count
+        case let (l as [Any], r as [Any]):
+            guard l.count == r.count else { return false }
+            for (i, leftElement) in l.enumerated() {
+                if !AnyCodable(leftElement).isEqual(to: r[i]) { return false }
+            }
+            return true
+        case let (l as [String: Any], r as [String: Any]):
+            guard l.count == r.count else { return false }
+            for (key, leftValue) in l {
+                guard let rightValue = r[key] else { return false }
+                if !AnyCodable(leftValue).isEqual(to: rightValue) { return false }
+            }
+            return true
         default: return false
         }
+    }
+
+    private func isEqual(to other: Any) -> Bool {
+        return AnyCodable(self.value) == AnyCodable(other)
     }
 }
 

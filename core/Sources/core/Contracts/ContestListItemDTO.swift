@@ -26,8 +26,10 @@ public struct ContestListItemDTO: Decodable, Identifiable {
     public let updatedAt: Date
 
     // Derived fields from server
+    public let joinToken: String?
+    public let organizerName: String?
     public let leaderboardState: String?
-    public let actions: ContestActions?
+    public let actions: ContestActionsContract?
     public let payoutTable: [PayoutTierContract]?
     public let rosterConfig: RosterConfigContract?
 
@@ -42,6 +44,8 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         case lockTime = "lock_time"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case joinToken = "join_token"
+        case organizerName = "organizer_name"
         case leaderboardState = "leaderboard_state"
         case actions
         case payoutTable = "payout_table"
@@ -59,8 +63,10 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         lockTime: Date?,
         createdAt: Date,
         updatedAt: Date,
+        joinToken: String?,
+        organizerName: String?,
         leaderboardState: String?,
-        actions: ContestActions?,
+        actions: ContestActionsContract?,
         payoutTable: [PayoutTierContract]?,
         rosterConfig: RosterConfigContract?
     ) {
@@ -74,6 +80,8 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         self.lockTime = lockTime
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.joinToken = joinToken
+        self.organizerName = organizerName
         self.leaderboardState = leaderboardState
         self.actions = actions
         self.payoutTable = payoutTable

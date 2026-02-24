@@ -18,8 +18,8 @@ public typealias RosterConfigContract = [String: AnyCodable]
 public struct ContestDetailResponseContract: Decodable {
     public let contest_id: String
     public let type: String
-    public let leaderboard_state: LeaderboardState
-    public let actions: ContestActions
+    public let leaderboard_state: LeaderboardStateContract
+    public let actions: ContestActionsContract
     public let payout_table: [PayoutTierContract]
     public let roster_config: RosterConfigContract
 
@@ -35,8 +35,8 @@ public struct ContestDetailResponseContract: Decodable {
     public init(
         contest_id: String,
         type: String,
-        leaderboard_state: LeaderboardState,
-        actions: ContestActions,
+        leaderboard_state: LeaderboardStateContract,
+        actions: ContestActionsContract,
         payout_table: [PayoutTierContract],
         roster_config: RosterConfigContract
     ) {
@@ -52,8 +52,8 @@ public struct ContestDetailResponseContract: Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         contest_id = try c.decode(String.self, forKey: .contest_id)
         type = try c.decode(String.self, forKey: .type)
-        leaderboard_state = try c.decode(LeaderboardState.self, forKey: .leaderboard_state)
-        actions = try c.decode(ContestActions.self, forKey: .actions)
+        leaderboard_state = try c.decode(LeaderboardStateContract.self, forKey: .leaderboard_state)
+        actions = try c.decode(ContestActionsContract.self, forKey: .actions)
         // Required fields — no fallback
         payout_table = try c.decode([PayoutTierContract].self, forKey: .payout_table)
         roster_config = try c.decode(RosterConfigContract.self, forKey: .roster_config)

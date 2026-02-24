@@ -11,7 +11,7 @@ import Foundation
 /// LeaderboardState: Backend computation state for leaderboards.
 /// Must be present in every leaderboard response.
 /// Enum enforces valid states only; unknown values fail decode.
-public enum LeaderboardState: String, Codable, Sendable, Equatable {
+public enum LeaderboardStateContract: String, Codable, Sendable, Equatable {
     case pending
     case computed
     case error

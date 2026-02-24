@@ -32,14 +32,14 @@ final class ContractStrictnessTests: XCTestCase {
         """.data(using: .utf8)!
 
         let decoder = JSONDecoder()
-        let actions = try decoder.decode(ContestActions.self, from: json)
+        let actions = try decoder.decode(ContestActionsContract.self, from: json)
 
-        XCTAssertEqual(actions.can_join, false)
-        XCTAssertEqual(actions.can_edit_entry, true)
-        XCTAssertEqual(actions.can_share_invite, true)
-        XCTAssertEqual(actions.can_manage_contest, false)
-        XCTAssertEqual(actions.can_delete, true)
-        XCTAssertEqual(actions.can_unjoin, false)
+        XCTAssertEqual(actions.canJoin, false)
+        XCTAssertEqual(actions.canEditEntry, true)
+        XCTAssertEqual(actions.canShareInvite, true)
+        XCTAssertEqual(actions.canManageContest, false)
+        XCTAssertEqual(actions.canDelete, true)
+        XCTAssertEqual(actions.canUnjoin, false)
     }
 
     func test_ContestActions_MissingCanShareInvite_FailsDecode() {
@@ -60,7 +60,7 @@ final class ContractStrictnessTests: XCTestCase {
 
         let decoder = JSONDecoder()
         XCTAssertThrowsError(
-            try decoder.decode(ContestActions.self, from: json),
+            try decoder.decode(ContestActionsContract.self, from: json),
             "Missing can_share_invite must fail decode"
         )
     }
@@ -83,7 +83,7 @@ final class ContractStrictnessTests: XCTestCase {
 
         let decoder = JSONDecoder()
         XCTAssertThrowsError(
-            try decoder.decode(ContestActions.self, from: json),
+            try decoder.decode(ContestActionsContract.self, from: json),
             "Missing can_manage_contest must fail decode"
         )
     }
@@ -106,7 +106,7 @@ final class ContractStrictnessTests: XCTestCase {
 
         let decoder = JSONDecoder()
         XCTAssertThrowsError(
-            try decoder.decode(ContestActions.self, from: json),
+            try decoder.decode(ContestActionsContract.self, from: json),
             "Missing can_delete must fail decode"
         )
     }
@@ -129,7 +129,7 @@ final class ContractStrictnessTests: XCTestCase {
 
         let decoder = JSONDecoder()
         XCTAssertThrowsError(
-            try decoder.decode(ContestActions.self, from: json),
+            try decoder.decode(ContestActionsContract.self, from: json),
             "Missing can_unjoin must fail decode"
         )
     }
@@ -173,10 +173,10 @@ final class ContractStrictnessTests: XCTestCase {
 
         XCTAssertEqual(contract.contest_id, "550e8400-e29b-41d4-a716-446655440000")
         XCTAssertEqual(contract.type, "playoff")
-        XCTAssertEqual(contract.actions.can_share_invite, true)
-        XCTAssertEqual(contract.actions.can_manage_contest, false)
-        XCTAssertEqual(contract.actions.can_delete, true)
-        XCTAssertEqual(contract.actions.can_unjoin, false)
+        XCTAssertEqual(contract.actions.canShareInvite, true)
+        XCTAssertEqual(contract.actions.canManageContest, false)
+        XCTAssertEqual(contract.actions.canDelete, true)
+        XCTAssertEqual(contract.actions.canUnjoin, false)
         XCTAssertEqual(contract.payout_table.count, 1)
     }
 

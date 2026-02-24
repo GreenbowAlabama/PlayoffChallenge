@@ -54,8 +54,10 @@ extension ContestListItemDTO {
         lockTime: Date? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
+        joinToken: String? = "test-token",
+        organizerName: String? = "Test Organizer",
         leaderboardState: String? = nil,
-        actions: ContestActions? = nil,
+        actions: ContestActionsContract? = nil,
         payoutTable: [PayoutTierContract]? = nil,
         rosterConfig: RosterConfigContract? = nil
     ) -> ContestListItemDTO {
@@ -70,6 +72,8 @@ extension ContestListItemDTO {
             lockTime: lockTime,
             createdAt: createdAt,
             updatedAt: updatedAt,
+            joinToken: joinToken,
+            organizerName: organizerName,
             leaderboardState: leaderboardState,
             actions: actions,
             payoutTable: payoutTable,

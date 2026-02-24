@@ -1,26 +1,27 @@
-// swift-tools-version: 6.2
-
+// swift-tools-version: 5.9
 import PackageDescription
 
 let package = Package(
-    name: "core",
+    name: "Core",
     platforms: [
-        .iOS(.v13)
+        .iOS(.v16),
+        .macOS(.v14)
     ],
     products: [
         .library(
-            name: "core",
+            name: "Core",
             targets: ["core"]
-        ),
+        )
     ],
     targets: [
         .target(
-            name: "core"
+            name: "core",
+            dependencies: []
         ),
         .testTarget(
             name: "coreTests",
             dependencies: ["core"],
             resources: [.copy("Fixtures")]
-        ),
+        )
     ]
 )

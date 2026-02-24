@@ -169,7 +169,7 @@ final class OrganizerIDCaseInsensitivityTests: XCTestCase {
         let contract = try decoder.decode(ContestDetailResponseContract.self, from: json)
 
         XCTAssertTrue(
-            contract.actions.can_delete,
+            contract.actions.canDelete,
             "Backend can_delete flag is source of truth, independent of organizerId case"
         )
     }
@@ -226,7 +226,7 @@ final class OrganizerIDCaseInsensitivityTests: XCTestCase {
             "Case-insensitive check should identify organizer correctly"
         )
         XCTAssertFalse(
-            dto.actions?.can_delete ?? false,
+            dto.actions?.canDelete ?? false,
             "After deletion, can_delete should be false (idempotent state)"
         )
     }
@@ -264,7 +264,7 @@ final class OrganizerIDCaseInsensitivityTests: XCTestCase {
         let contract = try decoder.decode(ContestDetailResponseContract.self, from: json)
 
         // iOS should ONLY check this:
-        let canDeleteContest = contract.actions.can_delete
+        let canDeleteContest = contract.actions.canDelete
 
         XCTAssertTrue(
             canDeleteContest,
@@ -301,7 +301,7 @@ final class OrganizerIDCaseInsensitivityTests: XCTestCase {
         let contract = try decoder.decode(ContestDetailResponseContract.self, from: json)
 
         // iOS should ONLY check this:
-        let canDeleteContest = contract.actions.can_delete
+        let canDeleteContest = contract.actions.canDelete
 
         XCTAssertFalse(
             canDeleteContest,
