@@ -1,4 +1,0 @@
-Target dependency graph (2 targets)
-Target 'core' in project 'core'
-➜ Explicit dependency on target 'core' in project 'core'
-Target 'core' in project 'core' (no dependencies)

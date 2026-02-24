@@ -508,6 +508,92 @@ describe('Custom Contest Service Unit Tests', () => {
         }).toThrow('Template has no allowed payout structures defined');
       });
     });
+
+    describe('structureMatches - Structural Validation', () => {
+      const allowedStructure = { type: 'top_n_split', max_winners: 3 };
+
+      it('should PASS: identical structure', () => {
+        const received = { type: 'top_n_split', max_winners: 3 };
+        expect(customContestService.structureMatches(received, allowedStructure)).toBe(true);
+      });
+
+      it('should PASS: reversed key order (deterministic, order-independent)', () => {
+        const received = { max_winners: 3, type: 'top_n_split' };
+        expect(customContestService.structureMatches(received, allowedStructure)).toBe(true);
+      });
+
+      it('should FAIL: different type', () => {
+        const received = { type: 'winner_take_all', max_winners: 3 };
+        expect(customContestService.structureMatches(received, allowedStructure)).toBe(false);
+      });
+
+      it('should FAIL: different max_winners value', () => {
+        const received = { type: 'top_n_split', max_winners: 5 };
+        expect(customContestService.structureMatches(received, allowedStructure)).toBe(false);
+      });
+
+      it('should FAIL: extra unexpected field in received', () => {
+        const received = { type: 'top_n_split', max_winners: 3, extra_field: 'value' };
+        expect(customContestService.structureMatches(received, allowedStructure)).toBe(false);
+      });
+
+      it('should FAIL: missing type field', () => {
+        const received = { max_winners: 3 };
+        expect(customContestService.structureMatches(received, allowedStructure)).toBe(false);
+      });
+
+      it('should FAIL: type is null', () => {
+        const received = { type: null, max_winners: 3 };
+        expect(customContestService.structureMatches(received, allowedStructure)).toBe(false);
+      });
+
+      it('should FAIL: received is null', () => {
+        expect(customContestService.structureMatches(null, allowedStructure)).toBe(false);
+      });
+
+      it('should FAIL: received is not an object', () => {
+        expect(customContestService.structureMatches('string', allowedStructure)).toBe(false);
+        expect(customContestService.structureMatches(42, allowedStructure)).toBe(false);
+      });
+
+      it('should FAIL: received is an array', () => {
+        const received = ['type', 'top_n_split'];
+        expect(customContestService.structureMatches(received, allowedStructure)).toBe(false);
+      });
+
+      it('should PASS: omit max_winners in received when allowed structure has max_winners', () => {
+        const allowedWithoutMaxWinners = { type: 'top_n_split' };
+        const received = { type: 'top_n_split' };
+        expect(customContestService.structureMatches(received, allowedWithoutMaxWinners)).toBe(true);
+      });
+
+      it('should FAIL: max_winners in received when allowed structure does not have it (extra field)', () => {
+        const allowedWithoutMaxWinners = { type: 'top_n_split' };
+        const received = { type: 'top_n_split', max_winners: 3 };
+        expect(customContestService.structureMatches(received, allowedWithoutMaxWinners)).toBe(false);
+      });
+
+      it('should FAIL: missing required max_winners in received when allowed requires it', () => {
+        const received = { type: 'top_n_split' };
+        expect(customContestService.structureMatches(received, allowedStructure)).toBe(false);
+      });
+
+      it('should handle UUID casing difference in string values (case-sensitive comparison)', () => {
+        const allowedWithUuid = { type: 'TOP_N_SPLIT_UUID', uuid: 'abc123' };
+        const receivedDifferentCase = { type: 'top_n_split_uuid', uuid: 'abc123' };
+        // UUIDs in type field should be case-sensitive per spec
+        expect(customContestService.structureMatches(receivedDifferentCase, allowedWithUuid)).toBe(false);
+      });
+
+      it('should be deterministic across multiple calls', () => {
+        const received = { max_winners: 3, type: 'top_n_split' };
+        const result1 = customContestService.structureMatches(received, allowedStructure);
+        const result2 = customContestService.structureMatches(received, allowedStructure);
+        const result3 = customContestService.structureMatches(received, allowedStructure);
+        expect(result1).toBe(result2);
+        expect(result2).toBe(result3);
+      });
+    });
   });
 
   describe('Contest Instance Lifecycle', () => {

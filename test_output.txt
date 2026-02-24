@@ -1,9 +1,0 @@
-Command line invocation:
-    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project PlayoffChallenge.xcodeproj -scheme PlayoffChallengeUnitTests -destination "platform=iOS Simulator,name=iPhone 16" test
-
-Resolve Package Graph
-
-
-Resolved source packages:
-  core: /Users/iancarter/Documents/workspace/playoff-challenge/core @ local
-

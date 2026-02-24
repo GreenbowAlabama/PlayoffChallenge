@@ -9,7 +9,7 @@
 //
 
 import XCTest
-@testable import core
+@testable import Core
 
 final class IsolationDeterminismTests: XCTestCase {
 

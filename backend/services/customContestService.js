@@ -223,6 +223,52 @@ function validateEntryFeeAgainstTemplate(entryFeeCents, template) {
 }
 
 /**
+ * Structural comparison of payout structures.
+ *
+ * Validates that received structure matches allowed structure exactly:
+ * - type must match (string equality)
+ * - max_winners must match if present in allowed structure
+ * - Ignores key order (objects can have different key order)
+ * - Ignores undefined properties in received structure
+ * - Rejects unknown extra fields in received structure
+ *
+ * @param {Object} received - Received payout structure from client
+ * @param {Object} allowed - Allowed payout structure from template
+ * @returns {boolean} True if structures match structurally
+ */
+function structureMatches(received, allowed) {
+  // Both must be objects
+  if (!received || typeof received !== 'object' || Array.isArray(received)) {
+    return false;
+  }
+  if (!allowed || typeof allowed !== 'object' || Array.isArray(allowed)) {
+    return false;
+  }
+
+  // type is mandatory and must match exactly
+  if (received.type !== allowed.type) {
+    return false;
+  }
+
+  // max_winners: if present in allowed, must match in received
+  if (allowed.max_winners !== undefined && allowed.max_winners !== null) {
+    if (received.max_winners !== allowed.max_winners) {
+      return false;
+    }
+  }
+
+  // Reject unknown extra fields: received must not have keys not in allowed
+  const allowedKeys = new Set(Object.keys(allowed));
+  for (const key of Object.keys(received)) {
+    if (!allowedKeys.has(key)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * Validate payout structure against template constraints
  * @param {Object} payoutStructure - Payout structure to validate
  * @param {Object} template - Template with allowed_payout_structures
@@ -238,11 +284,19 @@ function validatePayoutStructureAgainstTemplate(payoutStructure, template) {
     throw new Error('Template has no allowed payout structures defined');
   }
 
-  // Check if the provided structure matches one of the allowed structures
-  const structureString = JSON.stringify(payoutStructure);
-  const isAllowed = allowedStructures.some(
-    allowed => JSON.stringify(allowed) === structureString
-  );
+  // Defensive logging for debugging validation issues
+  console.log('[Payout Validation] Validating payout structure');
+  console.log('[Payout Validation] Received structure:', JSON.stringify(payoutStructure));
+  console.log('[Payout Validation] Allowed structures:', JSON.stringify(allowedStructures));
+
+  // Check if the provided structure matches one of the allowed structures structurally
+  const isAllowed = allowedStructures.some(allowed => {
+    const matches = structureMatches(payoutStructure, allowed);
+    console.log(`[Payout Validation] Comparing against ${JSON.stringify(allowed)}: ${matches}`);
+    return matches;
+  });
+
+  console.log('[Payout Validation] Overall validation result:', isAllowed);
 
   if (!isAllowed) {
     throw new Error('payout_structure must match one of the allowed structures from the template');
@@ -350,13 +404,27 @@ async function listActiveTemplates(pool) {
     ORDER BY name`
   );
 
-  // Validate each template before returning
-  for (const template of result.rows) {
-    assertTemplatePayoutStructuresContract(template);
-  }
+  // Filter: only return templates that pass contract validation
+  // Templates with missing or empty allowed_payout_structures are not createable
+  // and are excluded from the endpoint response
+  console.log(`[listActiveTemplates] Query returned ${result.rows.length} templates`);
 
-  // Map all templates to API response format
-  return result.rows.map(mapTemplateToApiResponse);
+  const validTemplates = result.rows.filter(template => {
+    try {
+      assertTemplatePayoutStructuresContract(template);
+      console.log(`[listActiveTemplates] Template "${template.name}" (${template.id}) PASSED contract validation`);
+      return true;
+    } catch (err) {
+      // Template fails contract - not createable, filter it out
+      console.warn(`[listActiveTemplates] FILTERING OUT template "${template.name}" (${template.id}): ${err.message}`);
+      return false;
+    }
+  });
+
+  console.log(`[listActiveTemplates] Returning ${validTemplates.length} valid templates after filtering`);
+
+  // Map only valid templates to API response format
+  return validTemplates.map(mapTemplateToApiResponse);
 }
 
 /**
@@ -387,6 +455,16 @@ async function createContestInstance(pool, organizerId, input) {
   if (!template) {
     throw new Error('Template not found or inactive');
   }
+
+  // DEBUG: Log template object before validation
+  console.log(`[createContestInstance] Template fetched:`, {
+    id: template.id,
+    name: template.name,
+    allowed_payout_structures: template.allowed_payout_structures,
+    allowed_payout_structures_type: typeof template.allowed_payout_structures,
+    allowed_payout_structures_is_array: Array.isArray(template.allowed_payout_structures),
+    allowed_payout_structures_length: Array.isArray(template.allowed_payout_structures) ? template.allowed_payout_structures.length : 'N/A'
+  });
 
   // Validate against template constraints
   validateEntryFeeAgainstTemplate(input.entry_fee_cents, template);
@@ -1757,6 +1835,7 @@ module.exports = {
   // Validation helpers
   validateEntryFeeAgainstTemplate,
   validatePayoutStructureAgainstTemplate,
+  structureMatches,
 
   // State helpers
 

@@ -1,4 +1,0 @@
-module core {
-header "core-Swift.h"
-export *
-}

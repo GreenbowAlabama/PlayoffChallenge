@@ -1,5 +1,5 @@
 import XCTest
-@testable import core
+@testable import Core
 
 final class PayoutCalculatorTests: XCTestCase {
 

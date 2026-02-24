@@ -1,6 +1,0 @@
-Target dependency graph (3 targets)
-Target 'PlayoffChallenge' in project 'PlayoffChallenge'
-➜ Explicit dependency on target 'core' in project 'core'
-Target 'core' in project 'core'
-➜ Explicit dependency on target 'core' in project 'core'
-Target 'core' in project 'core' (no dependencies)
