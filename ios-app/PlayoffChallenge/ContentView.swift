@@ -39,7 +39,7 @@ struct AuthenticatedRootView: View {
     }
 
     var body: some View {
-        LandingView(viewModel: landingVM)
+        MainTabView()
             .environmentObject(availableVM)
             .environmentObject(myVM)
             .environmentObject(landingVM)

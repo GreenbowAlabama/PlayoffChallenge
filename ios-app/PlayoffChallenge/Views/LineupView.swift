@@ -75,8 +75,8 @@ struct LineupView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.blue)
-                    .cornerRadius(12)
+                    .background(DesignTokens.Color.Action.secondary)
+                    .cornerRadius(DesignTokens.Radius.lg)
                     .padding()
                 }
             }
@@ -207,11 +207,11 @@ struct WeekSummaryCardV2: View {
                     if liveCount > 0 {
                         HStack(spacing: 4) {
                             Circle()
-                                .fill(Color.red)
+                                .fill(DesignTokens.Color.Action.destructive)
                                 .frame(width: 6, height: 6)
                             Text("\(liveCount) \(liveCount == 1 ? "game" : "games") in progress")
                                 .font(.caption)
-                                .foregroundColor(.red)
+                                .foregroundColor(DesignTokens.Color.Action.destructive)
                         }
                     }
                 }
@@ -242,8 +242,8 @@ struct WeekSummaryCardV2: View {
             }
         }
         .padding(16)
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
+        .background(DesignTokens.Color.Surface.elevated)
+        .cornerRadius(DesignTokens.Radius.lg)
         .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
     }
 }
@@ -405,11 +405,11 @@ struct LineupSlotRow: View {
                     if isLive {
                         HStack(spacing: 3) {
                             Circle()
-                                .fill(Color.red)
+                                .fill(DesignTokens.Color.Action.destructive)
                                 .frame(width: 5, height: 5)
                             Text("LIVE")
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.red)
+                                .foregroundColor(DesignTokens.Color.Action.destructive)
                         }
                     }
                 }
@@ -463,8 +463,8 @@ struct LineupSlotRow: View {
             }
         }
         .padding(12)
-        .background(Color(.systemBackground))
-        .cornerRadius(10)
+        .background(DesignTokens.Color.Surface.elevated)
+        .cornerRadius(DesignTokens.Radius.lg)
         .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
         .alert("Remove Player?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
@@ -537,8 +537,8 @@ struct EmptySlotButton: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity)
-            .background(Color(.systemBackground))
-            .cornerRadius(10)
+            .background(DesignTokens.Color.Surface.elevated)
+            .cornerRadius(DesignTokens.Radius.lg)
             .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
         }
         .buttonStyle(PlainButtonStyle())

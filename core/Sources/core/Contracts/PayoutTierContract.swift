@@ -14,7 +14,7 @@ import Foundation
 public struct PayoutTierContract: Decodable, Sendable {
     public let rank_min: Int
     public let rank_max: Int
-    public let amount: Decimal
+    public let amount: Decimal?
 
     enum CodingKeys: String, CodingKey {
         case rank_min
@@ -22,7 +22,7 @@ public struct PayoutTierContract: Decodable, Sendable {
         case amount
     }
 
-    public init(rank_min: Int, rank_max: Int, amount: Decimal) {
+    public init(rank_min: Int, rank_max: Int, amount: Decimal?) {
         self.rank_min = rank_min
         self.rank_max = rank_max
         self.amount = amount
@@ -33,8 +33,8 @@ public struct PayoutTierContract: Decodable, Sendable {
         rank_min = try c.decode(Int.self, forKey: .rank_min)
         rank_max = try c.decode(Int.self, forKey: .rank_max)
 
-        // Handle amount as string or number — fail loudly on malformed value
-        if let s = try? c.decode(String.self, forKey: .amount) {
+        // Handle amount as string, number, or null — fail loudly on malformed non-null value
+        if let s = try c.decodeIfPresent(String.self, forKey: .amount) {
             guard let parsed = Decimal(string: s) else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .amount,
@@ -43,9 +43,11 @@ public struct PayoutTierContract: Decodable, Sendable {
                 )
             }
             amount = parsed
-        } else {
-            let d = try c.decode(Double.self, forKey: .amount)
+        } else if let d = try c.decodeIfPresent(Double.self, forKey: .amount) {
             amount = Decimal(d)
+        } else {
+            // Either explicitly null or missing
+            amount = nil
         }
     }
 }

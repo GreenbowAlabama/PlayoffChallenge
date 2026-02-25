@@ -37,11 +37,11 @@ struct NextLockBanner: View {
                 if isJoinable {
                     Label("Open", systemImage: "arrow.right")
                         .font(.caption2)
-                        .foregroundColor(.green)
+                        .foregroundColor(DesignTokens.Color.Action.primary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.green.opacity(0.15))
-                        .cornerRadius(4)
+                        .background(DesignTokens.Color.Action.primary.opacity(0.15))
+                        .cornerRadius(DesignTokens.Radius.sm)
                 }
             }
 
@@ -53,10 +53,10 @@ struct NextLockBanner: View {
                 .truncationMode(.tail)
         }
         .padding(12)
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
+        .background(DesignTokens.Color.Surface.card)
+        .cornerRadius(DesignTokens.Radius.lg)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.lg)
                 .stroke(urgency.color.opacity(0.3), lineWidth: 1)
         )
     }

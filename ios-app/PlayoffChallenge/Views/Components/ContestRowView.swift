@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import Core
 
 struct ContestRowView: View {
     let contestName: String
@@ -40,10 +41,10 @@ struct ContestRowView: View {
             // Icon
             Image(systemName: isJoined ? "checkmark.circle.fill" : "trophy.fill")
                 .font(.title2)
-                .foregroundColor(isJoined ? .green : .orange)
+                .foregroundColor(isJoined ? DesignTokens.Color.Action.primary : DesignTokens.Color.Brand.primary)
                 .frame(width: 44, height: 44)
-                .background((isJoined ? Color.green : Color.orange).opacity(0.15))
-                .cornerRadius(10)
+                .background((isJoined ? DesignTokens.Color.Action.primary : DesignTokens.Color.Brand.primary).opacity(0.15))
+                .cornerRadius(DesignTokens.Radius.lg)
 
             // Main content
             VStack(alignment: .leading, spacing: 6) {
@@ -63,8 +64,8 @@ struct ContestRowView: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.green)
-                            .cornerRadius(4)
+                            .background(DesignTokens.Color.Action.primary)
+                            .cornerRadius(DesignTokens.Radius.sm)
                             .fixedSize(horizontal: true, vertical: false)
                     }
 
@@ -80,11 +81,11 @@ struct ContestRowView: View {
                     Text(statusText)
                         .font(.caption)
                         .fontWeight(.medium)
-                        .foregroundColor(.green)
+                        .foregroundColor(DesignTokens.Color.Action.primary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.green.opacity(0.15))
-                        .cornerRadius(4)
+                        .background(DesignTokens.Color.Action.primary.opacity(0.15))
+                        .cornerRadius(DesignTokens.Radius.sm)
                 }
 
                 // Lock time (if provided)

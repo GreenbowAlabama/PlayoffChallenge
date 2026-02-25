@@ -98,8 +98,8 @@ struct RuleCard: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
+        .background(DesignTokens.Color.Surface.card)
+        .cornerRadius(DesignTokens.Radius.lg)
     }
 
     func displayContent() -> String {
@@ -258,8 +258,8 @@ struct ScoringRuleRow: View {
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
-        .background(Color(.systemGray6))
-        .cornerRadius(8)
+        .background(DesignTokens.Color.Surface.card)
+        .cornerRadius(DesignTokens.Radius.md)
     }
 
     private func friendlyStatName(_ statName: String) -> String {

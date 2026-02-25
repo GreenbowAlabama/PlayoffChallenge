@@ -59,7 +59,7 @@ struct TermsOfServiceView: View {
                             }
                         }
                         .background(hasAgreed ? Color.blue : Color.gray)
-                        .cornerRadius(10)
+                        .cornerRadius(DesignTokens.Radius.lg)
                         .disabled(!hasAgreed || isAccepting)
                         .padding(.horizontal)
                         .padding(.bottom, 20)

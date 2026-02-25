@@ -27,14 +27,14 @@ struct AvailableContestsView: View {
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                } else if viewModel.contests.isEmpty {
+                } else if viewModel.regularContests.isEmpty {
                     Text("No contests available")
                         .foregroundColor(.secondary)
                         .onAppear {
                             print("[AvailableContestsView] No contests to display. Loading: \(viewModel.isLoading), Error: \(viewModel.errorMessage ?? "none")")
                         }
                 } else {
-                    ForEach(viewModel.contests) { contest in
+                    ForEach(viewModel.regularContests) { contest in
                         ContestRowView(
                             contestName: contest.contestName,
                             isJoined: contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true,

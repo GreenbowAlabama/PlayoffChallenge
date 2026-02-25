@@ -570,7 +570,8 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
             leaderboardState: nil,
             actions: nil,
             payoutTable: nil,
-            rosterConfig: nil
+            rosterConfig: nil,
+            isPlatformOwned: false
         )
     }
 

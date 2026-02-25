@@ -4,9 +4,9 @@ import Foundation
 public struct PayoutLineData: Equatable {
     public let place: String       // e.g., "1st", "2nd"
     public let percentage: Double  // e.g., 50.0 (out of 100)
-    public let amount: Double      // dollars (not cents)
+    public let amount: Double?     // dollars (not cents)
 
-    public init(place: String, percentage: Double, amount: Double) {
+    public init(place: String, percentage: Double, amount: Double?) {
         self.place = place
         self.percentage = percentage
         self.amount = amount

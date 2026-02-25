@@ -79,7 +79,7 @@ struct CreateUsernameView: View {
                     }
                 }
                 .background(username.isEmpty ? Color.gray : Color.blue)
-                .cornerRadius(10)
+                .cornerRadius(DesignTokens.Radius.lg)
                 .disabled(username.isEmpty || isUpdating)
                 .padding(.horizontal)
                 .padding(.bottom, 20)

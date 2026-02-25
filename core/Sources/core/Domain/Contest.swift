@@ -27,6 +27,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
     public let actions: ContestActions?
     public let payoutTable: [PayoutTier]?
     public let rosterConfig: RosterConfig?
+    public let isPlatformOwned: Bool?
 
     public init(
         id: UUID,
@@ -44,7 +45,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         leaderboardState: LeaderboardComputationState?,
         actions: ContestActions?,
         payoutTable: [PayoutTier]?,
-        rosterConfig: RosterConfig?
+        rosterConfig: RosterConfig?,
+        isPlatformOwned: Bool?
     ) {
         self.id = id
         self.organizerId = organizerId
@@ -62,6 +64,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         self.actions = actions
         self.payoutTable = payoutTable
         self.rosterConfig = rosterConfig
+        self.isPlatformOwned = isPlatformOwned
     }
 
     enum CodingKeys: String, CodingKey {
@@ -81,6 +84,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         case actions
         case payoutTable = "payout_table"
         case rosterConfig = "roster_config"
+        case isPlatformOwned = "is_platform_owned"
     }
 
     // MARK: - Mapping
@@ -113,7 +117,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             leaderboardState: lbState,
             actions: contract.actions.map { ContestActions.from($0) },
             payoutTable: contract.payoutTable?.map { PayoutTier.from($0) },
-            rosterConfig: contract.rosterConfig.map { RosterConfig.from($0) }
+            rosterConfig: contract.rosterConfig.map { RosterConfig.from($0) },
+            isPlatformOwned: contract.isPlatformOwned
         )
     }
 
@@ -135,7 +140,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             leaderboardState: LeaderboardComputationState.from(contract.leaderboard_state),
             actions: ContestActions.from(contract.actions),
             payoutTable: contract.payout_table.map { PayoutTier.from($0) },
-            rosterConfig: RosterConfig.from(contract.roster_config)
+            rosterConfig: RosterConfig.from(contract.roster_config),
+            isPlatformOwned: nil // Not present in detail contract
         )
     }
     
@@ -157,7 +163,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         leaderboardState: LeaderboardComputationState? = .pending,
         actions: ContestActions? = ContestActions.stub(),
         payoutTable: [PayoutTier]? = [PayoutTier.stub()],
-        rosterConfig: RosterConfig? = RosterConfig.stub()
+        rosterConfig: RosterConfig? = RosterConfig.stub(),
+        isPlatformOwned: Bool? = nil
     ) -> Contest {
         return Contest(
             id: id,
@@ -175,7 +182,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             leaderboardState: leaderboardState,
             actions: actions,
             payoutTable: payoutTable,
-            rosterConfig: rosterConfig
+            rosterConfig: rosterConfig,
+            isPlatformOwned: isPlatformOwned
         )
     }
 }

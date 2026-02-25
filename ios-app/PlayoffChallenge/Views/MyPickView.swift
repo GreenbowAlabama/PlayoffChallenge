@@ -205,7 +205,7 @@ struct WeekSummaryCard: View {
                 endPoint: .bottomTrailing
             )
         )
-        .cornerRadius(12)
+        .cornerRadius(DesignTokens.Radius.lg)
         .task {
             await loadWeekScores()
         }
@@ -389,8 +389,8 @@ struct PickRow: View {
             }
         }
         .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(8)
+        .background(DesignTokens.Color.Surface.card)
+        .cornerRadius(DesignTokens.Radius.md)
         .task {
             // Load stored score for this pick (fallback if live not available)
             await loadScore()
@@ -591,7 +591,7 @@ struct MultiplierBadge: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(badgeColor)
-            .cornerRadius(4)
+            .cornerRadius(DesignTokens.Radius.sm)
     }
 }
 

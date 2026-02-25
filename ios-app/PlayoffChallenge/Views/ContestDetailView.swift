@@ -12,6 +12,8 @@ struct ContestDetailView: View {
     @StateObject private var viewModel: ContestDetailViewModel
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var landingViewModel: LandingViewModel
+    @EnvironmentObject var availableContestsVM: AvailableContestsViewModel
+    @EnvironmentObject var myContestsVM: MyContestsViewModel
     @Environment(\.dismiss) var dismiss
     @State private var navigateToLeaderboard = false
     @State private var navigateToLineup = false
@@ -43,172 +45,167 @@ struct ContestDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                // Contest Header Card
-                VStack(spacing: 16) {
-                    Image(systemName: "trophy.fill")
-                        .font(.system(size: 60))
-                        .foregroundColor(.orange)
+            VStack(spacing: DesignTokens.Spacing.xxl) {
+                // MARK: - Header Section
+                VStack(spacing: DesignTokens.Spacing.lg) {
+                    // Top bar: Status badge + Entry fee
+                    HStack(spacing: DesignTokens.Spacing.lg) {
+                        StatusBadgeView(status: viewModel.contest.status)
 
+                        Spacer()
+
+                        Text(viewModel.contest.entryFeeCents == 0 ? "Free" : String(format: "$%.2f", Double(viewModel.contest.entryFeeCents) / 100.0))
+                            .font(.headline)
+                            .fontWeight(.bold)
+                    }
+
+                    // Contest name
                     Text(viewModel.contest.contestName)
                         .font(.title)
                         .fontWeight(.bold)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: 20) {
-                        StatView(value: "\(viewModel.contest.entryCount)", label: "Entries")
-                        StatView(value: viewModel.displayStatusMessage, label: "Status")
-                        StatView(value: "\(viewModel.contest.maxEntries ?? 0)", label: "Max")
+                    // Capacity bar
+                    CapacityBarView(entryCount: viewModel.contest.entryCount, maxEntries: viewModel.contest.maxEntries)
+
+                    // Lock urgency
+                    if let lockDisplay = formatLockTimeForDisplay(lockTime: viewModel.contest.lockTime, status: viewModel.contest.status) {
+                        Text(lockDisplay.text)
+                            .font(.caption)
+                            .foregroundColor(.orange)
                     }
                 }
                 .padding()
                 .frame(maxWidth: .infinity)
-                .background(Color(.systemGray6))
-                .cornerRadius(16)
+                .background(DesignTokens.Color.Surface.card)
+                .cornerRadius(DesignTokens.Radius.xl)
                 .padding(.horizontal)
                 .redacted(reason: viewModel.contest.contestName == "Loading…" ? .placeholder : [])
 
-                // Entry Fee Card
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Entry Fee")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Text(viewModel.contest.entryFeeCents == 0 ? "Free" : String(format: "$%.2f", Double(viewModel.contest.entryFeeCents) / 100.0))
-                            .font(.title2)
-                            .fontWeight(.bold)
-                            .foregroundColor(viewModel.contest.entryFeeCents == 0 ? .green : .primary)
+                // MARK: - Primary Action: Join Button
+                if viewModel.canJoinContest {
+                    Button {
+                        Task {
+                            await viewModel.joinContest()
+                            if viewModel.errorMessage == nil {
+                                await availableContestsVM.loadContests()
+                                await myContestsVM.loadMyContests()
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            if viewModel.isJoining {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.Color.Text.inverse))
+                            } else {
+                                Image(systemName: "person.badge.plus")
+                                Text(viewModel.joinButtonTitle)
+                            }
+                        }
+                        .font(.headline)
+                        .foregroundColor(DesignTokens.Color.Text.inverse)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(DesignTokens.Color.Action.primary)
+                        .cornerRadius(DesignTokens.Radius.lg)
                     }
-
-                    Spacer()
-
-                    if viewModel.canSelectLineup {
-                        Label("Joined", systemImage: "checkmark.circle.fill")
-                            .font(.headline)
-                            .foregroundColor(.green)
-                    }
-                }
-                .padding()
-                .background(Color(.systemGray6))
-                .cornerRadius(12)
-                .padding(.horizontal)
-
-                // Status Message
-                if let message = viewModel.statusMessage {
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+                    .disabled(!viewModel.canJoinContest || viewModel.isJoining)
+                    .padding(.horizontal)
                 }
 
-                // Action Buttons
-                VStack(spacing: 12) {
-                    // Join Button (only shown if can join)
-                    if viewModel.canJoinContest {
+                // MARK: - Quick Actions: Horizontal Buttons
+                VStack(spacing: DesignTokens.Spacing.md) {
+                    Text("Quick Actions")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: DesignTokens.Spacing.lg) {
+                        // Leaderboard
                         Button {
-                            Task {
-                                await viewModel.joinContest()
-                            }
+                            navigateToLeaderboard = true
                         } label: {
-                            HStack {
-                                if viewModel.isJoining {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                } else {
-                                    Image(systemName: "person.badge.plus")
-                                    Text(viewModel.joinButtonTitle)
-                                }
+                            VStack(spacing: DesignTokens.Spacing.xs) {
+                                Image(systemName: "chart.bar.fill")
+                                    .font(.headline)
+                                Text("Leaderboard")
+                                    .font(.caption)
+                                    .lineLimit(1)
                             }
-                            .font(.headline)
-                            .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(viewModel.canJoinContest ? Color.green : Color.gray)
-                            .cornerRadius(12)
+                            .padding(DesignTokens.Spacing.md)
+                            .background(DesignTokens.Color.Surface.card)
+                            .foregroundColor(DesignTokens.Color.Action.secondary)
+                            .cornerRadius(DesignTokens.Radius.lg)
                         }
-                        .disabled(!viewModel.canJoinContest || viewModel.isJoining)
-                    }
 
-                    // Leaderboard Button
-                    Button {
-                        navigateToLeaderboard = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "chart.bar.fill")
-                            Text("View Leaderboard")
+                        // Lineup
+                        Button {
+                            navigateToLineup = true
+                        } label: {
+                            VStack(spacing: DesignTokens.Spacing.xs) {
+                                Image(systemName: "person.3.fill")
+                                    .font(.headline)
+                                Text("Lineup")
+                                    .font(.caption)
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(DesignTokens.Spacing.md)
+                            .background(viewModel.canSelectLineup ? DesignTokens.Color.Surface.card : DesignTokens.Color.Surface.cardDisabled)
+                            .foregroundColor(viewModel.canSelectLineup ? DesignTokens.Color.Action.secondary : DesignTokens.Color.Action.disabled)
+                            .cornerRadius(DesignTokens.Radius.lg)
                         }
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .cornerRadius(12)
-                    }
+                        .disabled(!viewModel.canSelectLineup)
 
-                    // My Lineup Button
-                    Button {
-                        navigateToLineup = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "person.3.fill")
-                            Text("Select Lineup")
+                        // Rules
+                        Button {
+                            showRules = true
+                        } label: {
+                            VStack(spacing: DesignTokens.Spacing.xs) {
+                                Image(systemName: "book.fill")
+                                    .font(.headline)
+                                Text("Rules")
+                                    .font(.caption)
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(DesignTokens.Spacing.md)
+                            .background(DesignTokens.Color.Surface.card)
+                            .foregroundColor(DesignTokens.Color.Action.secondary)
+                            .cornerRadius(DesignTokens.Radius.lg)
                         }
-                        .font(.headline)
-                        .foregroundColor(viewModel.canSelectLineup ? .blue : .gray)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(viewModel.canSelectLineup ? Color.blue.opacity(0.15) : Color(.systemGray5))
-                        .cornerRadius(12)
-                    }
-                    .disabled(!viewModel.canSelectLineup)
-
-                    // Rules Button
-                    Button {
-                        showRules = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "book.fill")
-                            Text("View Rules")
-                        }
-                        .font(.headline)
-                        .foregroundColor(.blue)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue.opacity(0.15))
-                        .cornerRadius(12)
-                    }
-                }
-                .padding(.horizontal)
-
-                // Contest Info
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Contest Info")
-                        .font(.headline)
-
-                    InfoRowView(label: "Organizer", value: viewModel.contest.organizerId)
-                    InfoRowView(label: "Participants", value: "\(viewModel.contest.entryCount) of \(viewModel.contest.maxEntries ?? 0)")
-                    InfoRowView(label: "Entry Fee", value: viewModel.contest.entryFeeCents == 0 ? "Free" : String(format: "$%.2f", Double(viewModel.contest.entryFeeCents) / 100.0))
-                    InfoRowView(label: "Status", value: viewModel.displayStatusMessage)
-                    if let lockTime = viewModel.contest.lockTime {
-                        InfoRowView(label: "Contest Locks", value: viewModel.formattedLockTime(lockTime))
-                    }
-                    if viewModel.canSelectLineup {
-                        InfoRowView(label: "Your Status", value: "Joined")
                     }
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.systemGray6))
-                .cornerRadius(12)
+                .background(DesignTokens.Color.Surface.elevated)
+                .cornerRadius(DesignTokens.Radius.lg)
+                .padding(.horizontal)
+
+                // MARK: - Contest Details Section
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+                    Text("Contest Details")
+                        .font(.headline)
+
+                    InfoRowView(label: "Status", value: viewModel.displayStatusMessage)
+                    if let lockTime = viewModel.contest.lockTime {
+                        InfoRowView(label: "Lock Time", value: viewModel.formattedLockTime(lockTime))
+                    }
+                    InfoRowView(label: "Created", value: formattedCreatedDate(viewModel.contest.createdAt))
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(DesignTokens.Color.Surface.card)
+                .cornerRadius(DesignTokens.Radius.lg)
                 .padding(.horizontal)
                 .redacted(reason: viewModel.contest.contestName == "Loading…" ? .placeholder : [])
 
-                // Share Link (contract-driven capability)
+                // MARK: - Share Link Section (conditional)
                 if viewModel.actionState?.actions.canShareInvite == true, let joinToken = viewModel.contest.joinToken {
                     let joinURL = AppEnvironment.shared.baseURL.appendingPathComponent("join/\(joinToken)")
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
                         HStack {
-                            Text("Share Link")
+                            Text("Share Invite")
                                 .font(.headline)
                             Spacer()
                             if showCopyConfirmation {
@@ -234,7 +231,6 @@ struct ContestDetailView: View {
                             Button {
                                 UIPasteboard.general.string = joinURL.absoluteString
                                 showCopyConfirmation = true
-                                // Reset after 2 seconds
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                                     showCopyConfirmation = false
                                 }
@@ -252,7 +248,6 @@ struct ContestDetailView: View {
                             let ac = UIActivityViewController(activityItems: items, applicationActivities: nil)
                             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                                let root = windowScene.windows.first?.rootViewController {
-                                // Find the topmost presented controller
                                 var presenter = root
                                 while let presented = presenter.presentedViewController {
                                     presenter = presented
@@ -266,23 +261,23 @@ struct ContestDetailView: View {
                                 Text("Share Invite Link")
                             }
                             .font(.subheadline)
-                            .foregroundColor(.white)
+                            .foregroundColor(DesignTokens.Color.Text.inverse)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(Color.orange)
-                            .cornerRadius(8)
+                            .padding(.vertical, DesignTokens.Spacing.md)
+                            .background(DesignTokens.Color.Brand.primary)
+                            .cornerRadius(DesignTokens.Radius.md)
                         }
                     }
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
+                    .background(DesignTokens.Color.Surface.card)
+                    .cornerRadius(DesignTokens.Radius.lg)
                     .padding(.horizontal)
                 }
 
-                // Destructive Actions (Delete/Leave)
+                // MARK: - Destructive Actions (Delete/Leave)
                 if viewModel.canDeleteContest || viewModel.canUnjoinContest {
-                    VStack(spacing: 12) {
+                    VStack(spacing: DesignTokens.Spacing.md) {
                         if viewModel.canDeleteContest {
                             Button(role: .destructive) {
                                 showDeleteConfirmation = true
@@ -292,11 +287,11 @@ struct ContestDetailView: View {
                                     Text("Cancel Contest")
                                 }
                                 .font(.headline)
-                                .foregroundColor(.white)
+                                .foregroundColor(DesignTokens.Color.Text.inverse)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.red)
-                                .cornerRadius(12)
+                                .background(DesignTokens.Color.Action.destructive)
+                                .cornerRadius(DesignTokens.Radius.lg)
                             }
                             .disabled(viewModel.isDeleting || viewModel.actionState == nil)
                         }
@@ -310,11 +305,11 @@ struct ContestDetailView: View {
                                     Text("Leave Contest")
                                 }
                                 .font(.headline)
-                                .foregroundColor(.white)
+                                .foregroundColor(DesignTokens.Color.Text.inverse)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.red)
-                                .cornerRadius(12)
+                                .background(DesignTokens.Color.Action.destructive)
+                                .cornerRadius(DesignTokens.Radius.lg)
                             }
                             .disabled(viewModel.isDeleting || viewModel.actionState == nil)
                         }
@@ -332,7 +327,6 @@ struct ContestDetailView: View {
             ContestLeaderboardView(contestId: viewModel.contestId)
         }
         .navigationDestination(isPresented: $navigateToLineup) {
-            // Navigate to lineup view (using existing LineupView or similar)
             LineupView()
         }
         .sheet(isPresented: $showRules) {
@@ -356,8 +350,9 @@ struct ContestDetailView: View {
             Button("Cancel Contest", role: .destructive) {
                 Task {
                     await viewModel.deleteContest()
-                    // On success (no error message set), exit deterministically
                     if viewModel.errorMessage == nil {
+                        await availableContestsVM.loadContests()
+                        await myContestsVM.loadMyContests()
                         if resetOnExit {
                             landingViewModel.resetToMyContests()
                         } else {
@@ -377,8 +372,9 @@ struct ContestDetailView: View {
             Button("Leave Contest", role: .destructive) {
                 Task {
                     await viewModel.unjoinContest()
-                    // On success (no error message set), exit deterministically
                     if viewModel.errorMessage == nil {
+                        await availableContestsVM.loadContests()
+                        await myContestsVM.loadMyContests()
                         if resetOnExit {
                             landingViewModel.resetToMyContests()
                         } else {
@@ -413,25 +409,6 @@ struct ContestDetailView: View {
     }
 }
 
-// MARK: - Stat View
-
-struct StatView: View {
-    let value: String
-    let label: String
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.title2)
-                .fontWeight(.bold)
-
-            Text(label)
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-    }
-}
-
 // MARK: - Info Row
 
 struct InfoRowView: View {
@@ -449,10 +426,21 @@ struct InfoRowView: View {
     }
 }
 
+// MARK: - Formatting Helpers
+
+/// Format created date for display
+func formattedCreatedDate(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .medium
+    return formatter.string(from: date)
+}
+
 #Preview {
     NavigationStack {
         ContestDetailView(contest: MockContest.samples[0])
             .environmentObject(AuthService())
             .environmentObject(LandingViewModel())
+            .environmentObject(AvailableContestsViewModel())
+            .environmentObject(MyContestsViewModel())
     }
 }

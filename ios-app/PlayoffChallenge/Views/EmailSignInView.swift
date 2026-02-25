@@ -52,7 +52,7 @@ struct EmailSignInView: View {
                         .padding()
                 }
                 .background(isFormValid ? Color.blue : Color.gray)
-                .cornerRadius(10)
+                .cornerRadius(DesignTokens.Radius.lg)
                 .disabled(!isFormValid)
                 .padding(.horizontal)
             }
@@ -156,8 +156,8 @@ struct EmailEligibilityView: View {
                     }
                     .pickerStyle(.menu)
                     .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(10)
+                    .background(DesignTokens.Color.Surface.card)
+                    .cornerRadius(DesignTokens.Radius.lg)
 
                     if restrictedStates.contains(selectedState) {
                         Text("Fantasy contests are not available in this state")
@@ -217,7 +217,7 @@ struct EmailEligibilityView: View {
                     }
                 }
                 .background(canContinue ? Color.blue : Color.gray)
-                .cornerRadius(10)
+                .cornerRadius(DesignTokens.Radius.lg)
                 .disabled(!canContinue || authService.isLoading)
                 .padding(.horizontal)
                 .padding(.bottom, 20)

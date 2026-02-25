@@ -16,7 +16,7 @@ public struct ContestTemplate: Identifiable, Codable, Hashable, Equatable, Senda
     public let defaultEntryFeeCents: Int
     public let allowedEntryFeeMinCents: Int
     public let allowedEntryFeeMaxCents: Int
-    public let defaultMaxEntries: Int
+    public let defaultMaxEntries: Int?
     public let allowedPayoutStructures: [PayoutStructure]
     
     public init(
@@ -26,7 +26,7 @@ public struct ContestTemplate: Identifiable, Codable, Hashable, Equatable, Senda
         defaultEntryFeeCents: Int,
         allowedEntryFeeMinCents: Int,
         allowedEntryFeeMaxCents: Int,
-        defaultMaxEntries: Int,
+        defaultMaxEntries: Int?,
         allowedPayoutStructures: [PayoutStructure]
     ) {
         self.id = id
@@ -59,7 +59,7 @@ public struct ContestTemplate: Identifiable, Codable, Hashable, Equatable, Senda
         defaultEntryFeeCents: Int = 1000,
         allowedEntryFeeMinCents: Int = 0,
         allowedEntryFeeMaxCents: Int = 10000,
-        defaultMaxEntries: Int = 100,
+        defaultMaxEntries: Int? = 100,
         allowedPayoutStructures: [PayoutStructure] = [PayoutStructure.stub()]
     ) -> ContestTemplate {
         return ContestTemplate(

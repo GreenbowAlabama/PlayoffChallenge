@@ -155,7 +155,7 @@ struct LeaderboardRowView: View {
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
-        .background(isCurrentUser ? Color.blue.opacity(0.08) : Color(.systemBackground))
+        .background(isCurrentUser ? Color.blue.opacity(0.08) : DesignTokens.Color.Surface.elevated)
     }
 }
 

@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import Core
 
 struct DynamicLeaderboardTableView: View {
     let columnSchema: [LeaderboardColumn]
@@ -30,7 +29,7 @@ struct DynamicLeaderboardTableView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(Color(.systemGray6))
+                .background(DesignTokens.Color.Surface.card)
 
                 Divider()
 
@@ -50,7 +49,7 @@ struct DynamicLeaderboardTableView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .background(
-                        isCurrentUserRow(row) ? Color.blue.opacity(0.08) : Color(.systemBackground)
+                        isCurrentUserRow(row) ? Color.blue.opacity(0.08) : DesignTokens.Color.Surface.elevated
                     )
 
                     if index < rows.count - 1 {

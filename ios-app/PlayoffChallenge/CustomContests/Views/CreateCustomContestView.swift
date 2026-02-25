@@ -7,9 +7,11 @@ struct CreateCustomContestView: View {
     @StateObject private var viewModel: CreateCustomContestViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var lockTimeEnabled = false
+    var onPublished: ((UUID) -> Void)?
 
-    init(viewModel: CreateCustomContestViewModel) {
+    init(viewModel: CreateCustomContestViewModel, onPublished: ((UUID) -> Void)? = nil) {
         _viewModel = StateObject(wrappedValue: viewModel)
+        self.onPublished = onPublished
     }
 
     var body: some View {
@@ -186,6 +188,9 @@ struct CreateCustomContestView: View {
                     Spacer()
                 }
                 Button("Done") {
+                    if let result = viewModel.publishResult {
+                        onPublished?(result.contestId)
+                    }
                     dismiss()
                 }
                 .padding(.top, 8)

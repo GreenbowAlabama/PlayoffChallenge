@@ -21,6 +21,7 @@
 		EA345EBE2EA45CB700689C4E /* PlayoffChallengeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA345EBD2EA45CB700689C4E /* PlayoffChallengeApp.swift */; };
 		EA345EC02EA45CB700689C4E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA345EBF2EA45CB700689C4E /* ContentView.swift */; };
 		EA345EC22EA45CB900689C4E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EA345EC12EA45CB900689C4E /* Assets.xcassets */; };
+		EA4764932F4E79DA00CC6C65 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4764912F4E79D900CC6C65 /* DesignTokens.swift */; };
 		EA74C87E2F4E295C002BFE04 /* CreateContestResponseDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA74C87D2F4E2953002BFE04 /* CreateContestResponseDTO.swift */; };
 		EA8192012F45254D00B5A5E1 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = EA2A82CF2F4D663100698663 /* Core */; };
 		EA8194E92F46F5E000B5A5E1 /* ContestType.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8194E82F46F5E000B5A5E1 /* ContestType.swift */; };
@@ -74,6 +75,7 @@
 		EA345EBD2EA45CB700689C4E /* PlayoffChallengeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayoffChallengeApp.swift; sourceTree = "<group>"; };
 		EA345EBF2EA45CB700689C4E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		EA345EC12EA45CB900689C4E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		EA4764912F4E79D900CC6C65 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		EA493C3B2F45134300F878AD /* PlayoffChallengeUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlayoffChallengeUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA74C87D2F4E2953002BFE04 /* CreateContestResponseDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateContestResponseDTO.swift; sourceTree = "<group>"; };
 		EA8194E82F46F5E000B5A5E1 /* ContestType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestType.swift; sourceTree = "<group>"; };
@@ -240,6 +242,7 @@
 				CC001A0A2F3A000100000006 /* CustomContests */,
 				EA8192022F4525A900B5A5E1 /* Frameworks */,
 				EA8194EC2F48060200B5A5E1 /* Utilities */,
+				EA4764922F4E79D900CC6C65 /* DesignSystem */,
 			);
 			sourceTree = "<group>";
 		};
@@ -250,6 +253,14 @@
 				EA493C3B2F45134300F878AD /* PlayoffChallengeUnitTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		EA4764922F4E79D900CC6C65 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				EA4764912F4E79D900CC6C65 /* DesignTokens.swift */,
+			);
+			path = DesignSystem;
 			sourceTree = "<group>";
 		};
 		EA8192022F4525A900B5A5E1 /* Frameworks */ = {
@@ -443,7 +454,7 @@
 			mainGroup = EA345EB12EA45CB700689C4E;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				EA2A82CE2F4D663100698663 /* XCLocalSwiftPackageReference "core" */,
+				EA2A82CE2F4D663100698663 /* XCLocalSwiftPackageReference "../../core" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EA345EBB2EA45CB700689C4E /* Products */;
@@ -503,6 +514,7 @@
 				EA83ECF92F4C2CE2002D227A /* ContestListItemDTO.swift in Sources */,
 				EA83ECFA2F4C2CE2002D227A /* PayoutRowDTO.swift in Sources */,
 				EA83ECFC2F4C2CE2002D227A /* PublishResponseDTO.swift in Sources */,
+				EA4764932F4E79DA00CC6C65 /* DesignTokens.swift in Sources */,
 				EA83ECFD2F4C2CE2002D227A /* DecoderConfiguration.swift in Sources */,
 				EA83ECFE2F4C2CE2002D227A /* JSONValue.swift in Sources */,
 				EA83ECFF2F4C2CE2002D227A /* ContestDetailResponseDTO.swift in Sources */,
@@ -947,9 +959,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		EA2A82CE2F4D663100698663 /* XCLocalSwiftPackageReference "core" */ = {
+		EA2A82CE2F4D663100698663 /* XCLocalSwiftPackageReference "../../core" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../core";
+			relativePath = ../../core;
 		};
 /* End XCLocalSwiftPackageReference section */
 

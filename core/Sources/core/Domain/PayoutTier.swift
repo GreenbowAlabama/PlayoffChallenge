@@ -13,7 +13,7 @@ import Foundation
 public struct PayoutTier: Codable, Hashable, Equatable, Sendable {
     public let rankMin: Int
     public let rankMax: Int
-    public let amount: Decimal
+    public let amount: Decimal?
 
     enum CodingKeys: String, CodingKey {
         case rankMin = "rank_min"
@@ -37,7 +37,7 @@ public struct PayoutTier: Codable, Hashable, Equatable, Sendable {
     public static func stub(
         rankMin: Int = 1,
         rankMax: Int = 10,
-        amount: Decimal = 100.0
+        amount: Decimal? = 100.0
     ) -> PayoutTier {
         return PayoutTier(rankMin: rankMin, rankMax: rankMax, amount: amount)
     }

@@ -218,4 +218,65 @@ final class AvailableContestsViewModelTests: XCTestCase {
 
         XCTAssertEqual(vm.contests.first?.formattedEntryFee, "Free")
     }
+
+    // MARK: - Featured Contests Tests
+
+    @MainActor
+    func test_featuredContests_filtersOnlyPlatformOwned() async {
+        let dto1 = AvailableContestDTO.fixture(id: UUID(), is_platform_owned: true)
+        let dto2 = AvailableContestDTO.fixture(id: UUID(), is_platform_owned: false)
+        let dto3 = AvailableContestDTO.fixture(id: UUID(), is_platform_owned: nil)
+        let (vm, _) = makeSUT(result: .success([dto1, dto2, dto3]))
+
+        await vm.loadContests()
+
+        XCTAssertEqual(vm.featuredContests.count, 1)
+        XCTAssertEqual(vm.featuredContests.first?.id, dto1.id)
+    }
+
+    @MainActor
+    func test_featuredContests_excludesCompleteAndCancelled() async {
+        let dto1 = AvailableContestDTO.fixture(id: UUID(), status: "COMPLETE", is_platform_owned: true)
+        let dto2 = AvailableContestDTO.fixture(id: UUID(), status: "CANCELLED", is_platform_owned: true)
+        let dto3 = AvailableContestDTO.fixture(id: UUID(), status: "SCHEDULED", is_platform_owned: true)
+        let (vm, _) = makeSUT(result: .success([dto1, dto2, dto3]))
+
+        await vm.loadContests()
+
+        XCTAssertEqual(vm.featuredContests.count, 1)
+        XCTAssertEqual(vm.featuredContests.first?.id, dto3.id)
+    }
+
+    @MainActor
+    func test_featuredContests_sortsCorrectly() async {
+        let now = Date()
+        let earlier = now.addingTimeInterval(3600)
+        let later = now.addingTimeInterval(7200)
+
+        let live = AvailableContestDTO.fixture(id: UUID(), status: "LIVE", is_platform_owned: true)
+        let schedLater = AvailableContestDTO.fixture(id: UUID(), status: "SCHEDULED", is_platform_owned: true, lock_time: later)
+        let schedEarlier = AvailableContestDTO.fixture(id: UUID(), status: "SCHEDULED", is_platform_owned: true, lock_time: earlier)
+
+        // Load in unsorted order
+        let (vm, _) = makeSUT(result: .success([schedLater, live, schedEarlier]))
+
+        await vm.loadContests()
+
+        XCTAssertEqual(vm.featuredContests.count, 3)
+        XCTAssertEqual(vm.featuredContests[0].id, live.id)
+        XCTAssertEqual(vm.featuredContests[1].id, schedEarlier.id)
+        XCTAssertEqual(vm.featuredContests[2].id, schedLater.id)
+    }
+
+    @MainActor
+    func test_showFeaturedSection_behavior() async {
+        let (vm, _) = makeSUT(result: .success([]))
+        await vm.loadContests()
+        XCTAssertFalse(vm.showFeaturedSection)
+
+        let dto = AvailableContestDTO.fixture(is_platform_owned: true)
+        let (vm2, _) = makeSUT(result: .success([dto]))
+        await vm2.loadContests()
+        XCTAssertTrue(vm2.showFeaturedSection)
+    }
 }

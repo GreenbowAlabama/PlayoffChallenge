@@ -21,6 +21,32 @@ final class AvailableContestsViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
+    // MARK: - Computed Properties
+
+    var featuredContests: [Contest] {
+        contests
+            .filter { $0.isPlatformOwned == true }
+            .filter { $0.status != .complete && $0.status != .cancelled }
+            .sorted { lhs, rhs in
+                if lhs.status == .live && rhs.status != .live { return true }
+                if lhs.status != .live && rhs.status == .live { return false }
+
+                guard let l = lhs.lockTime, let r = rhs.lockTime else {
+                    return false
+                }
+
+                return l < r
+            }
+    }
+
+    var regularContests: [Contest] {
+        contests.filter { $0.isPlatformOwned != true }
+    }
+
+    var showFeaturedSection: Bool {
+        !featuredContests.isEmpty
+    }
+
     // MARK: - Dependencies
 
     private let service: ContestServiceing

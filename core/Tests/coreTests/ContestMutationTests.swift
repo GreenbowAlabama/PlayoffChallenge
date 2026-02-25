@@ -59,7 +59,8 @@ extension ContestListItemDTO {
         leaderboardState: String? = nil,
         actions: ContestActionsContract? = nil,
         payoutTable: [PayoutTierContract]? = nil,
-        rosterConfig: RosterConfigContract? = nil
+        rosterConfig: RosterConfigContract? = nil,
+        isPlatformOwned: Bool? = nil
     ) -> ContestListItemDTO {
         return ContestListItemDTO(
             id: id,
@@ -77,7 +78,8 @@ extension ContestListItemDTO {
             leaderboardState: leaderboardState,
             actions: actions,
             payoutTable: payoutTable,
-            rosterConfig: rosterConfig
+            rosterConfig: rosterConfig,
+            isPlatformOwned: isPlatformOwned
         )
     }
 }

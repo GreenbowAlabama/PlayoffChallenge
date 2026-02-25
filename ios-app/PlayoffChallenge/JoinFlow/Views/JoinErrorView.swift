@@ -45,8 +45,8 @@ struct JoinErrorView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(Color.blue)
-                    .cornerRadius(10)
+                    .background(DesignTokens.Color.Action.secondary)
+                    .cornerRadius(DesignTokens.Radius.lg)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
@@ -84,11 +84,11 @@ struct JoinErrorView: View {
     private var iconColor: Color {
         switch error {
         case .alreadyJoined:
-            return .green
+            return DesignTokens.Color.Action.primary
         case .contestFull, .contestLocked, .contestCancelled, .contestUnavailable, .contestCompleted:
-            return .orange
+            return DesignTokens.Color.Brand.primary
         default:
-            return .red
+            return DesignTokens.Color.Action.destructive
         }
     }
 }

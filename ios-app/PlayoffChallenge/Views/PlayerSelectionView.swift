@@ -90,7 +90,7 @@ struct PlayerSelectionView: View {
                         .frame(maxWidth: .infinity)
                         .padding()
                         .background(viewModel.hasChanges ? Color.green : Color.gray)
-                        .cornerRadius(12)
+                        .cornerRadius(DesignTokens.Radius.lg)
                     }
                     .disabled(!viewModel.hasChanges || viewModel.isSaving)
                     .padding()
@@ -207,8 +207,8 @@ struct PositionSection: View {
             }
         }
         .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
+        .background(DesignTokens.Color.Surface.card)
+        .cornerRadius(DesignTokens.Radius.lg)
     }
 }
 
@@ -252,7 +252,7 @@ struct PlayerSlotCard: View {
         .padding(10)
         .frame(maxWidth: .infinity)
         .background(colorScheme == .dark ? Color(.systemGray5) : Color.white)
-        .cornerRadius(8)
+        .cornerRadius(DesignTokens.Radius.md)
         .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
         .onTapGesture {
             if !viewModel.isLocked {
@@ -284,9 +284,9 @@ struct EmptySlotCard: View {
             .padding()
             .frame(maxWidth: .infinity, minHeight: 80)
             .background(colorScheme == .dark ? Color(.systemGray5) : Color.white)
-            .cornerRadius(8)
+            .cornerRadius(DesignTokens.Radius.md)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
                     .stroke(Color.blue.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5]))
             )
         }

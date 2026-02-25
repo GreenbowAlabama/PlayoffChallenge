@@ -18,7 +18,7 @@ struct LandingView: View {
             VStack(spacing: 24) {
                 // Next Lock Banner (if applicable)
                 if let nextContest = viewModel.nextRelevantScheduledContest(
-                    available: availableVM.contests,
+                    available: availableVM.regularContests,
                     mine: myVM.myContests
                 ),
                    let display = formatLockTimeForDisplay(
@@ -33,6 +33,33 @@ struct LandingView: View {
                     )
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
+                }
+
+                // Featured Section
+                if availableVM.showFeaturedSection {
+                    if availableVM.featuredContests.count == 1 {
+                        FeaturedContestHeroView(
+                            contest: availableVM.featuredContests[0],
+                            onTap: {
+                                viewModel.navigateToContestDetail(contestId: availableVM.featuredContests[0].id)
+                            }
+                        )
+                        .padding(.horizontal, 16)
+                    } else {
+                        TabView {
+                            ForEach(availableVM.featuredContests) { contest in
+                                FeaturedContestHeroView(
+                                    contest: contest,
+                                    onTap: {
+                                        viewModel.navigateToContestDetail(contestId: contest.id)
+                                    }
+                                )
+                                .padding(.horizontal, 16)
+                            }
+                        }
+                        .tabViewStyle(.page)
+                        .frame(height: 280)
+                    }
                 }
 
                 Spacer()
@@ -140,7 +167,7 @@ struct NavigationButton: View {
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
                     .background(color)
-                    .cornerRadius(12)
+                    .cornerRadius(DesignTokens.Radius.lg)
 
                 Text(title)
                     .font(.headline)
@@ -152,8 +179,8 @@ struct NavigationButton: View {
                     .foregroundColor(.secondary)
             }
             .padding()
-            .background(Color(.systemGray6))
-            .cornerRadius(16)
+            .background(DesignTokens.Color.Surface.card)
+            .cornerRadius(DesignTokens.Radius.xl)
         }
         .buttonStyle(PlainButtonStyle())
     }

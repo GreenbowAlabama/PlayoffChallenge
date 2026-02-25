@@ -73,8 +73,8 @@ struct EligibilityView: View {
                     }
                     .pickerStyle(.menu)
                     .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(10)
+                    .background(DesignTokens.Color.Surface.card)
+                    .cornerRadius(DesignTokens.Radius.lg)
 
                     if restrictedStates.contains(selectedState) {
                         Text("Fantasy contests are not available in this state")
@@ -127,7 +127,7 @@ struct EligibilityView: View {
                     }
                 }
                 .background(canContinue ? Color.blue : Color.gray)
-                .cornerRadius(10)
+                .cornerRadius(DesignTokens.Radius.lg)
                 .disabled(!canContinue || isCreatingAccount)
                 .padding(.horizontal)
                 .padding(.bottom, 20)

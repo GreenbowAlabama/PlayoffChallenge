@@ -170,7 +170,7 @@ struct PreGameBanner: View {
         }
         .padding()
         .background(Color.blue.opacity(0.1))
-        .cornerRadius(12)
+        .cornerRadius(DesignTokens.Radius.lg)
         .padding(.horizontal)
         .padding(.bottom, 8)
     }
@@ -227,7 +227,7 @@ struct ExpandableLeaderboardRow: View {
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 16)
-                .background(Color(.systemBackground))
+                .background(DesignTokens.Color.Surface.elevated)
             }
             .buttonStyle(PlainButtonStyle())
 
@@ -240,7 +240,7 @@ struct ExpandableLeaderboardRow: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(Color(.systemGray6))
+                .background(DesignTokens.Color.Surface.card)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
@@ -322,8 +322,8 @@ struct PickRowCard: View {
             }
         }
         .padding(12)
-        .background(Color(.systemBackground))
-        .cornerRadius(10)
+        .background(DesignTokens.Color.Surface.elevated)
+        .cornerRadius(DesignTokens.Radius.lg)
         .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
     }
 }
