@@ -16,6 +16,7 @@ struct ContestRowView: View {
     let statusText: String            // e.g., "Scheduled"
     let lockText: String?             // e.g., "Locks Feb 27 · 14:29", nil if not shown
     let entryFeeText: String?         // e.g., "$10 Entry", "Free", nil if 0
+    let payoutText: String?           // e.g., "$500 pot", "$500 paid out"
     let shareURL: URL?                // Share link for contest
     let showsChevron: Bool
 
@@ -26,6 +27,7 @@ struct ContestRowView: View {
         statusText: String,
         lockText: String? = nil,
         entryFeeText: String? = nil,
+        payoutText: String? = nil,
         shareURL: URL? = nil,
         showsChevron: Bool = true
     ) {
@@ -35,6 +37,7 @@ struct ContestRowView: View {
         self.statusText = statusText
         self.lockText = lockText
         self.entryFeeText = entryFeeText
+        self.payoutText = payoutText
         self.shareURL = shareURL
         self.showsChevron = showsChevron
     }
@@ -113,11 +116,19 @@ struct ContestRowView: View {
                     }
                 }
 
-                VStack(alignment: .trailing, spacing: 6) {
+                VStack(alignment: .trailing, spacing: 2) {
                     if let entryFeeText = entryFeeText {
                         Text(entryFeeText)
                             .font(.caption2)
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+
+                    if let payoutText = payoutText {
+                        Text(payoutText)
+                            .font(.caption2)
+                            .foregroundColor(.orange)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
@@ -141,6 +152,7 @@ struct ContestRowView: View {
             entryCountText: "45/100",
             statusText: "Scheduled",
             entryFeeText: "$50 Entry",
+            payoutText: "$2250 pot",
             shareURL: URL(string: "https://67.games/contest/123")
         )
 
@@ -151,6 +163,7 @@ struct ContestRowView: View {
             statusText: "Scheduled",
             lockText: "Locks Feb 27 · 14:29",
             entryFeeText: "$25 Entry",
+            payoutText: "$200 pot",
             shareURL: URL(string: "https://67.games/contest/456")
         )
 

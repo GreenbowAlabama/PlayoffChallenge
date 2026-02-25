@@ -35,6 +35,12 @@ struct AvailableContestsView: View {
                         }
                 } else {
                     ForEach(viewModel.regularContests) { contest in
+                        let payoutCents = contest.entryFeeCents * contest.entryCount
+                        let payoutDollars = payoutCents / 100
+                        let payoutText = contest.entryCount > 0 && payoutDollars > 0
+                            ? (contest.status == .complete ? "$\(payoutDollars) paid out" : "$\(payoutDollars) pot")
+                            : nil
+
                         ContestRowView(
                             contestName: contest.contestName,
                             isJoined: contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true,
@@ -42,6 +48,7 @@ struct AvailableContestsView: View {
                             statusText: contest.status.displayName,
                             lockText: formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)?.text,
                             entryFeeText: contest.entryFeeCents > 0 ? String(format: "$%.0f Entry", Double(contest.entryFeeCents) / 100.0) : nil,
+                            payoutText: payoutText,
                             shareURL: contest.shareURL
                         )
                         .contentShape(Rectangle())
