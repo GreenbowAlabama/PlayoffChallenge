@@ -20,8 +20,6 @@ struct ContestCardView: View {
     let style: CardStyle
     let onTap: (() -> Void)?
 
-    @EnvironmentObject var environment: AppEnvironment
-
     private var feeDisplay: String {
         contest.entryFeeCents == 0 ? "Free" : "$\(contest.entryFeeCents / 100)"
     }
@@ -57,7 +55,7 @@ struct ContestCardView: View {
 
     private var shareURL: URL? {
         guard let token = contest.shareURLToken else { return nil }
-        let shareString = "\(environment.baseURL.absoluteString)/join/\(token)"
+        let shareString = "\(AppEnvironment.shared.baseURL.absoluteString)/join/\(token)"
         return URL(string: shareString)
     }
 

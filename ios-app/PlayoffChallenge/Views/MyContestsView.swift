@@ -8,7 +8,6 @@
 import SwiftUI
 
 struct MyContestsView: View {
-    @EnvironmentObject var environment: AppEnvironment
     @ObservedObject var viewModel: MyContestsViewModel
     @State private var selectedContest: Contest?
     @State private var isRefreshing = false
@@ -17,7 +16,7 @@ struct MyContestsView: View {
 
     private func shareURL(for contest: Contest) -> URL? {
         guard let token = contest.shareURLToken else { return nil }
-        let shareString = "\(environment.baseURL.absoluteString)/join/\(token)"
+        let shareString = "\(AppEnvironment.shared.baseURL.absoluteString)/join/\(token)"
         return URL(string: shareString)
     }
 
