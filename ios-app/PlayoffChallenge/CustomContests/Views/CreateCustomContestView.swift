@@ -7,9 +7,9 @@ struct CreateCustomContestView: View {
     @StateObject private var viewModel: CreateCustomContestViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var lockTimeEnabled = false
-    var onPublished: ((UUID) -> Void)?
+    var onPublished: ((UUID, Contest?) -> Void)?
 
-    init(viewModel: CreateCustomContestViewModel, onPublished: ((UUID) -> Void)? = nil) {
+    init(viewModel: CreateCustomContestViewModel, onPublished: ((UUID, Contest?) -> Void)? = nil) {
         _viewModel = StateObject(wrappedValue: viewModel)
         self.onPublished = onPublished
     }
@@ -147,53 +147,35 @@ struct CreateCustomContestView: View {
             }
             .disabled(!viewModel.isCreateEnabled)
 
-        case .creating:
+        case .creating, .publishing:
             HStack {
                 Spacer()
                 ProgressView()
-                Text("Creating...")
+                Text("Creating Contest...")
                     .padding(.leading, 8)
                 Spacer()
             }
 
         case .created:
-            Button {
-                Task {
-                    await viewModel.publishDraft()
-                }
-            } label: {
-                HStack {
-                    Spacer()
-                    Text("Publish Contest")
-                    Spacer()
-                }
-            }
-
-        case .publishing:
-            HStack {
-                Spacer()
-                ProgressView()
-                Text("Publishing...")
-                    .padding(.leading, 8)
-                Spacer()
-            }
+            // This state no longer appears since we auto-publish after create
+            EmptyView()
 
         case .published:
-            VStack(spacing: 12) {
-                HStack {
-                    Spacer()
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Published!")
-                    Spacer()
-                }
-                Button("Done") {
+            HStack {
+                Spacer()
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("Published!")
+                Spacer()
+            }
+            .onAppear {
+                // Navigate to detail view after brief success message
+                Task {
+                    try await Task.sleep(for: .milliseconds(500))
                     if let result = viewModel.publishResult {
-                        onPublished?(result.contestId)
+                        onPublished?(result.contestId, viewModel.draft)
                     }
-                    dismiss()
                 }
-                .padding(.top, 8)
             }
         }
     }
@@ -261,7 +243,8 @@ struct CreateCustomContestView: View {
             creator: PreviewCustomContestCreator(),
             publisher: PreviewCustomContestPublisher(),
             userId: UUID()
-        )
+        ),
+        onPublished: { _, _ in }
     )
 }
 

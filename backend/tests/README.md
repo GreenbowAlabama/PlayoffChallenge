@@ -1,69 +1,84 @@
-# Backend Test Suite — Execution & Safety Rules
+# Backend Tests — Infrastructure & Financial Guardrails
 
-This directory contains all backend unit, integration, contract, and end-to-end tests.
+This directory contains all backend unit and regression tests.
 
-The test harness enforces strict database safety rules to prevent accidental execution
-against staging or production databases.
+These tests protect:
 
-────────────────────────────────────────
-Database Safety Guard
-
-The test runner will EXIT if:
-
-- The database name does NOT contain the word "test"
-- AND explicit override is NOT provided
-
-This prevents accidental destructive operations.
-
-Current environment setup:
-
-DATABASE_URL_TEST = Test database
-DATABASE_URL      = Staging database
-
-If your test DB name does NOT include "test" (e.g., "railway"),
-you MUST run tests with explicit opt-in:
-
-    TEST_DB_ALLOW_DBNAME=railway npm test
-
-Without this override, the suite will exit immediately.
+- Contest lifecycle state transitions
+- Settlement determinism
+- Idempotent financial behavior
+- Ledger invariants
+- Strategy dispatch
+- OpenAPI contract alignment
+- Eligibility enforcement
+- Payment flow integrity
 
 ────────────────────────────────────────
-Standard Test Command
+Authoritative Command
 
-Run full suite:
+Always run tests using:
 
-    TEST_DB_ALLOW_DBNAME=railway npm test
+    npm test
 
-Run specific file:
+Do NOT:
 
-    TEST_DB_ALLOW_DBNAME=railway npm test -- tests/path/to/file.test.js
+- Run Jest directly
+- Use custom runners
+- Bypass npm test
+- Modify skip counts casually
 
-────────────────────────────────────────
-Golden Rules
-
-- Never bypass database guard logic
-- Never run tests against staging or production
-- All tests must pass before commit
-- If a test fails, fix it properly — do not disable
+`npm test` is the only approved entry point.
 
 ────────────────────────────────────────
-Template Uniqueness Invariant
+What Tests Protect
 
-contest_templates enforces:
+Tests enforce:
 
-    UNIQUE (sport, template_type)
-    WHERE is_active = true
+- Atomic wallet deduction + entry creation
+- 10% service fee retention correctness
+- Idempotent settlement execution
+- Replay-safe Stripe webhook handling
+- Append-only ledger behavior
+- No negative balances
+- Eligibility hard rejection
+- Contest state auto-transition safety
+- Rules version snapshot consistency
 
-All test-created templates MUST explicitly set:
-
-    is_active = false
-
-Only production fixtures or specific tests may activate templates.
-
-This preserves real production constraints during test execution.
+These are revenue-critical invariants.
 
 ────────────────────────────────────────
+When Tests Must Be Run
 
-The test suite is an infrastructure guardrail.
-Treat failures as architectural signal, not noise.
+Before:
 
+- Any commit
+- Any merge
+- Any lifecycle change
+- Any settlement logic change
+- Any wallet logic change
+- Any contract modification
+- Any eligibility enforcement change
+
+If tests fail:
+
+Stop.
+Fix.
+Do not bypass.
+
+────────────────────────────────────────
+Regression Standard
+
+- All tests must pass.
+- Skip count must remain stable unless intentionally modified.
+- New financial paths require new tests.
+- No mutation of settlement logic without coverage.
+
+────────────────────────────────────────
+Golden Rule
+
+Backend tests are financial infrastructure guardrails.
+
+They are not optional.
+They are not advisory.
+
+Revenue integrity depends on them.

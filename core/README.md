@@ -1,15 +1,41 @@
-# Core (Swift Package) — Test & Build Rules
+# Core (Swift Package) — Architecture, Build & Test Rules
 
 This directory contains the Swift Package that powers shared business logic
 for the iOS client.
 
-The core module is the single source of truth for:
+The Core package is the authoritative client-side domain layer.
 
+It is the single source of truth for:
+
+- Domain models
 - Strategy dispatch
-- ViewModel logic
+- Deterministic scoring logic (presentation-safe only)
+- ViewModel state logic
 - Contract decoding
 - Business rule invariants
-- Deterministic scoring logic (client-side presentation only)
+- Contest lifecycle representation (client interpretation only)
+
+────────────────────────────────────────
+Authoritative Principles
+
+Core is:
+
+- Deterministic
+- Contract-driven
+- Immutable-first
+- Environment-agnostic
+- Free of side effects where possible
+
+Core is NOT:
+
+- A networking layer
+- A persistence layer
+- A Stripe integration layer
+- A feature flag system
+- An environment switchboard
+- A mutation engine
+
+No external service logic belongs here.
 
 ────────────────────────────────────────
 Build
@@ -18,57 +44,92 @@ Always verify the package builds before committing:
 
     swift build
 
+Build failures block merge.
+
 ────────────────────────────────────────
 Run Tests
 
-Run the full suite:
+Run full suite:
 
     swift test
 
-Run a specific test target:
+Run specific tests:
 
     swift test --filter TestNameHere
 
-────────────────────────────────────────
-Rules
-
-- Do NOT rely solely on Xcode test runs
-- `swift test` is the source of truth
-- All tests must pass before committing
-- Do not skip failing tests
-- Do not bypass failing invariants
+`swift test` is the authoritative signal.
+Xcode test runs are not the source of truth.
 
 ────────────────────────────────────────
-Architectural Principles
+Test Discipline
 
-The iOS Core package:
+You MUST run tests if you change:
 
-- Contains no networking code
-- Contains no persistence layer
-- Contains no Stripe logic
-- Contains no environment branching
-- Contains no business mutations
+- Domain models
+- Contract DTO decoding
+- Strategy keys
+- ViewModel logic
+- Scoring rules
+- Lifecycle state representations
+- Any invariant enforcement
 
-It is:
+If tests fail:
 
-- Deterministic
-- Pure where possible
-- Thin where required
-- Contract-driven
+Stop.
+Fix.
+Do not bypass.
 
-All API responses are decoded strictly according to OpenAPI definitions.
+Core exists to protect determinism.
 
-No business logic should live inside SwiftUI views.
+────────────────────────────────────────
+Architecture Enforcement
+
+Rules:
+
+- No DTO types exposed to SwiftUI views
+- No concrete service types inside ViewModels
+- No optional domain fields unless explicitly allowed by backend contract
+- No fabricated domain properties
+- No environment branching
+- No mutation without explicit return state
+
+Mapping order must remain:
+
+DTO → Domain → ViewModel → View
+
+Never reverse this flow.
+
+────────────────────────────────────────
+Contest & Financial Alignment
+
+Core reflects:
+
+- Contest lifecycle states
+- Settlement result presentation
+- Leaderboard ordering rules
+- Tier-based lineup configuration
+- Immutable completion behavior
+
+Core does NOT execute:
+
+- Wallet debits
+- Ledger mutations
+- Settlement jobs
+- Stripe operations
+
+It only reflects the authoritative backend state.
 
 ────────────────────────────────────────
 Golden Rule
 
-If a change modifies:
+Core is a stability layer.
 
-- Model structures
-- Strategy keys
-- Contract response shapes
-- ViewModel logic
+If a change affects:
+
+- Contest lifecycle representation
+- Scoring determinism
+- Financial display calculations
+- Domain invariants
 
 You must run:
 
@@ -76,5 +137,4 @@ You must run:
 
 Before committing.
 
-The core package is a stability layer, not a convenience layer.
-
+Core protects revenue integrity.

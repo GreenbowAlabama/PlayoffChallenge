@@ -9,6 +9,7 @@
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:app.67enterprises.com</string>
+		<string>applinks:playoffchallenge-staging.up.railway.app</string>
 	</array>
 </dict>
 </plist>

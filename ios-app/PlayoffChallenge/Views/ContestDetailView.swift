@@ -216,7 +216,7 @@ struct ContestDetailView: View {
 
                 // MARK: - Share Link Section (conditional)
                 if viewModel.actionState?.actions.canShareInvite == true, let joinToken = viewModel.contest.joinToken {
-                    let joinURL = AppEnvironment.shared.baseURL.appendingPathComponent("join/\(joinToken)")
+                    let joinURL = AppEnvironment.shared.baseURL.appendingPathComponent("custom-contests/join/\(joinToken)")
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
                         HStack {
                             Text("Share Invite")

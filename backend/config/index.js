@@ -103,6 +103,7 @@ function getJoinBaseUrl() {
 
 /**
  * Generate a canonical join URL for a contest token
+ * Uses canonical path: /custom-contests/join/:token
  * @param {string} token - The join token
  * @returns {string} Full join URL
  */
@@ -110,7 +111,7 @@ function buildJoinUrl(token) {
   if (!token) {
     throw new Error('Token is required to build join URL');
   }
-  return `${getJoinBaseUrl()}/join/${token}`;
+  return `${getJoinBaseUrl()}/custom-contests/join/${token}`;
 }
 
 /**

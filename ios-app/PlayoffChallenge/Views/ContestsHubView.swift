@@ -61,12 +61,12 @@ struct ContestsHubView: View {
                 case .create:
                     CreateCustomContestView(
                         viewModel: makeCreateViewModel(),
-                        onPublished: { newId in
+                        onPublished: { newId, contest in
                             // Handle post-create routing locally
                             if !path.isEmpty {
                                 path.removeLast() // Pop create
                             }
-                            path.append(.detail(newId, nil)) // Push detail
+                            path.append(.detail(newId, contest)) // Push detail with contest placeholder
                         }
                     )
                 case .detail(let id, let contest):

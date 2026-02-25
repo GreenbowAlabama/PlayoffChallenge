@@ -184,7 +184,7 @@ final class CreateCustomContestViewModel: ObservableObject {
 
     // MARK: - Actions
 
-    /// Creates a draft contest on the backend.
+    /// Creates a draft contest and immediately publishes it.
     func createDraft() async {
         guard isCreateEnabled else { return }
         guard let templateIdString = selectedTemplate?.id,
@@ -217,7 +217,27 @@ final class CreateCustomContestViewModel: ObservableObject {
             print("Draft Contest Name: \(createdDraft.contestName)")
             print("===== VIEWMODEL ASSIGNMENT END =====")
             draft = createdDraft
-            state = .created
+
+            // Auto-publish immediately after creating draft
+            await publishDraftInternal(createdDraft)
+        } catch let error as CustomContestError {
+            state = .error(error)
+        } catch {
+            state = .error(.networkError(underlying: error.localizedDescription))
+        }
+    }
+
+    /// Internal publish method that updates state and result.
+    private func publishDraftInternal(_ currentDraft: Contest) async {
+        state = .publishing
+
+        do {
+            let result = try await publisher.publish(
+                contestId: currentDraft.id,
+                userId: userId
+            )
+            publishResult = result
+            state = .published
         } catch let error as CustomContestError {
             state = .error(error)
         } catch {

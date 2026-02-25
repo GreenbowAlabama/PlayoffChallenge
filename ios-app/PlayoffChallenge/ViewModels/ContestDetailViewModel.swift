@@ -96,6 +96,7 @@ final class ContestDetailViewModel: ObservableObject {
             can_delete=\(fetchedActionState.actions.canDelete)
             can_unjoin=\(fetchedActionState.actions.canUnjoin)
             can_edit_entry=\(fetchedActionState.actions.canEditEntry)
+            can_share_invite=\(fetchedActionState.actions.canShareInvite)
             """)
 
             hasFetched = true
@@ -125,6 +126,7 @@ final class ContestDetailViewModel: ObservableObject {
             can_delete=\(fetchedActionState.actions.canDelete)
             can_unjoin=\(fetchedActionState.actions.canUnjoin)
             can_edit_entry=\(fetchedActionState.actions.canEditEntry)
+            can_share_invite=\(fetchedActionState.actions.canShareInvite)
             """)
 
             print("ContestDetailViewModel: action state refreshed → \(fetchedActionState.contestId)")
@@ -335,4 +337,5 @@ final class ContestDetailViewModel: ObservableObject {
         formatter.timeStyle = .short
         return formatter.string(from: date)
     }
+
 }
