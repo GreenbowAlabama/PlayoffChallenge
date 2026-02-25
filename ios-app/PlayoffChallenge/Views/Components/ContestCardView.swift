@@ -41,16 +41,15 @@ struct ContestCardView: View {
         contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true
     }
     
-    private var lockDisplay: LockTimeDisplay? {
-        formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)
-    }
-    
     private var lockUrgencyColor: Color {
-        guard let display = lockDisplay else { return DesignTokens.Color.Text.secondary }
-        switch display.urgency {
-        case .normal: return DesignTokens.Color.Text.secondary
-        case .warning: return .orange
-        case .critical: return .red
+        guard let lockTime = contest.lockTime else { return DesignTokens.Color.Text.secondary }
+        let timeInterval = lockTime.timeIntervalSinceNow
+        if timeInterval < 3600 { // Less than 1 hour
+            return .red
+        } else if timeInterval < 86400 { // Less than 24 hours
+            return .orange
+        } else {
+            return DesignTokens.Color.Text.secondary
         }
     }
 
@@ -137,8 +136,8 @@ struct ContestCardView: View {
             
             CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
             
-            if let display = lockDisplay {
-                Text(display.text)
+            if let lockTime = contest.lockTime {
+                Text(lockTime, style: .relative)
                     .font(.caption2)
                     .foregroundColor(lockUrgencyColor)
             }
@@ -201,9 +200,9 @@ struct ContestCardView: View {
             
             VStack(alignment: .trailing, spacing: DesignTokens.Spacing.xxs) {
                 CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
-                
-                if let display = lockDisplay {
-                    Text(display.text)
+
+                if let lockTime = contest.lockTime {
+                    Text(lockTime, style: .relative)
                         .font(.caption2)
                         .foregroundColor(lockUrgencyColor)
                 }

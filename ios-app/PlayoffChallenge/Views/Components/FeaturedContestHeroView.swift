@@ -42,10 +42,6 @@ struct FeaturedContestHeroView: View {
         }
     }
     
-    private var lockDisplay: LockTimeDisplay? {
-        formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)
-    }
-
     private var shareButton: some View {
         ShareLink(item: contest.shareURL) {
             Image(systemName: "square.and.arrow.up")
@@ -121,8 +117,8 @@ struct FeaturedContestHeroView: View {
                 }
                 
                 // Lock Time
-                if let display = lockDisplay {
-                    Text(display.text)
+                if let lockTime = contest.lockTime {
+                    Text(lockTime, style: .relative)
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.9))
                 }
