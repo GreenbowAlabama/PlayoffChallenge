@@ -10,7 +10,7 @@ import SwiftUI
 /// Local routing for the Contests Hub
 enum ContestsHubRoute: Hashable {
     case create
-    case detail(UUID)
+    case detail(UUID, Contest? = nil)  // Include contest for placeholder rendering
 }
 
 struct ContestsHubView: View {
@@ -45,7 +45,7 @@ struct ContestsHubView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .navigationTitle("Contests")
+            .navigationTitle("67 Games — Contests")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -66,11 +66,11 @@ struct ContestsHubView: View {
                             if !path.isEmpty {
                                 path.removeLast() // Pop create
                             }
-                            path.append(.detail(newId)) // Push detail
+                            path.append(.detail(newId, nil)) // Push detail
                         }
                     )
-                case .detail(let id):
-                    ContestDetailView(contestId: id)
+                case .detail(let id, let contest):
+                    ContestDetailView(contestId: id, placeholder: contest)
                 }
             }
         }
