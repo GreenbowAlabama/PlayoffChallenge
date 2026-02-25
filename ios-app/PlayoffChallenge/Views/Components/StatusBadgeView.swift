@@ -23,7 +23,7 @@ struct StatusBadgeView: View {
 }
 
 #Preview {
-    VStack(spacing: 20) {
+    VStack(spacing: DesignTokens.Spacing.xl) {
         StatusBadgeView(status: .scheduled)
         StatusBadgeView(status: .live)
         StatusBadgeView(status: .locked)

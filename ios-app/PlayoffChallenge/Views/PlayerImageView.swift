@@ -83,7 +83,7 @@ struct PlayerImageView: View {
 // MARK: - Preview
 struct PlayerImageView_Previews: PreviewProvider {
     static var previews: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: DesignTokens.Spacing.xl) {
             // With valid URL
             PlayerImageView(
                 imageUrl: "https://sleepercdn.com/content/nfl/players/4046.jpg",

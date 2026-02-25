@@ -179,7 +179,7 @@ struct ContestCardView: View {
 // MARK: - Previews
 
 #Preview("Standard") {
-    VStack(spacing: 20) {
+    VStack(spacing: DesignTokens.Spacing.xl) {
         ContestCardView(contest: MockContest.samples[0], style: .standard, onTap: {})
         ContestCardView(contest: MockContest.samples[1], style: .standard, onTap: {})
         ContestCardView(contest: MockContest.samples[2], style: .standard, onTap: {})
@@ -189,7 +189,7 @@ struct ContestCardView: View {
 }
 
 #Preview("Compact") {
-    VStack(spacing: 20) {
+    VStack(spacing: DesignTokens.Spacing.xl) {
         ContestCardView(contest: MockContest.samples[0], style: .compact, onTap: {})
         ContestCardView(contest: MockContest.samples[1], style: .compact, onTap: {})
     }

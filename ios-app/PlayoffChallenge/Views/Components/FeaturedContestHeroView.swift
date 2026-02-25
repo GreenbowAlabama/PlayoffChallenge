@@ -127,7 +127,7 @@ struct FeaturedContestHeroView: View {
 
 #Preview("Featured Hero") {
     ScrollView {
-        VStack(spacing: 20) {
+        VStack(spacing: DesignTokens.Spacing.xl) {
             FeaturedContestHeroView(
                 contest: MockContest.fixture(
                     name: "NFL Playoffs 2026",

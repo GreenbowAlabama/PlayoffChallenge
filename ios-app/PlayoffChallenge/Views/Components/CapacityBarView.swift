@@ -49,7 +49,7 @@ struct CapacityBarView: View {
 }
 
 #Preview {
-    VStack(spacing: 20) {
+    VStack(spacing: DesignTokens.Spacing.xl) {
         CapacityBarView(entryCount: 16, maxEntries: 20)
         CapacityBarView(entryCount: 5, maxEntries: 100)
         CapacityBarView(entryCount: 42, maxEntries: nil)

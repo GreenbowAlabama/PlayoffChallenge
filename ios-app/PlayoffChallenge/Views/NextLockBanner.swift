@@ -15,7 +15,7 @@ struct NextLockBanner: View {
     let isJoinable: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
             HStack(spacing: 12) {
                 Image(systemName: "clock.badge.exclamationmark")
                     .font(.headline)
@@ -38,8 +38,8 @@ struct NextLockBanner: View {
                     Label("Open", systemImage: "arrow.right")
                         .font(.caption2)
                         .foregroundColor(DesignTokens.Color.Action.primary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, DesignTokens.Spacing.sm)
+                        .padding(.vertical, DesignTokens.Spacing.xxs)
                         .background(DesignTokens.Color.Action.primary.opacity(0.15))
                         .cornerRadius(DesignTokens.Radius.sm)
                 }
@@ -52,7 +52,7 @@ struct NextLockBanner: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .padding(12)
+        .padding(DesignTokens.Spacing.md)
         .background(DesignTokens.Color.Surface.card)
         .cornerRadius(DesignTokens.Radius.lg)
         .overlay(

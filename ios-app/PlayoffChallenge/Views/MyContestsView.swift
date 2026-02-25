@@ -108,7 +108,7 @@ struct MyContestsView: View {
 
 struct EmptyContestsView: View {
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: DesignTokens.Spacing.xl) {
             Image(systemName: "tray")
                 .font(.system(size: 60))
                 .foregroundColor(.gray)

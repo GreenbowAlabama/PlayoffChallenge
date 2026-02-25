@@ -15,7 +15,7 @@ struct LandingView: View {
 
     var body: some View {
         NavigationStack(path: $viewModel.navigationPath) {
-            VStack(spacing: 24) {
+            VStack(spacing: DesignTokens.Spacing.xxl) {
                 // Next Lock Banner (if applicable)
                 if let nextContest = viewModel.nextRelevantScheduledContest(
                     available: availableVM.regularContests,
@@ -31,8 +31,8 @@ struct LandingView: View {
                         urgency: display.urgency,
                         isJoinable: !(nextContest.actions?.canEditEntry == true || nextContest.actions?.canUnjoin == true)
                     )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
+                    .padding(.horizontal, DesignTokens.Spacing.lg)
+                    .padding(.top, DesignTokens.Spacing.md)
                 }
 
                 // Featured Section
@@ -44,7 +44,7 @@ struct LandingView: View {
                                 viewModel.navigateToContestDetail(contestId: availableVM.featuredContests[0].id)
                             }
                         )
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, DesignTokens.Spacing.lg)
                     } else {
                         TabView {
                             ForEach(availableVM.featuredContests) { contest in
@@ -54,7 +54,7 @@ struct LandingView: View {
                                         viewModel.navigateToContestDetail(contestId: contest.id)
                                     }
                                 )
-                                .padding(.horizontal, 16)
+                                .padding(.horizontal, DesignTokens.Spacing.lg)
                             }
                         }
                         .tabViewStyle(.page)
@@ -65,7 +65,7 @@ struct LandingView: View {
                 Spacer()
 
                 // App Title
-                VStack(spacing: 8) {
+                VStack(spacing: DesignTokens.Spacing.sm) {
                     Text("Playoff Challenge")
                         .font(.largeTitle)
                         .fontWeight(.bold)
@@ -78,7 +78,7 @@ struct LandingView: View {
                 Spacer()
 
                 // Navigation Buttons
-                VStack(spacing: 16) {
+                VStack(spacing: DesignTokens.Spacing.lg) {
                     NavigationButton(
                         title: "Available Contests",
                         systemImage: "trophy.fill",
@@ -111,7 +111,7 @@ struct LandingView: View {
                         viewModel.navigateToProfile()
                     }
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, DesignTokens.Spacing.xxl)
 
                 Spacer()
             }
@@ -161,7 +161,7 @@ struct NavigationButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 16) {
+            HStack(spacing: DesignTokens.Spacing.lg) {
                 Image(systemName: systemImage)
                     .font(.title2)
                     .foregroundColor(.white)

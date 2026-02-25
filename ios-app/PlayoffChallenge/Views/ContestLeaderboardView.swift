@@ -25,7 +25,7 @@ struct ContestLeaderboardView: View {
             if viewModel.isLoading {
                 ProgressView("Loading leaderboard...")
             } else if viewModel.isPending {
-                VStack(spacing: 16) {
+                VStack(spacing: DesignTokens.Spacing.lg) {
                     Image(systemName: "hourglass")
                         .font(.system(size: 60))
                         .foregroundColor(DesignTokens.Color.Action.disabled)
@@ -35,7 +35,7 @@ struct ContestLeaderboardView: View {
                         .foregroundColor(.secondary)
                 }
             } else if viewModel.hasUnknownState {
-                VStack(spacing: 16) {
+                VStack(spacing: DesignTokens.Spacing.lg) {
                     Image(systemName: "questionmark.circle")
                         .font(.system(size: 60))
                         .foregroundColor(DesignTokens.Color.Brand.primary)
@@ -51,7 +51,7 @@ struct ContestLeaderboardView: View {
                         .padding(.horizontal)
                 }
             } else if viewModel.hasError {
-                VStack(spacing: 16) {
+                VStack(spacing: DesignTokens.Spacing.lg) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 60))
                         .foregroundColor(DesignTokens.Color.Action.destructive)
@@ -67,7 +67,7 @@ struct ContestLeaderboardView: View {
                     }
                 }
             } else if viewModel.isEmpty {
-                VStack(spacing: 16) {
+                VStack(spacing: DesignTokens.Spacing.lg) {
                     Image(systemName: "chart.bar")
                         .font(.system(size: 60))
                         .foregroundColor(DesignTokens.Color.Action.disabled)
@@ -125,9 +125,9 @@ struct LeaderboardRowView: View {
     var isCurrentUser: Bool = false
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: DesignTokens.Spacing.lg) {
             // User Info
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
                 Text(entry.username)
                     .font(.headline)
                     .foregroundColor(isCurrentUser ? DesignTokens.Color.Action.secondary : .primary)
@@ -153,8 +153,8 @@ struct LeaderboardRowView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 16)
+        .padding(.vertical, DesignTokens.Spacing.md)
+        .padding(.horizontal, DesignTokens.Spacing.lg)
         .background(isCurrentUser ? DesignTokens.Color.Action.secondary.opacity(0.08) : DesignTokens.Color.Surface.elevated)
     }
 }

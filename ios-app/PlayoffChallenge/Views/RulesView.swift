@@ -47,7 +47,7 @@ struct RulesTab: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xl) {
                 if viewModel.isLoading {
                     ProgressView("Loading rules...")
                         .frame(maxWidth: .infinity)
@@ -147,7 +147,7 @@ struct ScoringTab: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: DesignTokens.Spacing.xl) {
                 if viewModel.isLoading {
                     ProgressView("Loading scoring rules...")
                         .frame(maxWidth: .infinity)

@@ -60,22 +60,22 @@ struct TeamLogoView: View {
 // MARK: - Preview
 struct TeamLogoView_Previews: PreviewProvider {
     static var previews: some View {
-        VStack(spacing: 20) {
-            HStack(spacing: 16) {
+        VStack(spacing: DesignTokens.Spacing.xl) {
+            HStack(spacing: DesignTokens.Spacing.lg) {
                 TeamLogoView(teamAbbreviation: "BUF", size: 32)
                 TeamLogoView(teamAbbreviation: "KC", size: 32)
                 TeamLogoView(teamAbbreviation: "SF", size: 32)
                 TeamLogoView(teamAbbreviation: "PHI", size: 32)
             }
 
-            HStack(spacing: 16) {
+            HStack(spacing: DesignTokens.Spacing.lg) {
                 TeamLogoView(teamAbbreviation: "DAL", size: 40)
                 TeamLogoView(teamAbbreviation: "GB", size: 40)
                 TeamLogoView(teamAbbreviation: "NE", size: 40)
             }
 
             // Different sizes
-            HStack(spacing: 16) {
+            HStack(spacing: DesignTokens.Spacing.lg) {
                 TeamLogoView(teamAbbreviation: "LAR", size: 20)
                 TeamLogoView(teamAbbreviation: "LAC", size: 24)
                 TeamLogoView(teamAbbreviation: "SEA", size: 28)

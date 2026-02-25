@@ -43,11 +43,11 @@ struct EligibilityView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 20) {
+            VStack(spacing: DesignTokens.Spacing.xl) {
                 Text("Confirm Eligibility")
                     .font(.largeTitle)
                     .bold()
-                    .padding(.top, 20)
+                    .padding(.top, DesignTokens.Spacing.xl)
 
                 Text("Required to play")
                     .font(.subheadline)
@@ -55,7 +55,7 @@ struct EligibilityView: View {
 
                 Spacer()
 
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.xl) {
                     Text("State of Residence")
                         .font(.headline)
 
@@ -130,7 +130,7 @@ struct EligibilityView: View {
                 .cornerRadius(DesignTokens.Radius.lg)
                 .disabled(!canContinue || isCreatingAccount)
                 .padding(.horizontal)
-                .padding(.bottom, 20)
+                .padding(.bottom, DesignTokens.Spacing.xl)
             }
             .padding()
             .navigationBarHidden(true)

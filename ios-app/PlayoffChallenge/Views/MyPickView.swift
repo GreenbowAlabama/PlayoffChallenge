@@ -19,7 +19,7 @@ struct MyPicksView: View {
                     EmptyLineupView()
                 } else {
                     ScrollView {
-                        VStack(spacing: 16) {
+                        VStack(spacing: DesignTokens.Spacing.lg) {
                             // Week Summary Card (now with live stats)
                             WeekSummaryCard(
                                 weekNumber: viewModel.selectedWeek,
@@ -95,7 +95,7 @@ struct WeekSelector: View {
 // MARK: - Empty Lineup View
 struct EmptyLineupView: View {
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: DesignTokens.Spacing.xl) {
             Image(systemName: "person.3.fill")
                 .font(.system(size: 60))
                 .foregroundColor(DesignTokens.Color.Action.disabled)
@@ -138,10 +138,10 @@ struct WeekSummaryCard: View {
     }
     
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: DesignTokens.Spacing.md) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
+                    HStack(spacing: DesignTokens.Spacing.xs) {
                         Text("Week \(weekNumber)")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -160,7 +160,7 @@ struct WeekSummaryCard: View {
                     }
                     
                     if isLoadingScores {
-                        HStack(spacing: 8) {
+                        HStack(spacing: DesignTokens.Spacing.sm) {
                             ProgressView()
                                 .scaleEffect(0.8)
                             Text("Loading scores...")
@@ -181,14 +181,14 @@ struct WeekSummaryCard: View {
                 Spacer()
                 
                 if isComplete {
-                    HStack(spacing: 4) {
+                    HStack(spacing: DesignTokens.Spacing.xxs) {
                         Image(systemName: "checkmark.circle.fill")
                         Text("Complete")
                     }
                     .font(.caption)
                     .foregroundColor(DesignTokens.Color.Action.primary)
                 } else {
-                    HStack(spacing: 4) {
+                    HStack(spacing: DesignTokens.Spacing.xxs) {
                         Image(systemName: "exclamationmark.circle.fill")
                         Text("Incomplete")
                     }
@@ -232,7 +232,7 @@ struct PositionPicksSection: View {
     @ObservedObject var viewModel: MyPicksViewModel
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
             Text(position)
                 .font(.headline)
                 .foregroundColor(DesignTokens.Color.Action.secondary)
@@ -283,8 +283,8 @@ struct PickRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
+                HStack(spacing: DesignTokens.Spacing.sm) {
                     Text(pick.fullName ?? "Unknown Player")
                         .font(.body)
                         .fontWeight(.semibold)
@@ -353,7 +353,7 @@ struct PickRow: View {
                 // NO SCORE YET - show multiplier info
                 VStack(alignment: .trailing, spacing: 4) {
                     if let multiplier = pick.multiplier, multiplier > 1.0 {
-                        HStack(spacing: 4) {
+                        HStack(spacing: DesignTokens.Spacing.xxs) {
                             Image(systemName: "flame.fill")
                                 .foregroundColor(DesignTokens.Color.Brand.primary)
                             Text(String(format: "%.1fx", multiplier))
@@ -588,7 +588,7 @@ struct MultiplierBadge: View {
         Text(String(format: "%.0fx", multiplier))
             .font(.system(size: 11, weight: .bold))
             .foregroundColor(.white)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, DesignTokens.Spacing.xs)
             .padding(.vertical, 3)
             .background(badgeColor)
             .cornerRadius(DesignTokens.Radius.sm)

@@ -46,7 +46,7 @@ struct LeaderboardView: View {
                 if isLoading {
                     ProgressView("Loading leaderboard...")
                 } else if entries.isEmpty {
-                    VStack(spacing: 16) {
+                    VStack(spacing: DesignTokens.Spacing.lg) {
                         Image(systemName: "chart.bar")
                             .font(.system(size: 60))
                             .foregroundColor(DesignTokens.Color.Action.disabled)
@@ -152,7 +152,7 @@ struct LeaderboardView: View {
 // Shown when capability headers indicate games have not started yet
 struct PreGameBanner: View {
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: DesignTokens.Spacing.md) {
             Image(systemName: "clock.fill")
                 .foregroundColor(DesignTokens.Color.Action.secondary)
 
@@ -172,7 +172,7 @@ struct PreGameBanner: View {
         .background(DesignTokens.Color.Action.secondary.opacity(0.1))
         .cornerRadius(DesignTokens.Radius.lg)
         .padding(.horizontal)
-        .padding(.bottom, 8)
+        .padding(.bottom, DesignTokens.Spacing.sm)
     }
 }
 
@@ -191,9 +191,9 @@ struct ExpandableLeaderboardRow: View {
         VStack(spacing: 0) {
             // Main row - tap to expand/collapse picks
             Button(action: onTap) {
-                HStack(spacing: 16) {
+                HStack(spacing: DesignTokens.Spacing.lg) {
                     // User info
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
                         Text(displayName)
                             .font(.headline)
                             .foregroundColor(.primary)
@@ -225,27 +225,27 @@ struct ExpandableLeaderboardRow: View {
                         .foregroundColor(.secondary)
                         .frame(width: DesignTokens.Size.iconLarge, height: DesignTokens.Size.iconLarge)
                 }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 16)
+                .padding(.vertical, DesignTokens.Spacing.md)
+                .padding(.horizontal, DesignTokens.Spacing.lg)
                 .background(DesignTokens.Color.Surface.elevated)
             }
             .buttonStyle(PlainButtonStyle())
 
             // Expanded picks section
             if isExpanded, let picks = entry.picks, !picks.isEmpty {
-                VStack(spacing: 8) {
+                VStack(spacing: DesignTokens.Spacing.sm) {
                     ForEach(picks) { pick in
                         PickRowCard(pick: pick)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.horizontal, DesignTokens.Spacing.lg)
+                .padding(.vertical, DesignTokens.Spacing.md)
                 .background(DesignTokens.Color.Surface.card)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             Divider()
-                .padding(.leading, 16)
+                .padding(.leading, DesignTokens.Spacing.lg)
         }
     }
 }
@@ -254,15 +254,15 @@ struct PickRowCard: View {
     let pick: LeaderboardPick
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: DesignTokens.Spacing.md) {
             PlayerImageView(
                 imageUrl: pick.imageUrl,
                 size: 44,
                 position: pick.position
             )
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
+                HStack(spacing: DesignTokens.Spacing.xs) {
                     Text(pick.fullName)
                         .font(.body)
                         .fontWeight(.medium)
@@ -271,7 +271,7 @@ struct PickRowCard: View {
                     MultiplierBadge(multiplier: pick.multiplier)
                 }
 
-                HStack(spacing: 6) {
+                HStack(spacing: DesignTokens.Spacing.xs) {
                     MatchupView(
                         team: pick.team,
                         opponent: pick.opponent,
@@ -321,7 +321,7 @@ struct PickRowCard: View {
                 }
             }
         }
-        .padding(12)
+        .padding(DesignTokens.Spacing.md)
         .background(DesignTokens.Color.Surface.elevated)
         .cornerRadius(DesignTokens.Radius.lg)
         .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)

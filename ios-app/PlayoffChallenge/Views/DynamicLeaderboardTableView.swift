@@ -17,7 +17,7 @@ struct DynamicLeaderboardTableView: View {
         ScrollView {
             VStack(spacing: 0) {
                 // Header row
-                HStack(spacing: 12) {
+                HStack(spacing: DesignTokens.Spacing.md) {
                     ForEach(columnSchema, id: \.key) { column in
                         Text(column.label)
                             .font(.caption)
@@ -27,15 +27,15 @@ struct DynamicLeaderboardTableView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.horizontal, DesignTokens.Spacing.lg)
+                .padding(.vertical, DesignTokens.Spacing.md)
                 .background(DesignTokens.Color.Surface.card)
 
                 Divider()
 
                 // Data rows
                 ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                    HStack(spacing: 12) {
+                    HStack(spacing: DesignTokens.Spacing.md) {
                         ForEach(columnSchema, id: \.key) { column in
                             let value = row.values[column.key]?.value ?? "—"
                             let displayValue = formatValue(value, columnType: column.type)
@@ -46,15 +46,15 @@ struct DynamicLeaderboardTableView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, DesignTokens.Spacing.lg)
+                    .padding(.vertical, DesignTokens.Spacing.md)
                     .background(
                         isCurrentUserRow(row) ? DesignTokens.Color.Action.secondary.opacity(0.08) : DesignTokens.Color.Surface.elevated
                     )
 
                     if index < rows.count - 1 {
                         Divider()
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, DesignTokens.Spacing.lg)
                     }
                 }
             }

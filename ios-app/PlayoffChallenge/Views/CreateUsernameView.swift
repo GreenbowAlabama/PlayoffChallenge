@@ -82,7 +82,7 @@ struct CreateUsernameView: View {
                 .cornerRadius(DesignTokens.Radius.lg)
                 .disabled(username.isEmpty || isUpdating)
                 .padding(.horizontal)
-                .padding(.bottom, 20)
+                .padding(.bottom, DesignTokens.Spacing.xl)
             }
             .padding()
             .navigationBarHidden(true)

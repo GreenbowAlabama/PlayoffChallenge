@@ -19,14 +19,14 @@ struct LineupView: View {
                 // Week Selector (All 4 playoff weeks)
                 PlayoffWeekPicker(selectedWeek: $viewModel.selectedWeek, currentWeek: viewModel.currentWeek, playoffStartWeek: viewModel.playoffStartWeek)
                     .padding(.horizontal)
-                    .padding(.top, 8)
+                    .padding(.top, DesignTokens.Spacing.sm)
 
                 if viewModel.isLocked {
                     LockedBanner()
                 }
 
                 ScrollView {
-                    VStack(spacing: 16) {
+                    VStack(spacing: DesignTokens.Spacing.lg) {
                         if viewModel.isLoading {
                             ProgressView("Loading lineup...")
                                 .frame(maxWidth: .infinity)
@@ -46,7 +46,7 @@ struct LineupView: View {
                             } else {
                                 // Show empty state message above position sections
                                 EmptyWeekView(weekNumber: viewModel.selectedWeek, playoffStartWeek: viewModel.playoffStartWeek)
-                                    .padding(.bottom, 8)
+                                    .padding(.bottom, DesignTokens.Spacing.sm)
                             }
 
                             // Position Sections - V2: uses slots as single source of truth
@@ -166,7 +166,7 @@ struct EmptyWeekView: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: DesignTokens.Spacing.xl) {
             Image(systemName: "person.3.fill")
                 .font(.system(size: 60))
                 .foregroundColor(.gray)
@@ -197,15 +197,15 @@ struct WeekSummaryCardV2: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: DesignTokens.Spacing.md) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
                     Text("Total Score")
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .foregroundColor(.secondary)
                     if liveCount > 0 {
-                        HStack(spacing: 4) {
+                        HStack(spacing: DesignTokens.Spacing.xxs) {
                             Circle()
                                 .fill(DesignTokens.Color.Action.destructive)
                                 .frame(width: DesignTokens.Size.dotSmall, height: DesignTokens.Size.dotSmall)
@@ -229,7 +229,7 @@ struct WeekSummaryCardV2: View {
             }
 
             if isComplete {
-                HStack(spacing: 6) {
+                HStack(spacing: DesignTokens.Spacing.xs) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
                         .font(.subheadline)
@@ -241,7 +241,7 @@ struct WeekSummaryCardV2: View {
                 }
             }
         }
-        .padding(16)
+        .padding(DesignTokens.Spacing.lg)
         .background(DesignTokens.Color.Surface.elevated)
         .cornerRadius(DesignTokens.Radius.lg)
         .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
@@ -284,7 +284,7 @@ struct LineupPositionSectionV2: View {
         VStack(alignment: .leading, spacing: 10) {
             // Section header - outside card styling
             HStack(alignment: .firstTextBaseline) {
-                HStack(spacing: 8) {
+                HStack(spacing: DesignTokens.Spacing.sm) {
                     // Position color indicator
                     RoundedRectangle(cornerRadius: 2)
                         .fill(positionColor)
@@ -302,7 +302,7 @@ struct LineupPositionSectionV2: View {
                     .fontWeight(.medium)
                     .foregroundColor(.secondary)
             }
-            .padding(.bottom, 4)
+            .padding(.bottom, DesignTokens.Spacing.xxs)
 
             // V2: Show filled slots (single source of truth)
             ForEach(slots) { slot in
@@ -362,7 +362,7 @@ struct LineupSlotRow: View {
             )
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
+                HStack(spacing: DesignTokens.Spacing.xs) {
                     Text(slot.fullName ?? "Unknown Player")
                         .font(.body)
                         .fontWeight(.medium)
@@ -371,7 +371,7 @@ struct LineupSlotRow: View {
                     MultiplierBadge(multiplier: displayMultiplier)
                 }
 
-                HStack(spacing: 6) {
+                HStack(spacing: DesignTokens.Spacing.xs) {
                     // Matchup display - use MatchupView when opponent data available,
                     // fall back to team-only display otherwise
                     if let team = slot.team {
@@ -385,7 +385,7 @@ struct LineupSlotRow: View {
                             )
                         } else {
                             // Fallback: team logo and abbreviation only
-                            HStack(spacing: 4) {
+                            HStack(spacing: DesignTokens.Spacing.xxs) {
                                 TeamLogoView(teamAbbreviation: team, size: 18)
                                 Text(team)
                                     .font(.caption)
@@ -462,7 +462,7 @@ struct LineupSlotRow: View {
                 }
             }
         }
-        .padding(12)
+        .padding(DesignTokens.Spacing.md)
         .background(DesignTokens.Color.Surface.elevated)
         .cornerRadius(DesignTokens.Radius.lg)
         .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
@@ -502,7 +502,7 @@ struct EmptySlotButton: View {
         Button(action: {
             viewModel.openPlayerPicker(for: position)
         }) {
-            HStack(spacing: 12) {
+            HStack(spacing: DesignTokens.Spacing.md) {
                 // Position placeholder circle - matches PlayerImageView style
                 ZStack {
                     Circle()
@@ -518,7 +518,7 @@ struct EmptySlotButton: View {
                         .stroke(positionColor.opacity(0.3), lineWidth: 2)
                 )
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
                     Text("Add \(position)")
                         .font(.body)
                         .fontWeight(.medium)
@@ -535,7 +535,7 @@ struct EmptySlotButton: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .padding(12)
+            .padding(DesignTokens.Spacing.md)
             .frame(maxWidth: .infinity)
             .background(DesignTokens.Color.Surface.elevated)
             .cornerRadius(DesignTokens.Radius.lg)
@@ -577,20 +577,20 @@ struct LineupPlayerPickerSheetV2: View {
                             dismiss()
                         }
                     }) {
-                        HStack(spacing: 12) {
+                        HStack(spacing: DesignTokens.Spacing.md) {
                             PlayerImageView(
                                 imageUrl: player.imageUrl,
                                 size: 44,
                                 position: player.position
                             )
 
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
                                 Text(player.fullName)
                                     .font(.body)
                                     .fontWeight(.medium)
                                     .foregroundColor(.primary)
 
-                                HStack(spacing: 4) {
+                                HStack(spacing: DesignTokens.Spacing.xxs) {
                                     if let team = player.team {
                                         TeamLogoView(teamAbbreviation: team, size: 16)
                                         Text(team)
@@ -607,7 +607,7 @@ struct LineupPlayerPickerSheetV2: View {
                             Spacer()
 
                             // Add button with clear affordance
-                            HStack(spacing: 4) {
+                            HStack(spacing: DesignTokens.Spacing.xxs) {
                                 Text("Add")
                                     .font(.subheadline)
                                     .fontWeight(.medium)
@@ -615,7 +615,7 @@ struct LineupPlayerPickerSheetV2: View {
                             }
                             .foregroundColor(.green)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, DesignTokens.Spacing.xxs)
                     }
                 }
             }

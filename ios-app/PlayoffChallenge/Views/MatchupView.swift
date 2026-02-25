@@ -50,7 +50,7 @@ struct MatchupView: View {
 // MARK: - Preview
 struct MatchupView_Previews: PreviewProvider {
     static var previews: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: DesignTokens.Spacing.xl) {
             // Away game
             MatchupView(team: "BUF", opponent: "KC", isHome: false, logoSize: 24)
 
