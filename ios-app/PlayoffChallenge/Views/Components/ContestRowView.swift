@@ -16,6 +16,7 @@ struct ContestRowView: View {
     let statusText: String            // e.g., "Scheduled"
     let lockText: String?             // e.g., "Locks Feb 27 · 14:29", nil if not shown
     let entryFeeText: String?         // e.g., "$10 Entry", "Free", nil if 0
+    let shareURL: URL?                // Share link for contest
     let showsChevron: Bool
 
     init(
@@ -25,6 +26,7 @@ struct ContestRowView: View {
         statusText: String,
         lockText: String? = nil,
         entryFeeText: String? = nil,
+        shareURL: URL? = nil,
         showsChevron: Bool = true
     ) {
         self.contestName = contestName
@@ -33,6 +35,7 @@ struct ContestRowView: View {
         self.statusText = statusText
         self.lockText = lockText
         self.entryFeeText = entryFeeText
+        self.shareURL = shareURL
         self.showsChevron = showsChevron
     }
 
@@ -99,19 +102,30 @@ struct ContestRowView: View {
 
             Spacer(minLength: 8)
 
-            // Right side: fee + chevron
-            VStack(alignment: .trailing, spacing: 6) {
-                if let entryFeeText = entryFeeText {
-                    Text(entryFeeText)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+            // Right side: fee + share + chevron
+            HStack(alignment: .center, spacing: 8) {
+                // Share button (if URL available)
+                if let url = shareURL {
+                    ShareLink(item: url) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.caption2)
+                            .foregroundColor(DesignTokens.Color.Brand.primary)
+                    }
                 }
 
-                if showsChevron {
-                    Image(systemName: "chevron.right")
-                        .foregroundColor(.secondary)
+                VStack(alignment: .trailing, spacing: 6) {
+                    if let entryFeeText = entryFeeText {
+                        Text(entryFeeText)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+
+                    if showsChevron {
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
         }
@@ -126,7 +140,8 @@ struct ContestRowView: View {
             isJoined: false,
             entryCountText: "45/100",
             statusText: "Scheduled",
-            entryFeeText: "$50 Entry"
+            entryFeeText: "$50 Entry",
+            shareURL: URL(string: "https://67.games/contest/123")
         )
 
         ContestRowView(
@@ -135,7 +150,8 @@ struct ContestRowView: View {
             entryCountText: "8/20",
             statusText: "Scheduled",
             lockText: "Locks Feb 27 · 14:29",
-            entryFeeText: "$25 Entry"
+            entryFeeText: "$25 Entry",
+            shareURL: URL(string: "https://67.games/contest/456")
         )
 
         ContestRowView(
@@ -143,7 +159,8 @@ struct ContestRowView: View {
             isJoined: false,
             entryCountText: "12/50",
             statusText: "Live",
-            entryFeeText: "Free"
+            entryFeeText: "Free",
+            shareURL: URL(string: "https://67.games/contest/789")
         )
     }
 }

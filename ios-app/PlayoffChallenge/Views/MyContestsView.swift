@@ -30,7 +30,8 @@ struct MyContestsView: View {
                                 entryCountText: "\(contest.entryCount)/\(contest.maxEntries ?? 0)",
                                 statusText: contest.status.displayName,
                                 lockText: formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)?.text,
-                                entryFeeText: contest.entryFeeCents > 0 ? String(format: "$%.0f Entry", Double(contest.entryFeeCents) / 100.0) : nil
+                                entryFeeText: contest.entryFeeCents > 0 ? String(format: "$%.0f Entry", Double(contest.entryFeeCents) / 100.0) : nil,
+                                shareURL: contest.shareURL
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
