@@ -28,7 +28,13 @@ struct ContestCardView: View {
         guard contest.entryCount > 0 else { return nil }
         let totalCents = contest.entryFeeCents * contest.entryCount
         let totalDollars = totalCents / 100
-        return totalDollars > 0 ? "$\(totalDollars) pot" : nil
+        guard totalDollars > 0 else { return nil }
+
+        if contest.status == .complete {
+            return "$\(totalDollars) paid out"
+        } else {
+            return "$\(totalDollars) pot"
+        }
     }
     
     private var showJoinedBadge: Bool {
