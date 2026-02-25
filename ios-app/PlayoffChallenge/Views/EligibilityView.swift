@@ -64,7 +64,7 @@ struct EligibilityView: View {
                         ForEach(allStates, id: \.0) { state in
                             if restrictedStates.contains(state.0) {
                                 Text(state.1 + " (Not Available)")
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(DesignTokens.Color.Action.disabled)
                                     .tag(state.0)
                             } else {
                                 Text(state.1).tag(state.0)
@@ -79,7 +79,7 @@ struct EligibilityView: View {
                     if restrictedStates.contains(selectedState) {
                         Text("Fantasy contests are not available in this state")
                             .font(.caption)
-                            .foregroundColor(.red)
+                            .foregroundColor(DesignTokens.Color.Action.destructive)
                     }
 
                     Divider()
@@ -102,7 +102,7 @@ struct EligibilityView: View {
 
                     Text("Providing false information may result in account termination and forfeiture of entry fees")
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundColor(DesignTokens.Color.Brand.primary)
                         .padding(.top, 10)
                 }
                 .padding()
@@ -126,7 +126,7 @@ struct EligibilityView: View {
                             .padding()
                     }
                 }
-                .background(canContinue ? Color.blue : Color.gray)
+                .background(canContinue ? DesignTokens.Color.Action.secondary : DesignTokens.Color.Action.disabled)
                 .cornerRadius(DesignTokens.Radius.lg)
                 .disabled(!canContinue || isCreatingAccount)
                 .padding(.horizontal)

@@ -49,7 +49,7 @@ struct LeaderboardView: View {
                     VStack(spacing: 16) {
                         Image(systemName: "chart.bar")
                             .font(.system(size: 60))
-                            .foregroundColor(.gray)
+                            .foregroundColor(DesignTokens.Color.Action.disabled)
 
                         Text("No scores yet")
                             .font(.title2)
@@ -154,7 +154,7 @@ struct PreGameBanner: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "clock.fill")
-                .foregroundColor(.blue)
+                .foregroundColor(DesignTokens.Color.Action.secondary)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Games haven't started yet")
@@ -169,7 +169,7 @@ struct PreGameBanner: View {
             Spacer()
         }
         .padding()
-        .background(Color.blue.opacity(0.1))
+        .background(DesignTokens.Color.Action.secondary.opacity(0.1))
         .cornerRadius(DesignTokens.Radius.lg)
         .padding(.horizontal)
         .padding(.bottom, 8)
@@ -282,7 +282,7 @@ struct PickRowCard: View {
                     if pick.locked {
                         Image(systemName: "lock.fill")
                             .font(.caption2)
-                            .foregroundColor(.orange)
+                            .foregroundColor(DesignTokens.Color.Brand.primary)
                     }
                 }
             }
@@ -294,7 +294,7 @@ struct PickRowCard: View {
                     Text(String(format: "%.1f", pick.points))
                         .font(.title3)
                         .fontWeight(.bold)
-                        .foregroundColor(pick.points > 0 ? .green : .red)
+                        .foregroundColor(pick.points > 0 ? DesignTokens.Color.Action.primary : DesignTokens.Color.Action.destructive)
 
                     if pick.multiplier > 1.0 {
                         HStack(spacing: 2) {
@@ -306,18 +306,18 @@ struct PickRowCard: View {
                                 .foregroundColor(.secondary)
                             Text(String(format: "%.1fx", pick.multiplier))
                                 .font(.caption2)
-                                .foregroundColor(.orange)
+                                .foregroundColor(DesignTokens.Color.Brand.primary)
                                 .fontWeight(.semibold)
                         }
                     }
                 } else {
                     Text("−")
                         .font(.title3)
-                        .foregroundColor(.gray)
+                        .foregroundColor(DesignTokens.Color.Action.disabled)
 
                     Text("No score")
                         .font(.caption2)
-                        .foregroundColor(.gray)
+                        .foregroundColor(DesignTokens.Color.Action.disabled)
                 }
             }
         }

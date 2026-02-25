@@ -28,7 +28,7 @@ struct CreateUsernameView: View {
 
                 Image(systemName: "person.circle.fill")
                     .font(.system(size: 80))
-                    .foregroundColor(.orange)
+                    .foregroundColor(DesignTokens.Color.Brand.primary)
 
                 Text("Create Your Username")
                     .font(.largeTitle)
@@ -78,7 +78,7 @@ struct CreateUsernameView: View {
                             .padding()
                     }
                 }
-                .background(username.isEmpty ? Color.gray : Color.blue)
+                .background(username.isEmpty ? DesignTokens.Color.Action.disabled : DesignTokens.Color.Action.secondary)
                 .cornerRadius(DesignTokens.Radius.lg)
                 .disabled(username.isEmpty || isUpdating)
                 .padding(.horizontal)

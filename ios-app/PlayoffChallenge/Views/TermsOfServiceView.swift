@@ -58,7 +58,7 @@ struct TermsOfServiceView: View {
                                     .padding()
                             }
                         }
-                        .background(hasAgreed ? Color.blue : Color.gray)
+                        .background(hasAgreed ? DesignTokens.Color.Action.secondary : DesignTokens.Color.Action.disabled)
                         .cornerRadius(DesignTokens.Radius.lg)
                         .disabled(!hasAgreed || isAccepting)
                         .padding(.horizontal)

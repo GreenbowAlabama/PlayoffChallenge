@@ -28,7 +28,7 @@ struct ContestLeaderboardView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "hourglass")
                         .font(.system(size: 60))
-                        .foregroundColor(.gray)
+                        .foregroundColor(DesignTokens.Color.Action.disabled)
 
                     Text("Leaderboard pending")
                         .font(.title2)
@@ -38,7 +38,7 @@ struct ContestLeaderboardView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "questionmark.circle")
                         .font(.system(size: 60))
-                        .foregroundColor(.orange)
+                        .foregroundColor(DesignTokens.Color.Brand.primary)
 
                     Text("Leaderboard Format Not Supported")
                         .font(.title2)
@@ -54,7 +54,7 @@ struct ContestLeaderboardView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 60))
-                        .foregroundColor(.red)
+                        .foregroundColor(DesignTokens.Color.Action.destructive)
 
                     Text("Error computing leaderboard")
                         .font(.title2)
@@ -70,7 +70,7 @@ struct ContestLeaderboardView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "chart.bar")
                         .font(.system(size: 60))
-                        .foregroundColor(.gray)
+                        .foregroundColor(DesignTokens.Color.Action.disabled)
 
                     Text("No entries yet")
                         .font(.title2)
@@ -130,7 +130,7 @@ struct LeaderboardRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.username)
                     .font(.headline)
-                    .foregroundColor(isCurrentUser ? .blue : .primary)
+                    .foregroundColor(isCurrentUser ? DesignTokens.Color.Action.secondary : .primary)
 
                 if let teamName = entry.teamName {
                     Text(teamName)
@@ -146,7 +146,7 @@ struct LeaderboardRowView: View {
                 Text(String(format: "%.1f", entry.totalPoints))
                     .font(.title3)
                     .fontWeight(.bold)
-                    .foregroundColor(isCurrentUser ? .blue : .primary)
+                    .foregroundColor(isCurrentUser ? DesignTokens.Color.Action.secondary : .primary)
 
                 Text("points")
                     .font(.caption2)
@@ -155,7 +155,7 @@ struct LeaderboardRowView: View {
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
-        .background(isCurrentUser ? Color.blue.opacity(0.08) : DesignTokens.Color.Surface.elevated)
+        .background(isCurrentUser ? DesignTokens.Color.Action.secondary.opacity(0.08) : DesignTokens.Color.Surface.elevated)
     }
 }
 

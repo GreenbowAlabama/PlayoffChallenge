@@ -98,7 +98,7 @@ struct EmptyLineupView: View {
         VStack(spacing: 20) {
             Image(systemName: "person.3.fill")
                 .font(.system(size: 60))
-                .foregroundColor(.gray)
+                .foregroundColor(DesignTokens.Color.Action.disabled)
             
             Text("No Picks Yet")
                 .font(.title2)
@@ -150,11 +150,11 @@ struct WeekSummaryCard: View {
                         if hasLiveGames {
                             HStack(spacing: 3) {
                                 Circle()
-                                    .fill(Color.red)
+                                    .fill(DesignTokens.Color.Action.destructive)
                                     .frame(width: 6, height: 6)
                                 Text("LIVE")
                                     .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(.red)
+                                    .foregroundColor(DesignTokens.Color.Action.destructive)
                             }
                         }
                     }
@@ -165,12 +165,12 @@ struct WeekSummaryCard: View {
                                 .scaleEffect(0.8)
                             Text("Loading scores...")
                                 .font(.caption)
-                                .foregroundColor(.gray)
+                                .foregroundColor(DesignTokens.Color.Action.disabled)
                         }
                     } else if actualTotalPoints == 0 {
                         Text("No scores yet")
                             .font(.title3)
-                            .foregroundColor(.gray)
+                            .foregroundColor(DesignTokens.Color.Action.disabled)
                     } else {
                         Text("\(String(format: "%.1f", actualTotalPoints)) pts")
                             .font(.title)
@@ -186,21 +186,21 @@ struct WeekSummaryCard: View {
                         Text("Complete")
                     }
                     .font(.caption)
-                    .foregroundColor(.green)
+                    .foregroundColor(DesignTokens.Color.Action.primary)
                 } else {
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.circle.fill")
                         Text("Incomplete")
                     }
                     .font(.caption)
-                    .foregroundColor(.orange)
+                    .foregroundColor(DesignTokens.Color.Brand.primary)
                 }
             }
         }
         .padding()
         .background(
             LinearGradient(
-                gradient: Gradient(colors: [Color.blue.opacity(0.1), Color.purple.opacity(0.1)]),
+                gradient: Gradient(colors: [DesignTokens.Color.Action.secondary.opacity(0.1), Color.purple.opacity(0.1)]),
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -235,7 +235,7 @@ struct PositionPicksSection: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(position)
                 .font(.headline)
-                .foregroundColor(.blue)
+                .foregroundColor(DesignTokens.Color.Action.secondary)
             
             ForEach(picks) { pick in
                 PickRow(pick: pick, viewModel: viewModel)
@@ -307,11 +307,11 @@ struct PickRow: View {
                     if isLive {
                         HStack(spacing: 3) {
                             Circle()
-                                .fill(Color.red)
+                                .fill(DesignTokens.Color.Action.destructive)
                                 .frame(width: 5, height: 5)
                             Text("LIVE")
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.red)
+                                .foregroundColor(DesignTokens.Color.Action.destructive)
                         }
                     }
                 }
@@ -325,7 +325,7 @@ struct PickRow: View {
                     Text(String(format: "%.1f", displayPoints))
                         .font(.title3)
                         .fontWeight(.bold)
-                        .foregroundColor(isLive ? .red : .primary)
+                        .foregroundColor(isLive ? DesignTokens.Color.Action.destructive : .primary)
                     
                     Text("pts")
                         .font(.caption2)
@@ -345,7 +345,7 @@ struct PickRow: View {
                             Text(String(format: "%.1fx", displayMultiplier))
                                 .font(.caption2)
                                 .fontWeight(.bold)
-                                .foregroundColor(.orange)
+                                .foregroundColor(DesignTokens.Color.Brand.primary)
                         }
                     }
                 }
@@ -355,11 +355,11 @@ struct PickRow: View {
                     if let multiplier = pick.multiplier, multiplier > 1.0 {
                         HStack(spacing: 4) {
                             Image(systemName: "flame.fill")
-                                .foregroundColor(.orange)
+                                .foregroundColor(DesignTokens.Color.Brand.primary)
                             Text(String(format: "%.1fx", multiplier))
                                 .font(.caption)
                                 .fontWeight(.bold)
-                                .foregroundColor(.orange)
+                                .foregroundColor(DesignTokens.Color.Brand.primary)
                         }
                     }
                     
@@ -372,7 +372,7 @@ struct PickRow: View {
                     // "No score yet" indicator
                     Text("Not scored")
                         .font(.caption2)
-                        .foregroundColor(.gray)
+                        .foregroundColor(DesignTokens.Color.Action.disabled)
                 }
             }
             
@@ -383,7 +383,7 @@ struct PickRow: View {
                     showingDeleteAlert = true
                 }) {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.red)
+                        .foregroundColor(DesignTokens.Color.Action.destructive)
                         .imageScale(.large)
                 }
             }
@@ -572,15 +572,15 @@ struct MultiplierBadge: View {
     var badgeColor: Color {
         switch multiplier {
         case 1.0:
-            return .gray
+            return DesignTokens.Color.Action.disabled
         case 2.0:
-            return .green
+            return DesignTokens.Color.Action.primary
         case 3.0:
-            return .blue
+            return DesignTokens.Color.Action.secondary
         case 4.0:
             return .purple
         default:
-            return .gray
+            return DesignTokens.Color.Action.disabled
         }
     }
 

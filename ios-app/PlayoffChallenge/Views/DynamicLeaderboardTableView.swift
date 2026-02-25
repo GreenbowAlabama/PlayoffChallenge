@@ -49,7 +49,7 @@ struct DynamicLeaderboardTableView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .background(
-                        isCurrentUserRow(row) ? Color.blue.opacity(0.08) : DesignTokens.Color.Surface.elevated
+                        isCurrentUserRow(row) ? DesignTokens.Color.Action.secondary.opacity(0.08) : DesignTokens.Color.Surface.elevated
                     )
 
                     if index < rows.count - 1 {

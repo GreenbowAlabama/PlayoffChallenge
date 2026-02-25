@@ -51,7 +51,7 @@ struct EmailSignInView: View {
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
-                .background(isFormValid ? Color.blue : Color.gray)
+                .background(isFormValid ? DesignTokens.Color.Action.secondary : DesignTokens.Color.Action.disabled)
                 .cornerRadius(DesignTokens.Radius.lg)
                 .disabled(!isFormValid)
                 .padding(.horizontal)
@@ -59,7 +59,7 @@ struct EmailSignInView: View {
 
             if let errorMessage = authService.errorMessage {
                 Text(errorMessage)
-                    .foregroundColor(.red)
+                    .foregroundColor(DesignTokens.Color.Action.destructive)
                     .font(.caption)
                     .padding()
             }
@@ -69,7 +69,7 @@ struct EmailSignInView: View {
             }) {
                 Text(isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
                     .font(.subheadline)
-                    .foregroundColor(.blue)
+                    .foregroundColor(DesignTokens.Color.Action.secondary)
             }
         }
         .sheet(isPresented: $showEligibilityForm) {
@@ -147,7 +147,7 @@ struct EmailEligibilityView: View {
                         ForEach(allStates, id: \.0) { state in
                             if restrictedStates.contains(state.0) {
                                 Text(state.1 + " (Not Available)")
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(DesignTokens.Color.Action.disabled)
                                     .tag(state.0)
                             } else {
                                 Text(state.1).tag(state.0)
@@ -162,7 +162,7 @@ struct EmailEligibilityView: View {
                     if restrictedStates.contains(selectedState) {
                         Text("Fantasy contests are not available in this state")
                             .font(.caption)
-                            .foregroundColor(.red)
+                            .foregroundColor(DesignTokens.Color.Action.destructive)
                     }
 
                     Divider()
@@ -185,7 +185,7 @@ struct EmailEligibilityView: View {
 
                     Text("Providing false information may result in account termination and forfeiture of entry fees")
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundColor(DesignTokens.Color.Brand.primary)
                         .padding(.top, 10)
                 }
                 .padding()
@@ -216,7 +216,7 @@ struct EmailEligibilityView: View {
                             .padding()
                     }
                 }
-                .background(canContinue ? Color.blue : Color.gray)
+                .background(canContinue ? DesignTokens.Color.Action.secondary : DesignTokens.Color.Action.disabled)
                 .cornerRadius(DesignTokens.Radius.lg)
                 .disabled(!canContinue || authService.isLoading)
                 .padding(.horizontal)

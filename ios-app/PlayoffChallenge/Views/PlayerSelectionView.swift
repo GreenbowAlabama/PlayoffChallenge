@@ -89,7 +89,7 @@ struct PlayerSelectionView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(viewModel.hasChanges ? Color.green : Color.gray)
+                        .background(viewModel.hasChanges ? DesignTokens.Color.Action.primary : DesignTokens.Color.Action.disabled)
                         .cornerRadius(DesignTokens.Radius.lg)
                     }
                     .disabled(!viewModel.hasChanges || viewModel.isSaving)
@@ -167,7 +167,7 @@ struct LockedBanner: View {
         .foregroundColor(.white)
         .padding()
         .frame(maxWidth: .infinity)
-        .background(Color.orange)
+        .background(DesignTokens.Color.Brand.primary)
     }
 }
 
@@ -184,7 +184,7 @@ struct PositionSection: View {
             HStack {
                 Text(position)
                     .font(.headline)
-                    .foregroundColor(.blue)
+                    .foregroundColor(DesignTokens.Color.Action.secondary)
                 
                 Spacer()
                 
@@ -224,7 +224,7 @@ struct PlayerSlotCard: View {
                 HStack {
                     Spacer()
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.red)
+                        .foregroundColor(DesignTokens.Color.Action.destructive)
                         .imageScale(.small)
                 }
             }
@@ -251,7 +251,7 @@ struct PlayerSlotCard: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity)
-        .background(colorScheme == .dark ? Color(.systemGray5) : Color.white)
+        .background(colorScheme == .dark ? DesignTokens.Color.Surface.cardDisabled : Color.white)
         .cornerRadius(DesignTokens.Radius.md)
         .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
         .onTapGesture {
@@ -275,7 +275,7 @@ struct EmptySlotCard: View {
             VStack(spacing: 8) {
                 Image(systemName: "plus.circle.fill")
                     .font(.title2)
-                    .foregroundColor(.blue)
+                    .foregroundColor(DesignTokens.Color.Action.secondary)
                 
                 Text("Add \(position)")
                     .font(.caption)
@@ -283,11 +283,11 @@ struct EmptySlotCard: View {
             }
             .padding()
             .frame(maxWidth: .infinity, minHeight: 80)
-            .background(colorScheme == .dark ? Color(.systemGray5) : Color.white)
+            .background(colorScheme == .dark ? DesignTokens.Color.Surface.cardDisabled : Color.white)
             .cornerRadius(DesignTokens.Radius.md)
             .overlay(
                 RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-                    .stroke(Color.blue.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5]))
+                    .stroke(DesignTokens.Color.Action.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5]))
             )
         }
         .disabled(viewModel.isLocked)
@@ -334,9 +334,9 @@ struct PlayerPickerSheet: View {
                             }
                             
                             Spacer()
-                            
+
                             Image(systemName: "plus.circle.fill")
-                                .foregroundColor(.green)
+                                .foregroundColor(DesignTokens.Color.Action.primary)
                         }
                     }
                 }
