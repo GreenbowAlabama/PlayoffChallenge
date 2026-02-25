@@ -19,7 +19,9 @@ struct ContestCardView: View {
     let contest: Contest
     let style: CardStyle
     let onTap: (() -> Void)?
-    
+
+    @EnvironmentObject var environment: AppEnvironment
+
     private var feeDisplay: String {
         contest.entryFeeCents == 0 ? "Free" : "$\(contest.entryFeeCents / 100)"
     }
@@ -53,11 +55,21 @@ struct ContestCardView: View {
         }
     }
 
+    private var shareURL: URL? {
+        guard let token = contest.shareURLToken else { return nil }
+        let shareString = "\(environment.baseURL.absoluteString)/join/\(token)"
+        return URL(string: shareString)
+    }
+
     private var shareButton: some View {
-        ShareLink(item: contest.shareURL) {
-            Image(systemName: "square.and.arrow.up")
-                .font(.system(size: 14))
-                .foregroundColor(DesignTokens.Color.Brand.primary)
+        Group {
+            if let url = shareURL {
+                ShareLink(item: url) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 14))
+                        .foregroundColor(DesignTokens.Color.Brand.primary)
+                }
+            }
         }
     }
     

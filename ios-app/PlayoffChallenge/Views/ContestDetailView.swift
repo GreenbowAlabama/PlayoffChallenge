@@ -11,7 +11,6 @@ import UIKit
 struct ContestDetailView: View {
     @StateObject private var viewModel: ContestDetailViewModel
     @EnvironmentObject var authService: AuthService
-    @EnvironmentObject var landingViewModel: LandingViewModel
     @EnvironmentObject var availableContestsVM: AvailableContestsViewModel
     @EnvironmentObject var myContestsVM: MyContestsViewModel
     @Environment(\.dismiss) var dismiss
@@ -22,63 +21,67 @@ struct ContestDetailView: View {
     @State private var showDeleteConfirmation = false
     @State private var showUnjoinConfirmation = false
 
-    /// If true, after cancel/leave, navigate to MyContests instead of dismissing.
-    /// Used for create/deep-link flows where we need semantic redirection.
-    let resetOnExit: Bool
-
     /// Primary initializer — contestId is the source of truth, placeholder is optional.
-    init(contestId: UUID, placeholder: Contest? = nil, contestJoiner: ContestJoining? = nil, resetOnExit: Bool = false) {
+    init(contestId: UUID, placeholder: Contest? = nil, contestJoiner: ContestJoining? = nil) {
         let joiner = contestJoiner ?? ContestJoinService()
         _viewModel = StateObject(wrappedValue: ContestDetailViewModel(
             contestId: contestId,
             placeholder: placeholder,
             contestJoiner: joiner
         ))
-        self.resetOnExit = resetOnExit
     }
 
     /// Convenience initializer for callers that have a full Contest.
     /// contestId is extracted from the contest; the contest is used as placeholder only.
-    init(contest: Contest, contestJoiner: ContestJoining? = nil, resetOnExit: Bool = false) {
-        self.init(contestId: contest.id, placeholder: contest, contestJoiner: contestJoiner, resetOnExit: resetOnExit)
+    init(contest: Contest, contestJoiner: ContestJoining? = nil) {
+        self.init(contestId: contest.id, placeholder: contest, contestJoiner: contestJoiner)
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: DesignTokens.Spacing.xxl) {
                 // MARK: - Header Section
-                VStack(spacing: DesignTokens.Spacing.lg) {
+                VStack(spacing: DesignTokens.Spacing.md) {
                     // Top bar: Status badge + Entry fee
                     HStack(spacing: DesignTokens.Spacing.lg) {
                         StatusBadgeView(status: viewModel.contest.status)
 
                         Spacer()
 
-                        Text(viewModel.contest.entryFeeCents == 0 ? "Free" : String(format: "$%.2f", Double(viewModel.contest.entryFeeCents) / 100.0))
-                            .font(.headline)
-                            .fontWeight(.bold)
+                        VStack(alignment: .trailing, spacing: 0) {
+                            Text("Entry Fee")
+                                .font(.caption)
+                                .foregroundColor(DesignTokens.Color.Text.secondary)
+
+                            Text(viewModel.contest.entryFeeCents == 0 ? "Free" : String(format: "$%.2f", Double(viewModel.contest.entryFeeCents) / 100.0))
+                                .font(.headline)
+                                .fontWeight(.bold)
+                                .foregroundColor(DesignTokens.Color.Brand.primary)
+                        }
                     }
 
                     // Contest name
                     Text(viewModel.contest.contestName)
-                        .font(.title)
-                        .fontWeight(.bold)
+                        .font(.system(.title2, design: .default).bold())
+                        .foregroundColor(DesignTokens.Color.Text.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineLimit(3)
 
-                    // Capacity bar
-                    CapacityBarView(entryCount: viewModel.contest.entryCount, maxEntries: viewModel.contest.maxEntries)
+                    // Capacity bar and lock urgency
+                    VStack(spacing: DesignTokens.Spacing.sm) {
+                        CapacityBarView(entryCount: viewModel.contest.entryCount, maxEntries: viewModel.contest.maxEntries)
 
-                    // Lock urgency
-                    if let lockDisplay = formatLockTimeForDisplay(lockTime: viewModel.contest.lockTime, status: viewModel.contest.status) {
-                        Text(lockDisplay.text)
-                            .font(.caption)
-                            .foregroundColor(.orange)
+                        if let lockDisplay = formatLockTimeForDisplay(lockTime: viewModel.contest.lockTime, status: viewModel.contest.status) {
+                            Text(lockDisplay.text)
+                                .font(.caption)
+                                .foregroundColor(lockDisplay.urgency == .critical ? .red : lockDisplay.urgency == .warning ? .orange : DesignTokens.Color.Text.secondary)
+                        }
                     }
                 }
-                .padding()
-                .frame(maxWidth: .infinity)
+                .padding(DesignTokens.Spacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(DesignTokens.Color.Surface.card)
-                .cornerRadius(DesignTokens.Radius.xl)
+                .cornerRadius(DesignTokens.Radius.lg)
                 .padding(.horizontal)
                 .redacted(reason: viewModel.contest.contestName == "Loading…" ? .placeholder : [])
 
@@ -93,67 +96,72 @@ struct ContestDetailView: View {
                             }
                         }
                     } label: {
-                        HStack {
+                        HStack(spacing: DesignTokens.Spacing.md) {
                             if viewModel.isJoining {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.Color.Text.inverse))
                             } else {
                                 Image(systemName: "person.badge.plus")
-                                Text(viewModel.joinButtonTitle)
+                                    .font(.title3)
                             }
+                            Text(viewModel.joinButtonTitle)
                         }
                         .font(.headline)
                         .foregroundColor(DesignTokens.Color.Text.inverse)
                         .frame(maxWidth: .infinity)
-                        .padding()
+                        .padding(DesignTokens.Spacing.lg)
                         .background(DesignTokens.Color.Action.primary)
                         .cornerRadius(DesignTokens.Radius.lg)
                     }
                     .disabled(!viewModel.canJoinContest || viewModel.isJoining)
                     .padding(.horizontal)
+                    .padding(.top, DesignTokens.Spacing.xl)
                 }
 
                 // MARK: - Quick Actions: Horizontal Buttons
-                VStack(spacing: DesignTokens.Spacing.md) {
+                VStack(spacing: DesignTokens.Spacing.lg) {
                     Text("Quick Actions")
                         .font(.headline)
+                        .foregroundColor(DesignTokens.Color.Text.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: DesignTokens.Spacing.lg) {
+                    HStack(spacing: DesignTokens.Spacing.md) {
                         // Leaderboard
                         Button {
                             navigateToLeaderboard = true
                         } label: {
-                            VStack(spacing: DesignTokens.Spacing.xs) {
+                            VStack(spacing: DesignTokens.Spacing.sm) {
                                 Image(systemName: "chart.bar.fill")
-                                    .font(.headline)
+                                    .font(.title3)
+                                    .foregroundColor(DesignTokens.Color.Action.secondary)
                                 Text("Leaderboard")
-                                    .font(.caption)
+                                    .font(.caption2)
                                     .lineLimit(1)
+                                    .foregroundColor(DesignTokens.Color.Text.primary)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(DesignTokens.Spacing.md)
+                            .frame(minHeight: 80)
                             .background(DesignTokens.Color.Surface.card)
-                            .foregroundColor(DesignTokens.Color.Action.secondary)
-                            .cornerRadius(DesignTokens.Radius.lg)
+                            .cornerRadius(DesignTokens.Radius.md)
                         }
 
                         // Lineup
                         Button {
                             navigateToLineup = true
                         } label: {
-                            VStack(spacing: DesignTokens.Spacing.xs) {
+                            VStack(spacing: DesignTokens.Spacing.sm) {
                                 Image(systemName: "person.3.fill")
-                                    .font(.headline)
+                                    .font(.title3)
+                                    .foregroundColor(viewModel.canSelectLineup ? DesignTokens.Color.Action.secondary : DesignTokens.Color.Action.disabled)
                                 Text("Lineup")
-                                    .font(.caption)
+                                    .font(.caption2)
                                     .lineLimit(1)
+                                    .foregroundColor(viewModel.canSelectLineup ? DesignTokens.Color.Text.primary : DesignTokens.Color.Action.disabled)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(DesignTokens.Spacing.md)
+                            .frame(minHeight: 80)
                             .background(viewModel.canSelectLineup ? DesignTokens.Color.Surface.card : DesignTokens.Color.Surface.cardDisabled)
-                            .foregroundColor(viewModel.canSelectLineup ? DesignTokens.Color.Action.secondary : DesignTokens.Color.Action.disabled)
-                            .cornerRadius(DesignTokens.Radius.lg)
+                            .cornerRadius(DesignTokens.Radius.md)
                         }
                         .disabled(!viewModel.canSelectLineup)
 
@@ -161,52 +169,59 @@ struct ContestDetailView: View {
                         Button {
                             showRules = true
                         } label: {
-                            VStack(spacing: DesignTokens.Spacing.xs) {
+                            VStack(spacing: DesignTokens.Spacing.sm) {
                                 Image(systemName: "book.fill")
-                                    .font(.headline)
+                                    .font(.title3)
+                                    .foregroundColor(DesignTokens.Color.Action.secondary)
                                 Text("Rules")
-                                    .font(.caption)
+                                    .font(.caption2)
                                     .lineLimit(1)
+                                    .foregroundColor(DesignTokens.Color.Text.primary)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(DesignTokens.Spacing.md)
+                            .frame(minHeight: 80)
                             .background(DesignTokens.Color.Surface.card)
-                            .foregroundColor(DesignTokens.Color.Action.secondary)
-                            .cornerRadius(DesignTokens.Radius.lg)
+                            .cornerRadius(DesignTokens.Radius.md)
                         }
                     }
                 }
-                .padding()
+                .padding(DesignTokens.Spacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(DesignTokens.Color.Surface.elevated)
                 .cornerRadius(DesignTokens.Radius.lg)
                 .padding(.horizontal)
+                .padding(.top, DesignTokens.Spacing.lg)
 
                 // MARK: - Contest Details Section
-                VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
                     Text("Contest Details")
                         .font(.headline)
+                        .foregroundColor(DesignTokens.Color.Text.primary)
 
-                    InfoRowView(label: "Status", value: viewModel.displayStatusMessage)
-                    if let lockTime = viewModel.contest.lockTime {
-                        InfoRowView(label: "Lock Time", value: viewModel.formattedLockTime(lockTime))
+                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+                        InfoRowView(label: "Status", value: viewModel.displayStatusMessage)
+                        if let lockTime = viewModel.contest.lockTime {
+                            InfoRowView(label: "Lock Time", value: viewModel.formattedLockTime(lockTime))
+                        }
+                        InfoRowView(label: "Created", value: formattedCreatedDate(viewModel.contest.createdAt))
                     }
-                    InfoRowView(label: "Created", value: formattedCreatedDate(viewModel.contest.createdAt))
                 }
-                .padding()
+                .padding(DesignTokens.Spacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(DesignTokens.Color.Surface.card)
                 .cornerRadius(DesignTokens.Radius.lg)
                 .padding(.horizontal)
+                .padding(.top, DesignTokens.Spacing.lg)
                 .redacted(reason: viewModel.contest.contestName == "Loading…" ? .placeholder : [])
 
                 // MARK: - Share Link Section (conditional)
                 if viewModel.actionState?.actions.canShareInvite == true, let joinToken = viewModel.contest.joinToken {
                     let joinURL = AppEnvironment.shared.baseURL.appendingPathComponent("join/\(joinToken)")
-                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
                         HStack {
                             Text("Share Invite")
                                 .font(.headline)
+                                .foregroundColor(DesignTokens.Color.Text.primary)
                             Spacer()
                             if showCopyConfirmation {
                                 Label("Copied!", systemImage: "checkmark.circle.fill")
@@ -268,16 +283,17 @@ struct ContestDetailView: View {
                             .cornerRadius(DesignTokens.Radius.md)
                         }
                     }
-                    .padding()
+                    .padding(DesignTokens.Spacing.lg)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(DesignTokens.Color.Surface.card)
                     .cornerRadius(DesignTokens.Radius.lg)
                     .padding(.horizontal)
+                    .padding(.top, DesignTokens.Spacing.lg)
                 }
 
                 // MARK: - Destructive Actions (Delete/Leave)
                 if viewModel.canDeleteContest || viewModel.canUnjoinContest {
-                    VStack(spacing: DesignTokens.Spacing.md) {
+                    VStack(spacing: DesignTokens.Spacing.lg) {
                         if viewModel.canDeleteContest {
                             Button(role: .destructive) {
                                 showDeleteConfirmation = true
@@ -315,9 +331,10 @@ struct ContestDetailView: View {
                         }
                     }
                     .padding(.horizontal)
+                    .padding(.top, DesignTokens.Spacing.xl)
                 }
 
-                Spacer()
+                Spacer(minLength: DesignTokens.Spacing.lg)
             }
             .padding(.top)
         }
@@ -353,11 +370,7 @@ struct ContestDetailView: View {
                     if viewModel.errorMessage == nil {
                         await availableContestsVM.loadContests()
                         await myContestsVM.loadMyContests()
-                        if resetOnExit {
-                            landingViewModel.resetToMyContests()
-                        } else {
-                            dismiss()
-                        }
+                        dismiss()
                     }
                 }
             }
@@ -375,11 +388,7 @@ struct ContestDetailView: View {
                     if viewModel.errorMessage == nil {
                         await availableContestsVM.loadContests()
                         await myContestsVM.loadMyContests()
-                        if resetOnExit {
-                            landingViewModel.resetToMyContests()
-                        } else {
-                            dismiss()
-                        }
+                        dismiss()
                     }
                 }
             }
@@ -439,7 +448,6 @@ func formattedCreatedDate(_ date: Date) -> String {
     NavigationStack {
         ContestDetailView(contest: MockContest.samples[0])
             .environmentObject(AuthService())
-            .environmentObject(LandingViewModel())
             .environmentObject(AvailableContestsViewModel())
             .environmentObject(MyContestsViewModel())
     }

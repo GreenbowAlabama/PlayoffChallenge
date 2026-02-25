@@ -9,11 +9,18 @@ import SwiftUI
 
 struct AvailableContestsView: View {
     @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var environment: AppEnvironment
     @ObservedObject var viewModel: AvailableContestsViewModel
     @State private var selectedContest: Contest?
 
     init(viewModel: AvailableContestsViewModel) {
         self.viewModel = viewModel
+    }
+
+    private func shareURL(for contest: Contest) -> URL? {
+        guard let token = contest.shareURLToken else { return nil }
+        let shareString = "\(environment.baseURL.absoluteString)/join/\(token)"
+        return URL(string: shareString)
     }
 
     var body: some View {
@@ -49,7 +56,7 @@ struct AvailableContestsView: View {
                             lockText: formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)?.text,
                             entryFeeText: contest.entryFeeCents > 0 ? String(format: "$%.0f Entry", Double(contest.entryFeeCents) / 100.0) : nil,
                             payoutText: payoutText,
-                            shareURL: contest.shareURL
+                            shareURL: shareURL(for: contest)
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {

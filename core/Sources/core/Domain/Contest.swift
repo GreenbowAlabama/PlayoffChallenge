@@ -88,9 +88,10 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
     }
 
     // MARK: - Computed Properties
-    /// Share URL for this contest (deep link).
-    public var shareURL: URL {
-        URL(string: "https://67.games/contest/\(id)")!
+    /// Share URL for this contest (uses join token for deep linking).
+    /// Note: Use the joinToken with the app's configured base URL in the view layer.
+    public var shareURLToken: String? {
+        joinToken
     }
 
     // MARK: - Mapping

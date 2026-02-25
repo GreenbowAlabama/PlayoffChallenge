@@ -30,12 +30,16 @@ public struct MockContest {
     public static func fixture(
         id: UUID = UUID(),
         name: String = "Fixture Contest",
-        status: ContestStatus = .scheduled
+        status: ContestStatus = .scheduled,
+        lockTime: Date? = nil,
+        isPlatformOwned: Bool = false
     ) -> Contest {
         return Contest.stub(
             id: id,
             contestName: name,
-            status: status
+            status: status,
+            lockTime: lockTime,
+            isPlatformOwned: isPlatformOwned
         )
     }
 }

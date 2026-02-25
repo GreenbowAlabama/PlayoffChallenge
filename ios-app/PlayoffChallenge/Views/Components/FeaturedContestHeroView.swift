@@ -12,7 +12,9 @@ import Core
 struct FeaturedContestHeroView: View {
     let contest: Contest
     let onTap: () -> Void
-    
+
+    @EnvironmentObject var environment: AppEnvironment
+
     private var feeDisplay: String {
         contest.entryFeeCents == 0 ? "Free" : "$\(contest.entryFeeCents / 100)"
     }
@@ -42,14 +44,24 @@ struct FeaturedContestHeroView: View {
         }
     }
     
+    private var shareURL: URL? {
+        guard let token = contest.shareURLToken else { return nil }
+        let shareString = "\(environment.baseURL.absoluteString)/join/\(token)"
+        return URL(string: shareString)
+    }
+
     private var shareButton: some View {
-        ShareLink(item: contest.shareURL) {
-            Image(systemName: "square.and.arrow.up")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.white)
-                .padding(DesignTokens.Spacing.sm)
-                .background(Color.white.opacity(0.2))
-                .clipShape(Circle())
+        Group {
+            if let url = shareURL {
+                ShareLink(item: url) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(DesignTokens.Spacing.sm)
+                        .background(Color.white.opacity(0.2))
+                        .clipShape(Circle())
+                }
+            }
         }
     }
 
