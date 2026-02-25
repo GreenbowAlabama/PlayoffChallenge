@@ -40,6 +40,14 @@ struct ContestCardView: View {
         case .critical: return .red
         }
     }
+
+    private var shareButton: some View {
+        ShareLink(item: contest.shareURL) {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 14))
+                .foregroundColor(DesignTokens.Color.Brand.primary)
+        }
+    }
     
     var body: some View {
         Button(action: { onTap?() }) {
@@ -76,17 +84,20 @@ struct ContestCardView: View {
                         .font(.headline)
                         .foregroundColor(DesignTokens.Color.Text.primary)
                         .lineLimit(2)
-                    
+
                     if let organizer = contest.organizerName {
                         Text("by \(organizer)")
                             .font(.caption)
                             .foregroundColor(DesignTokens.Color.Text.secondary)
                     }
                 }
-                
+
                 Spacer()
-                
-                StatusBadgeView(status: contest.status)
+
+                HStack(spacing: DesignTokens.Spacing.sm) {
+                    shareButton
+                    StatusBadgeView(status: contest.status)
+                }
             }
             
             Spacer(minLength: DesignTokens.Spacing.xs)
@@ -121,10 +132,13 @@ struct ContestCardView: View {
                     .font(.subheadline.bold())
                     .foregroundColor(DesignTokens.Color.Text.primary)
                     .lineLimit(1)
-                
+
                 Spacer()
-                
-                StatusBadgeView(status: contest.status)
+
+                HStack(spacing: DesignTokens.Spacing.sm) {
+                    shareButton
+                    StatusBadgeView(status: contest.status)
+                }
             }
             
             CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
@@ -138,21 +152,23 @@ struct ContestCardView: View {
                     .font(.subheadline.bold())
                     .foregroundColor(DesignTokens.Color.Text.primary)
                     .lineLimit(1)
-                
+
                 HStack(spacing: DesignTokens.Spacing.sm) {
                     StatusBadgeView(status: contest.status)
-                    
+
                     Text(feeDisplay)
                         .font(.caption.bold())
                         .foregroundColor(DesignTokens.Color.Brand.primary)
-                    
+
                     if showJoinedBadge {
                         joinedBadge
                     }
                 }
             }
-            
+
             Spacer()
+
+            shareButton
             
             VStack(alignment: .trailing, spacing: DesignTokens.Spacing.xxs) {
                 CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)

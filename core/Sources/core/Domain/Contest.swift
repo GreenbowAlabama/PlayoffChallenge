@@ -87,6 +87,12 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         case isPlatformOwned = "is_platform_owned"
     }
 
+    // MARK: - Computed Properties
+    /// Share URL for this contest (deep link).
+    public var shareURL: URL {
+        URL(string: "https://67.games/contest/\(id)")!
+    }
+
     // MARK: - Mapping
     /// Initialize from a contract type (list item).
     public static func from(_ contract: ContestListItemDTO) -> Contest {

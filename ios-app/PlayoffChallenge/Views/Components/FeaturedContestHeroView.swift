@@ -32,7 +32,18 @@ struct FeaturedContestHeroView: View {
     private var lockDisplay: LockTimeDisplay? {
         formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)
     }
-    
+
+    private var shareButton: some View {
+        ShareLink(item: contest.shareURL) {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(DesignTokens.Spacing.sm)
+                .background(Color.white.opacity(0.2))
+                .clipShape(Circle())
+        }
+    }
+
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
@@ -50,8 +61,10 @@ struct FeaturedContestHeroView: View {
                     .background(Color.white.opacity(0.2))
                     .foregroundColor(.white)
                     .cornerRadius(DesignTokens.Radius.sm)
-                    
+
                     Spacer()
+
+                    shareButton
                 }
                 
                 // Contest Name
@@ -131,15 +144,17 @@ struct FeaturedContestHeroView: View {
             FeaturedContestHeroView(
                 contest: MockContest.fixture(
                     name: "NFL Playoffs 2026",
-                    status: .scheduled
+                    status: .scheduled,
+                    isPlatformOwned: true
                 ),
                 onTap: {}
             )
-            
+
             FeaturedContestHeroView(
                 contest: MockContest.fixture(
                     name: "Super Bowl LXI Challenge",
-                    status: .live
+                    status: .live,
+                    isPlatformOwned: true
                 ),
                 onTap: {}
             )
