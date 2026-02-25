@@ -223,7 +223,7 @@ struct ExpandableLeaderboardRow: View {
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .frame(width: 44, height: 44)
+                        .frame(width: DesignTokens.Size.iconLarge, height: DesignTokens.Size.iconLarge)
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 16)

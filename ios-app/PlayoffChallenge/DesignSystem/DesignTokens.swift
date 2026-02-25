@@ -76,6 +76,7 @@ enum DesignTokens {
         static let iconMedium: CGFloat = 32
         static let iconLarge: CGFloat = 44
         static let capacityBarHeight: CGFloat = 8
+        static let dotSmall: CGFloat = 6
     }
     
     enum Shadow {

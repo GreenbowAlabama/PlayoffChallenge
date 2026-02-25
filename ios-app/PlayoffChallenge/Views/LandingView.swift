@@ -165,7 +165,7 @@ struct NavigationButton: View {
                 Image(systemName: systemImage)
                     .font(.title2)
                     .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: DesignTokens.Size.iconLarge, height: DesignTokens.Size.iconLarge)
                     .background(color)
                     .cornerRadius(DesignTokens.Radius.lg)
 

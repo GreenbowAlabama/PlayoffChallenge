@@ -208,7 +208,7 @@ struct WeekSummaryCardV2: View {
                         HStack(spacing: 4) {
                             Circle()
                                 .fill(DesignTokens.Color.Action.destructive)
-                                .frame(width: 6, height: 6)
+                                .frame(width: DesignTokens.Size.dotSmall, height: DesignTokens.Size.dotSmall)
                             Text("\(liveCount) \(liveCount == 1 ? "game" : "games") in progress")
                                 .font(.caption)
                                 .foregroundColor(DesignTokens.Color.Action.destructive)
@@ -406,7 +406,7 @@ struct LineupSlotRow: View {
                         HStack(spacing: 3) {
                             Circle()
                                 .fill(DesignTokens.Color.Action.destructive)
-                                .frame(width: 5, height: 5)
+                                .frame(width: DesignTokens.Size.dotSmall, height: DesignTokens.Size.dotSmall)
                             Text("LIVE")
                                 .font(.system(size: 8, weight: .bold))
                                 .foregroundColor(DesignTokens.Color.Action.destructive)
@@ -507,7 +507,7 @@ struct EmptySlotButton: View {
                 ZStack {
                     Circle()
                         .fill(positionColor.opacity(0.15))
-                        .frame(width: 44, height: 44)
+                        .frame(width: DesignTokens.Size.iconLarge, height: DesignTokens.Size.iconLarge)
 
                     Image(systemName: "plus")
                         .font(.system(size: 18, weight: .semibold))

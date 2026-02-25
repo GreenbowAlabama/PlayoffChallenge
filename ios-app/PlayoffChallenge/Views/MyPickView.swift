@@ -151,7 +151,7 @@ struct WeekSummaryCard: View {
                             HStack(spacing: 3) {
                                 Circle()
                                     .fill(DesignTokens.Color.Action.destructive)
-                                    .frame(width: 6, height: 6)
+                                    .frame(width: DesignTokens.Size.dotSmall, height: DesignTokens.Size.dotSmall)
                                 Text("LIVE")
                                     .font(.system(size: 9, weight: .bold))
                                     .foregroundColor(DesignTokens.Color.Action.destructive)
@@ -308,7 +308,7 @@ struct PickRow: View {
                         HStack(spacing: 3) {
                             Circle()
                                 .fill(DesignTokens.Color.Action.destructive)
-                                .frame(width: 5, height: 5)
+                                .frame(width: DesignTokens.Size.dotSmall, height: DesignTokens.Size.dotSmall)
                             Text("LIVE")
                                 .font(.system(size: 8, weight: .bold))
                                 .foregroundColor(DesignTokens.Color.Action.destructive)
