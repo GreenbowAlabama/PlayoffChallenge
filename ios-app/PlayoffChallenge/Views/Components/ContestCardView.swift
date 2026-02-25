@@ -23,6 +23,13 @@ struct ContestCardView: View {
     private var feeDisplay: String {
         contest.entryFeeCents == 0 ? "Free" : "$\(contest.entryFeeCents / 100)"
     }
+
+    private var payoutDisplay: String? {
+        guard contest.entryCount > 0 else { return nil }
+        let totalCents = contest.entryFeeCents * contest.entryCount
+        let totalDollars = totalCents / 100
+        return totalDollars > 0 ? "$\(totalDollars) pot" : nil
+    }
     
     private var showJoinedBadge: Bool {
         contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true
@@ -103,12 +110,20 @@ struct ContestCardView: View {
             Spacer(minLength: DesignTokens.Spacing.xs)
             
             HStack {
-                Text(feeDisplay)
-                    .font(.subheadline.bold())
-                    .foregroundColor(DesignTokens.Color.Brand.primary)
-                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(feeDisplay)
+                        .font(.subheadline.bold())
+                        .foregroundColor(DesignTokens.Color.Brand.primary)
+
+                    if let payout = payoutDisplay {
+                        Text(payout)
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+
                 Spacer()
-                
+
                 if showJoinedBadge {
                     joinedBadge
                 }
@@ -156,9 +171,17 @@ struct ContestCardView: View {
                 HStack(spacing: DesignTokens.Spacing.sm) {
                     StatusBadgeView(status: contest.status)
 
-                    Text(feeDisplay)
-                        .font(.caption.bold())
-                        .foregroundColor(DesignTokens.Color.Brand.primary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(feeDisplay)
+                            .font(.caption.bold())
+                            .foregroundColor(DesignTokens.Color.Brand.primary)
+
+                        if let payout = payoutDisplay {
+                            Text(payout)
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
+                    }
 
                     if showJoinedBadge {
                         joinedBadge

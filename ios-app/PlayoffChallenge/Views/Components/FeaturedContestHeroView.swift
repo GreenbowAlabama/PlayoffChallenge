@@ -16,7 +16,14 @@ struct FeaturedContestHeroView: View {
     private var feeDisplay: String {
         contest.entryFeeCents == 0 ? "Free" : "$\(contest.entryFeeCents / 100)"
     }
-    
+
+    private var payoutDisplay: String? {
+        guard contest.entryCount > 0 else { return nil }
+        let totalCents = contest.entryFeeCents * contest.entryCount
+        let totalDollars = totalCents / 100
+        return totalDollars > 0 ? "$\(totalDollars) pot" : nil
+    }
+
     private var ctaText: String {
         if contest.actions?.isLive == true {
             return "Watch Live"
@@ -75,17 +82,25 @@ struct FeaturedContestHeroView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 
                 // Fee and Capacity Text
-                HStack(spacing: DesignTokens.Spacing.sm) {
-                    Text(feeDisplay)
-                    Text("•")
-                    if let maxEntries = contest.maxEntries {
-                        Text("\(contest.entryCount)/\(maxEntries) spots")
-                    } else {
-                        Text("\(contest.entryCount) entered")
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
+                    HStack(spacing: DesignTokens.Spacing.sm) {
+                        Text(feeDisplay)
+                        Text("•")
+                        if let maxEntries = contest.maxEntries {
+                            Text("\(contest.entryCount)/\(maxEntries) spots")
+                        } else {
+                            Text("\(contest.entryCount) entered")
+                        }
+                    }
+                    .font(.subheadline.bold())
+                    .foregroundColor(.white.opacity(0.9))
+
+                    if let payout = payoutDisplay {
+                        Text(payout)
+                            .font(.subheadline.bold())
+                            .foregroundColor(.orange)
                     }
                 }
-                .font(.subheadline.bold())
-                .foregroundColor(.white.opacity(0.9))
                 
                 // Capacity Bar
                 VStack(alignment: .trailing, spacing: DesignTokens.Spacing.xxs) {
