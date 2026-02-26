@@ -33,30 +33,63 @@ final class MyContestsViewModel: ObservableObject {
     /// Within same status, sorted by creation date (descending, newest first).
     var sortedContests: [Contest] {
         myContests.sorted { contest1, contest2 in
-            let priority1 = priority(for: contest1.status)
-            let priority2 = priority(for: contest2.status)
+            let priority1 = priority(for: contest1)
+            let priority2 = priority(for: contest2)
 
-            // Different status: sort by priority
+            // Different priority: sort by priority
             if priority1 != priority2 {
                 return priority1 < priority2
             }
 
-            // Same status: sort by createdAt descending (newest first)
+            // Same priority: for upcoming scheduled contests, sort by time until lock (soonest first)
+            let isUpcoming1 = contest1.status == .scheduled && isUpcomingScheduled(contest1)
+            let isUpcoming2 = contest2.status == .scheduled && isUpcomingScheduled(contest2)
+
+            if isUpcoming1 && isUpcoming2 {
+                let remaining1 = remainingTimeUntilLock(contest1)
+                let remaining2 = remainingTimeUntilLock(contest2)
+                return remaining1 < remaining2
+            }
+
+            // For other statuses/expired: sort by createdAt descending (newest first)
             let date1 = contest1.createdAt
             let date2 = contest2.createdAt
             return date1 > date2
         }
     }
 
+    /// Checks if a scheduled contest hasn't passed its lock time yet.
+    private func isUpcomingScheduled(_ contest: Contest) -> Bool {
+        guard contest.status == .scheduled, let lockTime = contest.lockTime else {
+            return false
+        }
+        return Date.now < lockTime
+    }
+
+    /// Calculates remaining time until lock for a contest.
+    /// Returns a large number if no lockTime, so they sort to the bottom.
+    private func remainingTimeUntilLock(_ contest: Contest) -> TimeInterval {
+        guard let lockTime = contest.lockTime else {
+            return .infinity
+        }
+        let remaining = lockTime.timeIntervalSince(Date.now)
+        return remaining
+    }
+
     /// Determines sort priority for a contest status.
     /// Lower number = higher priority (appears first).
-    private func priority(for status: ContestStatus) -> Int {
-        switch status {
+    /// Scheduled contests past their lock time are treated as expired and sorted lower.
+    private func priority(for contest: Contest) -> Int {
+        switch contest.status {
         case .live:
             return 0
         case .locked:
             return 1
         case .scheduled:
+            // If lockTime has passed, treat as expired and sort below complete
+            if let lockTime = contest.lockTime, Date.now > lockTime {
+                return 3  // Sort with completed contests
+            }
             return 2
         case .complete:
             return 3

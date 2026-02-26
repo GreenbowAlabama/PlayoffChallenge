@@ -27,6 +27,15 @@ final class AvailableContestsViewModel: ObservableObject {
         contests
             .filter { $0.isPlatformOwned == true }
             .filter { $0.status != .complete && $0.status != .cancelled }
+            .filter { contest in
+                // Exclude scheduled contests past their lock time
+                if contest.status == .scheduled,
+                   let lockTime = contest.lockTime,
+                   Date.now > lockTime {
+                    return false
+                }
+                return true
+            }
             .sorted { lhs, rhs in
                 if lhs.status == .live && rhs.status != .live { return true }
                 if lhs.status != .live && rhs.status == .live { return false }
@@ -40,7 +49,47 @@ final class AvailableContestsViewModel: ObservableObject {
     }
 
     var regularContests: [Contest] {
-        contests.filter { $0.isPlatformOwned != true }
+        contests
+            .filter { $0.isPlatformOwned != true }
+            .sorted { lhs, rhs in
+                // Live first, then by remaining time for scheduled
+                if lhs.status == .live && rhs.status != .live { return true }
+                if lhs.status != .live && rhs.status == .live { return false }
+
+                // For scheduled contests, sort by remaining time (upcoming first)
+                let lhsUpcoming = lhs.status == .scheduled && isUpcomingScheduled(lhs)
+                let rhsUpcoming = rhs.status == .scheduled && isUpcomingScheduled(rhs)
+
+                if lhsUpcoming && rhsUpcoming {
+                    let remaining1 = remainingTimeUntilLock(lhs)
+                    let remaining2 = remainingTimeUntilLock(rhs)
+                    return remaining1 < remaining2
+                }
+
+                // Upcoming scheduled comes before expired
+                if lhsUpcoming && !rhsUpcoming { return true }
+                if !lhsUpcoming && rhsUpcoming { return false }
+
+                // Both expired or non-scheduled: sort by lock time
+                guard let l = lhs.lockTime, let r = rhs.lockTime else {
+                    return false
+                }
+                return l < r
+            }
+    }
+
+    private func isUpcomingScheduled(_ contest: Contest) -> Bool {
+        guard contest.status == .scheduled, let lockTime = contest.lockTime else {
+            return false
+        }
+        return Date.now < lockTime
+    }
+
+    private func remainingTimeUntilLock(_ contest: Contest) -> TimeInterval {
+        guard let lockTime = contest.lockTime else {
+            return .infinity
+        }
+        return lockTime.timeIntervalSince(Date.now)
     }
 
     var showFeaturedSection: Bool {

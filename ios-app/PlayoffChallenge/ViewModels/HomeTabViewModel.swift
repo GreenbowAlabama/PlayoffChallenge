@@ -64,14 +64,28 @@ final class HomeTabViewModel: ObservableObject {
                 contest.status == .scheduled || contest.status == .live
             }
             .sorted { lhs, rhs in
-                // Live first, then by lock time
+                // Live first
                 if lhs.status == .live && rhs.status != .live { return true }
                 if lhs.status != .live && rhs.status == .live { return false }
 
+                // For scheduled, sort by remaining time (upcoming first)
+                let lhsUpcoming = lhs.status == .scheduled && isUpcomingScheduled(lhs)
+                let rhsUpcoming = rhs.status == .scheduled && isUpcomingScheduled(rhs)
+
+                if lhsUpcoming && rhsUpcoming {
+                    let remaining1 = remainingTimeUntilLock(lhs)
+                    let remaining2 = remainingTimeUntilLock(rhs)
+                    return remaining1 < remaining2
+                }
+
+                // Upcoming scheduled comes before expired
+                if lhsUpcoming && !rhsUpcoming { return true }
+                if !lhsUpcoming && rhsUpcoming { return false }
+
+                // Both expired: sort by lock time
                 guard let l = lhs.lockTime, let r = rhs.lockTime else {
                     return false
                 }
-
                 return l < r
             }
 
@@ -83,6 +97,25 @@ final class HomeTabViewModel: ObservableObject {
                 !(contest.actions?.canUnjoin ?? false)
             }
             .sorted { lhs, rhs in
+                // Live first
+                if lhs.status == .live && rhs.status != .live { return true }
+                if lhs.status != .live && rhs.status == .live { return false }
+
+                // For scheduled, sort by remaining time (upcoming first)
+                let lhsUpcoming = lhs.status == .scheduled && isUpcomingScheduled(lhs)
+                let rhsUpcoming = rhs.status == .scheduled && isUpcomingScheduled(rhs)
+
+                if lhsUpcoming && rhsUpcoming {
+                    let remaining1 = remainingTimeUntilLock(lhs)
+                    let remaining2 = remainingTimeUntilLock(rhs)
+                    return remaining1 < remaining2
+                }
+
+                // Upcoming scheduled comes before expired
+                if lhsUpcoming && !rhsUpcoming { return true }
+                if !lhsUpcoming && rhsUpcoming { return false }
+
+                // Fallback: sort by lock time
                 guard let l = lhs.lockTime, let r = rhs.lockTime else {
                     return false
                 }
@@ -96,5 +129,23 @@ final class HomeTabViewModel: ObservableObject {
     ///   - myIsLoading: Loading state from MyContestsViewModel
     func updateLoadingState(availableIsLoading: Bool, myIsLoading: Bool) {
         isLoading = availableIsLoading || myIsLoading
+    }
+
+    // MARK: - Sorting Helpers
+
+    /// Checks if a scheduled contest hasn't passed its lock time yet.
+    private func isUpcomingScheduled(_ contest: Contest) -> Bool {
+        guard contest.status == .scheduled, let lockTime = contest.lockTime else {
+            return false
+        }
+        return Date.now < lockTime
+    }
+
+    /// Calculates remaining time until lock for a contest.
+    private func remainingTimeUntilLock(_ contest: Contest) -> TimeInterval {
+        guard let lockTime = contest.lockTime else {
+            return .infinity
+        }
+        return lockTime.timeIntervalSince(Date.now)
     }
 }
