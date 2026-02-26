@@ -51,6 +51,7 @@ final class AvailableContestsViewModel: ObservableObject {
     var regularContests: [Contest] {
         contests
             .filter { $0.isPlatformOwned != true }
+            .filter { $0.status != .complete && $0.status != .cancelled }
             .sorted { lhs, rhs in
                 // Live first, then by remaining time for scheduled
                 if lhs.status == .live && rhs.status != .live { return true }
