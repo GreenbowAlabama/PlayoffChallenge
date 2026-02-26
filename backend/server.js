@@ -294,6 +294,13 @@ app.get('/.well-known/apple-app-site-association', (req, res) => {
   res.json(aasa);
 });
 
+// Backward compatibility: old URLs used /custom-contests/join/:token format
+// Redirect to new format for old shared links
+app.get('/custom-contests/join/:token', (req, res) => {
+  const { token } = req.params;
+  res.redirect(301, `/join/${token}`);
+});
+
 // Join link handler - redirects to App Store for iOS users without the app
 // iOS users with the app installed will be intercepted by Universal Links before this route
 app.get('/join/:token', (req, res) => {
