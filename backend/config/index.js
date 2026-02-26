@@ -103,7 +103,8 @@ function getJoinBaseUrl() {
 
 /**
  * Generate a canonical join URL for a contest token
- * Uses canonical path: /custom-contests/join/:token
+ * Uses canonical path: /join/:token
+ * The /join/:token endpoint redirects to the app store or handles deep linking.
  * @param {string} token - The join token
  * @returns {string} Full join URL
  */
@@ -111,7 +112,7 @@ function buildJoinUrl(token) {
   if (!token) {
     throw new Error('Token is required to build join URL');
   }
-  return `${getJoinBaseUrl()}/custom-contests/join/${token}`;
+  return `${getJoinBaseUrl()}/join/${token}`;
 }
 
 /**
