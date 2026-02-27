@@ -1,0 +1,73 @@
+{
+  "events": [
+    {
+      "id": "401811941",
+      "label": "Masters Tournament",
+      "startDate": "2026-04-09T07:00Z",
+      "competitions": [
+        {
+          "competitors": [
+            {
+              "id": "2970519",
+              "displayName": "Scottie Scheffler",
+              "linescores": [
+                {
+                  "period": 1,
+                  "linescores": [
+                    {"period": 1, "value": 4},
+                    {"period": 2, "value": 4},
+                    {"period": 3, "value": 4},
+                    {"period": 4, "value": 3},
+                    {"period": 5, "value": 4},
+                    {"period": 6, "value": 4},
+                    {"period": 7, "value": 4},
+                    {"period": 8, "value": 4},
+                    {"period": 9, "value": 4},
+                    {"period": 10, "value": 4},
+                    {"period": 11, "value": 4},
+                    {"period": 12, "value": 4},
+                    {"period": 13, "value": 4},
+                    {"period": 14, "value": 4},
+                    {"period": 15, "value": 4},
+                    {"period": 16, "value": 4},
+                    {"period": 17, "value": 4},
+                    {"period": 18, "value": 4}
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "2970526",
+              "displayName": "Rory McIlroy",
+              "linescores": [
+                {
+                  "period": 1,
+                  "linescores": [
+                    {"period": 1, "value": 4},
+                    {"period": 2, "value": 4},
+                    {"period": 3, "value": 4},
+                    {"period": 4, "value": 4},
+                    {"period": 5, "value": 4},
+                    {"period": 6, "value": 4},
+                    {"period": 7, "value": 4},
+                    {"period": 8, "value": 4},
+                    {"period": 9, "value": 4},
+                    {"period": 10, "value": 4},
+                    {"period": 11, "value": 4},
+                    {"period": 12, "value": 4},
+                    {"period": 13, "value": 4},
+                    {"period": 14, "value": 4},
+                    {"period": 15, "value": 4},
+                    {"period": 16, "value": 4},
+                    {"period": 17, "value": 4},
+                    {"period": 18, "value": 4}
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

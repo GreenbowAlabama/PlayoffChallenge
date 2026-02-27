@@ -205,7 +205,92 @@ It is part of the system.
 
 ---
 
-# 11. WHEN IN DOUBT
+# 11. INGESTION ADAPTER RULES
+
+All ingestion adapters follow the same interface contract:
+
+## computeIngestionKey(contestInstanceId, unit)
+
+**Deterministic Content Hash Requirements:**
+- Hash must be content-based, never time/random dependent
+- Use SHA-256 over canonicalized JSON
+- Canonicalize via `ingestionValidator.canonicalizeJson()`: sorts keys alphabetically, preserves array order
+- Include only scoring-relevant fields in the hash input
+- Exclude volatile display fields (displayValue, order, etc.)
+- Return format: `{provider}_{sport}:{contestInstanceId}:{contentHash}` (64-char hex)
+
+**Payload Normalization Rules (Sport-Specific):**
+- PGA ESPN: Hash input = `{ providerEventId, competitors: [{athleteId, rounds:[...]}] }`
+  - Sort competitors by athleteId (string)
+  - Filter to complete rounds only (18 holes for golf)
+  - For each hole: `{ holeNumber, strokes: Math.round(value) }`
+- NFL ESPN: Hash input = `{ weekNumber }` (or equivalent sport-specific unit key)
+
+**No Database Access:**
+- computeIngestionKey is pure transform
+- No DB reads, no DB writes
+- Used for idempotency deduplication via work_unit_key unique constraint
+
+## getWorkUnits(ctx)
+
+- Return empty array if ctx missing contestInstanceId
+- Otherwise return minimal work unit placeholders for Batch N
+- Batch 1: return `[{ providerEventId: null, providerData: null }]`
+- Later batches will populate real providerEventId + providerData
+
+## Partial-Round Policy
+
+**Applied uniformly across all sports:**
+- Include only fully completed rounds (18 holes for golf, 4 quarters for football, etc.)
+- Filter rounds with incomplete data from normalization
+- Incomplete rounds are silently excluded, not errors
+- This ensures hash stability across partial game states during live events
+
+## Batch 2: Polling Orchestrator Pattern
+
+**For sport adapters requiring external data fetching (e.g., PGA ESPN):**
+
+### Module Structure
+- **Adapter** (`services/ingestion/strategies/{adapter}.js`): Pure transformation only
+  - `computeIngestionKey(contestInstanceId, unit)` — deterministic hashing
+  - `getWorkUnits(ctx)` — returns work unit structure (placeholder or real)
+  - `normalizeEspnPayload(data)` — extracts scoring-relevant fields
+  - NO ESPN API calls, NO DB reads/writes
+
+- **Orchestrator** (`services/ingestion/orchestrators/{adapter}Orchestrator.js`): External I/O
+  - Owns ESPN/external API integration
+  - Fetches calendar, leaderboards, other provider data
+  - Selects events deterministically
+  - Validates provider payload shapes (fail-fast)
+  - Builds opaque work units `{ providerEventId, providerData, ... }`
+  - Calls `ingestionService.run(contestInstanceId, pool, workUnits)`
+
+### Deterministic Event Selection (PGA ESPN)
+- 6-tier algorithm (see `pga-espn-event-selection-mapping.md`)
+  - Tier 1: Config override (with validation)
+  - Tier 2: Date window overlap
+  - Tier 3: Exact normalized name match
+  - Tier 4: Substring match
+  - Tier 5: Tie-breakers (date diff → earlier → lowest ID)
+  - Tier 6: Escalation (return null)
+- Year validation MANDATORY: Filter calendar and validate selected event year
+- All matching is case-insensitive, punctuation-insensitive
+- Never uses array order as tie-breaker (deterministic sorting required)
+
+### ingestionService.run() Extension
+**New signature:**
+```javascript
+async function run(contestInstanceId, pool, workUnits = null)
+```
+
+- If `workUnits` provided: Use them directly (from Batch 2+ orchestrator)
+- If `workUnits` null: Call `adapter.getWorkUnits(ctx)` for backward compatibility
+- Service remains sport-agnostic: only calls adapter functions, no ESPN parsing
+- Transaction order locked: compute key → INSERT with dedup → write data → update status
+
+---
+
+# 12. WHEN IN DOUBT
 
 Ask for:
 - schema.snapshot.sql

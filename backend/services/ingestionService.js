@@ -22,9 +22,12 @@ const ingestionRegistry = require('./ingestionRegistry');
  *
  * @param {string} contestInstanceId - UUID of the contest_instance to ingest
  * @param {Object} pool - pg.Pool (or compatible)
+ * @param {Array} workUnits - (Optional) Pre-built work units from polling orchestrator.
+ *                            If provided, skips adapter.getWorkUnits() call.
+ *                            Enables Batch 2 polling orchestrator to supply ESPN data.
  * @returns {Promise<Object>} summary - { processed, skipped, errors }
  */
-async function run(contestInstanceId, pool) {
+async function run(contestInstanceId, pool, workUnits = null) {
   if (!contestInstanceId) {
     throw new Error('ingestionService.run: contestInstanceId is required');
   }
@@ -63,13 +66,15 @@ async function run(contestInstanceId, pool) {
       now: new Date()
     };
 
-    // ── Get work units ────────────────────────────────────────────────────────
-    const workUnits = await adapter.getWorkUnits(ctx);
+    // ── Get work units (backward compatible) ────────────────────────────────
+    // If workUnits provided (from Batch 2 orchestrator), use them.
+    // Otherwise, call adapter.getWorkUnits() for backward compatibility (Batch 1, other sports).
+    const unitsToProcess = workUnits !== null ? workUnits : await adapter.getWorkUnits(ctx);
 
     const summary = { processed: 0, skipped: 0, errors: [] };
 
     // ── Process each work unit ────────────────────────────────────────────────
-    for (const unit of workUnits) {
+    for (const unit of unitsToProcess) {
       const workUnitKey = adapter.computeIngestionKey(contestInstanceId, unit);
 
       // Idempotency: try to claim this work unit as RUNNING.

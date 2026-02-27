@@ -1,0 +1,22 @@
+{
+  "events": [
+    {
+      "id": "401811941",
+      "label": "Masters Tournament",
+      "startDate": "2026-04-09T07:00Z",
+      "endDate": "2026-04-12T07:00Z"
+    },
+    {
+      "id": "401823456",
+      "label": "PGA Championship",
+      "startDate": "2026-05-21T07:00Z",
+      "endDate": "2026-05-24T07:00Z"
+    },
+    {
+      "id": "401834567",
+      "label": "U.S. Open Championship",
+      "startDate": "2026-06-18T07:00Z",
+      "endDate": "2026-06-21T07:00Z"
+    }
+  ]
+}
