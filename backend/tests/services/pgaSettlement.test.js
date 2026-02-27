@@ -362,10 +362,12 @@ describe('pgaSettlement — idempotency', () => {
     const payoutStructure = { '1': 70, '2': 30 };
     const totalPoolCents = 10000;
 
-    const payouts1 = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
-    const payouts2 = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
+    const result1 = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
+    const result2 = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
 
-    expect(payouts1).toEqual(payouts2);
+    // Verify allocatePayouts is deterministic: same inputs → same output
+    expect(result1.payouts).toEqual(result2.payouts);
+    expect(result1.platformRemainderCents).toBe(result2.platformRemainderCents);
   });
 
   it('canonicalized results produce identical hashes', () => {
@@ -540,7 +542,7 @@ describe('pgaSettlement — OpenAPI Standing contract', () => {
     const payoutStructure = { '1': 70, '2': 30 };
     const totalPoolCents = 10000;
 
-    const payouts = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
+    const { payouts } = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
 
     payouts.forEach(payout => {
       // Must have required fields
@@ -685,7 +687,7 @@ describe('pgaSettlement — integration flow', () => {
     // Allocate payouts
     const payoutStructure = { '1': 70, '2': 30 };
     const totalPoolCents = 20000; // 2 entries × $100
-    const payouts = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
+    const { payouts } = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
 
     expect(payouts).toHaveLength(2);
     expect(payouts[0].amount_cents).toBe(14000); // 70% of $200
@@ -918,7 +920,7 @@ describe('pgaSettlement — edge cases', () => {
     const payoutStructure = { '1': 60, '2': 40 };
     const totalPoolCents = 10001; // Odd number to test rounding
 
-    const payouts = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
+    const { payouts } = settlementStrategy.allocatePayouts(rankings, payoutStructure, totalPoolCents);
 
     // All amounts must be integers (cents)
     payouts.forEach(payout => {

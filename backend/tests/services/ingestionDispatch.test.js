@@ -67,8 +67,10 @@ describe('pgaEspnIngestion stub', () => {
     expect(() => adapter.computeIngestionKey('cid', {})).toThrow(/pga_espn.*not yet implemented/i);
   });
 
-  it('ingestWorkUnit throws not-implemented', async () => {
-    await expect(adapter.ingestWorkUnit({}, {})).rejects.toThrow(/pga_espn.*not yet implemented/i);
+  it('ingestWorkUnit requires providerData (snapshot binding implementation)', async () => {
+    // ingestWorkUnit is now partially implemented for snapshot binding (PGA v1 Section 4.1)
+    // It requires unit.providerData to create ingestion_events with payload_hash
+    await expect(adapter.ingestWorkUnit({}, {})).rejects.toThrow(/unit\.providerData is required/);
   });
 
   it('upsertScores throws not-implemented', async () => {

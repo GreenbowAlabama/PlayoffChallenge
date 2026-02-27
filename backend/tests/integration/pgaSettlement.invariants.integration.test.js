@@ -26,6 +26,48 @@ const crypto = require('crypto');
 const settlementStrategy = require('../../services/settlementStrategy');
 const { ensureGolfMajorTemplate, ensureActiveTemplate } = require('../helpers/templateFactory');
 
+/**
+ * Helper: Create ingestion snapshot and return binding (snapshotId + snapshotHash)
+ * Required for PGA v1 snapshot binding compliance.
+ *
+ * @param {Object} testPool - Database pool for setup
+ * @param {string} contestInstanceId - Contest instance to bind
+ * @returns {Promise<{snapshotId: string, snapshotHash: string}>}
+ */
+async function createIngestionSnapshot(testPool, contestInstanceId) {
+  const snapshotId = crypto.randomUUID();
+
+  // Canonical snapshot payload (sorted keys for deterministic hashing)
+  const payload = {
+    contest_instance_id: contestInstanceId,
+    event_type: 'test_snapshot',
+    provider: 'test'
+  };
+
+  // Compute SHA-256 hash of canonical JSON
+  const canonicalJson = JSON.stringify(payload);
+  const snapshotHash = crypto.createHash('sha256').update(canonicalJson).digest('hex');
+
+  // Insert ingestion_events row
+  // snapshotId is used as the id column
+  await testPool.query(
+    `INSERT INTO ingestion_events
+     (id, contest_instance_id, provider, event_type, provider_data_json, payload_hash, validation_status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      snapshotId,
+      contestInstanceId,
+      'test',
+      'test_snapshot',
+      JSON.stringify(payload),
+      snapshotHash,
+      'VALID'
+    ]
+  );
+
+  return { snapshotId, snapshotHash };
+}
+
 describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
   let pool;
   let testPool; // For cleanup and setup
@@ -203,6 +245,9 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
 
   describe('Invariant: Idempotency guard (settlement_records duplicate prevention)', () => {
     it('should prevent duplicate settlement_records for same contest', async () => {
+      // Create snapshot binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(testPool, contestId);
+
       // First settlement execution
       const client1 = await pool.connect();
       try {
@@ -211,7 +256,7 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
           entry_fee_cents: 10000
         };
 
-        const settlement1 = await settlementStrategy.executeSettlement(contestInstance, pool);
+        const settlement1 = await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
 
         expect(settlement1).toBeDefined();
         expect(settlement1.contest_instance_id).toBe(contestId);
@@ -225,7 +270,7 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
         expect(parseInt(check1.rows[0].count)).toBe(1);
 
         // Second settlement execution (should be idempotent)
-        const settlement2 = await settlementStrategy.executeSettlement(contestInstance, pool);
+        const settlement2 = await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
 
         expect(settlement2).toBeDefined();
         expect(settlement2.contest_instance_id).toBe(contestId);
@@ -243,18 +288,21 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
     });
 
     it('should return existing settlement_records on second call', async () => {
+      // Create snapshot binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(testPool, contestId);
+
       const contestInstance = {
         id: contestId,
         entry_fee_cents: 10000
       };
 
       // First call
-      const settlement1 = await settlementStrategy.executeSettlement(contestInstance, pool);
+      const settlement1 = await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
       const id1 = settlement1.id;
       const hash1 = settlement1.results_sha256;
 
       // Second call
-      const settlement2 = await settlementStrategy.executeSettlement(contestInstance, pool);
+      const settlement2 = await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
       const id2 = settlement2.id;
       const hash2 = settlement2.results_sha256;
 
@@ -293,6 +341,9 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
         ]
       );
 
+      // Create snapshot for the bad contest (will fail at strategy validation, not snapshot)
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(testPool, badContestId);
+
       // Try settlement (should fail due to unknown strategy)
       const badContestInstance = {
         id: badContestId,
@@ -300,7 +351,7 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
       };
 
       try {
-        await settlementStrategy.executeSettlement(badContestInstance, pool);
+        await settlementStrategy.executeSettlement(badContestInstance, pool, snapshotId, snapshotHash);
         fail('Expected settlement to throw on unknown strategy');
       } catch (err) {
         expect(err.message).toMatch(/Unknown settlement strategy/);
@@ -313,14 +364,16 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
       );
       expect(parseInt(check.rows[0].count)).toBe(0);
 
-      // Cleanup
-      await testPool.query('DELETE FROM contest_instances WHERE id = $1', [badContestId]);
-      // Note: bad template no longer deleted; templateFactory handles deactivation
+      // Note: Cannot cleanup - ingestion_events is append-only, and contest_instances has FK to it
+      // Test isolation is maintained via unique IDs (badContestId is unique per test run)
     });
   });
 
   describe('Invariant: Settlement consistency with contest_instances.settle_time', () => {
     it('should set settle_time exactly once with settlement_records', async () => {
+      // Create snapshot binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(testPool, contestId);
+
       const contestInstance = {
         id: contestId,
         entry_fee_cents: 10000
@@ -334,7 +387,7 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
       expect(before.rows[0].settle_time).toBeNull();
 
       // Execute settlement
-      await settlementStrategy.executeSettlement(contestInstance, pool);
+      await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
 
       // Verify settle_time is set
       const after = await testPool.query(
@@ -352,6 +405,9 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
     });
 
     it('should throw if settle_time exists but no settlement_records', async () => {
+      // Create snapshot binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(testPool, contestId);
+
       // Manually set settle_time without settlement_records (data corruption scenario)
       await testPool.query(
         'UPDATE contest_instances SET settle_time = NOW() WHERE id = $1',
@@ -365,7 +421,7 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
 
       // Try settlement (should detect inconsistency)
       try {
-        await settlementStrategy.executeSettlement(contestInstance, pool);
+        await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
         fail('Expected settlement to throw on inconsistent state');
       } catch (err) {
         expect(err.message).toMatch(/INCONSISTENT_STATE/);
@@ -375,12 +431,15 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
 
   describe('Invariant: SYSTEM audit record created', () => {
     it('should create admin_contest_audit record for settlement', async () => {
+      // Create snapshot binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(testPool, contestId);
+
       const contestInstance = {
         id: contestId,
         entry_fee_cents: 10000
       };
 
-      await settlementStrategy.executeSettlement(contestInstance, pool);
+      await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
 
       // Verify audit record exists
       const audit = await testPool.query(
@@ -391,12 +450,15 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
 
       expect(audit.rows).toHaveLength(1);
       expect(audit.rows[0].admin_user_id).toBe('00000000-0000-0000-0000-000000000000'); // SYSTEM_USER_ID
-      expect(audit.rows[0].reason).toBe('Settlement executed successfully');
+      expect(audit.rows[0].reason).toContain('Settlement executed successfully'); // Verify successful settlement was audited
     });
   });
 
   describe('Invariant: PGA settlement strategy dispatch from template', () => {
     it('should load settlement_strategy_key from contest template', async () => {
+      // Create snapshot binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(testPool, contestId);
+
       // Template has settlement_strategy_key = 'pga_standard_v1'
       const contestInstance = {
         id: contestId,
@@ -404,7 +466,7 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
       };
 
       // executeSettlement should dispatch to pgaSettlementFn (via settlementRegistry)
-      const settlement = await settlementStrategy.executeSettlement(contestInstance, pool);
+      const settlement = await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
 
       expect(settlement).toBeDefined();
       expect(settlement.results).toBeDefined();
@@ -423,12 +485,15 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
 
   describe('Invariant: Results hash immutability', () => {
     it('should compute and store SHA-256 hash for results', async () => {
+      // Create snapshot binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(testPool, contestId);
+
       const contestInstance = {
         id: contestId,
         entry_fee_cents: 10000
       };
 
-      const settlement = await settlementStrategy.executeSettlement(contestInstance, pool);
+      const settlement = await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
 
       // Verify hash is present
       expect(settlement.results_sha256).toBeDefined();

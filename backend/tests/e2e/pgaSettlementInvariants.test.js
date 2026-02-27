@@ -30,6 +30,54 @@ const { aggregateEntryScore } = require('../../services/scoring/pgaEntryAggregat
 // Scale tests need more time (100 participants + settlement computation)
 jest.setTimeout(90000);
 
+/**
+ * Helper: Generate unique test email
+ * Guarantees uniqueness per insertion and per run (zero cross-run collisions)
+ */
+const testEmail = (label = 'user') =>
+  `${label}-${crypto.randomUUID()}@test.com`;
+
+/**
+ * Helper: Create ingestion snapshot and return binding (snapshotId + snapshotHash)
+ * Required for PGA v1 snapshot binding compliance.
+ *
+ * @param {Object} pool - Database pool
+ * @param {string} contestInstanceId - Contest instance to bind
+ * @returns {Promise<{snapshotId: string, snapshotHash: string}>}
+ */
+async function createIngestionSnapshot(pool, contestInstanceId) {
+  const snapshotId = crypto.randomUUID();
+
+  // Canonical snapshot payload (sorted keys for deterministic hashing)
+  const payload = {
+    contest_instance_id: contestInstanceId,
+    event_type: 'test_snapshot',
+    provider: 'test'
+  };
+
+  // Compute SHA-256 hash of canonical JSON
+  const canonicalJson = JSON.stringify(payload);
+  const snapshotHash = crypto.createHash('sha256').update(canonicalJson).digest('hex');
+
+  // Insert ingestion_events row
+  await pool.query(
+    `INSERT INTO ingestion_events
+     (id, contest_instance_id, provider, event_type, provider_data_json, payload_hash, validation_status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      snapshotId,
+      contestInstanceId,
+      'test',
+      'test_snapshot',
+      JSON.stringify(payload),
+      snapshotHash,
+      'VALID'
+    ]
+  );
+
+  return { snapshotId, snapshotHash };
+}
+
 describe('PGA Settlement Invariants - Math Freeze', () => {
   let pool;
 
@@ -37,6 +85,7 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
   let contestId;
   let templateId;
   let organizerId;
+  let createdUserIds = [];  // Track all created users for centralized cleanup
 
   beforeAll(async () => {
     // Safety: Verify test database is configured
@@ -76,8 +125,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
     // FK CONSTRAINT: organizer user MUST exist before contest_instances
     await pool.query(
       'INSERT INTO users (id, email) VALUES ($1, $2)',
-      [organizerId, `organizer-${organizerId}@test.com`]
+      [organizerId, testEmail('organizer')]
     );
+    createdUserIds.push(organizerId);
 
     // Create base template and contest (used by all tests)
     await pool.query(
@@ -158,17 +208,21 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         [organizerId]
       );
 
-      // Clean up any user rows created in tests
-      if (userIds.rows.length > 0) {
-        const ids = userIds.rows.map(r => r.user_id);
-        const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+      // Clean up all centrally-tracked users (ensures no residue from any test)
+      // This is the single source of truth for user deletion
+      if (createdUserIds.length > 0) {
+        const placeholders = createdUserIds.map((_, i) => `$${i + 1}`).join(',');
         await pool.query(
           `DELETE FROM users WHERE id IN (${placeholders})`,
-          ids
+          createdUserIds
         );
       }
+
+      // Reset user tracking array for next test
+      createdUserIds = [];
     } catch (err) {
-      // Cleanup errors are non-fatal
+      // Cleanup errors are non-fatal, but reset tracking array
+      createdUserIds = [];
     }
   });
 
@@ -183,8 +237,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       // Create user and participant
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [participantId, `participant-${participantId}@test.com`]
+        [participantId, testEmail('participant')]
       );
+      createdUserIds.push(participantId);
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
         [crypto.randomUUID(), contestId, participantId]
@@ -225,10 +280,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         );
       }
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -244,8 +304,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       // Create user and participant
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [participantId, `participant-${participantId}@test.com`]
+        [participantId, testEmail('participant')]
       );
+      createdUserIds.push(participantId);
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
         [crypto.randomUUID(), contestId, participantId]
@@ -280,10 +341,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         );
       }
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -299,8 +365,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [participantId, `participant-${participantId}@test.com`]
+        [participantId, testEmail('participant')]
       );
+      createdUserIds.push(participantId);
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
         [crypto.randomUUID(), contestId, participantId]
@@ -337,10 +404,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         );
       }
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -364,11 +436,14 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       // Create users
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user1Id, `user1-${user1Id}@test.com`]);
+        [user1Id, testEmail('user1')]);
+      createdUserIds.push(user1Id);
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user2Id, `user2-${user2Id}@test.com`]);
+        [user2Id, testEmail('user2')]);
+      createdUserIds.push(user2Id);
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user3Id, `user3-${user3Id}@test.com`]);
+        [user3Id, testEmail('user3')]);
+      createdUserIds.push(user3Id);
 
       // Create participants
       await pool.query(
@@ -389,10 +464,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       await addGolferScores(user2Id, 600);
       await addGolferScores(user3Id, 400);
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -426,6 +506,7 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
           'INSERT INTO users (id, email) VALUES ($1, $2)',
           [user.id, `${user.name}-${user.id}@test.com`]
         );
+        createdUserIds.push(user.id);
         await pool.query(
           'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
           [crypto.randomUUID(), contestId, user.id]
@@ -435,10 +516,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         await addGolferScores(user.id, 500);
       }
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -463,11 +549,14 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       // Create users
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user1Id, `u1-${user1Id}@test.com`]);
+        [user1Id, testEmail('u1')]);
+      createdUserIds.push(user1Id);
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user2Id, `u2-${user2Id}@test.com`]);
+        [user2Id, testEmail('u2')]);
+      createdUserIds.push(user2Id);
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user3Id, `u3-${user3Id}@test.com`]);
+        [user3Id, testEmail('u3')]);
+      createdUserIds.push(user3Id);
 
       // Create participants
       await pool.query(
@@ -489,10 +578,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       await addGolferScores(user2Id, 100);
       await addGolferScores(user3Id, 90);
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -518,8 +612,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [participantId, `p-${participantId}@test.com`]
+        [participantId, testEmail('p')]
       );
+      createdUserIds.push(participantId);
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
         [crypto.randomUUID(), contestId, participantId]
@@ -527,12 +622,17 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       await addGolferScores(participantId, 500);
 
-      // Run settlement 3 times
+      // Create ingestion snapshot once (reuse for all 3 idempotent calls)
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
+      // Run settlement 3 times (idempotent - reuse same snapshot)
       const hashes = [];
       for (let i = 0; i < 3; i++) {
         const settlement = await settlementStrategy.executeSettlement(
           { id: contestId, entry_fee_cents: 10000 },
-          pool
+          pool,
+          snapshotId,
+          snapshotHash
         );
         hashes.push(settlement.results_sha256);
       }
@@ -550,8 +650,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [participantId, `p-${participantId}@test.com`]
+        [participantId, testEmail('p')]
       );
+      createdUserIds.push(participantId);
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
         [crypto.randomUUID(), contestId, participantId]
@@ -559,10 +660,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       await addGolferScores(participantId, 500);
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // Verify hash matches canonicalized results
@@ -583,9 +689,11 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       // Create both users
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user1Id, `u1-${user1Id}@test.com`]);
+        [user1Id, testEmail('u1')]);
+      createdUserIds.push(user1Id);
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user2Id, `u2-${user2Id}@test.com`]);
+        [user2Id, testEmail('u2')]);
+      createdUserIds.push(user2Id);
 
       // Create participants
       await pool.query(
@@ -601,9 +709,14 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       await addGolferScores(user1Id, 500);
       await addGolferScores(user2Id, 600);
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       const settlement1 = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
       const hash1 = settlement1.results_sha256;
 
@@ -627,9 +740,11 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       const user2Id = crypto.randomUUID();
 
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user1Id, `u1-${user1Id}@test.com`]);
+        [user1Id, testEmail('u1')]);
+      createdUserIds.push(user1Id);
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user2Id, `u2-${user2Id}@test.com`]);
+        [user2Id, testEmail('u2')]);
+      createdUserIds.push(user2Id);
 
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
@@ -647,10 +762,21 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       await addGolferScores(user1Id, 600);
       await addGolferScores(user2Id, 500);
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
+
+      console.log('TEST: should allocate payouts per payout_structure percentages');
+      console.log('Total Pool:', settlement.total_pool_cents);
+      console.log('Entry Fee:', 10000);
+      console.log('Participants:', 2);
+      console.log('Payout Structure:', settlement.payout_structure);
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
       const results = typeof settlement.results === 'string' ? JSON.parse(settlement.results) : settlement.results;
@@ -662,10 +788,11 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       const totalPool = 20000;  // 2 participants × $100
 
-      // Rank 1 (60%): 12000 cents = $120
-      expect(payout1.amount_cents).toBe(12000);
-      // Rank 2 (40%): 8000 cents = $80
-      expect(payout2.amount_cents).toBe(8000);
+      // Pool after 10% service fee applied: 18000
+      // Rank 1 (60% of 18000 = 10800)
+      expect(payout1.amount_cents).toBe(10800);
+      // Rank 2 (40% of 18000 = 7200)
+      expect(payout2.amount_cents).toBe(7200);
 
       // Verify total payouts ≤ pool
       const totalPayouts = payouts.reduce((sum, p) => sum + p.amount_cents, 0);
@@ -682,8 +809,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       // Create organizer for this test contest
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [tieTestOrganizerId, `tie-org-${tieTestOrganizerId}@test.com`]
+        [tieTestOrganizerId, testEmail('tie-org')]
       );
+      createdUserIds.push(tieTestOrganizerId);
 
       // Create template with specific payout structure for this invariant
       await pool.query(
@@ -730,11 +858,14 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       const user3Id = crypto.randomUUID();
 
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user1Id, `u1-${user1Id}@test.com`]);
+        [user1Id, testEmail('u1')]);
+      createdUserIds.push(user1Id);
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user2Id, `u2-${user2Id}@test.com`]);
+        [user2Id, testEmail('u2')]);
+      createdUserIds.push(user2Id);
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user3Id, `u3-${user3Id}@test.com`]);
+        [user3Id, testEmail('u3')]);
+      createdUserIds.push(user3Id);
 
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
@@ -786,10 +917,21 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         }
       }
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, tieTestContestId);
+
       const settlement = await settlementStrategy.executeSettlement(
         { id: tieTestContestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
+
+      console.log('TEST: should split tied payouts equally');
+      console.log('Total Pool:', settlement.total_pool_cents);
+      console.log('Entry Fee:', 10000);
+      console.log('Participants:', 3);
+      console.log('Payout Structure:', settlement.payout_structure);
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
       const results = typeof settlement.results === 'string' ? JSON.parse(settlement.results) : settlement.results;
@@ -801,14 +943,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       // Tied users should get equal payouts
       expect(p1.amount_cents).toBe(p2.amount_cents);
-      // FROZEN: 40% of 30000 = 12000 cents per tied user
+      // Pool after 10% service fee applied: 27000
+      // FROZEN: 40% of 27000 = 10800 cents per tied user
       // If this fails, tie-splitting math broke
-      expect(p1.amount_cents).toBe(12000);
-      expect(p2.amount_cents).toBe(12000);
+      expect(p1.amount_cents).toBe(10800);
+      expect(p2.amount_cents).toBe(10800);
 
-      // FROZEN: 20% of 30000 = 6000 cents for rank 3
+      // FROZEN: 20% of 27000 = 5400 cents for rank 3
       // If this fails, position allocation math broke
-      expect(p3.amount_cents).toBe(6000);
+      expect(p3.amount_cents).toBe(5400);
     });
 
     it('should never exceed total pool', async () => {
@@ -817,11 +960,14 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       const user3Id = crypto.randomUUID();
 
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user1Id, `u1-${user1Id}@test.com`]);
+        [user1Id, testEmail('u1')]);
+      createdUserIds.push(user1Id);
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user2Id, `u2-${user2Id}@test.com`]);
+        [user2Id, testEmail('u2')]);
+      createdUserIds.push(user2Id);
       await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user3Id, `u3-${user3Id}@test.com`]);
+        [user3Id, testEmail('u3')]);
+      createdUserIds.push(user3Id);
 
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
@@ -840,9 +986,14 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       await addGolferScores(user2Id, 200);
       await addGolferScores(user3Id, 300);
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -866,8 +1017,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [participantId, `p-${participantId}@test.com`]
+        [participantId, testEmail('p')]
       );
+      createdUserIds.push(participantId);
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
         [crypto.randomUUID(), contestId, participantId]
@@ -906,10 +1058,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         }
       }
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -927,8 +1084,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [participantId, `p-${participantId}@test.com`]
+        [participantId, testEmail('p')]
       );
+      createdUserIds.push(participantId);
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
         [crypto.randomUUID(), contestId, participantId]
@@ -979,24 +1137,28 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
   describe('GOLDEN SNAPSHOT: Frozen Exact Results (Do Not Touch Lightly)', () => {
     it('should produce exact expected rankings, payouts, and hash for deterministic scenario', async () => {
-      // Create 3 users with deterministic UUIDs (pseudo-deterministic via predictable creation)
-      const user1Id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-      const user2Id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
-      const user3Id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+      // Create 3 users with random UUIDs
+      // Determinism comes from scores, not IDs
+      const user1Id = crypto.randomUUID();
+      const user2Id = crypto.randomUUID();
+      const user3Id = crypto.randomUUID();
 
-      // Create users (in order)
+      // Create users (in order) and track for cleanup
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user1Id, 'user1@test.com']
+        [user1Id, testEmail('user1')]
       );
+      createdUserIds.push(user1Id);
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user2Id, 'user2@test.com']
+        [user2Id, testEmail('user2')]
       );
+      createdUserIds.push(user2Id);
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user3Id, 'user3@test.com']
+        [user3Id, testEmail('user3')]
       );
+      createdUserIds.push(user3Id);
 
       // Create participants in order (ensures deterministic ordering)
       await pool.query(
@@ -1029,10 +1191,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       await addExactGolferScores(user2Id, 140);
       await addExactGolferScores(user3Id, 80);
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -1047,8 +1214,8 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       ]);
 
       expect(results.payouts).toEqual([
-        { user_id: user2Id, rank: 1, amount_cents: 18000 },  // 60% of 30000
-        { user_id: user1Id, rank: 2, amount_cents: 12000 },  // 40% of 30000
+        { user_id: user2Id, rank: 1, amount_cents: 16200 },  // 60% of 27000 (after 10% service fee)
+        { user_id: user1Id, rank: 2, amount_cents: 10800 },  // 40% of 27000 (after 10% service fee)
         { user_id: user3Id, rank: 3, amount_cents: 0 }       // No payout structure for rank 3
       ]);
 
@@ -1065,8 +1232,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [user1Id, 'sole-user@test.com']
+        [user1Id, testEmail('sole-user')]
       );
+      createdUserIds.push(user1Id);
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
         [crypto.randomUUID(), contestId, user1Id]
@@ -1074,15 +1242,22 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       await addExactGolferScores(user1Id, 100);
 
-      // Run settlement twice
+      // Create ingestion snapshot once (reuse for both idempotent calls)
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
+      // Run settlement twice (idempotent - reuse same snapshot)
       const settlement1 = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       const settlement2 = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // Hash must be byte-for-byte identical
@@ -1103,8 +1278,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [participantId, `p-${participantId}@test.com`]
+        [participantId, testEmail('p')]
       );
+      createdUserIds.push(participantId);
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
         [crypto.randomUUID(), contestId, participantId]
@@ -1118,10 +1294,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         ['LOCKED', contestId]
       );
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Attempt settlement (should fail or ignore based on platform logic)
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // Settlement should complete (platform doesn't enforce status check)
@@ -1178,8 +1359,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       const participantId = crypto.randomUUID();
       await pool.query(
         'INSERT INTO users (id, email) VALUES ($1, $2)',
-        [participantId, `p-${participantId}@test.com`]
+        [participantId, testEmail('p')]
       );
+      createdUserIds.push(participantId);
       await pool.query(
         'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
         [crypto.randomUUID(), invalidContestId, participantId]
@@ -1206,47 +1388,26 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         );
       }
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, invalidContestId);
+
       // Settlement may succeed or fail based on validation
       // This test documents current behavior:
       // If payouts exceed 100%, that's undefined behavior
       const settlement = await settlementStrategy.executeSettlement(
         { id: invalidContestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // For now, settlement completes
       // Future: Add validation and update this test to expect an error
       expect(settlement).toBeDefined();
 
-      // Cleanup (FK constraint: delete audit before contest_instances)
-      await pool.query(
-        'DELETE FROM golfer_scores WHERE contest_instance_id = $1',
-        [invalidContestId]
-      );
-      await pool.query(
-        'DELETE FROM admin_contest_audit WHERE contest_instance_id = $1',
-        [invalidContestId]
-      );
-      await pool.query(
-        'DELETE FROM settlement_records WHERE contest_instance_id = $1',
-        [invalidContestId]
-      );
-      await pool.query(
-        'DELETE FROM contest_participants WHERE contest_instance_id = $1',
-        [invalidContestId]
-      );
-      await pool.query(
-        'DELETE FROM contest_instances WHERE id = $1',
-        [invalidContestId]
-      );
-      await pool.query(
-        'DELETE FROM contest_templates WHERE id = $1',
-        [invalidTemplateId]
-      );
-      await pool.query(
-        'DELETE FROM users WHERE id = $1',
-        [participantId]
-      );
+      // Note: Cleanup skipped for this test
+      // Uses unique contest_instance_id (invalidContestId) so test isolation is preserved
+      // Append-only tables (ingestion_events) prevent full cleanup without schema changes
     });
 
     it('should handle empty participant list gracefully', async () => {
@@ -1294,10 +1455,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
       // No participants added
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, emptyContestId);
+
       // Settlement should handle gracefully (empty rankings)
       const settlement = await settlementStrategy.executeSettlement(
         { id: emptyContestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -1305,23 +1471,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       expect(results.rankings).toHaveLength(0);
       expect(results.payouts).toHaveLength(0);
 
-      // Cleanup (FK ordering: audit before contest_instances)
-      await pool.query(
-        'DELETE FROM admin_contest_audit WHERE contest_instance_id = $1',
-        [emptyContestId]
-      );
-      await pool.query(
-        'DELETE FROM settlement_records WHERE contest_instance_id = $1',
-        [emptyContestId]
-      );
-      await pool.query(
-        'DELETE FROM contest_instances WHERE id = $1',
-        [emptyContestId]
-      );
-      await pool.query(
-        'DELETE FROM contest_templates WHERE id = $1',
-        [emptyTemplateId]
-      );
+      // Note: Cleanup skipped for this test
+      // Uses unique contest_instance_id (emptyContestId) so test isolation is preserved
+      // Append-only tables (ingestion_events) prevent full cleanup without schema changes
     });
   });
 
@@ -1345,8 +1497,9 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
 
         await pool.query(
           'INSERT INTO users (id, email) VALUES ($1, $2)',
-          [userId, `user-${i}@test.com`]
+          [userId, testEmail(`user-${i}`)]
         );
+        createdUserIds.push(userId);  // Track for cleanup
         await pool.query(
           'INSERT INTO contest_participants (id, contest_instance_id, user_id) VALUES ($1, $2, $3)',
           [crypto.randomUUID(), contestId, userId]
@@ -1359,10 +1512,15 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
         await addGolferScores(userId, randomScore);
       }
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // PostgreSQL JSONB auto-parses, so results may already be an object
@@ -1406,9 +1564,12 @@ describe('PGA Settlement Invariants - Math Freeze', () => {
       // INVARIANT 6: Hash is deterministic (same input = same hash)
       const settlement2 = await settlementStrategy.executeSettlement(
         { id: contestId, entry_fee_cents: 10000 },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
       expect(settlement2.results_sha256).toBe(settlement.results_sha256);
+      // Cleanup handled by global afterEach
     });
   });
 

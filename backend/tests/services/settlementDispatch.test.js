@@ -117,10 +117,11 @@ describe('Settlement Dispatch Boundary', () => {
         ._queueResponse({ rows: [{ playoff_start_week: 19 }] }) // game_settings
         ._queueResponse({ rows: [{ user_id: 'u1', total_score: 80 }] }) // scores
         ._queueResponse({ rows: [{ id: 'sr-1' }] }) // insert settlement
+        ._queueResponse({ rows: [] }) // update scoring_run_id
         ._queueResponse({ rows: [] }) // update settle_time
         ._queueResponse({ rows: [] }); // audit
 
-      const result = await executeSettlement(contestInstance, mockPool);
+      const result = await executeSettlement(contestInstance, mockPool, 'snap-id', 'hash');
       expect(result).toEqual({ id: 'sr-1' });
     });
 
@@ -212,10 +213,11 @@ describe('Settlement Dispatch Boundary', () => {
           rows: [{ user_id: 'user1', total_score: 100 }]
         }) // scores (via strategy)
         ._queueResponse({ rows: [{ id: 'settlement-id' }] }) // insert settlement
+        ._queueResponse({ rows: [] }) // update scoring_run_id
         ._queueResponse({ rows: [] }) // update settle_time
         ._queueResponse({ rows: [] }); // audit
 
-      const result = await settlementStrategy.executeSettlement(contestInstance, mockPool);
+      const result = await settlementStrategy.executeSettlement(contestInstance, mockPool, 'snap-id', 'hash');
 
       expect(result).toEqual({ id: 'settlement-id' });
       expect(mockClient.query).toHaveBeenCalledWith('BEGIN');

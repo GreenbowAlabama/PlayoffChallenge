@@ -61,6 +61,7 @@ describe('PayoutExecutionService', () => {
   describe('executeTransfer', () => {
     it('should execute transfer successfully and create completed ledger entry', async () => {
       mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce({ rows: [{ snapshot_id: 'snap-123', snapshot_hash: 'hash-123', scoring_run_id: 'run-123' }] }); // settlement query
       mockClient.query.mockResolvedValueOnce(undefined); // COMMIT
 
       PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(mockTransfer);
@@ -104,6 +105,7 @@ describe('PayoutExecutionService', () => {
 
     it('should handle transient Stripe error as retryable', async () => {
       mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce({ rows: [{ snapshot_id: 'snap-123', snapshot_hash: 'hash-123', scoring_run_id: 'run-123' }] }); // settlement query
       mockClient.query.mockResolvedValueOnce(undefined); // COMMIT
 
       PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(mockTransfer);
@@ -135,6 +137,7 @@ describe('PayoutExecutionService', () => {
 
     it('should handle permanent Stripe error as failed_terminal', async () => {
       mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce({ rows: [{ snapshot_id: 'snap-123', snapshot_hash: 'hash-123', scoring_run_id: 'run-123' }] }); // settlement query
       mockClient.query.mockResolvedValueOnce(undefined); // COMMIT
 
       PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(mockTransfer);
@@ -182,6 +185,7 @@ describe('PayoutExecutionService', () => {
       const maxAttemptTransfer = { ...mockTransfer, attempt_count: 3, max_attempts: 3 };
 
       mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce({ rows: [{ snapshot_id: 'snap-123', snapshot_hash: 'hash-123', scoring_run_id: 'run-123' }] }); // settlement query
       mockClient.query.mockResolvedValueOnce(undefined); // COMMIT
 
       PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(maxAttemptTransfer);
@@ -219,6 +223,7 @@ describe('PayoutExecutionService', () => {
 
     it('should use deterministic idempotency key', async () => {
       mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce({ rows: [{ snapshot_id: 'snap-123', snapshot_hash: 'hash-123', scoring_run_id: 'run-123' }] }); // settlement query
       mockClient.query.mockResolvedValueOnce(undefined); // COMMIT
 
       PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(mockTransfer);
@@ -276,6 +281,7 @@ describe('PayoutExecutionService', () => {
   describe('Destination Account Lookup Integration', () => {
     it('should pass valid destination account to Stripe when account is connected', async () => {
       mockClient.query.mockResolvedValueOnce(undefined); // BEGIN
+      mockClient.query.mockResolvedValueOnce({ rows: [{ snapshot_id: 'snap-123', snapshot_hash: 'hash-123', scoring_run_id: 'run-123' }] }); // settlement query
       mockClient.query.mockResolvedValueOnce(undefined); // COMMIT
 
       PayoutTransfersRepository.claimForProcessing.mockResolvedValueOnce(mockTransfer);

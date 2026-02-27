@@ -146,7 +146,15 @@ async function executeTransfer(pool, transferId, getDestinationAccountFn) {
       throw new Error(`Invalid error classification: ${stripeResult.classification}`);
     }
 
-    // Step 6: Create ledger entry for this attempt
+    // Step 6: Fetch settlement snapshot binding for ledger audit trail (PGA v1 Section 4.1)
+    const settlementResult = await client.query(
+      `SELECT id, snapshot_id, snapshot_hash, scoring_run_id FROM settlement_records
+       WHERE contest_instance_id = $1`,
+      [transfer.contest_id]
+    );
+    const settlement = settlementResult.rows && settlementResult.rows.length > 0 ? settlementResult.rows[0] : null;
+
+    // Create ledger entry for this attempt with snapshot binding
     await LedgerRepository.insertLedgerEntry(client, {
       contest_instance_id: transfer.contest_id,
       user_id: transfer.user_id,
@@ -156,6 +164,9 @@ async function executeTransfer(pool, transferId, getDestinationAccountFn) {
       reference_type: 'PAYOUT_TRANSFER',
       reference_id: transferId,
       idempotency_key: `ledger:payout:${transferId}:${processingTransfer.attempt_count}`,
+      snapshot_id: settlement?.snapshot_id || null,
+      snapshot_hash: settlement?.snapshot_hash || null,
+      scoring_run_id: settlement?.scoring_run_id || null,
       metadata_json: {
         stripe_transfer_id: stripeResult.transferId || null,
         failure_reason: stripeResult.reason || null,

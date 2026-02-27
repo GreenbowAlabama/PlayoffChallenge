@@ -404,27 +404,25 @@ async function listActiveTemplates(pool) {
     ORDER BY name`
   );
 
-  // Filter: only return templates that pass contract validation
-  // Templates with missing or empty allowed_payout_structures are not createable
-  // and are excluded from the endpoint response
+  // Validate: all templates must pass contract validation
+  // If ANY template has a contract violation, throw immediately (fail-fast)
   console.log(`[listActiveTemplates] Query returned ${result.rows.length} templates`);
 
-  const validTemplates = result.rows.filter(template => {
+  for (const template of result.rows) {
     try {
       assertTemplatePayoutStructuresContract(template);
       console.log(`[listActiveTemplates] Template "${template.name}" (${template.id}) PASSED contract validation`);
-      return true;
     } catch (err) {
-      // Template fails contract - not createable, filter it out
-      console.warn(`[listActiveTemplates] FILTERING OUT template "${template.name}" (${template.id}): ${err.message}`);
-      return false;
+      // Template fails contract - throw error immediately (fail-fast)
+      console.error(`[listActiveTemplates] Template "${template.name}" (${template.id}) FAILED contract validation: ${err.message}`);
+      throw new Error(`[Template Contract Violation] ${err.message}`);
     }
-  });
+  }
 
-  console.log(`[listActiveTemplates] Returning ${validTemplates.length} valid templates after filtering`);
+  console.log(`[listActiveTemplates] All ${result.rows.length} templates passed validation`);
 
-  // Map only valid templates to API response format
-  return validTemplates.map(mapTemplateToApiResponse);
+  // Map all valid templates to API response format
+  return result.rows.map(mapTemplateToApiResponse);
 }
 
 /**
@@ -1207,8 +1205,29 @@ async function _updateContestStatusInternal(pool, contestId, newStatus) {
     );
     const contestInstance = contestResult.rows[0];
 
-    // Execute settlement (throws on failure, caught by error recovery)
-    await settlementStrategy.executeSettlement(contestInstance, pool);
+    // Fetch snapshot binding for PGA v1 Section 4.1 compliance
+    // snapshot_id = immutable ingestion_events.id (provider data)
+    // snapshot_hash = canonicalized provider_data_json hash
+    const snapshotResult = await pool.query(
+      `SELECT id, payload_hash FROM ingestion_events
+       WHERE contest_instance_id = $1
+       ORDER BY created_at DESC LIMIT 1`,
+      [contestId]
+    );
+    const ingestionEvent = snapshotResult.rows[0];
+
+    if (!ingestionEvent) {
+      throw new Error(
+        `SETTLEMENT_REQUIRES_SNAPSHOT_BINDING: No ingestion event found for contest ${contestId}. ` +
+        `Ingestion must complete with snapshot before settlement can execute (PGA v1 Section 4.1).`
+      );
+    }
+
+    const snapshotId = ingestionEvent.id;
+    const snapshotHash = ingestionEvent.payload_hash;
+
+    // Execute settlement with snapshot binding (throws on failure, caught by error recovery)
+    await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
 
     // Settlement succeeded, safe to update status
   }

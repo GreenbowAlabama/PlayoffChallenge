@@ -29,6 +29,9 @@
  * @param {string} [data.reference_id] - ID of related entity (optional)
  * @param {string} [data.idempotency_key] - Unique key for idempotency (optional, can be NULL)
  * @param {Object} [data.metadata_json] - Additional metadata (optional)
+ * @param {string} [data.snapshot_id] - Immutable snapshot ID for scoring binding (PGA v1 Section 4.1)
+ * @param {string} [data.snapshot_hash] - Hash of snapshot data for integrity verification
+ * @param {string} [data.scoring_run_id] - Reference to scoring computation (settlement_records.id)
  * @returns {Promise<Object>} { id, entry_type, direction, amount_cents }
  * @throws {Error} PG error 23505 if duplicate non-NULL idempotency_key
  */
@@ -43,7 +46,10 @@ async function insertLedgerEntry(client, {
   reference_id = null,
   idempotency_key = null,
   stripe_event_id = null,
-  metadata_json = null
+  metadata_json = null,
+  snapshot_id = null,
+  snapshot_hash = null,
+  scoring_run_id = null
 }) {
   const result = await client.query(
     `INSERT INTO ledger (
@@ -58,9 +64,12 @@ async function insertLedgerEntry(client, {
        idempotency_key,
        stripe_event_id,
        metadata_json,
+       snapshot_id,
+       snapshot_hash,
+       scoring_run_id,
        created_at
      )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
      RETURNING id, entry_type, direction, amount_cents`,
     [
       contest_instance_id,
@@ -73,7 +82,10 @@ async function insertLedgerEntry(client, {
       reference_id,
       idempotency_key,
       stripe_event_id,
-      metadata_json ? JSON.stringify(metadata_json) : null
+      metadata_json ? JSON.stringify(metadata_json) : null,
+      snapshot_id,
+      snapshot_hash,
+      scoring_run_id
     ]
   );
 

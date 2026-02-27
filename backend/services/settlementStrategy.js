@@ -82,21 +82,30 @@ function computeRankings(scores) {
  *
  * Algorithm: Group rankings by rank, then linearly process each group.
  * For each rank group (tie), combine the payouts for all positions it occupies
- * and split equally among the tied users.
+ * and split equally among the tied users using canonical safe tie allocation.
  *
  * Example: ranks [1, 1, 3] with structure {"1": 70, "2": 20, "3": 10}
  * - Rank 1 (2 users) occupy positions 1-2 → combine 70 + 20 = 90%, split equally
  * - Rank 3 (1 user) occupies position 3 → 10%
  *
+ * PGA v1 Section 3.3: Remainder cents (from floor division) are retained by platform.
+ *
  * @param {Array} rankings - Ranked participants from computeRankings, sorted by rank
  * @param {Object} payoutStructure - Payout structure { "1": percentage, "2": percentage, ... }
  * @param {number} totalPoolCents - Total pool in cents
- * @returns {Array} Payout allocations { user_id, rank, amount_cents }
+ * @returns {Object} { payouts: Array, platformRemainderCents: number }
+ *   - payouts: Array of { user_id, rank, amount_cents }
+ *   - platformRemainderCents: Integer cents retained by platform from rounding
  */
 function allocatePayouts(rankings, payoutStructure, totalPoolCents) {
+  let totalPlatformRemainderCents = 0;
+
   if (!payoutStructure || Object.keys(payoutStructure).length === 0) {
     // No payout structure defined
-    return rankings.map(r => ({ user_id: r.user_id, rank: r.rank, amount_cents: 0 }));
+    return {
+      payouts: rankings.map(r => ({ user_id: r.user_id, rank: r.rank, amount_cents: 0 })),
+      platformRemainderCents: 0
+    };
   }
 
   // Group rankings by rank (preserves order of appearance within each rank)
@@ -127,60 +136,105 @@ function allocatePayouts(rankings, payoutStructure, totalPoolCents) {
       combinedPercentage += (payoutStructure[p] || 0);
     }
 
-    // Calculate total payout for this tie group
-    const payoutCents = Math.floor((totalPoolCents * combinedPercentage) / 100);
+    // Step 1: Calculate total payout for this tie group (round half-up once at block level)
+    // PGA v1 Section 3.3: round at tier level, never over-allocate
+    const blockPayoutCents = Math.round((totalPoolCents * combinedPercentage) / 100);
 
-    // Split equally among tied users (using Math.floor for cents)
-    const perUserCents = Math.floor(payoutCents / tieSize);
+    // Step 2: Split safely using floor to guarantee no over-allocation
+    // This is the canonical tie allocation algorithm that never exceeds pool
+    const baseShare = Math.floor(blockPayoutCents / tieSize);
+    const blockPlatformRemainderCents = blockPayoutCents - (baseShare * tieSize);
 
-    // Assign to each user in the group
+    // Step 3: Assign base share to each user in the group
+    // Remainder is retained by platform (67 Enterprises per PGA v1 Section 3.3)
     group.forEach(entry => {
       payouts.push({
         user_id: entry.user_id,
         rank: entry.rank,
-        amount_cents: perUserCents
+        amount_cents: baseShare
       });
     });
+
+    // Accumulate platform remainder across all tie groups
+    totalPlatformRemainderCents += blockPlatformRemainderCents;
 
     // Move position counter forward by tie size
     currentPosition += tieSize;
   });
 
-  return payouts;
+  return {
+    payouts,
+    platformRemainderCents: totalPlatformRemainderCents
+  };
 }
 
 /**
  * Compute full settlement plan for a contest
  *
  * This is the main entry point for settlement computation.
- * READ-ONLY: produces a plan but does not persist or execute.
+ * Wires together pure functions: rankings → payouts → settlement record.
  *
- * TODO: Implement
+ * PGA v1 Requirements (pga-rules-and-payment-v1.md Section 4.1):
+ * - Refuse to settle without snapshot_id (determinism requirement)
+ * - Calculate prize pool frozen at lock_time
+ * - Apply 10% rake, 90% distributable per Section 3.1
  *
  * @param {string} strategyKey - Settlement strategy key from template
- * @param {Object} contestInstance - Contest instance with payout_structure
- * @param {Array} scores - Array of participant scores
- * @returns {Object} SettlementPlan (see format above)
+ * @param {Object} contestInstance - Contest instance with payout_structure, lock_time
+ * @param {Array} scores - Array of participant scores { user_id, total_score }
+ * @param {string} snapshotId - Immutable snapshot_id for scoring binding (REQUIRED)
+ * @param {string} snapshotHash - Hash of snapshot data (REQUIRED)
+ * @returns {Object} SettlementPlan with snapshot binding (scoringRunId set by caller after record insert)
+ * @throws {Error} If strategyKey unknown, snapshotId or snapshotHash missing
  */
-function computeSettlement(strategyKey, contestInstance, scores) {
+function computeSettlement(strategyKey, contestInstance, scores, snapshotId, snapshotHash) {
   const { getSettlementStrategy } = require('./settlementRegistry');
-  getSettlementStrategy(strategyKey); // throws if key is unknown
 
-  // TODO: Implement strategy-specific logic
-  // const rankings = computeRankings(scores);
-  // const totalPoolCents = calculateTotalPool(contestInstance);
-  // const payouts = allocatePayouts(rankings, contestInstance.payout_structure, totalPoolCents);
-  //
-  // return {
-  //   contest_id: contestInstance.id,
-  //   computed_at: new Date(),
-  //   rankings,
-  //   payouts,
-  //   total_pool_cents: totalPoolCents,
-  //   status: 'computed'
-  // };
+  // GUARD: Validate strategy key first (before snapshot checks)
+  // This ensures unknown strategy errors are not masked by snapshot guards
+  getSettlementStrategy(strategyKey);
 
-  throw new Error('Not implemented: computeSettlement');
+  // GUARD: Snapshot binding is mandatory per PGA v1 Section 4.1
+  if (!snapshotId) {
+    throw new Error('SETTLEMENT_REQUIRES_SNAPSHOT_ID: Settlement refuses to execute without snapshot_id binding (PGA v1 Section 4.1)');
+  }
+  if (!snapshotHash) {
+    throw new Error('SETTLEMENT_REQUIRES_SNAPSHOT_HASH: Settlement refuses to execute without snapshot_hash binding (PGA v1 Section 4.1)');
+  }
+
+  // Compute rankings: sort by score descending, deterministically by user_id ascending
+  const rankings = computeRankings(scores);
+
+  // Calculate prize pool and rake per PGA v1 Section 3.1
+  const participantCount = scores.length;
+  const totalPoolCents = calculateTotalPool(contestInstance, participantCount);
+
+  // Apply rake: 10% retained, 90% distributable
+  const rakeCents = Math.round(totalPoolCents * 0.10);
+  const distributableCents = totalPoolCents - rakeCents;
+
+  // Allocate payouts from distributable pool (returns payouts + remainder)
+  const allocationResult = allocatePayouts(rankings, contestInstance.payout_structure, distributableCents);
+  const payouts = allocationResult.payouts;
+  const platformRemainderCents = allocationResult.platformRemainderCents;
+
+  // Build settlement plan with snapshot binding and platform remainder tracking
+  const settlementPlan = {
+    contest_instance_id: contestInstance.id,
+    snapshot_id: snapshotId,
+    snapshot_hash: snapshotHash,
+    computed_at: new Date(),
+    rankings,
+    payouts,
+    total_pool_cents: totalPoolCents,
+    rake_cents: rakeCents,
+    distributable_cents: distributableCents,
+    platform_remainder_cents: platformRemainderCents,
+    participant_count: participantCount,
+    status: 'computed'
+  };
+
+  return settlementPlan;
 }
 
 /**
@@ -248,18 +302,26 @@ function canonicalizeJson(obj) {
  * - Consistency validation (settle_time without records?)
  * - Score fetching and computation
  * - Rankings and payout calculation
- * - Atomic insert into settlement_records
+ * - Atomic insert into settlement_records with snapshot binding
  * - Atomic update to settle_time
  * - SYSTEM audit record
+ *
+ * Snapshot binding (PGA v1 Section 4.1):
+ * - snapshotId, snapshotHash are REQUIRED
+ * - Settlement refuses to complete without them
+ * - scoringRunId is set to settlement_records.id after INSERT (deterministic, immutable)
+ * - All values stored in settlement_records for replay safety and dispute resolution
  *
  * On any error: ROLLBACK and re-throw (error recovery handles LIVE→ERROR)
  *
  * @param {Object} contestInstance - Contest instance object (minimal: id, entry_fee_cents, payout_structure)
  * @param {Object} pool - Database connection pool
- * @returns {Promise<Object>} Settlement record from database
- * @throws {Error} On any failure (transaction rolled back)
+ * @param {string} snapshotId - Event data snapshot UUID (REQUIRED for PGA v1 compliance)
+ * @param {string} snapshotHash - Hash of snapshot (REQUIRED for PGA v1 compliance)
+ * @returns {Promise<Object>} Settlement record from database (includes id for use as scoring_run_id)
+ * @throws {Error} On any failure (transaction rolled back) or missing snapshot binding
  */
-async function executeSettlement(contestInstance, pool) {
+async function executeSettlement(contestInstance, pool, snapshotId, snapshotHash) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -309,38 +371,67 @@ async function executeSettlement(contestInstance, pool) {
 
     const settlementStrategyKey = templateResult.rows[0].settlement_strategy_key;
 
-    // 5. COMPUTE SETTLEMENT - dispatch to registered strategy via template key
+    // 5. VALIDATE STRATEGY KEY BEFORE SNAPSHOT BINDING (ensures clear error ordering)
     const { getSettlementStrategy } = require('./settlementRegistry');
     const settleFn = getSettlementStrategy(settlementStrategyKey);
+
+    // 6. SNAPSHOT BINDING VALIDATION (PGA v1 Section 4.1)
+    // Must occur after strategy validation so unknown strategy errors are not masked
+    if (!snapshotId) {
+      throw new Error('SETTLEMENT_REQUIRES_SNAPSHOT_ID: Settlement refuses to execute without snapshot_id binding (PGA v1 Section 4.1)');
+    }
+    if (!snapshotHash) {
+      throw new Error('SETTLEMENT_REQUIRES_SNAPSHOT_HASH: Settlement refuses to execute without snapshot_hash binding (PGA v1 Section 4.1)');
+    }
+
+    // 7. COMPUTE SETTLEMENT - dispatch to validated strategy
     const scoreRows = await settleFn(contestInstance.id, client);
 
-    const participantCount = scoreRows.length;
+    // 8. CALL COMPUTE SETTLEMENT with snapshot binding (required)
+    // scoringRunId will be set to settlement_records.id after INSERT
+    const settlementPlan = computeSettlement(
+      settlementStrategyKey,
+      lockedContest,
+      scoreRows,
+      snapshotId,
+      snapshotHash
+    );
 
-    // Compute rankings and payouts
-    const rankings = computeRankings(scoreRows);
-    const totalPoolCents = calculateTotalPool(lockedContest, participantCount);
-    const payouts = allocatePayouts(rankings, lockedContest.payout_structure, totalPoolCents);
+    const participantCount = settlementPlan.participant_count;
+    const totalPoolCents = settlementPlan.total_pool_cents;
+    const platformRemainderCents = settlementPlan.platform_remainder_cents;
 
     // Compute SHA-256 hash for immutability verification
-    const results = { rankings, payouts };
+    // Include platform remainder for audit trail and conservation verification
+    const results = {
+      rankings: settlementPlan.rankings,
+      payouts: settlementPlan.payouts,
+      platform_remainder_cents: platformRemainderCents,
+      rake_cents: settlementPlan.rake_cents,
+      distributable_cents: settlementPlan.distributable_cents
+    };
     const resultsHash = crypto.createHash('sha256')
       .update(JSON.stringify(canonicalizeJson(results)))
       .digest('hex');
 
-    // 6. INSERT SETTLEMENT RECORD (exactly once)
+    // 9. INSERT SETTLEMENT RECORD with snapshot binding (exactly once)
     const insertResult = await client.query(`
       INSERT INTO settlement_records (
         contest_instance_id,
+        snapshot_id,
+        snapshot_hash,
         settled_at,
         results,
         results_sha256,
         settlement_version,
         participant_count,
         total_pool_cents
-      ) VALUES ($1, NOW(), $2, $3, $4, $5, $6)
+      ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8)
       RETURNING *
     `, [
       contestInstance.id,
+      snapshotId,
+      snapshotHash,
       JSON.stringify(results),
       resultsHash,
       'v1',
@@ -348,7 +439,16 @@ async function executeSettlement(contestInstance, pool) {
       totalPoolCents
     ]);
 
-    // 7. WRITE settle_time (exactly once)
+    const settlementRecord = insertResult.rows[0];
+    const scoringRunId = settlementRecord.id; // scoring_run_id IS settlement_records.id (PGA v1 Section 4.1)
+
+    // 9b. UPDATE settlement_records to set scoring_run_id now that we have the id (for explicit binding in record)
+    await client.query(
+      'UPDATE settlement_records SET scoring_run_id = $1 WHERE id = $2',
+      [scoringRunId, settlementRecord.id]
+    );
+
+    // 10. WRITE settle_time (exactly once)
     const previousStatus = lockedContest.status;
     const newStatus = 'COMPLETE';
 
@@ -357,7 +457,7 @@ async function executeSettlement(contestInstance, pool) {
       [newStatus, contestInstance.id]
     );
 
-    // 8. WRITE SYSTEM AUDIT RECORD
+    // 11. WRITE SYSTEM AUDIT RECORD with snapshot context
     const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
     await client.query(`
       INSERT INTO admin_contest_audit
@@ -367,10 +467,13 @@ async function executeSettlement(contestInstance, pool) {
       contestInstance.id,
       SYSTEM_USER_ID,
       'system_settlement_complete',
-      'Settlement executed successfully',
+      'Settlement executed successfully with snapshot binding (PGA v1)',
       previousStatus,
       newStatus,
       JSON.stringify({
+        snapshot_id: snapshotId,
+        snapshot_hash: snapshotHash,
+        scoring_run_id: scoringRunId,
         participant_count: participantCount,
         total_pool_cents: totalPoolCents,
         results_sha256: resultsHash,
@@ -379,7 +482,7 @@ async function executeSettlement(contestInstance, pool) {
     ]);
 
     await client.query('COMMIT');
-    return insertResult.rows[0];
+    return settlementRecord;
 
   } catch (err) {
     await client.query('ROLLBACK');
@@ -393,6 +496,9 @@ async function executeSettlement(contestInstance, pool) {
 module.exports = {
   // Settlement execution
   executeSettlement,
+
+  // Settlement computation (pure function)
+  computeSettlement,
 
   // Ranking and payout computation
   computeRankings,

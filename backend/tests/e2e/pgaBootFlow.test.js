@@ -33,6 +33,47 @@ const { Pool } = require('pg');
 const crypto = require('crypto');
 const settlementStrategy = require('../../services/settlementStrategy');
 
+/**
+ * Helper: Create ingestion snapshot and return binding (snapshotId + snapshotHash)
+ * Required for PGA v1 snapshot binding compliance.
+ *
+ * @param {Object} pool - Database pool
+ * @param {string} contestInstanceId - Contest instance to bind
+ * @returns {Promise<{snapshotId: string, snapshotHash: string}>}
+ */
+async function createIngestionSnapshot(pool, contestInstanceId) {
+  const snapshotId = crypto.randomUUID();
+
+  // Canonical snapshot payload (sorted keys for deterministic hashing)
+  const payload = {
+    contest_instance_id: contestInstanceId,
+    event_type: 'test_snapshot',
+    provider: 'test'
+  };
+
+  // Compute SHA-256 hash of canonical JSON
+  const canonicalJson = JSON.stringify(payload);
+  const snapshotHash = crypto.createHash('sha256').update(canonicalJson).digest('hex');
+
+  // Insert ingestion_events row
+  await pool.query(
+    `INSERT INTO ingestion_events
+     (id, contest_instance_id, provider, event_type, provider_data_json, payload_hash, validation_status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      snapshotId,
+      contestInstanceId,
+      'test',
+      'test_snapshot',
+      JSON.stringify(payload),
+      snapshotHash,
+      'VALID'
+    ]
+  );
+
+  return { snapshotId, snapshotHash };
+}
+
 describe('PGA Contest Boot Flow - JSON-Only Configuration (Core E2E)', () => {
   let pool;
   let client;
@@ -339,13 +380,18 @@ describe('PGA Contest Boot Flow - JSON-Only Configuration (Core E2E)', () => {
       await addSimpleGolferScores(participant1Id);
       await addSimpleGolferScores(participant2Id);
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       const settlement = await settlementStrategy.executeSettlement(
         {
           id: contestId,
           entry_fee_cents: 10000
         },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // Verify settlement record returned
@@ -378,13 +424,18 @@ describe('PGA Contest Boot Flow - JSON-Only Configuration (Core E2E)', () => {
       );
       expect(before.rows[0].settle_time).toBeNull();
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       await settlementStrategy.executeSettlement(
         {
           id: contestId,
           entry_fee_cents: 10000
         },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // Verify settle_time is set after
@@ -401,13 +452,18 @@ describe('PGA Contest Boot Flow - JSON-Only Configuration (Core E2E)', () => {
       await addSimpleGolferScores(participant1Id);
       await addSimpleGolferScores(participant2Id);
 
+      // Create ingestion snapshot for settlement binding
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // Execute settlement
       await settlementStrategy.executeSettlement(
         {
           id: contestId,
           entry_fee_cents: 10000
         },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // Verify exactly one record
@@ -430,25 +486,32 @@ describe('PGA Contest Boot Flow - JSON-Only Configuration (Core E2E)', () => {
       await addSimpleGolferScores(participant1Id);
       await addSimpleGolferScores(participant2Id);
 
+      // Create ingestion snapshot for settlement binding (reused for both calls)
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // First settlement
       const settlement1 = await settlementStrategy.executeSettlement(
         {
           id: contestId,
           entry_fee_cents: 10000
         },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       const id1 = settlement1.id;
       const hash1 = settlement1.results_sha256;
 
-      // Second settlement (should be idempotent)
+      // Second settlement (should be idempotent) - reuse same snapshot
       const settlement2 = await settlementStrategy.executeSettlement(
         {
           id: contestId,
           entry_fee_cents: 10000
         },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       const id2 = settlement2.id;
@@ -465,13 +528,18 @@ describe('PGA Contest Boot Flow - JSON-Only Configuration (Core E2E)', () => {
       await addSimpleGolferScores(participant1Id);
       await addSimpleGolferScores(participant2Id);
 
+      // Create ingestion snapshot for settlement binding (reused for both calls)
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
+
       // First settlement
       await settlementStrategy.executeSettlement(
         {
           id: contestId,
           entry_fee_cents: 10000
         },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       const countAfterFirst = await pool.query(
@@ -480,13 +548,15 @@ describe('PGA Contest Boot Flow - JSON-Only Configuration (Core E2E)', () => {
       );
       expect(parseInt(countAfterFirst.rows[0].count)).toBe(1);
 
-      // Second settlement
+      // Second settlement (reuse same snapshot)
       await settlementStrategy.executeSettlement(
         {
           id: contestId,
           entry_fee_cents: 10000
         },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       const countAfterSecond = await pool.query(
@@ -517,12 +587,15 @@ describe('PGA Contest Boot Flow - JSON-Only Configuration (Core E2E)', () => {
 
       // executeSettlement should resolve strategy from template
       // (not from hardcoded if(contest.sport === 'golf') checks)
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
       const settlement = await settlementStrategy.executeSettlement(
         {
           id: contestId,
           entry_fee_cents: 10000
         },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // If platform had sport conditionals, this would fail
@@ -612,12 +685,15 @@ describe('PGA Contest Boot Flow - JSON-Only Configuration (Core E2E)', () => {
       await addSimpleGolferScores(participant2Id);
 
       // 6. EXECUTE SETTLEMENT
+      const { snapshotId, snapshotHash } = await createIngestionSnapshot(pool, contestId);
       const settlement = await settlementStrategy.executeSettlement(
         {
           id: contestId,
           entry_fee_cents: 10000
         },
-        pool
+        pool,
+        snapshotId,
+        snapshotHash
       );
 
       // 7. VALIDATE BOOT FLOW COMPLETED
