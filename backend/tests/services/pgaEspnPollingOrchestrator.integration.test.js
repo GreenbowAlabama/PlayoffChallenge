@@ -1,28 +1,26 @@
 /**
  * Integration tests for pgaEspnPollingOrchestrator.pollAndIngest
  *
- * Tests the full polling flow: load contest → fetch calendar → select event →
- * fetch leaderboard → validate → build units → call ingestionService.run()
+ * Tests the orchestrator with pre-fetched ESPN work units.
+ * External worker fetches ESPN calendar and leaderboard, backend receives workUnits.
+ * Backend does NOT call ESPN directly (403 constraint).
  *
- * Uses mocked ESPN API to avoid external calls.
+ * Tests validate:
+ * - DB/template config loading
+ * - WorkUnits input validation
+ * - ingestionService.run integration
  */
 
 'use strict';
 
 const pgaEspnPollingOrchestrator = require('../../services/ingestion/orchestrators/pgaEspnPollingOrchestrator');
 
-// Mock ESPN API module
-jest.mock('../../services/ingestion/espn/espnPgaApi');
-const espnPgaApi = require('../../services/ingestion/espn/espnPgaApi');
-
-// Mock ingestionService
+// Mock ingestionService (external worker provides espn data, not backend)
 jest.mock('../../services/ingestionService');
 const ingestionService = require('../../services/ingestionService');
 
-// Fixtures
-const calendarFixture = require('../fixtures/espn-pga-calendar-2026.json');
+// Fixtures (used as providerData in workUnits)
 const leaderboardFixture = require('../fixtures/espn-pga-leaderboard-complete.json');
-const malformedLeaderboardFixture = require('../fixtures/espn-pga-leaderboard-malformed.json');
 
 describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
   // ─── Setup ─────────────────────────────────────────────────────────────
@@ -32,9 +30,7 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    // Default mock behavior
-    espnPgaApi.fetchCalendar.mockResolvedValue(calendarFixture);
-    espnPgaApi.fetchLeaderboard.mockResolvedValue(leaderboardFixture);
+    // Default ingestionService behavior
     ingestionService.run.mockResolvedValue({
       processed: 1,
       skipped: 0,
@@ -50,7 +46,7 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
   // ─── Happy Path ────────────────────────────────────────────────────────
 
   describe('Happy Path', () => {
-    it('successfully polls calendar, selects event, fetches leaderboard, and calls ingestionService', async () => {
+    it('successfully ingests with pre-fetched workUnits', async () => {
       const contestId = 'test-contest-123';
       const contestRow = {
         id: contestId,
@@ -64,35 +60,26 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
         }
       };
 
+      const workUnits = [
+        {
+          providerEventId: '401811941',
+          providerData: leaderboardFixture
+        }
+      ];
+
       mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
 
       const result = await pgaEspnPollingOrchestrator.pollAndIngest(
         contestId,
-        mockPool
+        mockPool,
+        workUnits
       );
-
-      // Verify ESPN API calls
-      expect(espnPgaApi.fetchCalendar).toHaveBeenCalledWith({
-        leagueId: 1106,
-        seasonYear: 2026,
-        timeout: 5000
-      });
-
-      expect(espnPgaApi.fetchLeaderboard).toHaveBeenCalledWith({
-        eventId: '401811941',
-        timeout: 5000
-      });
 
       // Verify ingestionService was called with workUnits
       expect(ingestionService.run).toHaveBeenCalledWith(
         contestId,
         mockPool,
-        expect.arrayContaining([
-          expect.objectContaining({
-            providerEventId: '401811941',
-            providerData: expect.any(Object)
-          })
-        ])
+        workUnits
       );
 
       // Verify result
@@ -109,9 +96,17 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
     it('returns error when contest not found', async () => {
       mockPool.query.mockResolvedValueOnce({ rows: [] });
 
+      const workUnits = [
+        {
+          providerEventId: '401811941',
+          providerData: leaderboardFixture
+        }
+      ];
+
       const result = await pgaEspnPollingOrchestrator.pollAndIngest(
         'nonexistent-contest',
-        mockPool
+        mockPool,
+        workUnits
       );
 
       expect(result.success).toBe(false);
@@ -121,7 +116,7 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
           expect.stringContaining('not found')
         ])
       );
-      expect(espnPgaApi.fetchCalendar).not.toHaveBeenCalled();
+      expect(ingestionService.run).not.toHaveBeenCalled();
     });
 
     it('returns error when template config missing provider_league_id', async () => {
@@ -135,9 +130,17 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
 
       mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
 
+      const workUnits = [
+        {
+          providerEventId: '401811941',
+          providerData: leaderboardFixture
+        }
+      ];
+
       const result = await pgaEspnPollingOrchestrator.pollAndIngest(
         'test-contest',
-        mockPool
+        mockPool,
+        workUnits
       );
 
       expect(result.success).toBe(false);
@@ -146,10 +149,10 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
           expect.stringContaining('provider_league_id or season_year')
         ])
       );
-      expect(espnPgaApi.fetchCalendar).not.toHaveBeenCalled();
+      expect(ingestionService.run).not.toHaveBeenCalled();
     });
 
-    it('returns error when ESPN calendar fetch fails', async () => {
+    it('returns error when workUnits is missing', async () => {
       const contestRow = {
         id: 'test-contest',
         template_config: {
@@ -161,84 +164,24 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
       };
 
       mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
-      espnPgaApi.fetchCalendar.mockRejectedValueOnce(
-        new Error('Network timeout')
-      );
 
       const result = await pgaEspnPollingOrchestrator.pollAndIngest(
         'test-contest',
-        mockPool
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.summary.errors).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining('calendar fetch failed')
-        ])
-      );
-      expect(espnPgaApi.fetchLeaderboard).not.toHaveBeenCalled();
-    });
-
-    it('returns error when event selection fails (no match)', async () => {
-      const contestRow = {
-        id: 'test-contest',
-        template_config: {
-          provider_league_id: 1106,
-          season_year: 2026,
-          event_name: 'Nonexistent Event',
-          config: {}
-        }
-      };
-
-      mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
-
-      const result = await pgaEspnPollingOrchestrator.pollAndIngest(
-        'test-contest',
-        mockPool
+        mockPool,
+        undefined
       );
 
       expect(result.success).toBe(false);
       expect(result.eventId).toBeNull();
       expect(result.summary.errors).toEqual(
         expect.arrayContaining([
-          expect.stringContaining('No event selected')
-        ])
-      );
-      expect(espnPgaApi.fetchLeaderboard).not.toHaveBeenCalled();
-    });
-
-    it('returns error when ESPN leaderboard fetch fails', async () => {
-      const contestRow = {
-        id: 'test-contest',
-        template_config: {
-          provider_league_id: 1106,
-          season_year: 2026,
-          event_name: 'Masters',
-          config: {}
-        }
-      };
-
-      mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
-      espnPgaApi.fetchLeaderboard.mockRejectedValueOnce(
-        new Error('Event not found')
-      );
-
-      const result = await pgaEspnPollingOrchestrator.pollAndIngest(
-        'test-contest',
-        mockPool
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.eventId).toBe('401811941');
-      expect(result.summary.errors).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining('leaderboard fetch failed')
+          expect.stringContaining('Missing or invalid workUnits')
         ])
       );
       expect(ingestionService.run).not.toHaveBeenCalled();
     });
 
-    it('returns error when leaderboard payload is malformed', async () => {
+    it('returns error when workUnits is empty array', async () => {
       const contestRow = {
         id: 'test-contest',
         template_config: {
@@ -250,19 +193,162 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
       };
 
       mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
-      espnPgaApi.fetchLeaderboard.mockResolvedValueOnce(
-        malformedLeaderboardFixture
-      );
 
       const result = await pgaEspnPollingOrchestrator.pollAndIngest(
         'test-contest',
-        mockPool
+        mockPool,
+        []
       );
 
       expect(result.success).toBe(false);
+      expect(result.eventId).toBeNull();
       expect(result.summary.errors).toEqual(
         expect.arrayContaining([
-          expect.stringContaining('Malformed ESPN payload')
+          expect.stringContaining('Missing or invalid workUnits')
+        ])
+      );
+      expect(ingestionService.run).not.toHaveBeenCalled();
+    });
+
+    it('returns error when workUnit is missing providerEventId', async () => {
+      const contestRow = {
+        id: 'test-contest',
+        template_config: {
+          provider_league_id: 1106,
+          season_year: 2026,
+          event_name: 'Masters',
+          config: {}
+        }
+      };
+
+      mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
+
+      const workUnits = [
+        {
+          // Missing providerEventId
+          providerData: leaderboardFixture
+        }
+      ];
+
+      const result = await pgaEspnPollingOrchestrator.pollAndIngest(
+        'test-contest',
+        mockPool,
+        workUnits
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.eventId).toBeNull();
+      expect(result.summary.errors).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('providerEventId')
+        ])
+      );
+      expect(ingestionService.run).not.toHaveBeenCalled();
+    });
+
+    it('returns error when workUnit providerEventId is not a string', async () => {
+      const contestRow = {
+        id: 'test-contest',
+        template_config: {
+          provider_league_id: 1106,
+          season_year: 2026,
+          event_name: 'Masters',
+          config: {}
+        }
+      };
+
+      mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
+
+      const workUnits = [
+        {
+          providerEventId: 12345,  // Not a string
+          providerData: leaderboardFixture
+        }
+      ];
+
+      const result = await pgaEspnPollingOrchestrator.pollAndIngest(
+        'test-contest',
+        mockPool,
+        workUnits
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.eventId).toBeNull();
+      expect(result.summary.errors).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('providerEventId')
+        ])
+      );
+      expect(ingestionService.run).not.toHaveBeenCalled();
+    });
+
+    it('returns error when workUnit is missing providerData', async () => {
+      const contestRow = {
+        id: 'test-contest',
+        template_config: {
+          provider_league_id: 1106,
+          season_year: 2026,
+          event_name: 'Masters',
+          config: {}
+        }
+      };
+
+      mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
+
+      const workUnits = [
+        {
+          providerEventId: '401811941'
+          // Missing providerData
+        }
+      ];
+
+      const result = await pgaEspnPollingOrchestrator.pollAndIngest(
+        'test-contest',
+        mockPool,
+        workUnits
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.eventId).toBeNull();
+      expect(result.summary.errors).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('providerData')
+        ])
+      );
+      expect(ingestionService.run).not.toHaveBeenCalled();
+    });
+
+    it('returns error when workUnit providerData is not an object', async () => {
+      const contestRow = {
+        id: 'test-contest',
+        template_config: {
+          provider_league_id: 1106,
+          season_year: 2026,
+          event_name: 'Masters',
+          config: {}
+        }
+      };
+
+      mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
+
+      const workUnits = [
+        {
+          providerEventId: '401811941',
+          providerData: 'not an object'  // Not an object
+        }
+      ];
+
+      const result = await pgaEspnPollingOrchestrator.pollAndIngest(
+        'test-contest',
+        mockPool,
+        workUnits
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.eventId).toBeNull();
+      expect(result.summary.errors).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('providerData')
         ])
       );
       expect(ingestionService.run).not.toHaveBeenCalled();
@@ -284,94 +370,26 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
         new Error('Ingestion pipeline error')
       );
 
+      const workUnits = [
+        {
+          providerEventId: '401811941',
+          providerData: leaderboardFixture
+        }
+      ];
+
       const result = await pgaEspnPollingOrchestrator.pollAndIngest(
         'test-contest',
-        mockPool
+        mockPool,
+        workUnits
       );
 
       expect(result.success).toBe(false);
+      expect(result.eventId).toBe('401811941');
       expect(result.summary.errors).toEqual(
         expect.arrayContaining([
           expect.stringContaining('Ingestion failed')
         ])
       );
-    });
-  });
-
-  // ─── Edge Cases ────────────────────────────────────────────────────────
-
-  describe('Edge Cases', () => {
-    it('passes opaque workUnits to ingestionService (no parsing)', async () => {
-      const contestRow = {
-        id: 'test-contest',
-        template_config: {
-          provider_league_id: 1106,
-          season_year: 2026,
-          event_name: 'Masters',
-          config: {}
-        }
-      };
-
-      mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
-
-      await pgaEspnPollingOrchestrator.pollAndIngest(
-        'test-contest',
-        mockPool
-      );
-
-      // Verify workUnits are passed as-is (opaque)
-      const callArgs = ingestionService.run.mock.calls[0];
-      const passedUnits = callArgs[2];
-
-      expect(passedUnits).toEqual([
-        {
-          providerEventId: '401811941',
-          providerData: leaderboardFixture
-        }
-      ]);
-
-      // Verify service doesn't receive ESPN-specific data beyond workUnits
-      expect(callArgs.length).toBe(3); // contestId, pool, workUnits only
-    });
-
-    it('uses config.event_id override if provided', async () => {
-      const contestRow = {
-        id: 'test-contest',
-        template_config: {
-          provider_league_id: 1106,
-          season_year: 2026,
-          event_name: 'Masters',
-          config: {
-            event_id: '401823456' // Override: PGA Championship
-          }
-        }
-      };
-
-      mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
-
-      await pgaEspnPollingOrchestrator.pollAndIngest(
-        'test-contest',
-        mockPool
-      );
-
-      // Verify leaderboard was fetched for override event
-      expect(espnPgaApi.fetchLeaderboard).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventId: '401823456'
-        })
-      );
-    });
-
-    it('throws if contestInstanceId is missing', async () => {
-      await expect(
-        pgaEspnPollingOrchestrator.pollAndIngest(null, mockPool)
-      ).rejects.toThrow('contestInstanceId and pool are required');
-    });
-
-    it('throws if pool is missing', async () => {
-      await expect(
-        pgaEspnPollingOrchestrator.pollAndIngest('test-contest', null)
-      ).rejects.toThrow('contestInstanceId and pool are required');
     });
 
     it('returns success=false when ingestionService reports errors', async () => {
@@ -392,13 +410,117 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
         errors: [{ workUnitKey: 'key1', error: 'Some error' }]
       });
 
+      const workUnits = [
+        {
+          providerEventId: '401811941',
+          providerData: leaderboardFixture
+        }
+      ];
+
       const result = await pgaEspnPollingOrchestrator.pollAndIngest(
         'test-contest',
-        mockPool
+        mockPool,
+        workUnits
       );
 
       expect(result.success).toBe(false);
       expect(result.summary.errors).toHaveLength(1);
+    });
+  });
+
+  // ─── Edge Cases ────────────────────────────────────────────────────────
+
+  describe('Edge Cases', () => {
+    it('throws if contestInstanceId is missing', async () => {
+      const workUnits = [
+        {
+          providerEventId: '401811941',
+          providerData: leaderboardFixture
+        }
+      ];
+
+      await expect(
+        pgaEspnPollingOrchestrator.pollAndIngest(null, mockPool, workUnits)
+      ).rejects.toThrow('contestInstanceId and pool are required');
+    });
+
+    it('throws if pool is missing', async () => {
+      const workUnits = [
+        {
+          providerEventId: '401811941',
+          providerData: leaderboardFixture
+        }
+      ];
+
+      await expect(
+        pgaEspnPollingOrchestrator.pollAndIngest('test-contest', null, workUnits)
+      ).rejects.toThrow('contestInstanceId and pool are required');
+    });
+
+    it('passes workUnits opaquely to ingestionService', async () => {
+      const contestRow = {
+        id: 'test-contest',
+        template_config: {
+          provider_league_id: 1106,
+          season_year: 2026,
+          event_name: 'Masters',
+          config: {}
+        }
+      };
+
+      mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
+
+      const workUnits = [
+        {
+          providerEventId: '401811941',
+          providerData: leaderboardFixture
+        }
+      ];
+
+      await pgaEspnPollingOrchestrator.pollAndIngest(
+        'test-contest',
+        mockPool,
+        workUnits
+      );
+
+      // Verify workUnits passed as-is
+      const callArgs = ingestionService.run.mock.calls[0];
+      expect(callArgs[0]).toBe('test-contest');
+      expect(callArgs[1]).toBe(mockPool);
+      expect(callArgs[2]).toEqual(workUnits);
+    });
+
+    it('extracts eventId from first workUnit', async () => {
+      const contestRow = {
+        id: 'test-contest',
+        template_config: {
+          provider_league_id: 1106,
+          season_year: 2026,
+          event_name: 'Masters',
+          config: {}
+        }
+      };
+
+      mockPool.query.mockResolvedValueOnce({ rows: [contestRow] });
+
+      const workUnits = [
+        {
+          providerEventId: '401811941',
+          providerData: leaderboardFixture
+        },
+        {
+          providerEventId: '401823456',  // Second unit (ignored)
+          providerData: {}
+        }
+      ];
+
+      const result = await pgaEspnPollingOrchestrator.pollAndIngest(
+        'test-contest',
+        mockPool,
+        workUnits
+      );
+
+      expect(result.eventId).toBe('401811941');  // First unit's eventId
     });
   });
 });

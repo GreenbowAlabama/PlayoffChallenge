@@ -68,12 +68,157 @@ function validateConfig(input) {
   }
 }
 
-async function getWorkUnits(_ctx) {
-  throw new Error("Ingestion adapter 'pga_espn' is not yet implemented");
+/**
+ * Normalize ESPN payload for deterministic hashing.
+ * Extracts competitors and complete rounds (18 holes), sorts deterministically.
+ * Only includes rounds where all 18 holes have non-null/non-undefined values.
+ *
+ * @param {Object} providerData - ESPN API response
+ * @returns {Object} Normalized structure { competitors: [...] }
+ * @throws {Error} If required structure is missing
+ */
+function normalizeEspnPayload(providerData) {
+  // Validate base structure
+  if (!providerData || typeof providerData !== 'object' || !Array.isArray(providerData.events)) {
+    throw new Error('events array is missing or empty');
+  }
+
+  const events = providerData.events;
+  if (!events || events.length === 0) {
+    throw new Error('events array is missing or empty');
+  }
+
+  const event = events[0];
+  if (!event || !Array.isArray(event.competitions)) {
+    throw new Error('competitions array is missing');
+  }
+
+  const competition = event.competitions[0];
+  if (!competition || !Array.isArray(competition.competitors)) {
+    throw new Error('competitors array is missing');
+  }
+
+  // Extract and normalize competitors
+  const competitors = competition.competitors || [];
+  const normalizedCompetitors = [];
+
+  competitors.forEach(competitor => {
+    // Skip competitors with no id
+    if (!competitor.id) {
+      return;
+    }
+
+    const normalizedRounds = [];
+
+    // Extract complete rounds (exactly 18 holes with non-null values)
+    if (Array.isArray(competitor.linescores)) {
+      competitor.linescores.forEach(linescore => {
+        const holes = linescore.linescores || [];
+
+        // Filter to holes with non-null, non-undefined values
+        const validHoles = holes.filter(
+          hole => hole.value !== null && hole.value !== undefined
+        );
+
+        // Only include round if it has exactly 18 valid holes
+        if (validHoles.length === 18) {
+          // Normalize each hole: include only period and rounded value
+          const normalizedHoles = validHoles
+            .map(hole => ({
+              period: hole.period,
+              value: Math.round(hole.value)
+            }))
+            .sort((a, b) => a.period - b.period);
+
+          normalizedRounds.push({
+            period: linescore.period,
+            linescores: normalizedHoles
+          });
+        }
+      });
+    }
+
+    // Sort rounds by period for deterministic ordering
+    normalizedRounds.sort((a, b) => a.period - b.period);
+
+    // Add competitor (with empty linescores if no complete rounds)
+    normalizedCompetitors.push({
+      id: competitor.id,
+      linescores: normalizedRounds
+    });
+  });
+
+  // Sort competitors by id for deterministic ordering
+  normalizedCompetitors.sort((a, b) => {
+    const aId = String(a.id);
+    const bId = String(b.id);
+    return aId.localeCompare(bId);
+  });
+
+  return {
+    competitors: normalizedCompetitors
+  };
 }
 
-function computeIngestionKey(_contestInstanceId, _unit) {
-  throw new Error("Ingestion adapter 'pga_espn' is not yet implemented");
+async function getWorkUnits(ctx) {
+  // Return empty array if ctx is missing or contestInstanceId is missing
+  if (!ctx || !ctx.contestInstanceId) {
+    return [];
+  }
+
+  // Return single placeholder work unit
+  return [
+    {
+      providerEventId: null,
+      providerData: null
+    }
+  ];
+}
+
+function computeIngestionKey(contestInstanceId, unit) {
+  // Validate contestInstanceId
+  if (!contestInstanceId) {
+    throw new Error('contestInstanceId is required');
+  }
+  if (typeof contestInstanceId !== 'string') {
+    throw new Error('contestInstanceId is required and must be a string');
+  }
+
+  // Validate unit
+  if (!unit) {
+    throw new Error('unit is required');
+  }
+
+  // Validate providerEventId
+  if (!unit.providerEventId) {
+    throw new Error('unit.providerEventId is required');
+  }
+  if (typeof unit.providerEventId !== 'string' || unit.providerEventId.trim() === '') {
+    throw new Error('unit.providerEventId is required and must be a non-empty string');
+  }
+
+  // Validate providerData
+  if (!unit.providerData || typeof unit.providerData !== 'object') {
+    throw new Error('unit.providerData is required for key computation');
+  }
+
+  // Normalize payload (validates structure and extracts score-relevant fields)
+  const normalized = normalizeEspnPayload(unit.providerData);
+
+  // Build canonical structure with providerEventId
+  const canonical = {
+    providerEventId: unit.providerEventId,
+    competitors: normalized.competitors
+  };
+
+  // Canonicalize and hash for deterministic key
+  const canonicalized = canonicalizeJson(canonical);
+  const hashHex = crypto
+    .createHash('sha256')
+    .update(JSON.stringify(canonicalized))
+    .digest('hex');
+
+  return `pga_espn:${contestInstanceId}:${hashHex}`;
 }
 
 /**

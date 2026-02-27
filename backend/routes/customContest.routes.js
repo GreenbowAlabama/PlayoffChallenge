@@ -22,6 +22,14 @@ const { createCombinedJoinRateLimiter } = require('../middleware/joinRateLimit')
 const { createContractValidator } = require('../middleware/contractValidator');
 
 /**
+ * Async route handler wrapper
+ * Ensures unhandled Promise rejections propagate to Express error handler
+ * instead of causing silent socket hang-ups
+ */
+const asyncHandler = fn => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+
+/**
  * Validate UUID format
  */
 function isValidUUID(str) {
@@ -357,28 +365,23 @@ function normalizeContestResponse(data) {
  *
  * Response: Array of contest instances
  */
-router.get('/available', extractUserId, createContractValidator('ContestListResponse'), async (req, res) => {
-  try {
-    const pool = req.app.locals.pool;
-    const userId = req.userId;
+router.get('/available', extractUserId, createContractValidator('ContestListResponse'), asyncHandler(async (req, res) => {
+  const pool = req.app.locals.pool;
+  const userId = req.userId;
 
-    const instances = await customContestService.getAvailableContestInstances(pool, userId);
+  const instances = await customContestService.getAvailableContestInstances(pool, userId);
 
-    console.log('[AVAILABLE]', {
-      userIdPresent: !!userId,
-      contestCount: instances.length
-    });
-    console.log('🔴 EXEC_MARKER:ROUTE_BEFORE_JSON id:organizer_name pairs:', instances.map(inst => ({ id: inst.id, organizer_name: inst.organizer_name })));
+  console.log('[AVAILABLE]', {
+    userIdPresent: !!userId,
+    contestCount: instances.length
+  });
+  console.log('🔴 EXEC_MARKER:ROUTE_BEFORE_JSON id:organizer_name pairs:', instances.map(inst => ({ id: inst.id, organizer_name: inst.organizer_name })));
 
-    // Normalize response to ensure Date objects are ISO strings and numeric types are correct
-    const normalizedInstances = normalizeContestResponse(instances);
+  // Normalize response to ensure Date objects are ISO strings and numeric types are correct
+  const normalizedInstances = normalizeContestResponse(instances);
 
-    res.json(normalizedInstances);
-  } catch (err) {
-    console.error('[Custom Contest] Error fetching available contests:', err);
-    res.status(500).json({ error: 'Failed to fetch available contests' });
-  }
-});
+  res.json(normalizedInstances);
+}));
 
 /**
  * GET /api/custom-contests

@@ -57,4 +57,25 @@ app.use('/api/admin/custom-contests/templates', customContestTemplatesRoutes);
 app.use('/api/custom-contests', customContestRoutes);
 app.use('/api/contests', contestsRoutes);
 
+// Global error handler (must be LAST middleware)
+// Converts unhandled errors into deterministic 500 responses
+app.use((err, req, res, next) => {
+  console.error('[Express Error Handler]', {
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method
+  });
+
+  // Prevent double response
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  res.status(err.status || 500).json({
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'test' ? err.message : 'Unexpected error'
+  });
+});
+
 module.exports = { app };

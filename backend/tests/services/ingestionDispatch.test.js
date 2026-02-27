@@ -59,12 +59,13 @@ describe('pgaEspnIngestion stub', () => {
       .toThrow(/INVALID_PGA_TEMPLATE/);
   });
 
-  it('getWorkUnits throws not-implemented', async () => {
-    await expect(adapter.getWorkUnits({})).rejects.toThrow(/pga_espn.*not yet implemented/i);
+  it('getWorkUnits returns [] when ctx.contestInstanceId missing', async () => {
+    const units = await adapter.getWorkUnits({});
+    expect(units).toEqual([]);
   });
 
-  it('computeIngestionKey throws not-implemented', () => {
-    expect(() => adapter.computeIngestionKey('cid', {})).toThrow(/pga_espn.*not yet implemented/i);
+  it('computeIngestionKey validates required inputs', () => {
+    expect(() => adapter.computeIngestionKey('cid', {})).toThrow(/unit\.providerEventId is required/);
   });
 
   it('ingestWorkUnit requires providerData (snapshot binding implementation)', async () => {
