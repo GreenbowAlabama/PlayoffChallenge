@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict I9rJSQMe1tkeFMK2mBgiTYyvY5FBKmCHMD8JHxgOzL5KBAvizhedPrFdI5JrSaz
+\restrict doctJi3IVBJfkkxtFOII4RLsgpgzhTtHbT0wjdMSpL8Z8zG0eQsQqFlntXkCGA0
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -129,6 +129,29 @@ BEGIN
 
   IF contest_status IN ('LOCKED', 'LIVE') THEN
     RAISE EXCEPTION 'CONFIG_IMMUTABLE_DURING_LOCKED_OR_LIVE';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: prevent_contest_state_transitions_mutation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.prevent_contest_state_transitions_mutation() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  -- Block all DELETE operations
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'contest_state_transitions is append-only: deletions are not allowed';
+  END IF;
+
+  -- Block all UPDATE operations
+  IF TG_OP = 'UPDATE' THEN
+    RAISE EXCEPTION 'contest_state_transitions is append-only: updates are not allowed';
   END IF;
 
   RETURN NEW;
@@ -396,6 +419,22 @@ CREATE TABLE public.contest_participants (
     contest_instance_id uuid NOT NULL,
     user_id uuid NOT NULL,
     joined_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: contest_state_transitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.contest_state_transitions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    contest_instance_id uuid NOT NULL,
+    from_state text NOT NULL,
+    to_state text NOT NULL,
+    triggered_by text NOT NULL,
+    reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT state_transition_valid_states CHECK (((from_state = ANY (ARRAY['SCHEDULED'::text, 'LOCKED'::text, 'LIVE'::text, 'COMPLETE'::text, 'CANCELLED'::text, 'ERROR'::text])) AND (to_state = ANY (ARRAY['SCHEDULED'::text, 'LOCKED'::text, 'LIVE'::text, 'COMPLETE'::text, 'CANCELLED'::text, 'ERROR'::text]))))
 );
 
 
@@ -1497,6 +1536,14 @@ ALTER TABLE ONLY public.contest_participants
 
 
 --
+-- Name: contest_state_transitions contest_state_transitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contest_state_transitions
+    ADD CONSTRAINT contest_state_transitions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: contest_templates contest_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1986,6 +2033,27 @@ CREATE INDEX idx_contest_participants_instance ON public.contest_participants US
 --
 
 CREATE INDEX idx_contest_participants_user ON public.contest_participants USING btree (user_id);
+
+
+--
+-- Name: idx_contest_state_transitions_contest_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_contest_state_transitions_contest_created ON public.contest_state_transitions USING btree (contest_instance_id, created_at);
+
+
+--
+-- Name: idx_contest_state_transitions_contest_instance_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_contest_state_transitions_contest_instance_id ON public.contest_state_transitions USING btree (contest_instance_id);
+
+
+--
+-- Name: idx_contest_state_transitions_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_contest_state_transitions_created_at ON public.contest_state_transitions USING btree (created_at);
 
 
 --
@@ -2479,6 +2547,13 @@ CREATE TRIGGER api_error_codes_block_update BEFORE UPDATE ON public.api_error_co
 
 
 --
+-- Name: contest_state_transitions contest_state_transitions_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER contest_state_transitions_immutable BEFORE DELETE OR UPDATE ON public.contest_state_transitions FOR EACH ROW EXECUTE FUNCTION public.prevent_contest_state_transitions_mutation();
+
+
+--
 -- Name: ingestion_events ingestion_events_no_update; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2604,6 +2679,14 @@ ALTER TABLE ONLY public.admin_contest_audit
 
 ALTER TABLE ONLY public.admin_contest_audit
     ADD CONSTRAINT admin_contest_audit_contest_fk FOREIGN KEY (contest_instance_id) REFERENCES public.contest_instances(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: contest_state_transitions contest_state_transitions_contest_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contest_state_transitions
+    ADD CONSTRAINT contest_state_transitions_contest_instance_id_fkey FOREIGN KEY (contest_instance_id) REFERENCES public.contest_instances(id) ON DELETE CASCADE;
 
 
 --
@@ -2914,5 +2997,5 @@ ALTER TABLE ONLY public.tournament_configs
 -- PostgreSQL database dump complete
 --
 
-\unrestrict I9rJSQMe1tkeFMK2mBgiTYyvY5FBKmCHMD8JHxgOzL5KBAvizhedPrFdI5JrSaz
+\unrestrict doctJi3IVBJfkkxtFOII4RLsgpgzhTtHbT0wjdMSpL8Z8zG0eQsQqFlntXkCGA0
 

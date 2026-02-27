@@ -99,10 +99,12 @@ describe('Stripe Webhook Idempotency & Replay Safety', () => {
 
   afterEach(async () => {
     // Cleanup in reverse FK order
+    // Note: contest_state_transitions cascades on delete via FK
     try {
       await pool.query('DELETE FROM ledger WHERE contest_instance_id = $1', [contestId]);
       await pool.query('DELETE FROM stripe_events WHERE stripe_event_id LIKE $1', ['evt_test_%']);
       await pool.query('DELETE FROM payment_intents WHERE contest_instance_id = $1', [contestId]);
+      await pool.query('DELETE FROM admin_contest_audit WHERE contest_instance_id = $1', [contestId]);
       await pool.query('DELETE FROM contest_instances WHERE id = $1', [contestId]);
       await pool.query('DELETE FROM contest_templates WHERE id = $1', [templateId]);
       await pool.query('DELETE FROM users WHERE id IN ($1, $2)', [organizerId, userId]);

@@ -102,6 +102,7 @@ describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
 
   afterEach(async () => {
     // Clean up in reverse FK order
+    // Note: contest_state_transitions cascades on delete via FK
     await pool.query('DELETE FROM admin_contest_audit WHERE contest_instance_id = $1', [contestId]);
     await pool.query('DELETE FROM contest_instances WHERE id = $1', [contestId]);
     // Note: organizer user and template cleanup handled by cascade or separate cleanup if needed

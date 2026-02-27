@@ -69,8 +69,10 @@ describe('Picks Lifecycle Integration Tests (GAP-10 Step 2) - Baseline', () => {
 
   afterAll(async () => {
     // Clean up in reverse order of foreign key dependencies
+    // Note: contest_state_transitions cascades on delete via FK
     await pool.query('DELETE FROM picks WHERE user_id = $1 OR user_id = $2', [testUserId, testUser2Id]);
     await pool.query('DELETE FROM contest_participants WHERE user_id = $1 OR user_id = $2', [testUserId, testUser2Id]);
+    await pool.query('DELETE FROM admin_contest_audit WHERE contest_instance_id IN (SELECT id FROM contest_instances WHERE organizer_id = $1)', [testUserId]);
     await pool.query('DELETE FROM contest_instances WHERE organizer_id = $1', [testUserId]);
     await pool.query('DELETE FROM users WHERE id = $1 OR id = $2', [testUserId, testUser2Id]);
     await pool.query('DELETE FROM players WHERE id = $1', [testPlayerId]);

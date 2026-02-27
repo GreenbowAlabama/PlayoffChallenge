@@ -73,11 +73,13 @@ describe('Settlement Runner - Replay & Determinism (Real DB)', () => {
 
   afterEach(async () => {
     // Cleanup in reverse FK order (most dependent first)
+    // Note: contest_state_transitions cascades on delete via FK
     try {
       await pool.query('DELETE FROM score_history WHERE contest_instance_id = $1', [contestId]);
       await pool.query('DELETE FROM settlement_audit WHERE contest_instance_id = $1', [contestId]);
       await pool.query('DELETE FROM ingestion_validation_errors WHERE contest_instance_id = $1', [contestId]);
       await pool.query('DELETE FROM ingestion_events WHERE contest_instance_id = $1', [contestId]);
+      await pool.query('DELETE FROM admin_contest_audit WHERE contest_instance_id = $1', [contestId]);
       await pool.query('DELETE FROM contest_instances WHERE id = $1', [contestId]);
       // Note: contest_templates no longer deleted; templateFactory handles deactivation
       await pool.query('DELETE FROM users WHERE id = $1', [organizerId]);

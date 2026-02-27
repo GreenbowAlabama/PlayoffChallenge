@@ -207,6 +207,7 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
     if (!process.env.DATABASE_URL_TEST) return;
 
     // Cleanup: Delete in reverse FK order
+    // Note: contest_state_transitions cascades on delete via FK
     try {
       await testPool.query('DELETE FROM golfer_scores WHERE contest_instance_id = $1', [contestId]);
       await testPool.query('DELETE FROM settlement_records WHERE contest_instance_id = $1', [contestId]);

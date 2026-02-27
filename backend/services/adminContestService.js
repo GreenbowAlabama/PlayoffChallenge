@@ -17,6 +17,26 @@ const { validateContestTimeInvariants } = require('./helpers/timeInvariantValida
 const { assertAllowedDbStatusTransition, ACTORS, TransitionNotAllowedError } = require('./helpers/contestTransitionValidator');
 
 /**
+ * Write a contest state transition record.
+ * Used to audit all status transitions in adminContestService.
+ * Append-only; immutable via DB trigger.
+ *
+ * @param {Object} client - DB client (inside transaction)
+ * @param {string} contestInstanceId - FK to contest_instances
+ * @param {string} fromState - Status before transition
+ * @param {string} toState - Status after transition
+ * @param {string|null} reason - Human-readable reason (nullable)
+ */
+async function _writeStateTransition(client, contestInstanceId, fromState, toState, reason) {
+  await client.query(
+    `INSERT INTO contest_state_transitions
+     (contest_instance_id, from_state, to_state, triggered_by, reason)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [contestInstanceId, fromState, toState, 'ADMIN', reason || null]
+  );
+}
+
+/**
  * Write an audit record for an admin action.
  * All required fields must be provided per schema.
  *
@@ -230,14 +250,35 @@ async function forceLockContestInstance(pool, contestId, adminUserId, reason) {
     const lockTimeUpdatedContest = lockTimeResult.rows[0];
 
     // Step 5: Update status (SYSTEM transition)
+    // DB-level guard: only update if still in SCHEDULED state
     const statusResult = await client.query(
-      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
-      ['LOCKED', contestId]
+      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *',
+      ['LOCKED', contestId, 'SCHEDULED']
     );
+
+    // Detect lifecycle race: status changed between SELECT and UPDATE
+    if (statusResult.rows.length === 0) {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'force_lock',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { rejected: true, error_code: 'LIFECYCLE_RACE', race_detected: true }
+      });
+      await client.query('COMMIT');
+      const err = new Error('Lifecycle transition race detected');
+      err.code = 'LIFECYCLE_RACE';
+      throw err;
+    }
 
     const updatedContest = statusResult.rows[0];
 
-    // Step 6: Write audit
+    // Step 6: Log state transition (append-only)
+    await _writeStateTransition(client, contestId, fromStatus, 'LOCKED', reason);
+
+    // Step 7: Write audit
     await _writeAdminAudit(client, {
       contest_instance_id: contestId,
       admin_user_id: adminUserId,
@@ -547,13 +588,34 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
       actor: ACTORS.ADMIN
     });
 
-    // Step 4: Update status
+    // Step 5: Update status
+    // DB-level guard: only update if status hasn't changed since SELECT
     const updateResult = await client.query(
-      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
-      ['CANCELLED', contestId]
+      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *',
+      ['CANCELLED', contestId, fromStatus]
     );
 
-    // Step 5: Write audit
+    // Detect lifecycle race: status changed between SELECT and UPDATE
+    if (updateResult.rows.length === 0) {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'cancel_contest',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { rejected: true, error_code: 'LIFECYCLE_RACE', race_detected: true }
+      });
+      await client.query('COMMIT');
+      const err = new Error('Lifecycle transition race detected');
+      err.code = 'LIFECYCLE_RACE';
+      throw err;
+    }
+
+    // Step 6: Log state transition (append-only)
+    await _writeStateTransition(client, contestId, fromStatus, 'CANCELLED', reason);
+
+    // Step 7: Write audit
     await _writeAdminAudit(client, {
       contest_instance_id: contestId,
       admin_user_id: adminUserId,
@@ -659,10 +721,31 @@ async function markContestError(pool, contestId, adminUserId, reason) {
       throw err;
     }
 
+    // DB-level guard: only update if still in LIVE state
     const updateResult = await client.query(
-      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
-      ['ERROR', contestId]
+      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *',
+      ['ERROR', contestId, 'LIVE']
     );
+
+    // Detect lifecycle race: status changed between SELECT and UPDATE
+    if (updateResult.rows.length === 0) {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'mark_error',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { rejected: true, error_code: 'LIFECYCLE_RACE', race_detected: true }
+      });
+      await client.query('COMMIT');
+      const err = new Error('Lifecycle transition race detected');
+      err.code = 'LIFECYCLE_RACE';
+      throw err;
+    }
+
+    // Log state transition (append-only)
+    await _writeStateTransition(client, contestId, fromStatus, 'ERROR', reason);
 
     await _writeAdminAudit(client, {
       contest_instance_id: contestId,
@@ -768,10 +851,31 @@ async function triggerSettlement(pool, contestId, adminUserId, reason) {
     }
 
     // Update to COMPLETE
+    // DB-level guard: only update if still in LIVE state
     const updateResult = await client.query(
-      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
-      ['COMPLETE', contestId]
+      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *',
+      ['COMPLETE', contestId, 'LIVE']
     );
+
+    // Detect lifecycle race: status changed between SELECT and UPDATE
+    if (updateResult.rows.length === 0) {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'trigger_settlement',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { rejected: true, error_code: 'LIFECYCLE_RACE', race_detected: true }
+      });
+      await client.query('COMMIT');
+      const err = new Error('Lifecycle transition race detected');
+      err.code = 'LIFECYCLE_RACE';
+      throw err;
+    }
+
+    // Log state transition (append-only)
+    await _writeStateTransition(client, contestId, fromStatus, 'COMPLETE', reason);
 
     // Audit success
     await _writeAdminAudit(client, {
@@ -863,10 +967,31 @@ async function resolveError(pool, contestId, toStatus, adminUserId, reason) {
     }
 
     // Update to target status
+    // DB-level guard: only update if still in ERROR state
     const updateResult = await client.query(
-      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
-      [toStatus, contestId]
+      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *',
+      [toStatus, contestId, 'ERROR']
     );
+
+    // Detect lifecycle race: status changed between SELECT and UPDATE
+    if (updateResult.rows.length === 0) {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'resolve_error',
+        reason,
+        from_status: fromStatus,
+        to_status: fromStatus,
+        payload: { rejected: true, error_code: 'LIFECYCLE_RACE', race_detected: true }
+      });
+      await client.query('COMMIT');
+      const err = new Error('Lifecycle transition race detected');
+      err.code = 'LIFECYCLE_RACE';
+      throw err;
+    }
+
+    // Log state transition (append-only)
+    await _writeStateTransition(client, contestId, fromStatus, toStatus, reason);
 
     // Audit success
     await _writeAdminAudit(client, {
@@ -997,5 +1122,6 @@ module.exports = {
   deleteContest,
   updateLockTime,
   ADMIN_TRANSITIONS,
-  _writeAdminAudit
+  _writeAdminAudit,
+  _writeStateTransition
 };

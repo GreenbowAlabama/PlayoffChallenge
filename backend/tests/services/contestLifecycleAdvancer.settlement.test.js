@@ -205,7 +205,8 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
 
     afterAll(async () => {
       if (testContestId) {
-        // Delete in dependency order: audit first (has FK to contest_instances)
+        // Delete in dependency order
+        // Note: contest_state_transitions cascades on delete via FK
         await poolReal.query(
           `DELETE FROM admin_contest_audit WHERE contest_instance_id = $1`,
           [testContestId]

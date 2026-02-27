@@ -79,11 +79,13 @@ describe('Settlement Runner - Atomicity (Real DB)', () => {
 
   afterEach(async () => {
     // Cleanup: Delete in reverse FK order (most dependent first)
+    // Note: contest_state_transitions cascades on delete via FK
     try {
       await testPool.query('DELETE FROM score_history WHERE contest_instance_id = $1', [contestId]);
       await testPool.query('DELETE FROM settlement_audit WHERE contest_instance_id = $1', [contestId]);
       await testPool.query('DELETE FROM ingestion_validation_errors WHERE contest_instance_id = $1', [contestId]);
       await testPool.query('DELETE FROM ingestion_events WHERE contest_instance_id = $1', [contestId]);
+      await testPool.query('DELETE FROM admin_contest_audit WHERE contest_instance_id = $1', [contestId]);
       await testPool.query('DELETE FROM contest_instances WHERE id = $1', [contestId]);
       await testPool.query('DELETE FROM contest_templates WHERE id = $1', [templateId]);
       await testPool.query('DELETE FROM users WHERE id = $1', [organizerId]);

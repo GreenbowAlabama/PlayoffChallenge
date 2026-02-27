@@ -131,6 +131,7 @@ describe('PGA Contest Boot Flow - JSON-Only Configuration (Core E2E)', () => {
     // Cleanup: Delete test data in reverse FK order
     // NOTE: executeSettlement uses its own transaction, so we must
     // clean up via direct pool queries (not a nested transaction)
+    // Note: contest_state_transitions cascades on delete via FK
     try {
       await pool.query(
         'DELETE FROM golfer_scores WHERE contest_instance_id = $1',
