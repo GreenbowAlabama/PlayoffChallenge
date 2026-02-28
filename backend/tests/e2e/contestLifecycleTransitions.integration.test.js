@@ -1,13 +1,15 @@
 /**
  * Contest Lifecycle Transitions - Integration Test Suite
  *
- * Validates the pure contestLifecycleService.transitionLockedToLive() function:
- * - Atomic state transitions (LOCKED → LIVE)
- * - Idempotency (re-calls are safe)
- * - Deterministic execution (injected now, not database clock)
- * - Transition record persistence
- * - Contest isolation (one contest's transition doesn't affect others)
- * - Boundary conditions (NULL tournament_start_time, now < start time, already LIVE)
+ * Validates pure lifecycle transition functions:
+ * - transitionScheduledToLocked() - SCHEDULED → LOCKED based on lock_time
+ * - transitionLockedToLive() - LOCKED → LIVE based on tournament_start_time
+ *
+ * Both transitions are:
+ * - Atomic (CTE-based UPDATE + INSERT)
+ * - Idempotent (re-calls are safe)
+ * - Deterministic (injected now, not database clock)
+ * - Test-frozen contract
  *
  * Database Safety:
  * - Uses TEST_DB_ALLOW_DBNAME=railway for test isolation
@@ -17,7 +19,482 @@
 
 const { Pool } = require('pg');
 const crypto = require('crypto');
-const { transitionLockedToLive } = require('../../services/contestLifecycleService');
+const { transitionScheduledToLocked, transitionLockedToLive } = require('../../services/contestLifecycleService');
+
+describe('Contest Lifecycle Transitions - SCHEDULED → LOCKED', () => {
+  let pool;
+
+  // Test fixture IDs (regenerated per test)
+  let templateId;
+  let organizerId;
+  let contestId1;
+  let contestId2;
+
+  beforeAll(async () => {
+    if (!process.env.TEST_DB_ALLOW_DBNAME) {
+      throw new Error(
+        '⚠️  TEST_DB_ALLOW_DBNAME must be set. Run: TEST_DB_ALLOW_DBNAME=railway npm test'
+      );
+    }
+
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL_TEST,
+      max: 3
+    });
+
+    // Verify connection
+    try {
+      const testConn = await pool.connect();
+      await testConn.query('SELECT 1');
+      testConn.release();
+    } catch (err) {
+      throw new Error(`Failed to connect to test database: ${err.message}`);
+    }
+  });
+
+  afterAll(async () => {
+    if (pool) {
+      await pool.end();
+    }
+  });
+
+  beforeEach(async () => {
+    // Generate unique IDs per test
+    templateId = crypto.randomUUID();
+    organizerId = crypto.randomUUID();
+    contestId1 = crypto.randomUUID();
+    contestId2 = crypto.randomUUID();
+
+    // Setup: Create organizer user (required for FK constraint)
+    await pool.query(
+      'INSERT INTO users (id, email) VALUES ($1, $2)',
+      [organizerId, `organizer-${organizerId}@test.com`]
+    );
+
+    // Setup: Create template (required for foreign key, is_active=false to avoid unique constraint)
+    await pool.query(
+      `INSERT INTO contest_templates
+       (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key,
+        settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
+        allowed_entry_fee_max_cents, allowed_payout_structures, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        templateId,
+        'Test Template',
+        'PGA',
+        'single_event',
+        'pga_drop_lowest',
+        'tournament_start_lock',
+        'pga_settlement',
+        50000,
+        10000,
+        1000000,
+        JSON.stringify([{ type: 'winners_take_all', winners: 1 }]),
+        false
+      ]
+    );
+  });
+
+  afterEach(async () => {
+    // Cleanup: Delete test data in reverse FK order
+    try {
+      await pool.query(
+        'DELETE FROM contest_state_transitions WHERE contest_instance_id = ANY($1::uuid[])',
+        [[contestId1, contestId2]]
+      );
+      await pool.query(
+        'DELETE FROM contest_participants WHERE contest_instance_id = ANY($1::uuid[])',
+        [[contestId1, contestId2]]
+      );
+      await pool.query(
+        'DELETE FROM contest_instances WHERE id = ANY($1::uuid[])',
+        [[contestId1, contestId2]]
+      );
+      await pool.query(
+        'DELETE FROM contest_templates WHERE id = $1',
+        [templateId]
+      );
+      await pool.query(
+        'DELETE FROM users WHERE id = $1',
+        [organizerId]
+      );
+    } catch (err) {
+      console.error('Cleanup error:', err.message);
+    }
+  });
+
+  // =========================================================================
+  // TEST 1: Transition succeeds when now >= lock_time
+  // =========================================================================
+
+  it('transitions SCHEDULED → LOCKED when now >= lock_time', async () => {
+    // Setup: Create SCHEDULED contest with lock_time in the past
+    const pastLockTime = new Date(Date.now() - 60000); // 1 minute ago
+
+    await pool.query(
+      `INSERT INTO contest_instances
+       (id, template_id, organizer_id, entry_fee_cents, payout_structure, status,
+        lock_time, contest_name, max_entries)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        contestId1,
+        templateId,
+        organizerId,
+        50000,
+        JSON.stringify({ type: 'winners_take_all', winners: 1 }),
+        'SCHEDULED',
+        pastLockTime,
+        'Test Contest 1',
+        20
+      ]
+    );
+
+    // Execute: Call transitionScheduledToLocked with current time
+    const result = await transitionScheduledToLocked(pool, new Date());
+
+    // Assert: Transition occurred
+    expect(result.count).toBe(1);
+    expect(result.changedIds).toEqual([contestId1]);
+
+    // Verify: Contest status is now LOCKED
+    const updated = await pool.query(
+      'SELECT status FROM contest_instances WHERE id = $1',
+      [contestId1]
+    );
+    expect(updated.rows[0].status).toBe('LOCKED');
+
+    // Verify: Transition record was inserted
+    const transition = await pool.query(
+      `SELECT from_state, to_state, triggered_by FROM contest_state_transitions
+       WHERE contest_instance_id = $1`,
+      [contestId1]
+    );
+    expect(transition.rows.length).toBe(1);
+    expect(transition.rows[0]).toEqual({
+      from_state: 'SCHEDULED',
+      to_state: 'LOCKED',
+      triggered_by: 'LOCK_TIME_REACHED'
+    });
+  });
+
+  // =========================================================================
+  // TEST 2: No transition when now < lock_time
+  // =========================================================================
+
+  it('skips transition when now < lock_time', async () => {
+    // Setup: Create SCHEDULED contest with lock_time in the future
+    const futureLockTime = new Date(Date.now() + 3600000); // 1 hour from now
+
+    await pool.query(
+      `INSERT INTO contest_instances
+       (id, template_id, organizer_id, entry_fee_cents, payout_structure, status,
+        lock_time, contest_name, max_entries)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        contestId1,
+        templateId,
+        organizerId,
+        50000,
+        JSON.stringify({ type: 'winners_take_all', winners: 1 }),
+        'SCHEDULED',
+        futureLockTime,
+        'Test Contest 1',
+        20
+      ]
+    );
+
+    // Execute: Call transitionScheduledToLocked with current time
+    const result = await transitionScheduledToLocked(pool, new Date());
+
+    // Assert: No transition occurred
+    expect(result.count).toBe(0);
+    expect(result.changedIds).toEqual([]);
+
+    // Verify: Contest status is still SCHEDULED
+    const unchanged = await pool.query(
+      'SELECT status FROM contest_instances WHERE id = $1',
+      [contestId1]
+    );
+    expect(unchanged.rows[0].status).toBe('SCHEDULED');
+
+    // Verify: No transition record was inserted
+    const transition = await pool.query(
+      `SELECT COUNT(*) FROM contest_state_transitions
+       WHERE contest_instance_id = $1`,
+      [contestId1]
+    );
+    expect(transition.rows[0].count).toBe('0');
+  });
+
+  // =========================================================================
+  // TEST 3: No transition when lock_time IS NULL
+  // =========================================================================
+
+  it('skips transition when lock_time IS NULL', async () => {
+    // Setup: Create SCHEDULED contest with NULL lock_time
+    await pool.query(
+      `INSERT INTO contest_instances
+       (id, template_id, organizer_id, entry_fee_cents, payout_structure, status,
+        lock_time, contest_name, max_entries)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        contestId1,
+        templateId,
+        organizerId,
+        50000,
+        JSON.stringify({ type: 'winners_take_all', winners: 1 }),
+        'SCHEDULED',
+        null, // NULL lock_time
+        'Test Contest 1',
+        20
+      ]
+    );
+
+    // Execute: Call transitionScheduledToLocked
+    const result = await transitionScheduledToLocked(pool, new Date());
+
+    // Assert: No transition occurred
+    expect(result.count).toBe(0);
+    expect(result.changedIds).toEqual([]);
+
+    // Verify: Contest status is still SCHEDULED
+    const unchanged = await pool.query(
+      'SELECT status FROM contest_instances WHERE id = $1',
+      [contestId1]
+    );
+    expect(unchanged.rows[0].status).toBe('SCHEDULED');
+  });
+
+  // =========================================================================
+  // TEST 4: Idempotent - LOCKED status unchanged on re-call
+  // =========================================================================
+
+  it('is idempotent: LOCKED contests are not re-transitioned', async () => {
+    // Setup: Create LOCKED contest
+    const pastLockTime = new Date(Date.now() - 60000);
+
+    await pool.query(
+      `INSERT INTO contest_instances
+       (id, template_id, organizer_id, entry_fee_cents, payout_structure, status,
+        lock_time, contest_name, max_entries)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        contestId1,
+        templateId,
+        organizerId,
+        50000,
+        JSON.stringify({ type: 'winners_take_all', winners: 1 }),
+        'LOCKED', // Already LOCKED
+        pastLockTime,
+        'Test Contest 1',
+        20
+      ]
+    );
+
+    // Execute: Call transitionScheduledToLocked (should do nothing)
+    const result = await transitionScheduledToLocked(pool, new Date());
+
+    // Assert: No change
+    expect(result.count).toBe(0);
+    expect(result.changedIds).toEqual([]);
+
+    // Verify: No new transition records
+    const transition = await pool.query(
+      `SELECT COUNT(*) FROM contest_state_transitions
+       WHERE contest_instance_id = $1`,
+      [contestId1]
+    );
+    expect(transition.rows[0].count).toBe('0');
+  });
+
+  // =========================================================================
+  // TEST 5: Transition record persists correctly
+  // =========================================================================
+
+  it('persists transition record with correct metadata', async () => {
+    // Setup: Create SCHEDULED contest with past lock time
+    const pastLockTime = new Date(Date.now() - 60000);
+
+    await pool.query(
+      `INSERT INTO contest_instances
+       (id, template_id, organizer_id, entry_fee_cents, payout_structure, status,
+        lock_time, contest_name, max_entries)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        contestId1,
+        templateId,
+        organizerId,
+        50000,
+        JSON.stringify({ type: 'winners_take_all', winners: 1 }),
+        'SCHEDULED',
+        pastLockTime,
+        'Test Contest 1',
+        20
+      ]
+    );
+
+    // Execute: Transition
+    const now = new Date();
+    await transitionScheduledToLocked(pool, now);
+
+    // Verify: Transition record has correct fields
+    const transition = await pool.query(
+      `SELECT contest_instance_id, from_state, to_state, triggered_by, reason, created_at
+       FROM contest_state_transitions
+       WHERE contest_instance_id = $1`,
+      [contestId1]
+    );
+
+    expect(transition.rows.length).toBe(1);
+    const record = transition.rows[0];
+    expect(record.contest_instance_id).toBe(contestId1);
+    expect(record.from_state).toBe('SCHEDULED');
+    expect(record.to_state).toBe('LOCKED');
+    expect(record.triggered_by).toBe('LOCK_TIME_REACHED');
+    expect(record.reason).toBe('Automatic transition at lock time');
+    expect(record.created_at).toBeDefined();
+  });
+
+  // =========================================================================
+  // TEST 6: Contest isolation - multiple contests transition independently
+  // =========================================================================
+
+  it('transitions multiple eligible contests independently', async () => {
+    // Setup: Create two SCHEDULED contests, both with past lock times
+    const pastLockTime = new Date(Date.now() - 60000);
+
+    await pool.query(
+      `INSERT INTO contest_instances
+       (id, template_id, organizer_id, entry_fee_cents, payout_structure, status,
+        lock_time, contest_name, max_entries)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9),
+              ($10, $2, $3, $4, $5, $6, $7, $11, $9)`,
+      [
+        contestId1,
+        templateId,
+        organizerId,
+        50000,
+        JSON.stringify({ type: 'winners_take_all', winners: 1 }),
+        'SCHEDULED',
+        pastLockTime,
+        'Test Contest 1',
+        20,
+        contestId2,
+        'Test Contest 2'
+      ]
+    );
+
+    // Execute: Transition both
+    const result = await transitionScheduledToLocked(pool, new Date());
+
+    // Assert: Both transitioned
+    expect(result.count).toBe(2);
+    expect(result.changedIds).toContain(contestId1);
+    expect(result.changedIds).toContain(contestId2);
+
+    // Verify: Both are now LOCKED
+    const updated = await pool.query(
+      'SELECT id, status FROM contest_instances WHERE id = ANY($1::uuid[]) ORDER BY id',
+      [[contestId1, contestId2]]
+    );
+    expect(updated.rows.length).toBe(2);
+    updated.rows.forEach(row => {
+      expect(row.status).toBe('LOCKED');
+    });
+
+    // Verify: Each has a transition record
+    const transitions = await pool.query(
+      `SELECT contest_instance_id FROM contest_state_transitions
+       WHERE contest_instance_id = ANY($1::uuid[])
+       ORDER BY contest_instance_id`,
+      [[contestId1, contestId2]]
+    );
+    expect(transitions.rows.length).toBe(2);
+  });
+
+  // =========================================================================
+  // TEST 7: Boundary - Exact time match (now == lock_time)
+  // =========================================================================
+
+  it('transitions when now == lock_time (boundary)', async () => {
+    // Setup: Create SCHEDULED contest with lock_time = exact now
+    const now = new Date();
+
+    await pool.query(
+      `INSERT INTO contest_instances
+       (id, template_id, organizer_id, entry_fee_cents, payout_structure, status,
+        lock_time, contest_name, max_entries)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        contestId1,
+        templateId,
+        organizerId,
+        50000,
+        JSON.stringify({ type: 'winners_take_all', winners: 1 }),
+        'SCHEDULED',
+        now, // Exact match
+        'Test Contest 1',
+        20
+      ]
+    );
+
+    // Execute: Transition with the same timestamp
+    const result = await transitionScheduledToLocked(pool, now);
+
+    // Assert: Transition occurred
+    expect(result.count).toBe(1);
+    expect(result.changedIds).toEqual([contestId1]);
+  });
+
+  // =========================================================================
+  // TEST 8: No transition for non-SCHEDULED statuses (isolation)
+  // =========================================================================
+
+  it('ignores LIVE and COMPLETE contests', async () => {
+    const pastLockTime = new Date(Date.now() - 60000);
+
+    // Setup: Create one LIVE, one COMPLETE (both with past lock times)
+    await pool.query(
+      `INSERT INTO contest_instances
+       (id, template_id, organizer_id, entry_fee_cents, payout_structure, status,
+        lock_time, contest_name, max_entries)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9),
+              ($10, $2, $3, $4, $5, $11, $7, $12, $9)`,
+      [
+        contestId1,
+        templateId,
+        organizerId,
+        50000,
+        JSON.stringify({ type: 'winners_take_all', winners: 1 }),
+        'LIVE',
+        pastLockTime,
+        'Test Contest LIVE',
+        20,
+        contestId2,
+        'COMPLETE',
+        'Test Contest COMPLETE'
+      ]
+    );
+
+    // Execute: Transition
+    const result = await transitionScheduledToLocked(pool, new Date());
+
+    // Assert: No transitions (neither is SCHEDULED)
+    expect(result.count).toBe(0);
+
+    // Verify: Status unchanged
+    const live = await pool.query(
+      'SELECT status FROM contest_instances WHERE id = $1',
+      [contestId1]
+    );
+    const complete = await pool.query(
+      'SELECT status FROM contest_instances WHERE id = $1',
+      [contestId2]
+    );
+    expect(live.rows[0].status).toBe('LIVE');
+    expect(complete.rows[0].status).toBe('COMPLETE');
+  });
+});
 
 describe('Contest Lifecycle Transitions - LOCKED → LIVE', () => {
   let pool;
@@ -69,13 +546,13 @@ describe('Contest Lifecycle Transitions - LOCKED → LIVE', () => {
       [organizerId, `organizer-${organizerId}@test.com`]
     );
 
-    // Setup: Create template (required for foreign key)
+    // Setup: Create template (required for foreign key, is_active=false to avoid unique constraint)
     await pool.query(
       `INSERT INTO contest_templates
        (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key,
         settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
-        allowed_entry_fee_max_cents, allowed_payout_structures)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        allowed_entry_fee_max_cents, allowed_payout_structures, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         templateId,
         'Test Template',
@@ -87,7 +564,8 @@ describe('Contest Lifecycle Transitions - LOCKED → LIVE', () => {
         50000,
         10000,
         1000000,
-        JSON.stringify([{ type: 'winners_take_all', winners: 1 }])
+        JSON.stringify([{ type: 'winners_take_all', winners: 1 }]),
+        false
       ]
     );
   });

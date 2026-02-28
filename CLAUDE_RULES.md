@@ -465,16 +465,132 @@ Never commit with failing invariant tests.
 
 System state:
 
-- 93 test suites
-- 1987+ passing tests
+- 93+ test suites
+- 1995+ passing tests
 - Cancellation cascade atomic + idempotent
 - Lifecycle ordering enforced (Phase 1 → 2 → 3)
 - Settlement strictly scoped by contest_instance_id
-- Tournament-start LOCKED → LIVE transition frozen
+- Lock-time SCHEDULED → LOCKED primitive frozen, background poller operational
+- Tournament-start LOCKED → LIVE primitive frozen, background poller operational
+- Single reconciliation entry point (`reconcileLifecycle()`) enforced
 - Public OpenAPI frozen
 - Schema snapshot authoritative
 
+## LOCKED State Contract (Financial Boundary)
+
+**Purpose:**
+LOCKED represents the financial entry boundary of a contest.
+
+It exists to enforce:
+- No new entries
+- No withdrawals
+- Prize pool frozen
+- Lineups frozen (if applicable)
+
+**LOCKED is NOT:**
+- A scoring state
+- A settlement state
+- A UI-mandatory state
+- A provider-driven state
+
+## Timestamp Relationship Rule
+
+`lock_time` and `tournament_start_time` MAY be equal.
+
+**Day 1 default:**
+```
+lock_time = tournament_start_time
+```
+
+This is safe because:
+- Enforcement is time-based (`now < lock_time`)
+- Lifecycle transitions are state-gated (`WHERE status = 'SCHEDULED'`)
+- Sequential transitions (SCHEDULED → LOCKED → LIVE) may occur on the same reconciliation tick
+- Atomic updates prevent corruption
+- Idempotency prevents duplicate transitions
+
+**Equal timestamps do NOT create race conditions.**
+
+## Enforcement Rule (Critical)
+
+Entry enforcement MUST use time-based validation:
+```
+now < lock_time
+```
+
+NOT:
+```
+status = 'SCHEDULED'
+```
+
+Status is descriptive.
+Time enforces financial integrity.
+
+**Status must never be used as the sole enforcement mechanism for entry boundaries.**
+
+**Violation of this rule is a financial boundary breach.**
+
+## UI Abstraction Rule
+
+The LOCKED state MAY be abstracted in UI.
+
+**Day 1 UX behavior:**
+- Users may see SCHEDULED → LIVE directly
+- LOCKED may exist internally without separate UI exposure
+
+**Lifecycle integrity MUST NOT be modified to simplify UI.**
+
+**Infra prevails over UI.**
+
+## Future Separation Allowance
+
+In future contests:
+```
+lock_time < tournament_start_time
+```
+
+This allows:
+- Early entry freeze
+- Operational buffer
+- Advanced contest types
+- High-stakes controls
+
+**No schema change required.**
+**No lifecycle refactor required.**
+
+This is intentional design.
+
 ## Frozen Lifecycle Primitives
+
+### SCHEDULED → LOCKED Transition (Lock Time)
+
+**Contract (Immutable):**
+
+```javascript
+async function transitionScheduledToLocked(pool, now)
+  → Promise<{ changedIds: uuid[], count: number }>
+```
+
+**Semantics:**
+- Finds all SCHEDULED contests where `lock_time IS NOT NULL`
+- Transitions to LOCKED if `now >= lock_time`
+- Inserts atomic transition record: triggered_by = 'LOCK_TIME_REACHED'
+- Idempotent: re-calls are safe (already-LOCKED contests skipped)
+- Deterministic: uses injected `now`, never raw database clock
+
+**Constraints:**
+- Implementation: `backend/services/contestLifecycleService.js`
+- Tests: `backend/tests/e2e/contestLifecycleTransitions.integration.test.js` (8 test cases)
+- No module dependencies (pure DB-driven)
+- Single atomic CTE (UPDATE + INSERT)
+- No scope expansion allowed: NO endpoint, NO scheduler, NO background job, NO polling loop
+
+**Execution Authority:**
+- Function is called by orchestration layer (Phase 2+)
+- Execution binding is NOT part of this frozen layer
+- This is a callable primitive, not an automatic trigger
+
+---
 
 ### LOCKED → LIVE Transition (Tournament Start Time)
 
@@ -506,16 +622,38 @@ async function transitionLockedToLive(pool, now)
 
 ---
 
+## Lifecycle Orchestration Rules (Phase 2C)
+
+**Single Entry Point (Critical):**
+- Only `reconcileLifecycle(pool, now)` may call frozen lifecycle primitives
+- No direct calls to `transitionScheduledToLocked()` or `transitionLockedToLive()` except from within reconciliation service
+- All lifecycle orchestration must go through `lifecycleReconciliationService.js`
+
+**Background Poller Constraints:**
+- Triggered via `startLifecycleReconciler(pool, options)` in `lifecycleReconcilerWorker.js`
+- Guarded by `ENABLE_LIFECYCLE_RECONCILER=true` environment variable
+- Fixed 30-second interval (configurable via `LIFECYCLE_RECONCILER_INTERVAL_MS`)
+- Minimal logging: transition counts only
+- Operational layer subject to monitoring and HA hardening (pending)
+
+**No Coupling:**
+- Lifecycle orchestration must NOT couple to ingestion, discovery, or domain logic
+- Must accept injected time (no raw `NOW()` calls)
+- Must remain deterministic and testable
+
+---
+
 ## Non-Breaking Rules
 
 New features must NOT:
 
 - Break lifecycle phase ordering (Phase 1 → 2 → 3)
 - Mutate LIVE from discovery service
-- Call transitionLockedToLive() with raw `now()` (must inject)
+- Call frozen primitives except through `reconcileLifecycle()`
 - Modify openapi.yaml silently
 - Change schema without snapshot update
 - Add scope to contestLifecycleService (must remain pure)
+- Create alternative entry points for lifecycle triggers
 
 # 17. SYSTEM MATURITY MATRIX (Governance Layer)
 

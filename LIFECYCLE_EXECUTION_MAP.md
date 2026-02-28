@@ -52,22 +52,45 @@ Prevents fragmented execution entry points and orchestration drift.
 
 ## Transitions Registry
 
-### Transition 1: SCHEDULED → LOCKED
+### Transition 1: SCHEDULED → LOCKED 🔄 EVOLVING (Operational)
 
 | Property | Value |
 |----------|-------|
-| **Primitive Owner** | `adminContestService.forceLockContestInstance()` |
-| **Primitive File** | `backend/services/adminContestService.js` (lines ~93-140) |
-| **Primitive Type** | Service function (manual trigger via admin) |
-| **Trigger Owner** | Admin endpoint (manually-triggered, not automatic) |
-| **Execution Layer** | EVOLVING |
-| **Current Entry Point** | `POST /api/admin/contests/:id/force-lock` |
-| **Frozen Status** | **EVOLVING** — Primitive exists (forceLockContestInstance), but automatic trigger does not. Lock strategy registry exists in `backend/services/lockStrategy.js` but contains mostly TODO implementations. |
-| **Atomicity** | ✅ Via SELECT...FOR UPDATE + transaction |
-| **Idempotency** | ✅ If already LOCKED, returns `noop=true` (test-verified in admin service tests) |
-| **State Persistence** | ✅ `contest_state_transitions` record inserted (verified via tests) |
-| **Automatic Trigger** | ❌ DOES NOT EXIST. Requires Phase 2 orchestration layer to implement scheduler/poller. |
-| **Notes** | Lock time computed by sport-specific strategy (e.g., first_game_kickoff, fixed_time, manual). Strategy selection via `lock_strategy_key` from template. Current implementations are TODOs; this layer is not yet functional. Automatic locking (e.g., via cron job) is not yet implemented. |
+| **Primitive Owner** | `contestLifecycleService.transitionScheduledToLocked()` |
+| **Primitive File** | `backend/services/contestLifecycleService.js` (lines ~20-54) |
+| **Primitive Type** | Pure, deterministic, callable function |
+| **Trigger Owner** | Background poller (`startLifecycleReconciler()`) |
+| **Execution Layer** | OPERATIONAL (30s interval, ENABLE_LIFECYCLE_RECONCILER=true) |
+| **Frozen Status** | ✅ Primitive FROZEN (contract locked) |
+| **Entry Point** | `reconcileLifecycle()` in `lifecycleReconciliationService.js` (single entry point) |
+| **Atomicity** | ✅ Single CTE (UPDATE + INSERT) |
+| **Idempotency** | ✅ Verified (already-LOCKED contests skipped) |
+| **State Persistence** | ✅ `contest_state_transitions` record (LOCK_TIME_REACHED) |
+| **Test Coverage** | ✅ 8 lifecycle + 4 reconciler tests (boundary, atomicity, idempotency, ordering) |
+| **Requirements** | `lock_time IS NOT NULL`, `now >= lock_time` |
+| **Implementation** | `backend/services/contestLifecycleService.js`, `lifecycleReconciliationService.js`, `lifecycleReconcilerWorker.js` |
+| **Governance** | CLAUDE_RULES.md § 16 + new § Lifecycle Orchestration Rules |
+| **Operational Status** | Primitive frozen, trigger operational, HA/monitoring pending (Phase 2D) |
+
+#### Timestamp Strategy (Day 1)
+
+**Current implementation:**
+```
+lock_time = tournament_start_time
+```
+
+**Result:**
+- SCHEDULED → LOCKED (via lock_time)
+- LOCKED → LIVE (via tournament_start_time)
+may execute on the same reconciliation tick (since lock_time == tournament_start_time on Day 1).
+
+This is intentional and safe due to:
+- State-gated transitions
+- Atomic updates
+- Idempotent primitives
+- Time-based enforcement
+
+**No user-facing LOCKED state required in Phase 2A.**
 
 ---
 
@@ -92,34 +115,45 @@ Prevents fragmented execution entry points and orchestration drift.
 
 ---
 
-### Transition 3: LIVE → COMPLETE
+### Transition 3: LIVE → COMPLETE (Automatic Settlement)
 
 #### Primitive Layer (Frozen)
 
 | Property | Value |
 |----------|-------|
-| **Primitive Owner** | `customContestService.settleContest()` |
-| **Primitive File** | `backend/services/customContestService.js` (lines ~1120-1260) |
-| **Primitive Type** | Service function (complex, multi-step, deterministic) |
-| **Frozen Status** | **FROZEN** — Settlement math locked by `pgaSettlementInvariants.test.js` invariant suite |
-| **Atomicity** | ✅ Via settlement service transaction (BEGIN...COMMIT/ROLLBACK) |
-| **Idempotency** | ✅ Verified (settlement_records appended, never mutated; re-runs produce identical records) |
-| **State Persistence** | ✅ `contest_state_transitions` record inserted (status = LIVE → COMPLETE) |
-| **Test Coverage** | ✅ `pgaSettlementInvariants.test.js` (determinism, replay, hash stability, idempotency) |
-| **Immutability** | ✅ Binding via `event_data_snapshots.snapshot_id` + `snapshot_hash` (locked by schema) |
+| **Primitive Owner** | `contestLifecycleService.transitionLiveToComplete(pool, now)` |
+| **Primitive File** | `backend/services/contestLifecycleService.js` (MVP Phase 3) |
+| **Primitive Type** | Lifecycle orchestration (calls executeSettlement for eligible contests) |
+| **Frozen Status** | ✅ **FROZEN** — Contract locked by 6 integration tests |
+| **Atomicity** | ✅ Via settlement transaction (each contest settled atomically with status update + transition record) |
+| **Idempotency** | ✅ Verified (settlement_records exist check + NOT EXISTS for transition insert) |
+| **State Persistence** | ✅ `contest_state_transitions` record inserted (from_state = LIVE, to_state = COMPLETE, triggered_by = TOURNAMENT_END_TIME_REACHED) |
+| **Test Coverage** | ✅ `contestLifecycleCompletion.integration.test.js` (6 tests: boundary, null, idempotency, missing snapshot, transition structure) |
+| **Requirements** | status = LIVE, tournament_end_time IS NOT NULL, now >= tournament_end_time, FINAL snapshot must exist |
+| **Settlement Binding** | ✅ executeSettlement validates snapshot_id + snapshot_hash inside transaction |
 | **Governance** | CLAUDE_RULES.md § 7 (Settlement Engine Rule), § 16 (Frozen Invariants) |
-| **Notes** | Settlement math is deterministic and replay-safe. No changes to math allowed without governance review. |
+| **Notes** | If snapshot missing, leaves contest LIVE and continues (non-fatal). Errors logged but don't block batch. |
 
-#### Trigger Layer (Evolving)
+#### executeSettlement Enhancements (Backward Compatible)
 
 | Property | Value |
 |----------|-------|
-| **Trigger Owner** | Admin endpoint (currently manual, future: scheduler/event-driven TBD) |
-| **Current Entry Point** | `POST /api/admin/contests/:id/settle` |
-| **Trigger Type** | Manual (admin-initiated), not automatic |
-| **Execution Layer** | EVOLVING |
-| **Frozen Status** | **EVOLVING** — Trigger mechanism exists (manual admin), but automatic execution model TBD. |
-| **Notes** | Settlement can currently only be triggered manually by admin. Future phase may add automatic settlement based on tournament_end_time or event completion, but that is NOT yet implemented. |
+| **Signature Change** | Added optional `now` parameter (defaults to `new Date()`) |
+| **Status Guard** | Added WHERE status = 'LIVE' to UPDATE (rejects non-LIVE contests gracefully) |
+| **Determinism** | Replaced NOW() with injected `now` for settle_time and transition created_at |
+| **Transition Record** | Inserts LIVE → COMPLETE transition inside settlement transaction (NOT EXISTS idempotent) |
+| **Backward Compatible** | ✅ Yes — optional `now` preserves existing call sites |
+
+#### Trigger Layer (Frozen)
+
+| Property | Value |
+|----------|-------|
+| **Trigger Owner** | Background poller (`startLifecycleReconciler`) |
+| **Execution Layer** | `reconcileLifecycle(pool, now)` as Phase 3 (after LOCKED → LIVE) |
+| **Trigger Type** | Automatic (every 30s, same as other phases) |
+| **Frozen Status** | ✅ **FROZEN** — Background poller contract unchanged, Phase 3 integrated into existing orchestration |
+| **Entry Point** | Single: `reconcileLifecycle()` in `lifecycleReconciliationService.js` |
+| **Notes** | No new endpoints, no manual settlement paths for MVP (admin paths unchanged but deprecated). |
 
 ---
 
@@ -171,15 +205,29 @@ Primitive status and trigger status are independent classifications.
 
 ---
 
+### SCHEDULED → LOCKED (Lock Time)
+
+| Layer | Status | Details |
+|-------|--------|---------|
+| **Primitive** | ✅ **FROZEN** | `contestLifecycleService.transitionScheduledToLocked(pool, now)` — Contract locked by 8 integration tests (signature, semantics, determinism) |
+| **Trigger** | 🔄 **EVOLVING** | Background poller (`startLifecycleReconciler()`) on 30s interval, guarded by `ENABLE_LIFECYCLE_RECONCILER=true` |
+| **Orchestration** | `reconcileLifecycle()` | Single entry point in `lifecycleReconciliationService.js` — only caller of frozen primitives |
+| **Governance** | CLAUDE_RULES.md § 16 | Primitive frozen. Trigger operational but subject to monitoring / HA hardening |
+| **Test Suite** | `contestLifecycleTransitions.integration.test.js` (8) + `lifecycleReconcilerWorker.integration.test.js` (4) | Covers boundary, atomicity, idempotency, ordering |
+| **Transition Status** | 🔄 **EVOLVING (Operational)** | Primitive frozen, trigger implemented but not yet GA-hardened |
+
+---
+
 ### LOCKED → LIVE (Tournament Start Time)
 
 | Layer | Status | Details |
 |-------|--------|---------|
 | **Primitive** | ✅ **FROZEN** | `contestLifecycleService.transitionLockedToLive(pool, now)` — Contract locked by 8 integration tests (signature, semantics, determinism) |
-| **Trigger** | **PENDING** | No automatic caller exists. Function is ready but not wired. Requires Phase 2 orchestration design. |
-| **Governance** | CLAUDE_RULES.md § 16 | Explicitly documented as frozen primitive |
-| **Test Suite** | `contestLifecycleTransitions.integration.test.js` (8 tests) | Covers boundary conditions, atomicity, idempotency, isolation |
-| **Transition Status** | **EVOLVING** | Primitive frozen, but trigger pending. Not fully frozen until trigger is decided. |
+| **Trigger** | 🔄 **EVOLVING** | Background poller (`startLifecycleReconciler()`) on 30s interval, guarded by `ENABLE_LIFECYCLE_RECONCILER=true` |
+| **Orchestration** | `reconcileLifecycle()` | Single entry point in `lifecycleReconciliationService.js` — only caller of frozen primitives |
+| **Governance** | CLAUDE_RULES.md § 16 | Primitive frozen. Trigger operational but subject to monitoring / HA hardening |
+| **Test Suite** | `contestLifecycleTransitions.integration.test.js` (8) + `lifecycleReconcilerWorker.integration.test.js` (4) | Covers boundary, atomicity, idempotency, ordering |
+| **Transition Status** | 🔄 **EVOLVING (Operational)** | Primitive frozen, trigger implemented but not yet GA-hardened |
 
 ---
 
@@ -192,18 +240,6 @@ Primitive status and trigger status are independent classifications.
 | **Governance** | CLAUDE_RULES.md § 7, § 16 | Settlement Engine Rule: deterministic, snapshot-bound, idempotent |
 | **Test Suite** | `pgaSettlementInvariants.test.js` | Covers determinism, replay safety, hash stability |
 | **Transition Status** | **EVOLVING** | Primitive frozen (math), but trigger evolving (when to settle). Not fully frozen. |
-
----
-
-### SCHEDULED → LOCKED (Lock Time)
-
-| Layer | Status | Details |
-|-------|--------|---------|
-| **Primitive** | **EVOLVING** | `adminContestService.forceLockContestInstance()` — Test-locked (idempotent: noop=true if already LOCKED). Manual trigger exists via endpoint. |
-| **Trigger** | **EVOLVING** | Currently manual (`POST /api/admin/contests/:id/force-lock`). Automatic trigger does not exist. Lock strategy implementations are TODOs. |
-| **Governance** | CLAUDE_RULES.md § 16 | Admin transition, not yet formally hardened |
-| **Test Suite** | `admin.contests.operations.test.js` | Covers idempotency, SCHEDULED-only transition, noop handling |
-| **Transition Status** | **EVOLVING** | Both primitive and trigger exist but incomplete. Automatic scheduler not yet implemented. |
 
 ---
 
@@ -233,13 +269,13 @@ Primitive status and trigger status are independent classifications.
 
 ## Execution Entry Points (Current State)
 
-| Transition | Primitive | Current Entry Point | Status |
+| Transition | Orchestration Entry Point | Trigger Mechanism | Status |
 |-----------|-----------|---------------------|--------|
-| SCHEDULED → LOCKED | `forceLockContestInstance()` | `POST /api/admin/contests/:id/force-lock` | **EVOLVING** (manual only, automatic trigger not yet implemented) |
-| LOCKED → LIVE | `transitionLockedToLive(pool, now)` | NONE (function exists, no caller) | **EVOLVING** (primitive ready, orchestration layer missing) |
-| LIVE → COMPLETE | `settleContest()` | `POST /api/admin/contests/:id/settle` | **EVOLVING** (manual admin only, automatic trigger not yet implemented) |
-| → CANCELLED (Provider) | `discoveryService.processDiscovery()` | Discovery webhook pipeline | **FROZEN** (cascade ordering, but trigger varies) |
-| → CANCELLED (Admin) | `cancelContestInstance()` | `POST /api/admin/contests/:id/cancel` | **FROZEN** (idempotent, verified) |
+| SCHEDULED → LOCKED | `reconcileLifecycle(pool, now)` (Phase 1) | Background poller (30s interval, ENABLE_LIFECYCLE_RECONCILER=true) | 🔄 **EVOLVING (Operational)** |
+| LOCKED → LIVE | `reconcileLifecycle(pool, now)` (Phase 2) | Background poller (30s interval, ENABLE_LIFECYCLE_RECONCILER=true) | 🔄 **EVOLVING (Operational)** |
+| LIVE → COMPLETE | `reconcileLifecycle(pool, now)` (Phase 3) | Background poller (30s interval, ENABLE_LIFECYCLE_RECONCILER=true) | ✅ **FROZEN** |
+| → CANCELLED (Provider) | `discoveryService.processDiscovery()` | Discovery webhook pipeline | **FROZEN** |
+| → CANCELLED (Admin) | `adminContestService.cancelContestInstance()` | `POST /api/admin/contests/:id/cancel` | **FROZEN** |
 
 ---
 
@@ -308,13 +344,24 @@ if (shouldAutoTransition) {
 
 | Transition | Primitive Status | Trigger Status | Overall Status | Notes |
 |-----------|------------------|-----------------|----------------|-------|
-| **LOCKED → LIVE** | ✅ FROZEN | PENDING | **EVOLVING** | Primitive test-locked, trigger not wired yet |
-| **LIVE → COMPLETE** | ✅ FROZEN | EVOLVING | **EVOLVING** | Math frozen, auto trigger TBD |
-| **SCHEDULED → LOCKED** | EVOLVING | EVOLVING | **EVOLVING** | Both exist (manual), automatic not implemented |
+| **SCHEDULED → LOCKED** | ✅ FROZEN | 🔄 EVOLVING | 🔄 **EVOLVING (Operational)** | Primitive locked, trigger implemented, operational hardening TBD |
+| **LOCKED → LIVE** | ✅ FROZEN | 🔄 EVOLVING | 🔄 **EVOLVING (Operational)** | Primitive locked, trigger implemented, operational hardening TBD |
+| **LIVE → COMPLETE** | ✅ FROZEN | ✅ FROZEN | ✅ **FROZEN** | MVP Phase 3: Automatic settlement every 30s via reconciler |
 | **CANCELLED (Provider)** | ✅ FROZEN | ✅ FROZEN | ✅ **FROZEN** | Cascade ordering + webhook contract both locked |
 | **CANCELLED (Admin)** | ✅ FROZEN | ✅ FROZEN | ✅ **FROZEN** | Admin operation + endpoint both locked |
 
 **Key:** Overall status is FROZEN only when BOTH primitive and trigger are FROZEN.
+
+**Primitives Frozen (3):**
+- `transitionScheduledToLocked(pool, now)` — 8 integration tests, CTE-based atomicity, deterministic
+- `transitionLockedToLive(pool, now)` — 8 integration tests, CTE-based atomicity, deterministic
+- `transitionLiveToComplete(pool, now)` — 6 integration tests, settlement-bound atomicity, deterministic
+
+**Operational Status (Background Poller - MVP Complete):**
+- Single entry point: `reconcileLifecycle(pool, now)` in `lifecycleReconciliationService.js`
+- Phases: Phase 1 (SCHEDULED→LOCKED), Phase 2 (LOCKED→LIVE), Phase 3 (LIVE→COMPLETE) all implemented
+- Implemented: 30s interval poller via `startLifecycleReconciler()`
+- Missing: Monitoring, HA behavior, multi-instance deployment validation (Phase 2C+ work)
 
 ---
 

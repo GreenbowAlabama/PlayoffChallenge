@@ -51,6 +51,7 @@ SELECT COUNT(*) FROM contest_state_transitions;
 - [ ] Count transition records: `SELECT COUNT(*) FROM contest_state_transitions WHERE triggered_by = 'TOURNAMENT_START_TIME_REACHED';`
 - [ ] Verify no duplicate transitions for same contest
 - [ ] Spot-check a transition: Contest was LOCKED, is now LIVE, has one transition record
+- [ ] Confirm that equal `lock_time` and `tournament_start_time` do not produce duplicate transitions or illegal state jumps
 
 **Success:** Transition count matches manually triggered contests
 **Failure:** Duplicate records, out-of-order transitions, missing records

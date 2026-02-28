@@ -318,10 +318,11 @@ function canonicalizeJson(obj) {
  * @param {Object} pool - Database connection pool
  * @param {string} snapshotId - Event data snapshot UUID (REQUIRED for PGA v1 compliance)
  * @param {string} snapshotHash - Hash of snapshot (REQUIRED for PGA v1 compliance)
- * @returns {Promise<Object>} Settlement record from database (includes id for use as scoring_run_id)
+ * @param {Date} [now=new Date()] - Injected current time for determinism (used for settle_time and transition timestamp)
+ * @returns {Promise<Object>} Settlement record from database (includes id for use as scoring_run_id), or { noop: true, reason: string } if status not LIVE
  * @throws {Error} On any failure (transaction rolled back) or missing snapshot binding
  */
-async function executeSettlement(contestInstance, pool, snapshotId, snapshotHash) {
+async function executeSettlement(contestInstance, pool, snapshotId, snapshotHash, now = new Date()) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -353,6 +354,15 @@ async function executeSettlement(contestInstance, pool, snapshotId, snapshotHash
     // 3. CONSISTENCY VALIDATION: settle_time set but no record?
     if (lockedContest.settle_time && existingSettlement.rows.length === 0) {
       throw new Error('INCONSISTENT_STATE: settle_time is set but no settlement_records entry exists');
+    }
+
+    // 3b. STATUS GUARD: Only settle LIVE contests (idempotent, no-throw)
+    if (lockedContest.status !== 'LIVE') {
+      await client.query('COMMIT');
+      return {
+        noop: true,
+        reason: `STATUS_NOT_LIVE: Contest status is ${lockedContest.status}, expected LIVE`
+      };
     }
 
     // 4. LOAD TEMPLATE - read settlement_strategy_key from contest template
@@ -426,12 +436,13 @@ async function executeSettlement(contestInstance, pool, snapshotId, snapshotHash
         settlement_version,
         participant_count,
         total_pool_cents
-      ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `, [
       contestInstance.id,
       snapshotId,
       snapshotHash,
+      now,
       JSON.stringify(results),
       resultsHash,
       'v1',
@@ -448,14 +459,49 @@ async function executeSettlement(contestInstance, pool, snapshotId, snapshotHash
       [scoringRunId, settlementRecord.id]
     );
 
-    // 10. WRITE settle_time (exactly once)
+    // 10. WRITE settle_time and status to COMPLETE (only if currently LIVE)
     const previousStatus = lockedContest.status;
     const newStatus = 'COMPLETE';
 
-    await client.query(
-      'UPDATE contest_instances SET settle_time = NOW(), status = $1 WHERE id = $2',
-      [newStatus, contestInstance.id]
+    const statusUpdateResult = await client.query(
+      'UPDATE contest_instances SET settle_time = $1, status = $2 WHERE id = $3 AND status = $4 RETURNING id',
+      [now, newStatus, contestInstance.id, 'LIVE']
     );
+
+    // If UPDATE affected 0 rows, status was already changed (e.g., to CANCELLED)
+    // This is idempotent - settlement already happened, so return existing record
+    if (statusUpdateResult.rows.length === 0) {
+      await client.query('COMMIT');
+      return settlementRecord;
+    }
+
+    // 10b. INSERT LIFECYCLE TRANSITION RECORD (LIVE → COMPLETE)
+    // Idempotent via NOT EXISTS to prevent duplicate rows if function is re-called
+    await client.query(`
+      INSERT INTO contest_state_transitions (
+        contest_instance_id,
+        from_state,
+        to_state,
+        triggered_by,
+        reason,
+        created_at
+      )
+      SELECT $1, $2, $3, $4, $5, $6
+      WHERE NOT EXISTS (
+        SELECT 1 FROM contest_state_transitions
+        WHERE contest_instance_id = $1
+          AND from_state = $2
+          AND to_state = $3
+          AND triggered_by = $4
+      )
+    `, [
+      contestInstance.id,
+      'LIVE',
+      'COMPLETE',
+      'TOURNAMENT_END_TIME_REACHED',
+      'Automatic settlement at tournament end time',
+      now
+    ]);
 
     // 11. WRITE SYSTEM AUDIT RECORD with snapshot context
     const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
