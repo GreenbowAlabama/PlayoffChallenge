@@ -16,6 +16,7 @@ const ingestionService = require('./services/ingestionService');
 const nflEspnIngestion = require('./services/ingestion/strategies/nflEspnIngestion');
 const config = require('./config');
 const { startCleanup, stopCleanup } = require('./auth/appleVerify');
+const { startLifecycleReconciler } = require('./workers/lifecycleReconcilerWorker');
 
 // Fail fast on misconfigured environment
 config.validateEnvironment();
@@ -3222,6 +3223,11 @@ function startServer() {
     // Start payout scheduler if not in test environment
     if (process.env.NODE_ENV !== 'test') {
       setTimeout(startPayoutScheduler, 5000); // Start after 5 seconds
+    }
+
+    // Start lifecycle reconciler if not in test environment
+    if (process.env.NODE_ENV !== 'test') {
+      setTimeout(() => startLifecycleReconciler(pool), 5000); // Start after 5 seconds
     }
   });
 }
