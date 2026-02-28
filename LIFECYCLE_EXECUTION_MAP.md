@@ -235,11 +235,11 @@ Primitive status and trigger status are independent classifications.
 
 | Layer | Status | Details |
 |-------|--------|---------|
-| **Primitive** | ✅ **FROZEN** | `customContestService.settleContest()` — Settlement math locked by invariant tests (determinism, replay, idempotency) |
-| **Trigger** | **EVOLVING** | Currently manual (`POST /api/admin/contests/:id/settle`). Automatic execution model TBD (tournament_end_time? event-driven?) |
-| **Governance** | CLAUDE_RULES.md § 7, § 16 | Settlement Engine Rule: deterministic, snapshot-bound, idempotent |
-| **Test Suite** | `pgaSettlementInvariants.test.js` | Covers determinism, replay safety, hash stability |
-| **Transition Status** | **EVOLVING** | Primitive frozen (math), but trigger evolving (when to settle). Not fully frozen. |
+| **Primitive** | ✅ **FROZEN** | `contestLifecycleService.transitionLiveToComplete()` — Locked by 6 integration tests (idempotency, snapshot binding, missing snapshot handling) |
+| **Trigger** | ✅ **FROZEN** | Automatic via background reconciler (every 30s, Phase 3). Entry point: `reconcileLifecycle(pool, now)` |
+| **Governance** | CLAUDE_RULES.md § 7, § 16 | Settlement Engine Rule: deterministic, snapshot-bound, idempotent; Lifecycle Orchestration: time-driven, atomic, error-escalating |
+| **Test Suite** | `contestLifecycleCompletion.integration.test.js` | 6 tests: boundary (tournament_end_time), null handling, idempotency, missing snapshot, settlement binding, audit trail |
+| **Transition Status** | ✅ **FROZEN** | Both primitive and trigger frozen. Automatic, deterministic, settlement-bound. No manual paths in MVP. |
 
 ---
 
@@ -430,3 +430,36 @@ npm test -- --forceExit
    - Event-driven pipeline?
 
 **Once these are decided, orchestration can be built cleanly and safely.**
+
+---
+
+## Lifecycle Engine — FROZEN (v1)
+
+**Status:** LOCKED. No further changes without governance review.
+
+**Primitives Frozen:**
+- ✅ `transitionScheduledToLocked()` (SCHEDULED → LOCKED)
+- ✅ `transitionLockedToLive()` (LOCKED → LIVE)
+- ✅ `transitionLiveToComplete()` (LIVE → COMPLETE via settlement)
+- ✅ `attemptSystemTransitionWithErrorRecovery()` (LIVE → ERROR escalation)
+
+**Execution Model (Implemented):**
+- Time-driven reconciliation worker (30s interval)
+- Deterministic `now` injection for testability
+- Atomic state mutations with audit trail (`contest_state_transitions`)
+- Error recovery escalation (settlement failures → LIVE → ERROR)
+- Idempotent re-runs (safe under repeated execution, zero duplicate writes)
+
+**Test Coverage (26/26 Passing):**
+- `contestLifecycleTransitions.integration.test.js`: 16 tests (SCHEDULED→LOCKED→LIVE)
+- `contestLifecycleCompletion.integration.test.js`: 6 tests (LIVE→COMPLETE with settlement)
+- `lifecycleReconcilerWorker.integration.test.js`: 4 tests (reconciliation ordering, idempotency)
+
+**Contract Guarantees:**
+- Only LIVE + past tournament_end_time triggers settlement
+- Settlement errors automatically escalate to ERROR via error recovery
+- Re-runs produce zero additional mutations or audit records
+- Snapshot binding required for settlement (immutability enforcement)
+- Provider cancellation cascade support (discovery layer responsibility)
+
+**Next Phase:** Tournament Discovery Foundation (MVP event registry + template abstraction)

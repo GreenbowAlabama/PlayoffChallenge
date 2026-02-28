@@ -745,3 +745,42 @@ Queue infra adds complexity without revenue or scale justification.
 
 Trigger:
 Revisit when scale or multi-node deployment requires distributed job handling.
+
+---
+
+## 2026-02-28 — Lifecycle Engine Frozen (SCHEDULED → LOCKED → LIVE → COMPLETE)
+
+**Decision:**
+Lifecycle state machine is frozen at v1. No further changes to the core engine without governance review.
+
+**Rationale:**
+- Contract locked by 26/26 integration tests across 3 suites
+- Determinism verified via time injection
+- Idempotency verified (zero duplicate writes on re-run)
+- Settlement binding locked (snapshot_id + hash immutability)
+- Error escalation proven (settlement failures → LIVE → ERROR)
+- Real-world ready: time-driven reconciliation, atomic transitions, audit trail
+
+**What Is Frozen:**
+- `transitionScheduledToLocked()` — SCHEDULED → LOCKED on lock_time
+- `transitionLockedToLive()` — LOCKED → LIVE on tournament_start_time
+- `transitionLiveToComplete()` — LIVE → COMPLETE with settlement binding
+- `attemptSystemTransitionWithErrorRecovery()` — LIVE → ERROR on settlement failure
+
+**What Is Not Frozen:**
+- Discovery layer (providers, tournament ingestion) — next iteration
+- Admin endpoints and manual force-transition APIs — defined separately
+- Scaling/HA deployment model — deferred to Phase 2D
+
+**Test Coverage (26/26 Passing):**
+- 16 tests: SCHEDULED→LOCKED→LIVE transitions, boundary conditions, idempotency
+- 6 tests: LIVE→COMPLETE with real settlement, snapshot binding, missing snapshot handling
+- 4 tests: Reconciliation worker ordering, cascading transitions, re-run idempotency
+
+**Trigger for Reopening:**
+- Multi-sport requirements demand contest-type polymorphism
+- Error recovery invariants fail in production
+- 30-day survivability testing reveals autonomy gaps
+
+**Owner:** Architecture Team
+**Locked until:** Governance review approval

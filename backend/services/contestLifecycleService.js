@@ -1,5 +1,16 @@
 /**
- * Contest Lifecycle Service
+ * CONTEST LIFECYCLE ENGINE — FROZEN (v1)
+ *
+ * Guarantees:
+ * - Deterministic time-driven state transitions
+ * - Atomic state mutations with audit trail
+ * - Idempotent reconciliation (safe repeated execution, zero duplicate writes)
+ * - Settlement-bound LIVE → COMPLETE
+ * - Error escalation LIVE → ERROR via attemptSystemTransitionWithErrorRecovery
+ *
+ * Do not modify without governance review.
+ *
+ * ---
  *
  * Pure lifecycle transition functions for contest instances.
  * All transitions are deterministic, idempotent, and atomic.
