@@ -8,6 +8,8 @@ const {
   deriveColumnSchema
 } = require('../presentationDerivationService');
 
+const { computeEffectiveStatus } = require('./computeEffectiveStatus');
+
 const VALID_STATUSES = new Set([
   'SCHEDULED',
   'LOCKED',
@@ -76,11 +78,19 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
       throw new Error('Invariant Violation: currentTimestamp must be a valid number or Date object.');
   }
 
+  // ===== STATUS DERIVATION =====
+  // rawStatus: persisted in database, never mutated
+  // effectiveStatus: derived temporal state computed at read time
+  // Rules:
+  //   - COMPLETE and CANCELLED override derivation
+  //   - SCHEDULED + now >= start_time → LIVE
+  //   - LIVE is never persisted, only derived
+  const rawStatus = contestRow.status; // Direct from DB, unchanging
+  const now = currentTimestamp instanceof Date ? currentTimestamp : new Date(currentTimestamp);
+  const effectiveStatus = computeEffectiveStatus(contestRow, now);
 
-  const status = contestRow.status; // Direct from DB
-
-  const is_locked = status !== 'SCHEDULED'; // Rule: status !== 'SCHEDULED'
-  const is_live = status === 'LIVE'; // Rule: status === 'LIVE'
+  const is_locked = effectiveStatus !== 'SCHEDULED'; // Effective: true if not SCHEDULED or LIVE
+  const is_live = effectiveStatus === 'LIVE'; // Effective: LIVE only if status=SCHEDULED and now>=start_time
   const is_settled = contestRow.settle_time !== null; // Rule: settle_time !== null
 
   // entry_count and user_has_entered are expected to be computed and aliased in the service layer
@@ -88,13 +98,13 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
   const user_has_entered = contestRow.user_has_entered;
 
   let time_until_lock = null;
-  if (status === 'SCHEDULED' && contestRow.lock_time !== null) {
+  if (effectiveStatus === 'SCHEDULED' && contestRow.lock_time !== null) {
     const lockTimeMs = new Date(contestRow.lock_time).getTime();
     time_until_lock = Math.max(0, Math.floor((lockTimeMs - nowMs) / 1000));
   }
 
-  // standings are included only if status is LIVE or COMPLETE and passed invariants
-  const standings = (status === 'LIVE' || status === 'COMPLETE')
+  // standings are included only if effective status is LIVE or COMPLETE and passed invariants
+  const standings = (effectiveStatus === 'LIVE' || effectiveStatus === 'COMPLETE')
     ? contestRow.standings
     : undefined; // Omit entirely if not LIVE or COMPLETE
 
@@ -135,7 +145,7 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
     is_platform_owned: contestRow.is_platform_owned,
 
     // Derived Fields (GAP-11)
-    status,
+    status: effectiveStatus, // Derived temporal state, not persisted
     is_locked,
     is_live,
     is_settled,
@@ -204,17 +214,22 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
     throw new Error('Invariant Violation: currentTimestamp must be a valid number or Date object.');
   }
 
-  const status = contestRow.status; // Direct from DB
+  // ===== STATUS DERIVATION =====
+  // rawStatus: persisted in database, never mutated
+  // effectiveStatus: derived temporal state computed at read time
+  const rawStatus = contestRow.status; // Direct from DB, unchanging
+  const now = currentTimestamp instanceof Date ? currentTimestamp : new Date(currentTimestamp);
+  const effectiveStatus = computeEffectiveStatus(contestRow, now);
 
-  const is_locked = status !== 'SCHEDULED';
-  const is_live = status === 'LIVE';
+  const is_locked = effectiveStatus !== 'SCHEDULED';
+  const is_live = effectiveStatus === 'LIVE';
   const is_settled = contestRow.settle_time !== null;
 
   const entry_count = contestRow.entry_count;
   const user_has_entered = contestRow.user_has_entered;
 
   let time_until_lock = null;
-  if (status === 'SCHEDULED' && contestRow.lock_time !== null) {
+  if (effectiveStatus === 'SCHEDULED' && contestRow.lock_time !== null) {
     const lockTimeMs = new Date(contestRow.lock_time).getTime();
     time_until_lock = Math.max(0, Math.floor((lockTimeMs - nowMs) / 1000));
   }
@@ -258,7 +273,7 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
     template_type: contestRow.template_type,
 
     // Derived Fields (subset for list surface)
-    status,
+    status: effectiveStatus, // Derived temporal state, not persisted
     is_locked,
     is_live,
     is_settled,

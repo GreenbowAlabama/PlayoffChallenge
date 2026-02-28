@@ -268,6 +268,8 @@ Any of these signals that the design was wrong. Redesign rather than ship.
 
 ## Definition of Done: Production Ready
 
+**Note:** This section defines readiness for a single NEW contest type, not platform GA readiness. See CLAUDE_RULES.md Section 17 (System Maturity Matrix) for platform-level definitions.
+
 A contest type is production ready if and only if all of the following are true:
 
 #### Platform Invariants Held

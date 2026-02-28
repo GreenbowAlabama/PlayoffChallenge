@@ -476,7 +476,7 @@ function calculateEffectiveWeek(gameState) {
  * @returns {Promise<Object>} - Result with operations and position counts
  */
 async function executePicksV2Operations(pool, params) {
-  const { contestInstanceId, userId, weekNumber, ops, selectableTeams, normalizeTeamAbbr } = params;
+  const { contestInstanceId, userId, weekNumber, ops, selectableTeams, normalizeTeamAbbr, now = new Date() } = params;
 
   // Basic input validation
   if (!contestInstanceId) {
@@ -498,8 +498,9 @@ async function executePicksV2Operations(pool, params) {
     await dbClient.query('BEGIN');
 
     // GAP-10 Step 2: 1. Contest existence and lifecycle verification
+    // Fetch persisted status + start_time for effective status derivation
     const contestResult = await dbClient.query(
-      'SELECT status FROM contest_instances WHERE id = $1 FOR UPDATE',
+      'SELECT status, start_time FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestInstanceId]
     );
 
@@ -507,23 +508,31 @@ async function executePicksV2Operations(pool, params) {
       await dbClient.query('ROLLBACK');
       throw new PicksError('Contest not found', 404, null, PICKS_ERROR_CODES.CONTEST_NOT_FOUND);
     }
-    const contestStatus = contestResult.rows[0].status;
 
-    if (contestStatus !== 'SCHEDULED') {
+    const contestRow = contestResult.rows[0];
+    const { computeEffectiveStatus } = require('./helpers/computeEffectiveStatus');
+    const effectiveStatus = computeEffectiveStatus(contestRow, now);
+
+    // Edit guard: Only allow modifications when effective status is SCHEDULED
+    // Terminal states (COMPLETE, CANCELLED) always block edits
+    // Derived LIVE state (after start_time) also blocks edits
+    if (effectiveStatus !== 'SCHEDULED') {
       await dbClient.query('ROLLBACK');
       let reason = 'Contest is not in a modifiable state.';
       let errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
-      if (contestStatus === 'LOCKED') {
+
+      const persistedStatus = contestRow.status;
+      if (persistedStatus === 'LOCKED' || effectiveStatus === 'LOCKED') {
         reason = 'Contest is locked and picks cannot be modified.';
         errorCode = PICKS_ERROR_CODES.CONTEST_LOCKED;
-      } else if (contestStatus === 'COMPLETE') {
+      } else if (effectiveStatus === 'LIVE') {
+        reason = 'Contest is live and picks cannot be modified.';
+        errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
+      } else if (persistedStatus === 'COMPLETE') {
         reason = 'Contest is complete and picks cannot be modified.';
         errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
-      } else if (contestStatus === 'CANCELLED') {
+      } else if (persistedStatus === 'CANCELLED') {
         reason = 'Contest is cancelled and picks cannot be modified.';
-        errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
-      } else if (contestStatus === 'LIVE') {
-        reason = 'Contest is live and picks cannot be modified.';
         errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
       }
       throw new PicksError(reason, 403, null, errorCode);
@@ -676,7 +685,7 @@ async function executePicksV2Operations(pool, params) {
  * @returns {Promise<Object>} - Result with old/new player info and pick
  */
 async function executePlayerReplacement(pool, params) {
-  const { contestInstanceId, userId, oldPlayerId, newPlayerId, position, weekNumber, activeTeams, selectableTeams, normalizeTeamAbbr } = params;
+  const { contestInstanceId, userId, oldPlayerId, newPlayerId, position, weekNumber, activeTeams, selectableTeams, normalizeTeamAbbr, now = new Date() } = params;
 
   // Input validation
   if (!contestInstanceId) {
@@ -746,9 +755,10 @@ async function executePlayerReplacement(pool, params) {
   try {
     await dbClient.query('BEGIN');
 
-    // GAP-10 Step 2: Write-time lifecycle verification for contest_instance (copied from executePicksV2Operations)
+    // GAP-10 Step 2: Write-time lifecycle verification for contest_instance
+    // Fetch persisted status + start_time for effective status derivation
     const contestResult = await dbClient.query(
-      'SELECT status FROM contest_instances WHERE id = $1 FOR UPDATE',
+      'SELECT status, start_time FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestInstanceId]
     );
 
@@ -756,15 +766,24 @@ async function executePlayerReplacement(pool, params) {
       await dbClient.query('ROLLBACK');
       throw new PicksError('Contest not found', 404, null, PICKS_ERROR_CODES.CONTEST_NOT_FOUND);
     }
-    const contestStatus = contestResult.rows[0].status;
 
-    if (contestStatus !== 'SCHEDULED') {
+    const contestRow = contestResult.rows[0];
+    const { computeEffectiveStatus } = require('./helpers/computeEffectiveStatus');
+    const effectiveStatus = computeEffectiveStatus(contestRow, now);
+
+    // Edit guard: Only allow replacements when effective status is SCHEDULED
+    if (effectiveStatus !== 'SCHEDULED') {
       await dbClient.query('ROLLBACK');
       let reason = 'Contest is not in a modifiable state for player replacement.';
       let errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
-      if (contestStatus === 'LOCKED') {
+
+      const persistedStatus = contestRow.status;
+      if (persistedStatus === 'LOCKED' || effectiveStatus === 'LOCKED') {
         reason = 'Contest is locked and players cannot be replaced.';
         errorCode = PICKS_ERROR_CODES.CONTEST_LOCKED;
+      } else if (effectiveStatus === 'LIVE') {
+        reason = 'Contest is live and players cannot be replaced.';
+        errorCode = PICKS_ERROR_CODES.CONTEST_UNAVAILABLE;
       }
       throw new PicksError(reason, 403, null, errorCode);
     }

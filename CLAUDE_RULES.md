@@ -294,7 +294,76 @@ async function run(contestInstanceId, pool, workUnits = null)
 
 ---
 
-# 12. WHEN IN DOUBT
+# 12. DISCOVERY SERVICE LIFECYCLE ORDERING
+
+## Template State Transitions
+
+The discovery service must enforce strict ordering when handling template state changes:
+
+### Phase 1: Provider State Changes (Cancellation)
+**Runs first, independent of instance state.**
+
+When `normalized.status = 'CANCELLED'`:
+1. Update `contest_templates.status` to 'CANCELLED' (idempotent: WHERE status != 'CANCELLED')
+2. Cascade to contest_instances:
+   - Update all instances where `status NOT IN ('COMPLETE', 'CANCELLED')` to 'CANCELLED'
+   - Insert contest_state_transitions with `triggered_by = 'PROVIDER_TOURNAMENT_CANCELLED'`
+   - Use CTE with FOR UPDATE lock for atomicity
+3. Return early if template already CANCELLED (idempotent: rowCount = 0)
+
+**Invariant:** Cancellation must execute BEFORE metadata freeze check.
+Even if LOCKED instances exist, cancellation proceeds.
+Metadata freeze only blocks name updates (unless cascade occurred).
+
+### Phase 2: Metadata Freeze (Post-LOCKED)
+**Runs after provider state changes.**
+
+When ANY instance is LOCKED, LIVE, or COMPLETE:
+- Block name/metadata updates
+- Allow-list: cancellation cascade (Phase 1) may have already occurred
+- Return early: `updated = false` (unless cancellation updated = true from Phase 1)
+
+### Phase 3: Metadata Updates (Pre-LOCKED)
+**Runs only if no LOCKED instances and no cancellation.**
+
+When NO LOCKED instances and provider status is NOT CANCELLED:
+- Safe to update: name (if changed)
+- Deterministic: compare currentName vs normalized.name
+
+## Transaction Guarantees
+
+- All three phases execute within same transaction (BEGIN → COMMIT/ROLLBACK)
+- Atomicity: Either all changes commit or all rollback
+- No partial state: Instance cascade and transitions are all-or-nothing
+- Ordering constraint: Provider changes → Metadata freeze → Metadata updates
+
+## Idempotency Rules
+
+1. **Cancellation Idempotency**
+   - Repeated CANCELLED discovery: template update rowCount = 0 → no cascade → updated = false
+   - Zero duplicate transitions inserted
+   - Cascade CTE ensures only actually-changed instances get transitions
+
+2. **Metadata Update Idempotency**
+   - Repeated SCHEDULED discovery: nameChanged = false → no name update → updated = false
+   - Re-discoveries with same name produce zero changes
+
+3. **Test Isolation**
+   - Use unique provider_tournament_id per test (generated, not hardcoded)
+   - Cleanup in afterEach using parameterized provider_id
+   - Prevents state contamination between tests
+
+## Admin OpenAPI Documentation
+
+**Current state:** Admin endpoints (`/api/admin/*`) are excluded from `openapi.yaml` by design.
+The public contract in `openapi.yaml` documents only client-facing routes.
+
+**Planned:** A separate `contracts/openapi-admin.yaml` should be created to document admin discovery endpoints, but does not exist yet.
+This would preserve the separation between public iOS client contract and internal admin tooling.
+
+---
+
+# 13. WHEN IN DOUBT
 
 Ask for:
 - schema.snapshot.sql
@@ -303,6 +372,202 @@ Ask for:
 - architecture docs
 
 Do not guess.
+
+---
+
+# 14. GOLDEN COPIES (CONTRACT & SCHEMA FREEZE)
+
+This system now has authoritative "golden" sources of truth.
+They are not optional. They are not advisory. They are contracts.
+
+## 14.1 Public API Contract (Client-Facing)
+
+**Golden file:**
+`backend/contracts/openapi.yaml`
+
+This file defines the public contract consumed by the iOS client.
+
+Rules:
+
+- Any modification requires:
+  1. Explicit spec update
+  2. Updated hash in `tests/openapi-freeze.test.js`
+  3. Clear justification in commit message
+- Admin endpoints (`/api/admin/*`) MUST NOT appear in this file.
+- Public contract changes are version-impacting decisions.
+
+Enforcement:
+
+- `tests/openapi-freeze.test.js`
+- `tests/contract-freeze.test.js`
+
+If a freeze test fails, the client contract has been broken.
+
+No silent edits.
+No undocumented field additions.
+
+## 14.2 Database Schema (Authoritative Snapshot)
+
+**Golden file:**
+`backend/db/schema.snapshot.sql`
+
+This file is the canonical structural representation of the database.
+
+It must reflect:
+
+- Tables
+- Columns
+- CHECK constraints
+- Defaults
+- Indexes
+- Foreign keys
+- Status fields (including contest_templates.status)
+
+Rules:
+
+- Any migration that changes structure MUST:
+  1. Apply migration
+  2. Regenerate snapshot
+  3. Commit migration + updated snapshot together
+- Snapshot drift is architectural corruption.
+
+If schema changes and snapshot does not, the change is incomplete.
+
+# 15. FAST FEEDBACK PROTOCOL (MANDATORY)
+
+Claude must prefer narrow feedback before full-suite validation.
+
+## Tier 1 — Discovery Surface
+
+cd backend && \
+ADMIN_JWT_SECRET=test-admin-jwt-secret \
+TEST_DB_ALLOW_DBNAME=railway \
+npm test -- tests/discovery/ --runInBand --forceExit
+
+## Tier 2 — Settlement Surface
+
+cd backend && \
+ADMIN_JWT_SECRET=test-admin-jwt-secret \
+TEST_DB_ALLOW_DBNAME=railway \
+npm test -- tests/e2e/pgaSettlementInvariants.test.js --runInBand --forceExit
+
+## Tier 3 — Full Backend Validation
+
+cd backend && \
+ADMIN_JWT_SECRET=test-admin-jwt-secret \
+TEST_DB_ALLOW_DBNAME=railway \
+npm test -- --forceExit
+
+Never skip freeze tests.
+Never commit with failing invariant tests.
+
+# 16. CORE FINANCIAL & LIFECYCLE INVARIANTS FROZEN STATUS (POST DAY 7)
+
+System state:
+
+- 92 test suites
+- 1978+ passing tests
+- Cancellation cascade atomic + idempotent
+- Lifecycle ordering enforced
+- Settlement strictly scoped by contest_instance_id
+- Public OpenAPI frozen
+- Schema snapshot authoritative
+
+New features must NOT:
+
+- Break lifecycle phase ordering
+- Mutate LIVE from discovery
+- Modify openapi.yaml silently
+- Change schema without snapshot update
+
+# 17. SYSTEM MATURITY MATRIX (Governance Layer)
+
+This matrix defines the authoritative separation between frozen core invariants and evolving systems.
+
+This section prevents language drift across governance documents.
+
+---
+
+## Four Independent Maturity Axes
+
+| Axis | Status | Governance Level | Meaning |
+|------|--------|------------------|---------|
+| Core Financial & Lifecycle Invariants | ✅ FROZEN | PROTECTED | Settlement math, snapshot binding, lifecycle ordering, cancellation cascade are locked by tests. Changes require governance review. |
+| Tournament Discovery Automation | 🔄 IN PROGRESS | EVOLVING | External worker, auto-template generation, marketing contest creation. Must NOT mutate frozen invariant layer. |
+| Contract Versioning Runtime | 🔄 IN PROGRESS | STRUCTURAL | OpenAPI spec frozen; runtime multi-version routing + middleware not yet implemented. |
+| Monitoring + GA Gate | ❌ PENDING | OPERATIONAL | Alerts, dashboards, GA validation checklist not yet fully operational. |
+
+---
+
+## Critical Rule
+
+"Frozen" applies ONLY to:
+
+- Settlement math invariants
+- Snapshot immutability and binding
+- Lifecycle transition ordering
+- Cancellation cascade ordering
+- Deterministic replay guarantees
+- Terminal COMPLETE enforcement
+
+It does NOT apply to:
+
+- Discovery automation
+- Auto-template generation
+- Version routing infrastructure
+- Monitoring tooling
+- Force-complete endpoint implementation
+
+---
+
+## Change Control Boundary
+
+The following layers must NEVER bypass the Frozen Invariants:
+
+- Discovery Service
+- Auto-template creation
+- Marketing contest automation
+- Monitoring triggers
+- Admin endpoints
+
+If any evolving system attempts to:
+
+- Modify settlement math
+- Bypass snapshot binding
+- Override lifecycle ordering
+- Mutate COMPLETE contests
+
+It is considered a governance violation.
+
+---
+
+## GA Definition
+
+GA readiness requires ALL four axes operational.
+
+Core invariants alone do not constitute GA readiness.
+
+---
+
+## Document Alignment Rule
+
+All governance docs must reference this matrix when using terms like:
+
+- "Frozen"
+- "Hardened"
+- "Complete"
+- "Infrastructure Locked"
+- "Ready"
+
+If a document implies full-system freeze, it must explicitly clarify axis scope.
+
+---
+
+# 18. ADMIN OPENAPI (DEFERRED)
+
+Admin endpoints are intentionally excluded from openapi.yaml.
+
+A future `contracts/openapi-admin.yaml` may document them separately.
 
 ---
 
