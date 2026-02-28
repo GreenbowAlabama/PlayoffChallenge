@@ -56,6 +56,26 @@ async function run(contestInstanceId, pool, workUnits = null) {
     const row = ciResult.rows[0];
     const strategyKey = row.ingestion_strategy_key;
 
+    // ── Post-COMPLETE hard guard ─────────────────────────────────────────────
+    if (row.status === 'COMPLETE') {
+      const reason = 'POST_COMPLETE_REJECTION';
+
+      console.warn(
+        `[Ingestion] Rejected ingestion for COMPLETE contest ${contestInstanceId}`
+      );
+
+      await client.query('ROLLBACK');
+
+      return {
+        contestInstanceId,
+        status: 'REJECTED',
+        reason,
+        processed: 0,
+        skipped: 0,
+        errors: 0
+      };
+    }
+
     // ── Resolve adapter ───────────────────────────────────────────────────────
     const adapter = ingestionRegistry.getIngestionStrategy(strategyKey);
 

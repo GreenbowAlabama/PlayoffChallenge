@@ -225,13 +225,14 @@ function computeIngestionKey(contestInstanceId, unit) {
  * Ingest one work unit: create immutable snapshot of provider data for settlement binding.
  *
  * Per PGA v1 Section 4.1:
- * - Canonicalize provider_data_json
+ * - Normalize and canonicalize provider_data
  * - Compute SHA-256 hash (snapshot_hash)
- * - Insert into ingestion_events with payload_hash populated
+ * - Insert into event_data_snapshots (immutable snapshot)
+ * - Insert into ingestion_events (metadata)
  * - Return normalized scores for upsertScores
  *
  * @param {Object} ctx - Ingestion context { contestInstanceId, dbClient, ... }
- * @param {Object} unit - Work unit (structure varies by adapter)
+ * @param {Object} unit - Work unit { providerEventId, providerData, ... }
  * @returns {Promise<Array>} Normalized score objects for upsertScores
  */
 async function ingestWorkUnit(ctx, unit) {
@@ -242,15 +243,65 @@ async function ingestWorkUnit(ctx, unit) {
   }
 
   const providerData = unit.providerData;
+  const providerEventId = unit.providerEventId || null;
 
-  // Canonicalize and hash for deterministic snapshot binding
-  const canonicalized = canonicalizeJson(providerData);
-  const payloadHash = crypto
+  // ── Step 1: Normalize payload (extract scoring-relevant fields) ────────
+  const normalizedPayload = normalizeEspnPayload(providerData);
+
+  // ── Step 2: Canonicalize normalized payload ────────────────────────────
+  const canonicalizedNormalized = canonicalizeJson(normalizedPayload);
+
+  // ── Step 3: Compute SHA-256 hash of canonical normalized payload ───────
+  const snapshotHash = crypto
     .createHash('sha256')
-    .update(JSON.stringify(canonicalized))
+    .update(JSON.stringify(canonicalizedNormalized))
     .digest('hex');
 
-  // Create immutable ingestion_events snapshot (PGA v1 Section 4.1)
+  // ── Step 4: Derive provider_final_flag from ESPN event status ──────────
+  // ESPN uses event.status.type.name = "STATUS_FINAL" when tournament is complete
+  const providerFinalFlag = providerData.events?.[0]?.status?.type?.name === 'STATUS_FINAL' || false;
+
+  // ── Step 5: Insert immutable snapshot into event_data_snapshots ────────
+  // ON CONFLICT ensures idempotency: duplicate hashes for same contest are silently skipped.
+  await dbClient.query(`
+    INSERT INTO event_data_snapshots (
+      id,
+      contest_instance_id,
+      snapshot_hash,
+      provider_event_id,
+      provider_final_flag,
+      payload,
+      ingested_at
+    ) VALUES (
+      gen_random_uuid(),
+      $1,
+      $2,
+      $3,
+      $4,
+      $5,
+      NOW()
+    )
+    ON CONFLICT (contest_instance_id, snapshot_hash) DO NOTHING
+  `, [
+    contestInstanceId,
+    snapshotHash,
+    providerEventId,
+    providerFinalFlag,
+    JSON.stringify(normalizedPayload) // payload stores normalized JSON (not canonical string)
+  ]);
+
+  console.log(`[pgaEspnIngestion] Created event_data_snapshot ${snapshotHash} for contest ${contestInstanceId}`);
+
+  // ── Step 6: Canonicalize full provider data for ingestion_events hash ──
+  // (kept separate from snapshot_hash for backward compatibility)
+  const canonicalizedFull = canonicalizeJson(providerData);
+  const payloadHash = crypto
+    .createHash('sha256')
+    .update(JSON.stringify(canonicalizedFull))
+    .digest('hex');
+
+  // ── Step 7: Insert metadata into ingestion_events ──────────────────────
+  // This remains unchanged per requirements (Option B).
   const result = await dbClient.query(`
     INSERT INTO ingestion_events (
       id,
@@ -282,7 +333,7 @@ async function ingestWorkUnit(ctx, unit) {
   ]);
 
   const ingestionEvent = result.rows[0];
-  console.log(`[pgaEspnIngestion] Created snapshot ${ingestionEvent.id} with hash ${ingestionEvent.payload_hash}`);
+  console.log(`[pgaEspnIngestion] Created ingestion_events ${ingestionEvent.id} with hash ${ingestionEvent.payload_hash}`);
 
   // Return placeholder scores (actual scoring implementation out of scope for Batch 2)
   // In production, this would parse providerData and normalize to { user_id, player_id, points, ... }
@@ -295,6 +346,7 @@ async function upsertScores(_ctx, _normalizedScores) {
 
 module.exports = {
   validateConfig,
+  normalizeEspnPayload,
   getWorkUnits,
   computeIngestionKey,
   ingestWorkUnit,

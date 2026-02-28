@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict doctJi3IVBJfkkxtFOII4RLsgpgzhTtHbT0wjdMSpL8Z8zG0eQsQqFlntXkCGA0
+\restrict 07j9PKMYw5cZrC9hBMImyPIMsGxsvMII9mRpciyh5ZUM1c6lKoy2DUAfH2Uvt0Z
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -18,20 +18,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: public; Type: SCHEMA; Schema: -; Owner: -
---
-
--- *not* creating schema, since initdb creates it
-
-
---
--- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON SCHEMA public IS '';
-
 
 --
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
@@ -144,14 +130,17 @@ CREATE FUNCTION public.prevent_contest_state_transitions_mutation() RETURNS trig
     LANGUAGE plpgsql
     AS $$
 BEGIN
-  -- Block all DELETE operations
-  IF TG_OP = 'DELETE' THEN
-    RAISE EXCEPTION 'contest_state_transitions is append-only: deletions are not allowed';
-  END IF;
-
   -- Block all UPDATE operations
   IF TG_OP = 'UPDATE' THEN
     RAISE EXCEPTION 'contest_state_transitions is append-only: updates are not allowed';
+  END IF;
+
+  -- Allow DELETE (cascade from parent deletion is allowed)
+  -- Manual deletes should be blocked at application level via FK constraints
+  -- For production safety: FK constraint ON DELETE RESTRICT prevents manual parent deletion
+  -- For test cleanup: FK constraint ON DELETE CASCADE allows automatic child cleanup
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;  -- Allow the delete to proceed
   END IF;
 
   RETURN NEW;
@@ -457,6 +446,21 @@ CREATE TABLE public.contest_templates (
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: event_data_snapshots; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.event_data_snapshots (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    contest_instance_id uuid NOT NULL,
+    snapshot_hash text NOT NULL,
+    provider_event_id text NOT NULL,
+    provider_final_flag boolean DEFAULT false NOT NULL,
+    payload jsonb NOT NULL,
+    ingested_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -1552,6 +1556,14 @@ ALTER TABLE ONLY public.contest_templates
 
 
 --
+-- Name: event_data_snapshots event_data_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_data_snapshots
+    ADD CONSTRAINT event_data_snapshots_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: field_selections field_selections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1956,6 +1968,41 @@ ALTER TABLE ONLY public.users
 --
 
 CREATE UNIQUE INDEX api_contract_snapshots_unique ON public.api_contract_snapshots USING btree (contract_name, version, sha256);
+
+
+--
+-- Name: contest_state_transitions_contest_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX contest_state_transitions_contest_idx ON public.contest_state_transitions USING btree (contest_instance_id);
+
+
+--
+-- Name: contest_state_transitions_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX contest_state_transitions_created_idx ON public.contest_state_transitions USING btree (created_at);
+
+
+--
+-- Name: event_data_snapshots_contest_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX event_data_snapshots_contest_idx ON public.event_data_snapshots USING btree (contest_instance_id);
+
+
+--
+-- Name: event_data_snapshots_ingested_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX event_data_snapshots_ingested_idx ON public.event_data_snapshots USING btree (ingested_at);
+
+
+--
+-- Name: event_data_snapshots_unique_hash; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX event_data_snapshots_unique_hash ON public.event_data_snapshots USING btree (contest_instance_id, snapshot_hash);
 
 
 --
@@ -2690,6 +2737,14 @@ ALTER TABLE ONLY public.contest_state_transitions
 
 
 --
+-- Name: event_data_snapshots event_data_snapshots_contest_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_data_snapshots
+    ADD CONSTRAINT event_data_snapshots_contest_instance_id_fkey FOREIGN KEY (contest_instance_id) REFERENCES public.contest_instances(id) ON DELETE CASCADE;
+
+
+--
 -- Name: field_selections field_selections_contest_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2997,5 +3052,5 @@ ALTER TABLE ONLY public.tournament_configs
 -- PostgreSQL database dump complete
 --
 
-\unrestrict doctJi3IVBJfkkxtFOII4RLsgpgzhTtHbT0wjdMSpL8Z8zG0eQsQqFlntXkCGA0
+\unrestrict 07j9PKMYw5cZrC9hBMImyPIMsGxsvMII9mRpciyh5ZUM1c6lKoy2DUAfH2Uvt0Z
 

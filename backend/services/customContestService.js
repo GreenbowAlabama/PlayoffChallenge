@@ -1205,29 +1205,38 @@ async function _updateContestStatusInternal(pool, contestId, newStatus) {
     );
     const contestInstance = contestResult.rows[0];
 
-    // Fetch snapshot binding for PGA v1 Section 4.1 compliance
-    // snapshot_id = immutable ingestion_events.id (provider data)
-    // snapshot_hash = canonicalized provider_data_json hash
+    // Fetch immutable FINAL snapshot binding (PGA v1 Section 4.1 compliant)
+    // snapshot_id = event_data_snapshots.id
+    // snapshot_hash = SHA-256(canonicalize(normalized_payload))
     const snapshotResult = await pool.query(
-      `SELECT id, payload_hash FROM ingestion_events
+      `SELECT id, snapshot_hash
+       FROM event_data_snapshots
        WHERE contest_instance_id = $1
-       ORDER BY created_at DESC LIMIT 1`,
+         AND provider_final_flag = true
+       ORDER BY ingested_at DESC, id DESC
+       LIMIT 1`,
       [contestId]
     );
-    const ingestionEvent = snapshotResult.rows[0];
 
-    if (!ingestionEvent) {
+    const snapshotRow = snapshotResult.rows[0];
+
+    if (!snapshotRow) {
       throw new Error(
-        `SETTLEMENT_REQUIRES_SNAPSHOT_BINDING: No ingestion event found for contest ${contestId}. ` +
-        `Ingestion must complete with snapshot before settlement can execute (PGA v1 Section 4.1).`
+        `SETTLEMENT_REQUIRES_FINAL_SNAPSHOT: No FINAL event_data_snapshot found for contest ${contestId}. ` +
+        `Settlement requires provider_final_flag = true snapshot before execution.`
       );
     }
 
-    const snapshotId = ingestionEvent.id;
-    const snapshotHash = ingestionEvent.payload_hash;
+    const snapshotId = snapshotRow.id;
+    const snapshotHash = snapshotRow.snapshot_hash;
 
-    // Execute settlement with snapshot binding (throws on failure, caught by error recovery)
-    await settlementStrategy.executeSettlement(contestInstance, pool, snapshotId, snapshotHash);
+    // Execute settlement with immutable snapshot binding
+    await settlementStrategy.executeSettlement(
+      contestInstance,
+      pool,
+      snapshotId,
+      snapshotHash
+    );
 
     // Settlement succeeded, safe to update status
   }

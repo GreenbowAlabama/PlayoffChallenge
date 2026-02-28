@@ -263,6 +263,12 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
         expect(settlement1.contest_instance_id).toBe(contestId);
         const firstHash = settlement1.results_sha256;
 
+        // INVARIANT: Settlement must bind to immutable snapshot (Batch 3)
+        expect(settlement1.snapshot_id).toBe(snapshotId);
+        expect(settlement1.snapshot_hash).toBe(snapshotHash);
+        expect(settlement1.snapshot_id).not.toBeNull();
+        expect(settlement1.snapshot_hash).not.toBeNull();
+
         // Verify settlement_records exists
         const check1 = await testPool.query(
           'SELECT COUNT(*) as count FROM settlement_records WHERE contest_instance_id = $1',
@@ -276,6 +282,12 @@ describe('PGA Settlement - Invariant Enforcement (Real DB)', () => {
         expect(settlement2).toBeDefined();
         expect(settlement2.contest_instance_id).toBe(contestId);
         expect(settlement2.results_sha256).toBe(firstHash); // Same hash = same result
+
+        // Verify snapshot binding persists on replay (idempotency)
+        expect(settlement2.snapshot_id).toBe(snapshotId);
+        expect(settlement2.snapshot_hash).toBe(snapshotHash);
+        expect(settlement2.snapshot_id).not.toBeNull();
+        expect(settlement2.snapshot_hash).not.toBeNull();
 
         // Verify no duplicate record created
         const check2 = await testPool.query(

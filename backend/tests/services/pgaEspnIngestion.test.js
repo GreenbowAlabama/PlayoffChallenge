@@ -703,4 +703,210 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
       expect(keyIncomplete).not.toBe(keyComplete);
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ingestWorkUnit snapshot persistence tests
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('ingestWorkUnit snapshot persistence (Batch 2.2)', () => {
+    let mockDbClient;
+
+    beforeEach(() => {
+      mockDbClient = {
+        query: jest.fn()
+      };
+    });
+
+    it('should insert into event_data_snapshots with ON CONFLICT idempotency', async () => {
+      const payload = createSampleEspnPayload();
+
+      mockDbClient.query
+        .mockResolvedValueOnce({ rows: [] }) // event_data_snapshots
+        .mockResolvedValueOnce({ rows: [{ id: 'event-1', payload_hash: 'hash' }] }); // ingestion_events
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unit = {
+        providerEventId: '401811941',
+        providerData: payload
+      };
+
+      await adapter.ingestWorkUnit(ctx, unit);
+
+      // First call must be event_data_snapshots with ON CONFLICT
+      const firstCallSql = mockDbClient.query.mock.calls[0][0];
+      expect(firstCallSql).toContain('INSERT INTO event_data_snapshots');
+      expect(firstCallSql).toContain('ON CONFLICT (contest_instance_id, snapshot_hash) DO NOTHING');
+    });
+
+    it('should compute snapshot_hash as SHA-256(canonicalizeJson(normalizeEspnPayload(providerData)))', async () => {
+      const crypto = require('crypto');
+      const ingestionValidator = require('../../services/ingestionService/ingestionValidator');
+
+      const payload = createSampleEspnPayload();
+
+      mockDbClient.query
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: 'event-1', payload_hash: 'hash' }] });
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unit = {
+        providerEventId: '401811941',
+        providerData: payload
+      };
+
+      await adapter.ingestWorkUnit(ctx, unit);
+
+      // Compute expected hash using real canonicalization
+      const normalized = adapter.normalizeEspnPayload(payload);
+      const canonical = ingestionValidator.canonicalizeJson(normalized);
+      const expectedHash = crypto
+        .createHash('sha256')
+        .update(JSON.stringify(canonical))
+        .digest('hex');
+
+      // Verify snapshot_hash param matches expected
+      const firstCallParams = mockDbClient.query.mock.calls[0][1];
+      const snapshotHashParam = firstCallParams[1]; // $2 is snapshot_hash
+
+      expect(snapshotHashParam).toBe(expectedHash);
+    });
+
+    it('should derive provider_final_flag = true only when event.status.type.name === "STATUS_FINAL"', async () => {
+      // Test with STATUS_FINAL
+      const payloadFinal = createSampleEspnPayload({
+        root: {
+          events: [
+            {
+              id: '401811941',
+              status: { type: { name: 'STATUS_FINAL' }, state: 'post' },
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      id: '3470',
+                      linescores: [
+                        {
+                          period: 1,
+                          linescores: Array.from({ length: 18 }, (_, i) => ({
+                            period: i + 1,
+                            value: 4
+                          }))
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      });
+
+      mockDbClient.query
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: 'event-1', payload_hash: 'hash' }] });
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unitFinal = {
+        providerEventId: '401811941',
+        providerData: payloadFinal
+      };
+
+      await adapter.ingestWorkUnit(ctx, unitFinal);
+
+      const finalParams = mockDbClient.query.mock.calls[0][1];
+      const finalFlag = finalParams[3]; // $4 is provider_final_flag
+      expect(finalFlag).toBe(true);
+
+      // Test with STATUS_IN_PROGRESS (should be false)
+      mockDbClient.query.mockClear();
+      mockDbClient.query
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: 'event-2', payload_hash: 'hash2' }] });
+
+      const payloadInProgress = createSampleEspnPayload({
+        root: {
+          events: [
+            {
+              id: '401811941',
+              status: { type: { name: 'STATUS_IN_PROGRESS' }, state: 'in' },
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      id: '3470',
+                      linescores: [
+                        {
+                          period: 1,
+                          linescores: Array.from({ length: 18 }, (_, i) => ({
+                            period: i + 1,
+                            value: 4
+                          }))
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      });
+
+      const unitInProgress = {
+        providerEventId: '401811941',
+        providerData: payloadInProgress
+      };
+
+      await adapter.ingestWorkUnit(ctx, unitInProgress);
+
+      const inProgressParams = mockDbClient.query.mock.calls[0][1];
+      const inProgressFlag = inProgressParams[3]; // $4 is provider_final_flag
+      expect(inProgressFlag).toBe(false);
+    });
+
+    it('should still insert into ingestion_events as second query (backward compatibility)', async () => {
+      const payload = createSampleEspnPayload();
+
+      mockDbClient.query
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: 'event-1', payload_hash: 'hash-full' }] });
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unit = {
+        providerEventId: '401811941',
+        providerData: payload
+      };
+
+      await adapter.ingestWorkUnit(ctx, unit);
+
+      // Must call query exactly twice
+      expect(mockDbClient.query).toHaveBeenCalledTimes(2);
+
+      // Second call must be ingestion_events
+      const secondCallSql = mockDbClient.query.mock.calls[1][0];
+      expect(secondCallSql).toContain('INSERT INTO ingestion_events');
+
+      const secondCallParams = mockDbClient.query.mock.calls[1][1];
+      expect(secondCallParams[1]).toBe('pga_espn');
+      expect(secondCallParams[2]).toBe('tournament_data');
+      expect(secondCallParams[5]).toBe('VALID');
+    });
+  });
 });

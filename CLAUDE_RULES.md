@@ -7,6 +7,10 @@ If any rule here conflicts with a suggested action, this file wins.
 
 ---
 
+Scout's rule - leave the place cleaner than when you arrived.
+
+---
+
 # 1. TESTS ARE AUTHORITATIVE
 
 ## backend/tests/ is the source of truth for backend behavior.
