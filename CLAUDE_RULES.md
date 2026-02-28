@@ -461,24 +461,61 @@ npm test -- --forceExit
 Never skip freeze tests.
 Never commit with failing invariant tests.
 
-# 16. CORE FINANCIAL & LIFECYCLE INVARIANTS FROZEN STATUS (POST DAY 7)
+# 16. CORE FINANCIAL & LIFECYCLE INVARIANTS FROZEN STATUS
 
 System state:
 
-- 92 test suites
-- 1978+ passing tests
+- 93 test suites
+- 1987+ passing tests
 - Cancellation cascade atomic + idempotent
-- Lifecycle ordering enforced
+- Lifecycle ordering enforced (Phase 1 → 2 → 3)
 - Settlement strictly scoped by contest_instance_id
+- Tournament-start LOCKED → LIVE transition frozen
 - Public OpenAPI frozen
 - Schema snapshot authoritative
 
+## Frozen Lifecycle Primitives
+
+### LOCKED → LIVE Transition (Tournament Start Time)
+
+**Contract (Immutable):**
+
+```javascript
+async function transitionLockedToLive(pool, now)
+  → Promise<{ changedIds: uuid[], count: number }>
+```
+
+**Semantics:**
+- Finds all LOCKED contests where `tournament_start_time IS NOT NULL`
+- Transitions to LIVE if `now >= tournament_start_time`
+- Inserts atomic transition record: triggered_by = 'TOURNAMENT_START_TIME_REACHED'
+- Idempotent: re-calls are safe (already-LIVE contests skipped)
+- Deterministic: uses injected `now`, never raw database clock
+
+**Constraints:**
+- Implementation: `backend/services/contestLifecycleService.js`
+- Tests: `backend/tests/e2e/contestLifecycleTransitions.integration.test.js` (8 test cases)
+- No module dependencies (pure DB-driven)
+- Single atomic CTE (UPDATE + INSERT)
+- No scope expansion allowed: NO endpoint, NO scheduler, NO background job, NO polling loop
+
+**Execution Authority:**
+- Function is called by orchestration layer (Phase 2+)
+- Execution binding is NOT part of this frozen layer
+- This is a callable primitive, not an automatic trigger
+
+---
+
+## Non-Breaking Rules
+
 New features must NOT:
 
-- Break lifecycle phase ordering
-- Mutate LIVE from discovery
+- Break lifecycle phase ordering (Phase 1 → 2 → 3)
+- Mutate LIVE from discovery service
+- Call transitionLockedToLive() with raw `now()` (must inject)
 - Modify openapi.yaml silently
 - Change schema without snapshot update
+- Add scope to contestLifecycleService (must remain pure)
 
 # 17. SYSTEM MATURITY MATRIX (Governance Layer)
 
@@ -505,8 +542,9 @@ This section prevents language drift across governance documents.
 
 - Settlement math invariants
 - Snapshot immutability and binding
-- Lifecycle transition ordering
+- Lifecycle transition ordering (Phase 1 → 2 → 3)
 - Cancellation cascade ordering
+- Tournament-start LOCKED → LIVE transition primitive
 - Deterministic replay guarantees
 - Terminal COMPLETE enforcement
 
