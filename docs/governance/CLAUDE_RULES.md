@@ -15,6 +15,16 @@ If a copy exists elsewhere in the repository, it is obsolete and should be delet
 
 Single source of truth prevents drift.
 
+### Governance Document Index
+
+| Document | Purpose |
+|----------|---------|
+| `CLAUDE_RULES.md` | Global governance, frozen invariants, architecture boundaries, change control |
+| `LIFECYCLE_EXECUTION_MAP.md` | Contest state machine transitions, execution primitives, orchestration model |
+| `FINANCIAL_INVARIANTS.md` | Wallet debit atomicity, entry fee immutability, idempotency guarantees, error handling |
+| `IOS_SWEEP_PROTOCOL.md` | iOS development phases, contract integrity, layer boundary enforcement |
+| `ARCHITECTURE_ENFORCEMENT.md` | Design system token enforcement (iOS UI) |
+
 ---
 
 Scout's rule - leave the place cleaner than when you arrived.
@@ -304,7 +314,195 @@ async function run(contestInstanceId, pool, workUnits = null)
 
 ---
 
-# 12. DISCOVERY SERVICE LIFECYCLE ORDERING
+# 12. FINANCIAL INVARIANTS (PHASE 2 JOIN DEBIT)
+
+## Atomic Wallet Debit on Join
+
+All contest entries with a cost (entry_fee_cents > 0) must atomically debit the user's wallet upon successful participant insertion.
+
+### Join Flow Critical Ordering
+
+**Evidence:** `backend/services/customContestService.js:1023-1224`
+
+Join uses a single database transaction with the following phases:
+
+1. **Lock User Row** (line 1030)
+   ```sql
+   SELECT id FROM users WHERE id = $1 FOR UPDATE
+   ```
+   Prevents concurrent wallet mutations by serializing access to the user account.
+
+2. **Lock Contest Row** (line 1041)
+   ```sql
+   SELECT id, status, max_entries, lock_time, join_token, entry_fee_cents
+   FROM contest_instances WHERE id = $1 FOR UPDATE
+   ```
+
+3. **Validate Joinable State** (lines 1052-1070)
+   - Check join_token exists (contest is published)
+   - Check status = 'SCHEDULED' (only open contests joinable)
+   - Check lock_time not reached (time-based entry enforcement)
+
+4. **Idempotent Precheck** (lines 1078-1087)
+   - If user already in `contest_participants`, return success without debit
+   - CRITICAL: Do NOT debit on idempotent path
+
+5. **Capacity Check** (lines 1089-1099)
+   - Count current participants
+   - Fail if max_entries reached
+
+6. **Compute Wallet Balance** (line 1104)
+   - Call `LedgerRepository.computeWalletBalance(client, userId)`
+   - Reads ledger aggregating CREDIT - DEBIT for reference_type='WALLET'
+
+7. **Validate Sufficient Funds** (lines 1106-1113)
+   - entryFeeCents = contest.entry_fee_cents (instance-level, immutable at join time)
+   - If walletBalance < entryFeeCents, return error code `INSUFFICIENT_WALLET_FUNDS`
+
+8. **Insert Participant** (lines 1117-1142)
+   - `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at) ... ON CONFLICT DO NOTHING`
+   - If insert returns 0 rows (race condition):
+     - Recheck participant exists
+     - If found, return success (another transaction already debited)
+     - If not found, return CONTEST_FULL (capacity exhausted by concurrent join)
+   - If insert succeeds (rowCount > 0), proceed to debit
+
+9. **Insert Wallet Debit** (lines 1150-1212)
+   - Only executes if participant insert succeeded
+   - Uses deterministic idempotency key: `wallet_debit:{contestInstanceId}:{userId}`
+   - `INSERT INTO ledger (entry_type='WALLET_DEBIT', direction='DEBIT', idempotency_key, ...) ... ON CONFLICT DO NOTHING`
+   - If conflict: verify existing debit matches expected fields
+   - Field mismatch triggers invariant violation (hard error, rollback)
+
+10. **Commit** (line 1211)
+    - Both participant row (in contest_participants) and debit entry (in ledger) must exist before commit
+    - No partial updates
+
+### Entry Fee Creation & Immutability Binding
+
+Entry fee is **user-provided at contest creation**, validated against template bounds, and **immutable at join time**.
+
+**Evidence:** `backend/services/customContestService.js:437,446,470`
+
+```javascript
+// Entry fee is user-supplied parameter to createContestInstance
+@param {number} input.entry_fee_cents - Entry fee in cents
+
+// Validated against template min/max bounds
+validateEntryFeeAgainstTemplate(input.entry_fee_cents, template);
+
+// Stored as instance-level value, not derived from template default
+INSERT INTO contest_instances (..., entry_fee_cents, ...)
+```
+
+At join time, the value read is from the contest instance:
+
+```javascript
+const entryFeeCents = parseInt(contest.entry_fee_cents, 10);
+```
+
+**Key Point:** Template provides min/max bounds, but contest organizer sets the actual entry fee.
+
+### Idempotency Key Format and Uniqueness
+
+**Evidence:** `backend/services/customContestService.js:1148`
+
+Format:
+```
+wallet_debit:{contestInstanceId}:{userId}
+```
+
+Stored in `ledger.idempotency_key` with unique constraint enforcement.
+
+**Evidence:** `backend/db/schema.snapshot.sql:1628`
+
+```sql
+ADD CONSTRAINT ledger_idempotency_key_unique UNIQUE (idempotency_key);
+```
+
+**Guarantee:** Attempting the same join twice produces:
+- One participant row in contest_participants
+- One wallet debit row in ledger
+- No duplicate ledger entries
+
+### Debit Conflict Verification
+
+If debit insert conflicts (idempotency key already exists):
+
+**Evidence:** `backend/services/customContestService.js:1174-1208`
+
+The service:
+1. Queries existing ledger row by idempotency_key
+2. Verifies all fields match:
+   - entry_type = 'WALLET_DEBIT'
+   - direction = 'DEBIT'
+   - amount_cents = entryFeeCents
+   - reference_type = 'WALLET'
+   - reference_id = userId
+3. If ANY field mismatches, throws invariant violation error and rolls back
+
+**Consequence:** Field mismatch is a system corruption event. It must be escalated (not silently ignored).
+
+### Test Coverage
+
+**Evidence:** `backend/tests/services/customContest.service.test.js`
+
+Tests verify:
+- Sufficient wallet balance → join succeeds, debit inserted
+- Insufficient wallet balance → join fails, no debit
+- Idempotent join (same user, same contest, second call) → success, single debit
+- Race condition: concurrent joins by same user → one succeeds, one returns success without double-debit
+- Debit conflict handling → field mismatch detected and escalated
+
+### Error Code
+
+**Evidence:** `backend/services/customContestService.js:1110`
+
+```
+JOIN_ERROR_CODES.INSUFFICIENT_WALLET_FUNDS
+```
+
+Returned when wallet balance < entry_fee_cents.
+
+---
+
+## Entry Fee Immutability (DB-ENFORCED)
+
+**Current state:** Entry fee immutability is **enforced by DB-level trigger** `prevent_entry_fee_change_after_publish()` in `backend/db/schema.snapshot.sql`.
+
+**Trigger behavior:**
+1. Fires on UPDATE of `entry_fee_cents` column only
+2. Blocks changes when `join_token IS NOT NULL` (contest is published)
+3. Allows changes when `join_token IS NULL` (contest in draft)
+
+**Implementation:**
+```sql
+-- Function: backend/db/schema.snapshot.sql
+CREATE FUNCTION prevent_entry_fee_change_after_publish() RETURNS trigger AS $$
+BEGIN
+  IF OLD.join_token IS NOT NULL
+     AND NEW.entry_fee_cents IS DISTINCT FROM OLD.entry_fee_cents THEN
+    RAISE EXCEPTION 'entry_fee_cents is immutable after publish (join_token already set)';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger: backend/db/schema.snapshot.sql
+CREATE TRIGGER trg_prevent_entry_fee_change_after_publish
+  BEFORE UPDATE OF entry_fee_cents ON contest_instances
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_entry_fee_change_after_publish();
+```
+
+**Alignment with invariants:**
+- Entry fee is immutable at join time (read from contest_instances.entry_fee_cents)
+- No application code mutates entry_fee_cents after publish
+- DB layer provides hard enforcement (not just application convention)
+
+---
+
+# 13. DISCOVERY SERVICE LIFECYCLE ORDERING
 
 ## Template State Transitions
 

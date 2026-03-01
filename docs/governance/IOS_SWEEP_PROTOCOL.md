@@ -25,6 +25,57 @@
 
 ---
 
+## 1.1. FINANCIAL BOUNDARY RULE (PRE-SWEEP)
+
+Before any iOS implementation, understand the financial boundary:
+
+### Entry Fee is Backend-Authoritative
+
+- iOS receives `entry_fee_cents` from OpenAPI contract (contest detail endpoint)
+- iOS **must treat this as display-only**, never compute, modify, or multiply
+- iOS **must NOT** send entry fee in join request (backend reads from contest_instances)
+- iOS **must NOT** perform wallet debit logic (backend performs atomic debit in single transaction)
+
+### No Client-Side Wallet Math
+
+Forbidden operations:
+- ❌ Calculate payout as `entryFeeCents * entryCount`
+- ❌ Compute available balance as wallet balance minus future entries
+- ❌ Subtract fees from displayed balance optimistically
+- ❌ Validate entry sufficiency before join (backend validates at join time)
+
+Correct operations:
+- ✅ Display entry_fee_cents from contest detail (informational)
+- ✅ Call backend join endpoint with participant entry only
+- ✅ Observe backend response for join result + error codes
+- ✅ Refresh contest detail after join to see updated wallet (if applicable)
+
+### Join Request Shape
+
+iOS must send to `POST /api/custom-contests/:id/join`:
+```
+{
+  // Entry data (contest-type specific)
+  // NO "fee", NO "walletAmount", NO financial fields
+}
+```
+
+Backend returns:
+```
+{
+  joined: boolean,
+  participant: { ... },
+  error_code: "INSUFFICIENT_WALLET_FUNDS" | "CONTEST_FULL" | ... ,
+  reason: string
+}
+```
+
+If `error_code` is `INSUFFICIENT_WALLET_FUNDS`, wallet balance is insufficient (backend determined this atomically).
+
+**Evidence:** `backend/services/customContestService.js:1110`, `openapi.yaml` (join endpoint contract)
+
+---
+
 ## 2. ARCHITECTURE LAYER BOUNDARIES
 
 ### Forbidden Crossings (HARD RULES)

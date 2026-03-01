@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 3FzTowJEFfAWDVZCXZKaKpd6vm3LgGYQmM5l7Fh98DR2D0lsk2dWTmqvE0j7EfQ
+\restrict nh4nqpmCgZ9MJ2eO3gaVJ6S2VMxkiBh2aSebFXKtHZ7QdEKNkVt0i3kgPRBeD0g
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -141,6 +141,25 @@ BEGIN
   -- For test cleanup: FK constraint ON DELETE CASCADE allows automatic child cleanup
   IF TG_OP = 'DELETE' THEN
     RETURN OLD;  -- Allow the delete to proceed
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: prevent_entry_fee_change_after_publish(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.prevent_entry_fee_change_after_publish() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF OLD.join_token IS NOT NULL
+     AND NEW.entry_fee_cents IS DISTINCT FROM OLD.entry_fee_cents THEN
+    RAISE EXCEPTION
+      'entry_fee_cents is immutable after publish (join_token already set)';
   END IF;
 
   RETURN NEW;
@@ -2701,6 +2720,13 @@ CREATE TRIGGER trg_prevent_config_update BEFORE UPDATE ON public.tournament_conf
 
 
 --
+-- Name: contest_instances trg_prevent_entry_fee_change_after_publish; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_prevent_entry_fee_change_after_publish BEFORE UPDATE OF entry_fee_cents ON public.contest_instances FOR EACH ROW EXECUTE FUNCTION public.prevent_entry_fee_change_after_publish();
+
+
+--
 -- Name: contest_instances trg_prevent_payout_update_when_locked; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3096,5 +3122,5 @@ ALTER TABLE ONLY public.tournament_configs
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 3FzTowJEFfAWDVZCXZKaKpd6vm3LgGYQmM5l7Fh98DR2D0lsk2dWTmqvE0j7EfQ
+\unrestrict nh4nqpmCgZ9MJ2eO3gaVJ6S2VMxkiBh2aSebFXKtHZ7QdEKNkVt0i3kgPRBeD0g
 
