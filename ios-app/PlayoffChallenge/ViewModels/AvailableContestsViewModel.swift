@@ -133,6 +133,9 @@ final class AvailableContestsViewModel: ObservableObject {
             errorMessage = nil
         } catch {
             print("[AvailableContestsViewModel] ERROR loading contests: \(error)")
+            // CRITICAL: Clear stale contests when error occurs to prevent ghost rows.
+            // Error state and data state must be mutually exclusive.
+            contests = []
             errorMessage = error.localizedDescription
         }
 

@@ -77,6 +77,12 @@ struct AvailableContestsView: View {
         .refreshable {
             await viewModel.refresh()
         }
+        .task {
+            // Load contests on initial view appearance.
+            // This ensures fresh data is fetched when user navigates to Available tab.
+            // Pull-to-refresh on this view updates the same data.
+            await viewModel.loadContests()
+        }
     }
 }
 
