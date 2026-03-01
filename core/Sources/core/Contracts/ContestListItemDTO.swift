@@ -22,6 +22,8 @@ public struct ContestListItemDTO: Decodable, Identifiable {
     public let maxEntries: Int?
     public let entryFeeCents: Int
     public let lockTime: Date?
+    public let startTime: Date?
+    public let endTime: Date?
     public let createdAt: Date
     public let updatedAt: Date
 
@@ -43,6 +45,8 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         case maxEntries = "max_entries"
         case entryFeeCents = "entry_fee_cents"
         case lockTime = "lock_time"
+        case startTime = "start_time"
+        case endTime = "end_time"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case joinToken = "join_token"
@@ -63,6 +67,8 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         maxEntries: Int?,
         entryFeeCents: Int,
         lockTime: Date?,
+        startTime: Date?,
+        endTime: Date?,
         createdAt: Date,
         updatedAt: Date,
         joinToken: String?,
@@ -81,6 +87,8 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         self.maxEntries = maxEntries
         self.entryFeeCents = entryFeeCents
         self.lockTime = lockTime
+        self.startTime = startTime
+        self.endTime = endTime
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.joinToken = joinToken

@@ -564,6 +564,8 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
             maxEntries: dto.maxEntries,
             entryFeeCents: dto.entryFeeCents,
             lockTime: dto.lockTime,
+            startTime: nil,  // Not included in CREATE response
+            endTime: nil,  // Not included in CREATE response
             joinToken: dto.joinToken,
             createdAt: dto.createdAt,
             updatedAt: dto.updatedAt,

@@ -31,6 +31,18 @@ final class HomeTabViewModel: ObservableObject {
     var hasOpenContests: Bool { !openContests.isEmpty }
     var hasAnyContent: Bool { hasFeaturedContests || hasActiveContests || hasOpenContests }
 
+    /// Scheduled contests sorted chronologically by start time (nearest → farthest).
+    /// Includes all contests in SCHEDULED status regardless of join state.
+    /// This is the definitive list for "My Active Contests" in Home tab.
+    /// Nil start times sort to end (distant future) for deterministic, stable ordering.
+    var scheduledContests: [Contest] {
+        myActiveContests
+            .filter { $0.status == .scheduled }
+            .sorted { lhs, rhs in
+                (lhs.startTime ?? .distantFuture) < (rhs.startTime ?? .distantFuture)
+            }
+    }
+
     // MARK: - Data Organization
 
     /// Updates home tab sections from available and my contests.

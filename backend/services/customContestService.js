@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const config = require('../config');
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
 const { mapContestToApiResponse, mapContestToApiResponseForList } = require('./helpers/contestApiResponseMapper');
+const LedgerRepository = require('../repositories/LedgerRepository');
 
 // Function to compare two numbers with a fixed precision (e.g., 2 decimal places)
 const areScoresEqual = (score1, score2, precision = 2) => {
@@ -125,6 +126,7 @@ const JOIN_ERROR_CODES = {
   // Join-action errors
   ALREADY_JOINED: 'ALREADY_JOINED',
   CONTEST_FULL: 'CONTEST_FULL',
+  INSUFFICIENT_WALLET_FUNDS: 'INSUFFICIENT_WALLET_FUNDS',
 };
 
 /**
@@ -1023,9 +1025,20 @@ async function joinContest(pool, contestInstanceId, userId) {
   try {
     await client.query('BEGIN');
 
-    // 1. Lock and fetch contest state
+    // 1. Lock user row for atomic wallet access (prevents concurrent wallet mutations)
+    const userResult = await client.query(
+      'SELECT id FROM users WHERE id = $1 FOR UPDATE',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_NOT_FOUND, reason: 'User not found' };
+    }
+
+    // 2. Lock and fetch contest state
     const contestResult = await client.query(
-      'SELECT id, status, max_entries, lock_time, join_token FROM contest_instances WHERE id = $1 FOR UPDATE',
+      'SELECT id, status, max_entries, lock_time, join_token, entry_fee_cents FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestInstanceId]
     );
 
@@ -1085,7 +1098,22 @@ async function joinContest(pool, contestInstanceId, userId) {
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_FULL, reason: 'Contest has reached maximum participants' };
     }
 
-    // 6. Insert with ON CONFLICT DO NOTHING for concurrency safety
+    // 6. Compute wallet balance (user row is locked, so computation is safe)
+    //    CRITICAL: Debit only occurs if participant insert succeeds
+    const entryFeeCents = parseInt(contest.entry_fee_cents, 10);
+    const walletBalance = await LedgerRepository.computeWalletBalance(client, userId);
+
+    if (walletBalance < entryFeeCents) {
+      await client.query('ROLLBACK');
+      return {
+        joined: false,
+        error_code: JOIN_ERROR_CODES.INSUFFICIENT_WALLET_FUNDS,
+        reason: 'Wallet balance is insufficient to enter this contest'
+      };
+    }
+
+    // 7. Insert with ON CONFLICT DO NOTHING for concurrency safety
+    //    CRITICAL: Debit must only occur if this insert succeeds
     const insertResult = await client.query(
       `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at)
        VALUES ($1, $2, NOW())
@@ -1102,7 +1130,8 @@ async function joinContest(pool, contestInstanceId, userId) {
       );
 
       if (recheckResult.rows.length > 0) {
-        // Race condition: another transaction inserted this row
+        // Race condition: another transaction inserted the participant and already debited.
+        // CRITICAL: Do NOT debit here. Simply commit and return success.
         await client.query('COMMIT');
         return { joined: true, participant: recheckResult.rows[0] };
       }
@@ -1112,7 +1141,73 @@ async function joinContest(pool, contestInstanceId, userId) {
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_FULL, reason: 'Contest has reached maximum participants' };
     }
 
-    // 8. Success: participant inserted
+    // 8. Participant insert succeeded: now debit wallet (CRITICAL: only this path debits)
+    //    Use ON CONFLICT DO NOTHING with verification to preserve invariant:
+    //    - Debit is only committed when participant + correct debit are both guaranteed
+    //    - No blind error suppression
+    const idempotencyKey = `wallet_debit:${contestInstanceId}:${userId}`;
+
+    const debitResult = await client.query(
+      `INSERT INTO ledger (
+         user_id,
+         entry_type,
+         direction,
+         amount_cents,
+         reference_type,
+         reference_id,
+         idempotency_key,
+         created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (idempotency_key) DO NOTHING
+       RETURNING id, entry_type, direction, amount_cents, reference_type, reference_id, idempotency_key`,
+      [userId, 'WALLET_DEBIT', 'DEBIT', entryFeeCents, 'WALLET', userId, idempotencyKey]
+    );
+
+    // If RETURNING row exists, debit was inserted successfully
+    if (debitResult.rowCount > 0) {
+      await client.query('COMMIT');
+      return { joined: true, participant: insertResult.rows[0] };
+    }
+
+    // No row returned: ON CONFLICT triggered (debit with same idempotency_key already exists)
+    // Query and verify it matches expected values (invariant check)
+    const existingDebitResult = await client.query(
+      `SELECT entry_type, direction, amount_cents, reference_type, reference_id, idempotency_key
+       FROM ledger
+       WHERE idempotency_key = $1`,
+      [idempotencyKey]
+    );
+
+    if (existingDebitResult.rows.length === 0) {
+      // Debit not found: invariant violation (ON CONFLICT should have found it)
+      await client.query('ROLLBACK');
+      throw new Error(`Invariant violation: WALLET_DEBIT with idempotency_key ${idempotencyKey} was reported as conflicted but not found`);
+    }
+
+    const existingDebit = existingDebitResult.rows[0];
+
+    // Verify debit fields match expected values
+    const fieldsMatch = (
+      existingDebit.entry_type === 'WALLET_DEBIT' &&
+      existingDebit.direction === 'DEBIT' &&
+      parseInt(existingDebit.amount_cents, 10) === entryFeeCents &&
+      existingDebit.reference_type === 'WALLET' &&
+      existingDebit.reference_id === userId &&
+      existingDebit.idempotency_key === idempotencyKey
+    );
+
+    if (!fieldsMatch) {
+      // Debit exists but fields mismatch: invariant violation
+      await client.query('ROLLBACK');
+      throw new Error(
+        `Invariant violation: WALLET_DEBIT with idempotency_key ${idempotencyKey} exists but fields mismatch. ` +
+        `Expected: entry_type=WALLET_DEBIT, direction=DEBIT, amount_cents=${entryFeeCents}, ` +
+        `reference_type=WALLET, reference_id=${userId}. ` +
+        `Found: ${JSON.stringify(existingDebit)}`
+      );
+    }
+
+    // Debit exists and fields match: safe to commit
     await client.query('COMMIT');
     return { joined: true, participant: insertResult.rows[0] };
 

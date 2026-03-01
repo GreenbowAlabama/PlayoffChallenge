@@ -130,6 +130,9 @@ final class MyContestsViewModel: ObservableObject {
             // Single atomic assignment
             myContests = Array(contestMap.values).sorted { $0.id.uuidString > $1.id.uuidString }
         } catch {
+            // CRITICAL: Clear stale contests when error occurs to prevent stale list display.
+            // Error state and data state must be mutually exclusive.
+            myContests = []
             errorMessage = "Failed to load contests: \(error.localizedDescription)"
         }
 

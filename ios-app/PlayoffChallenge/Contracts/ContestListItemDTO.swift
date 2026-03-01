@@ -8,44 +8,65 @@ import Foundation
 struct ContestListItemDTO: Decodable {
     // Required fields
     let id: UUID
-    let organizer_id: UUID
-    let organizer_name: String
-    let entry_fee_cents: Int
-    let payout_structure: JSONValue?  // Required field but nullable
-    let contest_name: String
-    let max_entries: Int?
+    let organizerId: UUID
+    let organizerName: String
+    let entryFeeCents: Int
+    let payoutStructure: JSONValue?  // Required field but nullable
+    let contestName: String
+    let maxEntries: Int?
     let status: String
-    let is_locked: Bool
-    let is_live: Bool
-    let is_settled: Bool
-    let entry_count: Int
-    let user_has_entered: Bool
-    let time_until_lock: Int?
-    let lock_time: Date?
-    let template_name: String
-    let template_sport: String
-    let template_type: String
-    let leaderboard_state: String
+    let isLocked: Bool
+    let isLive: Bool
+    let isSettled: Bool
+    let entryCount: Int
+    let userHasEntered: Bool
+    let timeUntilLock: Int?
+    let lockTime: Date?
+    let templateName: String
+    let templateSport: String
+    let templateType: String
+    let leaderboardState: String
     let actions: ActionsDTO
-    let payout_table: [PayoutRowDTO]
-    let roster_config: RosterConfigDTO
-    let created_at: Date
-    let updated_at: Date
+    let payoutTable: [PayoutRowDTO]
+    let rosterConfig: RosterConfigDTO
+    let createdAt: Date
+    let updatedAt: Date
 
     // Optional/nullable fields
-    let start_time: Date?
-    let end_time: Date?
-    let join_token: String?
-    let is_platform_owned: Bool?
+    let startTime: Date?
+    let endTime: Date?
+    let joinToken: String?
+    let isPlatformOwned: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case id, organizer_id, organizer_name, entry_fee_cents
-        case payout_structure, contest_name, start_time, end_time
-        case lock_time, max_entries, join_token, created_at, updated_at
-        case is_platform_owned, template_name, template_sport, template_type
-        case status, is_locked, is_live, is_settled, entry_count
-        case user_has_entered, time_until_lock, leaderboard_state, actions
-        case payout_table, roster_config
+        case id
+        case organizerId = "organizer_id"
+        case organizerName = "organizer_name"
+        case entryFeeCents = "entry_fee_cents"
+        case payoutStructure = "payout_structure"
+        case contestName = "contest_name"
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case lockTime = "lock_time"
+        case maxEntries = "max_entries"
+        case joinToken = "join_token"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case isPlatformOwned = "is_platform_owned"
+        case templateName = "template_name"
+        case templateSport = "template_sport"
+        case templateType = "template_type"
+        case status
+        case isLocked = "is_locked"
+        case isLive = "is_live"
+        case isSettled = "is_settled"
+        case entryCount = "entry_count"
+        case userHasEntered = "user_has_entered"
+        case timeUntilLock = "time_until_lock"
+        case leaderboardState = "leaderboard_state"
+        case actions
+        case payoutTable = "payout_table"
+        case rosterConfig = "roster_config"
     }
 
     init(from decoder: Decoder) throws {
@@ -53,34 +74,34 @@ struct ContestListItemDTO: Decodable {
 
         // Required fields
         id = try c.decode(UUID.self, forKey: .id)
-        organizer_id = try c.decode(UUID.self, forKey: .organizer_id)
-        organizer_name = try c.decode(String.self, forKey: .organizer_name)
-        entry_fee_cents = try c.decode(Int.self, forKey: .entry_fee_cents)
-        payout_structure = try c.decodeIfPresent(JSONValue.self, forKey: .payout_structure)
-        contest_name = try c.decode(String.self, forKey: .contest_name)
-        max_entries = try c.decodeIfPresent(Int.self, forKey: .max_entries)
+        organizerId = try c.decode(UUID.self, forKey: .organizerId)
+        organizerName = try c.decode(String.self, forKey: .organizerName)
+        entryFeeCents = try c.decode(Int.self, forKey: .entryFeeCents)
+        payoutStructure = try c.decodeIfPresent(JSONValue.self, forKey: .payoutStructure)
+        contestName = try c.decode(String.self, forKey: .contestName)
+        maxEntries = try c.decodeIfPresent(Int.self, forKey: .maxEntries)
         status = try c.decode(String.self, forKey: .status)
-        is_locked = try c.decode(Bool.self, forKey: .is_locked)
-        is_live = try c.decode(Bool.self, forKey: .is_live)
-        is_settled = try c.decode(Bool.self, forKey: .is_settled)
-        entry_count = try c.decode(Int.self, forKey: .entry_count)
-        user_has_entered = try c.decode(Bool.self, forKey: .user_has_entered)
-        time_until_lock = try c.decodeIfPresent(Int.self, forKey: .time_until_lock)
-        lock_time = try c.decodeIfPresent(Date.self, forKey: .lock_time)
-        template_name = try c.decode(String.self, forKey: .template_name)
-        template_sport = try c.decode(String.self, forKey: .template_sport)
-        template_type = try c.decode(String.self, forKey: .template_type)
-        leaderboard_state = try c.decode(String.self, forKey: .leaderboard_state)
+        isLocked = try c.decode(Bool.self, forKey: .isLocked)
+        isLive = try c.decode(Bool.self, forKey: .isLive)
+        isSettled = try c.decode(Bool.self, forKey: .isSettled)
+        entryCount = try c.decode(Int.self, forKey: .entryCount)
+        userHasEntered = try c.decode(Bool.self, forKey: .userHasEntered)
+        timeUntilLock = try c.decodeIfPresent(Int.self, forKey: .timeUntilLock)
+        lockTime = try c.decodeIfPresent(Date.self, forKey: .lockTime)
+        templateName = try c.decode(String.self, forKey: .templateName)
+        templateSport = try c.decode(String.self, forKey: .templateSport)
+        templateType = try c.decode(String.self, forKey: .templateType)
+        leaderboardState = try c.decode(String.self, forKey: .leaderboardState)
         actions = try c.decode(ActionsDTO.self, forKey: .actions)
-        payout_table = try c.decode([PayoutRowDTO].self, forKey: .payout_table)
-        roster_config = try c.decode(RosterConfigDTO.self, forKey: .roster_config)
-        created_at = try c.decode(Date.self, forKey: .created_at)
-        updated_at = try c.decode(Date.self, forKey: .updated_at)
+        payoutTable = try c.decode([PayoutRowDTO].self, forKey: .payoutTable)
+        rosterConfig = try c.decode(RosterConfigDTO.self, forKey: .rosterConfig)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
 
         // Optional/nullable fields
-        start_time = try c.decodeIfPresent(Date.self, forKey: .start_time)
-        end_time = try c.decodeIfPresent(Date.self, forKey: .end_time)
-        join_token = try c.decodeIfPresent(String.self, forKey: .join_token)
-        is_platform_owned = try c.decodeIfPresent(Bool.self, forKey: .is_platform_owned)
+        startTime = try c.decodeIfPresent(Date.self, forKey: .startTime)
+        endTime = try c.decodeIfPresent(Date.self, forKey: .endTime)
+        joinToken = try c.decodeIfPresent(String.self, forKey: .joinToken)
+        isPlatformOwned = try c.decodeIfPresent(Bool.self, forKey: .isPlatformOwned)
     }
 }

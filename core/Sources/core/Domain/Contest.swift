@@ -20,6 +20,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
     public let maxEntries: Int?
     public let entryFeeCents: Int
     public let lockTime: Date?
+    public let startTime: Date?
+    public let endTime: Date?
     public let joinToken: String?
     public let createdAt: Date
     public let updatedAt: Date
@@ -39,6 +41,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         maxEntries: Int?,
         entryFeeCents: Int,
         lockTime: Date?,
+        startTime: Date?,
+        endTime: Date?,
         joinToken: String?,
         createdAt: Date,
         updatedAt: Date,
@@ -57,6 +61,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         self.maxEntries = maxEntries
         self.entryFeeCents = entryFeeCents
         self.lockTime = lockTime
+        self.startTime = startTime
+        self.endTime = endTime
         self.joinToken = joinToken
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -77,6 +83,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         case maxEntries = "max_entries"
         case entryFeeCents = "entry_fee_cents"
         case lockTime = "lock_time"
+        case startTime = "start_time"
+        case endTime = "end_time"
         case joinToken = "join_token"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -118,6 +126,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             maxEntries: contract.maxEntries,
             entryFeeCents: contract.entryFeeCents,
             lockTime: contract.lockTime,
+            startTime: contract.startTime,
+            endTime: contract.endTime,
             joinToken: contract.joinToken,
             createdAt: contract.createdAt,
             updatedAt: contract.updatedAt,
@@ -141,6 +151,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             maxEntries: nil, // Not present in detail contract
             entryFeeCents: 0,
             lockTime: nil,
+            startTime: nil, // Not present in detail contract
+            endTime: nil, // Not present in detail contract
             joinToken: nil,
             createdAt: Date(),
             updatedAt: Date(),
@@ -164,6 +176,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         maxEntries: Int? = 10,
         entryFeeCents: Int = 1000,
         lockTime: Date? = nil,
+        startTime: Date? = nil,
+        endTime: Date? = nil,
         joinToken: String? = "test-token",
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
@@ -183,6 +197,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             maxEntries: maxEntries,
             entryFeeCents: entryFeeCents,
             lockTime: lockTime,
+            startTime: startTime,
+            endTime: endTime,
             joinToken: joinToken,
             createdAt: createdAt,
             updatedAt: updatedAt,

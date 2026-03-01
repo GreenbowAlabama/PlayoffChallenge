@@ -13,6 +13,7 @@ const adminTournamentsRoutes = require('./routes/admin.tournaments.routes');
 const customContestRoutes = require('./routes/customContest.routes');
 const customContestTemplatesRoutes = require('./routes/customContestTemplates.routes');
 const contestsRoutes = require('./routes/contests.routes');
+const walletRoutes = require('./routes/wallet.routes');
 const webhooksRoutes = require('./routes/webhooks');
 const paymentsRoutes = require('./routes/payments');
 const requireAdmin = require('./middleware/adminAuth');
@@ -48,6 +49,7 @@ app.use('/api/', apiLimiter);
 
 // Mount route modules
 app.use('/api/payments', paymentsRoutes);
+app.use('/api/wallet', walletRoutes);
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin', requireAdmin);
 app.use('/api/admin/diagnostics', adminDiagnosticsRoutes);

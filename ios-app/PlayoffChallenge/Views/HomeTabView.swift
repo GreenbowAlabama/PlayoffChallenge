@@ -35,14 +35,16 @@ struct HomeTabView: View {
                     }
 
                     // My Active Contests Section
-                    if viewModel.hasActiveContests {
+                    // Displays all SCHEDULED contests sorted chronologically by start_time.
+                    // This section shows contests the user has created or joined, in order of when they start.
+                    if !viewModel.scheduledContests.isEmpty {
                         VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
                             Text("My Active Contests")
                                 .font(.headline)
                                 .padding(.horizontal, DesignTokens.Spacing.lg)
 
                             VStack(spacing: DesignTokens.Spacing.md) {
-                                ForEach(viewModel.myActiveContests) { contest in
+                                ForEach(viewModel.scheduledContests) { contest in
                                     ContestCardView(
                                         contest: contest,
                                         style: .standard,

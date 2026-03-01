@@ -39,12 +39,30 @@ function createMockPool() {
         return response;
       }
 
-      // Check for pattern matches
-
+      // Check for pattern matches (regex or function predicates)
       for (const [pattern, response] of queryResponses.entries()) {
+        // Skip string/exact match keys (already checked above)
+        if (typeof pattern === 'string') {
+          continue;
+        }
+
+        // RegExp matching
         if (pattern instanceof RegExp && pattern.test(sql)) {
           if (response instanceof Error) throw response;
           return response;
+        }
+
+        // Function predicate matching (new: allows flexible query matching)
+        if (typeof pattern === 'function') {
+          try {
+            if (pattern(sql)) {
+              if (response instanceof Error) throw response;
+              return response;
+            }
+          } catch (err) {
+            // Predicate threw - treat as non-match and continue
+            continue;
+          }
         }
       }
 
@@ -54,9 +72,23 @@ function createMockPool() {
 
     /**
      * Set a specific query response
-     * @param {string|RegExp} sqlOrPattern - SQL string or RegExp pattern
+     * @param {string|RegExp|Function} sqlOrPattern - SQL string, RegExp pattern, or predicate function
+     *   - string: exact match (no params) or with params for full key match
+     *   - RegExp: pattern test on SQL
+     *   - Function: predicate(sql) => boolean for flexible matching
      * @param {Object|Error} response - Response object with rows/rowCount or Error to throw
-     * @param {Array} params - Optional params for exact matching
+     * @param {Array} params - Optional params for exact matching (string only)
+     *
+     * @example
+     *   // Exact match
+     *   mockPool.setQueryResponse('SELECT * FROM users', response);
+     *   // RegExp pattern
+     *   mockPool.setQueryResponse(/SELECT.*FROM users/, response);
+     *   // Function predicate (flexible, robust)
+     *   mockPool.setQueryResponse(
+     *     q => q.includes('FROM users') && q.includes('FOR UPDATE'),
+     *     response
+     *   );
      */
     setQueryResponse(sqlOrPattern, response, params = null) {
       if (params !== null) {

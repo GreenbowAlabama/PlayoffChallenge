@@ -1675,24 +1675,49 @@ describe('Custom Contest Service Unit Tests', () => {
       joined_at: new Date().toISOString()
     };
 
-    it('should successfully join a SCHEDULED contest', async () => {
+    it('should successfully join a SCHEDULED contest and debit wallet', async () => {
+      // User lock
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single(openInstance)
+        q => q.includes('SELECT id FROM users') && q.includes('FOR UPDATE'),
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
+      // Contest lock
+      mockPool.setQueryResponse(
+        q => q.includes('FROM contest_instances') && q.includes('FOR UPDATE'),
+        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500 })
       );
       // Pre-check: user not yet participant
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*=[\s\S]*AND[\s\S]*user_id[\s\S]*=/,
+        q => q.includes('FROM contest_participants') && q.includes('contest_instance_id') && q.includes('user_id'),
         mockQueryResponses.empty()
       );
       // Capacity check
       mockPool.setQueryResponse(
-        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        q => q.includes('COUNT(*)') && q.includes('current_count'),
         mockQueryResponses.single({ current_count: '0' })
       );
+      // Wallet balance (sufficient: 5000 cents = $50)
       mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
+        q => q.includes('SUM(CASE') && q.includes('WALLET'),
+        mockQueryResponses.single({ balance_cents: 5000 })
+      );
+      // Participant insert
+      mockPool.setQueryResponse(
+        q => q.includes('INSERT INTO contest_participants'),
         mockQueryResponses.single(mockParticipant)
+      );
+      // Wallet debit insert
+      mockPool.setQueryResponse(
+        q => q.includes('INSERT INTO ledger') && q.includes('ON CONFLICT'),
+        mockQueryResponses.single({
+          id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+          entry_type: 'WALLET_DEBIT',
+          direction: 'DEBIT',
+          amount_cents: 2500,
+          reference_type: 'WALLET',
+          reference_id: TEST_USER_ID,
+          idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
+        })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1703,23 +1728,46 @@ describe('Custom Contest Service Unit Tests', () => {
     });
 
     it('should allow join when max_entries is NULL (unlimited capacity)', async () => {
+      // User lock
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, max_entries: null })
+        q => q.includes('SELECT id FROM users') && q.includes('FOR UPDATE'),
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
+      mockPool.setQueryResponse(
+        q => q.includes('FROM contest_instances') && q.includes('FOR UPDATE'),
+        mockQueryResponses.single({ ...openInstance, max_entries: null, entry_fee_cents: 2500 })
       );
       // Pre-check: user not yet participant
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*=[\s\S]*AND[\s\S]*user_id[\s\S]*=/,
+        q => q.includes('FROM contest_participants') && q.includes('contest_instance_id') && q.includes('user_id'),
         mockQueryResponses.empty()
       );
       // Capacity check
       mockPool.setQueryResponse(
-        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        q => q.includes('COUNT(*)') && q.includes('current_count'),
         mockQueryResponses.single({ current_count: '0' })
       );
+      // Wallet balance
       mockPool.setQueryResponse(
-        /INSERT INTO contest_participants/,
+        q => q.includes('SUM(CASE') && q.includes('WALLET'),
+        mockQueryResponses.single({ balance_cents: 5000 })
+      );
+      mockPool.setQueryResponse(
+        q => q.includes('INSERT INTO contest_participants'),
         mockQueryResponses.single(mockParticipant)
+      );
+      // Wallet debit insert
+      mockPool.setQueryResponse(
+        q => q.includes('INSERT INTO ledger') && q.includes('ON CONFLICT'),
+        mockQueryResponses.single({
+          id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+          entry_type: 'WALLET_DEBIT',
+          direction: 'DEBIT',
+          amount_cents: 2500,
+          reference_type: 'WALLET',
+          reference_id: TEST_USER_ID,
+          idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
+        })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1727,9 +1775,14 @@ describe('Custom Contest Service Unit Tests', () => {
     });
 
     it('should return joined=true when user already participant (pre-check path)', async () => {
+      // User lock
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single(openInstance)
+        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500 })
       );
       // Pre-check finds user already participant
       mockPool.setQueryResponse(
@@ -1745,9 +1798,14 @@ describe('Custom Contest Service Unit Tests', () => {
     });
 
     it('should return CONTEST_FULL when capacity reached', async () => {
+      // User lock
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, max_entries: 5 })
+        mockQueryResponses.single({ ...openInstance, max_entries: 5, entry_fee_cents: 2500 })
       );
       // Pre-check: user not yet participant
       mockPool.setQueryResponse(
@@ -1766,6 +1824,11 @@ describe('Custom Contest Service Unit Tests', () => {
     });
 
     it('should return CONTEST_NOT_FOUND when contest does not exist', async () => {
+      // User lock
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.empty()
@@ -1777,9 +1840,14 @@ describe('Custom Contest Service Unit Tests', () => {
     });
 
     it('should return CONTEST_LOCKED for LOCKED contest (rejected before insert)', async () => {
+      // User lock
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, status: 'LOCKED' })
+        mockQueryResponses.single({ ...openInstance, status: 'LOCKED', entry_fee_cents: 2500 })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1788,9 +1856,14 @@ describe('Custom Contest Service Unit Tests', () => {
     });
 
     it('should return CONTEST_UNAVAILABLE for CANCELLED contest (rejected before insert)', async () => {
+      // User lock
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, status: 'CANCELLED' })
+        mockQueryResponses.single({ ...openInstance, status: 'CANCELLED', entry_fee_cents: 2500 })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1799,9 +1872,14 @@ describe('Custom Contest Service Unit Tests', () => {
     });
 
     it('should return CONTEST_COMPLETED for COMPLETE contest (rejected before insert)', async () => {
+      // User lock
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, status: 'COMPLETE' })
+        mockQueryResponses.single({ ...openInstance, status: 'COMPLETE', entry_fee_cents: 2500 })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1810,9 +1888,14 @@ describe('Custom Contest Service Unit Tests', () => {
     });
 
     it('should return CONTEST_UNAVAILABLE if join_token is missing (rejected before insert)', async () => {
+      // User lock
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, join_token: null })
+        mockQueryResponses.single({ ...openInstance, join_token: null, entry_fee_cents: 2500 })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1822,9 +1905,14 @@ describe('Custom Contest Service Unit Tests', () => {
 
     it('idempotent: second join via pre-check returns success without duplicate row', async () => {
       // Simulates user joining for the second time
+      // User lock
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single(openInstance)
+        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500 })
       );
 
       // Pre-check: user already participant (idempotent path)
@@ -1840,9 +1928,14 @@ describe('Custom Contest Service Unit Tests', () => {
 
     it('idempotent: returns CONTEST_FULL if capacity reached before insert', async () => {
       // Simulates the case where capacity filled between pre-check and insert attempt
+      // User lock
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single(openInstance)
+        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500 })
       );
 
       // Pre-check: user not yet participant
@@ -1863,9 +1956,14 @@ describe('Custom Contest Service Unit Tests', () => {
     });
 
     it('should use a transaction (pool.connect)', async () => {
+      // User lock
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single(openInstance)
+        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500 })
       );
       // Pre-check
       mockPool.setQueryResponse(
@@ -1877,10 +1975,28 @@ describe('Custom Contest Service Unit Tests', () => {
         /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
         mockQueryResponses.single({ current_count: '0' })
       );
-      // Insert
+      // Wallet balance
+      mockPool.setQueryResponse(
+        /SELECT COALESCE\(SUM\(CASE/,
+        mockQueryResponses.single({ balance_cents: 5000 })
+      );
+      // Insert participant
       mockPool.setQueryResponse(
         /INSERT INTO contest_participants/,
         mockQueryResponses.single(mockParticipant)
+      );
+      // Insert wallet debit
+      mockPool.setQueryResponse(
+        /INSERT INTO ledger[\s\S]*ON CONFLICT/,
+        mockQueryResponses.single({
+          id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+          entry_type: 'WALLET_DEBIT',
+          direction: 'DEBIT',
+          amount_cents: 2500,
+          reference_type: 'WALLET',
+          reference_id: TEST_USER_ID,
+          idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
+        })
       );
 
       await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1888,6 +2004,12 @@ describe('Custom Contest Service Unit Tests', () => {
     });
 
     it('should ROLLBACK transaction on unexpected error', async () => {
+      // User lock succeeds
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
+      // Contest lock fails
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.error('connection lost', 'XX000')
@@ -1900,6 +2022,207 @@ describe('Custom Contest Service Unit Tests', () => {
       const queries = mockPool.getQueryHistory();
       const rollbackQueries = queries.filter(q => q.sql === 'ROLLBACK');
       expect(rollbackQueries.length).toBeGreaterThan(0);
+    });
+
+    describe('Wallet-funded join (Phase 2)', () => {
+      const walletInstance = {
+        id: TEST_INSTANCE_ID,
+        status: 'SCHEDULED',
+        join_token: 'dev_some_token',
+        max_entries: 10,
+        entry_fee_cents: 2500
+      };
+
+      const walletDebit = {
+        id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+        entry_type: 'WALLET_DEBIT',
+        direction: 'DEBIT',
+        amount_cents: 2500
+      };
+
+      it('should debit wallet when balance is sufficient', async () => {
+        // User lock
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT id FROM users') && q.includes('FOR UPDATE'),
+          mockQueryResponses.single({ id: TEST_USER_ID })
+        );
+        // Contest lock
+        mockPool.setQueryResponse(
+          q => q.includes('FROM contest_instances') && q.includes('FOR UPDATE'),
+          mockQueryResponses.single(walletInstance)
+        );
+        // Pre-check: not yet participant
+        mockPool.setQueryResponse(
+          q => q.includes('FROM contest_participants') && q.includes('contest_instance_id') && q.includes('user_id'),
+          mockQueryResponses.empty()
+        );
+        // Capacity check
+        mockPool.setQueryResponse(
+          q => q.includes('COUNT(*)') && q.includes('current_count'),
+          mockQueryResponses.single({ current_count: '0' })
+        );
+        // Wallet balance (sufficient: $50 > $25)
+        mockPool.setQueryResponse(
+          q => q.includes('SUM(CASE') && q.includes('WALLET'),
+          mockQueryResponses.single({ balance_cents: 5000 })
+        );
+        // Participant insert succeeds
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO contest_participants'),
+          mockQueryResponses.single(mockParticipant)
+        );
+        // Wallet debit insert succeeds
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO ledger') && q.includes('ON CONFLICT'),
+          mockQueryResponses.single({
+            ...walletDebit,
+            reference_type: 'WALLET',
+            reference_id: TEST_USER_ID,
+            idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
+          })
+        );
+
+        const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+        expect(result.joined).toBe(true);
+        expect(result.participant).toBeDefined();
+      });
+
+      it('should reject join when wallet balance is insufficient', async () => {
+        // User lock
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT id FROM users') && q.includes('FOR UPDATE'),
+          mockQueryResponses.single({ id: TEST_USER_ID })
+        );
+        // Contest lock
+        mockPool.setQueryResponse(
+          q => q.includes('FROM contest_instances') && q.includes('FOR UPDATE'),
+          mockQueryResponses.single(walletInstance)
+        );
+        // Pre-check: not yet participant
+        mockPool.setQueryResponse(
+          q => q.includes('FROM contest_participants') && q.includes('contest_instance_id') && q.includes('user_id'),
+          mockQueryResponses.empty()
+        );
+        // Capacity check
+        mockPool.setQueryResponse(
+          q => q.includes('COUNT(*)') && q.includes('current_count'),
+          mockQueryResponses.single({ current_count: '0' })
+        );
+        // Wallet balance (insufficient: $5 < $25)
+        mockPool.setQueryResponse(
+          q => q.includes('SUM(CASE') && q.includes('WALLET'),
+          mockQueryResponses.single({ balance_cents: 500 })
+        );
+
+        const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+        expect(result.joined).toBe(false);
+        expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.INSUFFICIENT_WALLET_FUNDS);
+      });
+
+      it('should not debit on race condition (another tx inserted participant)', async () => {
+        // Track if we've seen the INSERT yet
+        let insertSeen = false;
+
+        // User lock
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT id FROM users') && q.includes('FOR UPDATE'),
+          mockQueryResponses.single({ id: TEST_USER_ID })
+        );
+        // Contest lock
+        mockPool.setQueryResponse(
+          q => q.includes('FROM contest_instances') && q.includes('FOR UPDATE'),
+          mockQueryResponses.single(walletInstance)
+        );
+        // Capacity check
+        mockPool.setQueryResponse(
+          q => q.includes('COUNT(*)') && q.includes('current_count'),
+          mockQueryResponses.single({ current_count: '0' })
+        );
+        // Wallet balance sufficient
+        mockPool.setQueryResponse(
+          q => q.includes('SUM(CASE') && q.includes('WALLET'),
+          mockQueryResponses.single({ balance_cents: 5000 })
+        );
+        // Participant SELECT: pre-check returns empty (default behavior)
+        // Track insert so recheck can return different result
+        const originalQuery = mockPool.query;
+        mockPool.query = jest.fn(async (sql, params = []) => {
+          if (sql.includes('INSERT INTO contest_participants') && sql.includes('ON CONFLICT')) {
+            insertSeen = true;
+          }
+          // If this is a recheck SELECT after insert failed, return mockParticipant
+          if (sql.includes('FROM contest_participants') && sql.includes('WHERE') && insertSeen) {
+            return mockQueryResponses.single(mockParticipant);
+          }
+          // Otherwise use original query
+          return originalQuery.call(mockPool, sql, params);
+        });
+        // Participant insert returns 0 rows (race condition - ON CONFLICT)
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO contest_participants') && q.includes('ON CONFLICT') && q.includes('DO NOTHING'),
+          mockQueryResponses.empty()
+        );
+
+        const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+        expect(result.joined).toBe(true);
+        // Verify no ledger insert happened (no wallet debit on race path)
+        const queries = mockPool.getQueryHistory();
+        const ledgerInserts = queries.filter(q => q.sql && q.sql.includes('INSERT INTO ledger'));
+        expect(ledgerInserts.length).toBe(0);
+      });
+
+      it('should handle wallet debit with ON CONFLICT idempotency', async () => {
+        // User lock
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT id FROM users') && q.includes('FOR UPDATE'),
+          mockQueryResponses.single({ id: TEST_USER_ID })
+        );
+        // Contest lock
+        mockPool.setQueryResponse(
+          q => q.includes('FROM contest_instances') && q.includes('FOR UPDATE'),
+          mockQueryResponses.single(walletInstance)
+        );
+        // Pre-check: not yet participant
+        mockPool.setQueryResponse(
+          q => q.includes('FROM contest_participants') && q.includes('contest_instance_id') && q.includes('user_id'),
+          mockQueryResponses.empty()
+        );
+        // Capacity check
+        mockPool.setQueryResponse(
+          q => q.includes('COUNT(*)') && q.includes('current_count'),
+          mockQueryResponses.single({ current_count: '0' })
+        );
+        // Wallet balance sufficient
+        mockPool.setQueryResponse(
+          q => q.includes('SUM(CASE') && q.includes('WALLET'),
+          mockQueryResponses.single({ balance_cents: 5000 })
+        );
+        // Participant insert succeeds
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO contest_participants'),
+          mockQueryResponses.single(mockParticipant)
+        );
+        // Wallet debit insert hits ON CONFLICT (returns 0 rows, debit already exists)
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO ledger') && q.includes('ON CONFLICT') && q.includes('DO NOTHING'),
+          mockQueryResponses.empty()
+        );
+        // Verify query: debit exists and matches
+        mockPool.setQueryResponse(
+          q => q.includes('FROM ledger') && q.includes('entry_type') && q.includes('idempotency_key'),
+          mockQueryResponses.single({
+            entry_type: 'WALLET_DEBIT',
+            direction: 'DEBIT',
+            amount_cents: 2500,
+            reference_type: 'WALLET',
+            reference_id: TEST_USER_ID,
+            idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
+          })
+        );
+
+        const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
+        expect(result.joined).toBe(true);
+      });
     });
   });
 
