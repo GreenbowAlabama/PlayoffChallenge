@@ -843,12 +843,16 @@ components:
           type: string
           format: date-time
           nullable: true
-          description: Optional contest start time (ISO 8601)
+          description: >
+            ISO 8601 UTC timestamp when the contest becomes eligible to transition
+            from SCHEDULED to LOCKED. Used by lifecycle reconciliation logic.
         end_time:
           type: string
           format: date-time
           nullable: true
-          description: Optional contest end time (ISO 8601)
+          description: >
+            ISO 8601 UTC timestamp when the contest becomes eligible to transition
+            from LIVE to COMPLETE. Used by lifecycle reconciliation logic.
         lock_time:
           type: string
           format: date-time
@@ -975,10 +979,16 @@ components:
           type: string
           format: date-time
           nullable: true
+          description: >
+            ISO 8601 UTC timestamp when the contest becomes eligible to transition
+            from SCHEDULED to LOCKED. Used by lifecycle reconciliation logic.
         end_time:
           type: string
           format: date-time
           nullable: true
+          description: >
+            ISO 8601 UTC timestamp when the contest becomes eligible to transition
+            from LIVE to COMPLETE. Used by lifecycle reconciliation logic.
         lock_time:
           type: string
           format: date-time
@@ -1340,10 +1350,16 @@ components:
           type: string
           format: date-time
           nullable: true
+          description: >
+            ISO 8601 UTC timestamp when the contest becomes eligible to transition
+            from SCHEDULED to LOCKED. Used by lifecycle reconciliation logic.
         lock_time:
           type: string
           format: date-time
           nullable: true
+          description: >
+            Lock time for contest entry window (ISO 8601, UTC).
+            If null, contest has unlimited entry window.
         settlement_time:
           type: string
           format: date-time
