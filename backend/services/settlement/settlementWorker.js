@@ -1,5 +1,7 @@
 // settlementWorker.js
 
+const { executeSettlementTx } = require('../settlementStrategy');
+
 /**
  * IMPORTANT:
  * This worker consumes lifecycle_outbox events.
@@ -9,18 +11,19 @@
  * Assumptions:
  * - lifecycle_outbox contains CONTEST_COMPLETED events
  * - settlement_consumption enforces idempotency
- * - settlement pipeline entrypoint is injected
+ * - Snapshot binding is fetched from event_data_snapshots with provider_final_flag = true
+ * - executeSettlementTx owns the transaction boundary
  */
 
 async function consumeLifecycleOutbox(
   pool,
   {
     batchSize = 25,
-    settlementHandler, // async function({ contestInstanceId, client })
+    settlementHandler, // async function({ contestInstanceId, client }) — DEPRECATED; use executeSettlementTx directly
   }
 ) {
-  if (!settlementHandler) {
-    throw new Error('settlementHandler is required');
+  if (!settlementHandler && !executeSettlementTx) {
+    throw new Error('settlementHandler or executeSettlementTx is required');
   }
 
   // Fetch batch of completion events (ordered for determinism)
@@ -90,10 +93,38 @@ async function consumeLifecycleOutbox(
         continue;
       }
 
-      // Execute deterministic settlement pipeline
-      await settlementHandler({
-        contestInstanceId: contest.id,
+      // Fetch snapshot binding (PGA v1 Section 4.1 compliant)
+      // Must have provider_final_flag = true for deterministic settlement
+      const snapshotResult = await client.query(
+        `
+        SELECT id, snapshot_hash
+        FROM event_data_snapshots
+        WHERE contest_instance_id = $1
+          AND provider_final_flag = true
+        ORDER BY ingested_at DESC, id DESC
+        LIMIT 1
+        `,
+        [contest.id]
+      );
+
+      const snapshotRow = snapshotResult.rows[0];
+
+      if (!snapshotRow) {
+        throw new Error(
+          `SETTLEMENT_REQUIRES_FINAL_SNAPSHOT: No FINAL event_data_snapshot found for contest ${contest.id}. ` +
+          `Settlement requires provider_final_flag = true snapshot before execution.`
+        );
+      }
+
+      const snapshotId = snapshotRow.id;
+      const snapshotHash = snapshotRow.snapshot_hash;
+
+      // Execute settlement transaction (owns transaction boundary; do NOT call executeSettlement wrapper)
+      await executeSettlementTx({
         client,
+        contestInstanceId: contest.id,
+        snapshotId,
+        snapshotHash,
       });
 
       await client.query('COMMIT');
