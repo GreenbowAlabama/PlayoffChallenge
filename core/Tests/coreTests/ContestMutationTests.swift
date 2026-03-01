@@ -54,6 +54,14 @@ extension ContestListItemDTO {
         lockTime: Date? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
+        startTime: Date? = {
+            let formatter = ISO8601DateFormatter()
+            return formatter.date(from: "2025-01-01T10:00:00Z")
+        }(),
+        endTime: Date? = {
+            let formatter = ISO8601DateFormatter()
+            return formatter.date(from: "2025-01-01T14:00:00Z")
+        }(),
         joinToken: String? = "test-token",
         organizerName: String? = "Test Organizer",
         leaderboardState: String? = nil,
@@ -71,6 +79,8 @@ extension ContestListItemDTO {
             maxEntries: maxEntries,
             entryFeeCents: entryFeeCents,
             lockTime: lockTime,
+            startTime: startTime,
+            endTime: endTime,
             createdAt: createdAt,
             updatedAt: updatedAt,
             joinToken: joinToken,
@@ -457,7 +467,7 @@ struct ContestMutationTests {
     @Test
     mutating func testUnjoinContest_MapsDecodingError() async throws {
         setup()
-        struct DecodingError: Error {
+        struct DecodingError: LocalizedError {
             var errorDescription: String? { "response could not be decoded as JSON" }
         }
         mockClient.shouldThrowError = DecodingError()

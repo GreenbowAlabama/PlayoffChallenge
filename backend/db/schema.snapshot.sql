@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict nh4nqpmCgZ9MJ2eO3gaVJ6S2VMxkiBh2aSebFXKtHZ7QdEKNkVt0i3kgPRBeD0g
+\restrict c44pkZ1EJE0tjqlunnak0X5u42h9jxxZQHPTa7bgA8iTXXxerUBahUePOzSBAKd
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -1456,6 +1456,48 @@ COMMENT ON VIEW public.v_game_status IS 'Shows current game state and week mappi
 
 
 --
+-- Name: wallet_withdrawals; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wallet_withdrawals (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    amount_cents integer NOT NULL,
+    method text NOT NULL,
+    instant_fee_cents integer DEFAULT 0 NOT NULL,
+    status text NOT NULL,
+    stripe_payout_id text,
+    idempotency_key text NOT NULL,
+    failure_reason text,
+    processed_at timestamp without time zone,
+    requested_at timestamp without time zone DEFAULT now(),
+    updated_at timestamp without time zone DEFAULT now(),
+    CONSTRAINT wallet_withdrawals_amount_cents_check CHECK ((amount_cents > 0)),
+    CONSTRAINT wallet_withdrawals_method_check CHECK ((method = ANY (ARRAY['standard'::text, 'instant'::text]))),
+    CONSTRAINT wallet_withdrawals_status_check CHECK ((status = ANY (ARRAY['REQUESTED'::text, 'PROCESSING'::text, 'PAID'::text, 'FAILED'::text, 'CANCELLED'::text])))
+);
+
+
+--
+-- Name: withdrawal_config; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.withdrawal_config (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    environment text NOT NULL,
+    min_withdrawal_cents integer DEFAULT 500 NOT NULL,
+    max_withdrawal_cents integer,
+    daily_withdrawal_limit_cents integer,
+    max_withdrawals_per_day integer,
+    instant_enabled boolean DEFAULT true,
+    instant_fee_percent numeric(5,2) DEFAULT 0,
+    cooldown_seconds integer DEFAULT 0,
+    created_at timestamp without time zone DEFAULT now(),
+    updated_at timestamp without time zone DEFAULT now()
+);
+
+
+--
 -- Name: payout_structure id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1989,6 +2031,46 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: wallet_withdrawals wallet_withdrawals_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wallet_withdrawals
+    ADD CONSTRAINT wallet_withdrawals_idempotency_key_key UNIQUE (idempotency_key);
+
+
+--
+-- Name: wallet_withdrawals wallet_withdrawals_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wallet_withdrawals
+    ADD CONSTRAINT wallet_withdrawals_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: wallet_withdrawals wallet_withdrawals_stripe_payout_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wallet_withdrawals
+    ADD CONSTRAINT wallet_withdrawals_stripe_payout_id_key UNIQUE (stripe_payout_id);
+
+
+--
+-- Name: withdrawal_config withdrawal_config_environment_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.withdrawal_config
+    ADD CONSTRAINT withdrawal_config_environment_key UNIQUE (environment);
+
+
+--
+-- Name: withdrawal_config withdrawal_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.withdrawal_config
+    ADD CONSTRAINT withdrawal_config_pkey PRIMARY KEY (id);
 
 
 --
@@ -2549,6 +2631,20 @@ CREATE INDEX idx_users_eligibility ON public.users USING btree (eligibility_conf
 --
 
 CREATE INDEX idx_users_state ON public.users USING btree (state);
+
+
+--
+-- Name: idx_wallet_withdrawals_stripe_payout_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wallet_withdrawals_stripe_payout_id ON public.wallet_withdrawals USING btree (stripe_payout_id);
+
+
+--
+-- Name: idx_wallet_withdrawals_user_id_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wallet_withdrawals_user_id_status ON public.wallet_withdrawals USING btree (user_id, status);
 
 
 --
@@ -3119,8 +3215,16 @@ ALTER TABLE ONLY public.tournament_configs
 
 
 --
+-- Name: wallet_withdrawals wallet_withdrawals_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wallet_withdrawals
+    ADD CONSTRAINT wallet_withdrawals_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
 -- PostgreSQL database dump complete
 --
 
-\unrestrict nh4nqpmCgZ9MJ2eO3gaVJ6S2VMxkiBh2aSebFXKtHZ7QdEKNkVt0i3kgPRBeD0g
+\unrestrict c44pkZ1EJE0tjqlunnak0X5u42h9jxxZQHPTa7bgA8iTXXxerUBahUePOzSBAKd
 

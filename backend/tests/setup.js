@@ -19,6 +19,9 @@ if (process.env.NODE_ENV === 'test') {
   process.env.DATABASE_URL = process.env.DATABASE_URL_TEST;
 }
 
+// Ensure ADMIN_JWT_SECRET is always defined for discovery and admin endpoint tests
+process.env.ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || 'test-admin-jwt-secret';
+
 // CRITICAL SAFETY GUARD: Use test database only, never staging/prod
 if (!process.env.DATABASE_URL_TEST) {
   console.error('FATAL: DATABASE_URL_TEST environment variable is required for integration tests');

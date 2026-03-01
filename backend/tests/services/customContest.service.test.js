@@ -1301,7 +1301,115 @@ describe('Custom Contest Service Unit Tests', () => {
         ).rejects.toThrow("Only 'SCHEDULED' contests can be published");
       });
 
-      it('should handle race condition when contest modified between fetch and update', async () => {
+      it('should be DB-idempotent: UPDATE returns 0 rows when join_token IS NOT NULL, fallback fetches existing token', async () => {
+        const originalToken = 'dev_existingtoken1234567890123';
+        const scheduledInstance = {
+          ...mockInstance,
+          status: 'SCHEDULED',
+          join_token: null,
+          entry_count: 0,
+          user_has_entered: false,
+          organizer_name: 'Test Organizer'
+        };
+        const publishedInstance = {
+          ...scheduledInstance,
+          join_token: originalToken
+        };
+
+        // First call: Initial fetch returns contest without token
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id = \$1/,
+          mockQueryResponses.single(scheduledInstance)
+        );
+        // First call: UPDATE sets token successfully
+        mockPool.setQueryResponse(
+          /UPDATE contest_instances[\s\S]*join_token IS NULL/,
+          mockQueryResponses.single(publishedInstance)
+        );
+        // First call: INSERT organizer participant
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_participants/,
+          mockQueryResponses.single({})
+        );
+
+        // First publish succeeds
+        const result1 = await customContestService.publishContestInstance(
+          mockPool, TEST_INSTANCE_ID, TEST_USER_ID
+        );
+        expect(result1.join_token).toBe(originalToken);
+
+        // Verify first INSERT happened
+        let queries = mockPool.getQueryHistory();
+        const firstInsertQueries = queries.filter(q => q.sql.includes('INSERT INTO contest_participants'));
+        expect(firstInsertQueries.length).toBeGreaterThan(0);
+
+        // Reset query history for second publish
+        mockPool.reset();
+
+        // Second call: Initial fetch returns published contest
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id = \$1/,
+          mockQueryResponses.single(publishedInstance)
+        );
+
+        // Second call: UPDATE returns 0 rows (token already set, WHERE join_token IS NULL fails)
+        mockPool.setQueryResponse(
+          /UPDATE contest_instances[\s\S]*join_token IS NULL/,
+          mockQueryResponses.empty()
+        );
+
+        // Second call: Fallback SELECT returns full row with existing token
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT *') && q.includes('FROM contest_instances') && q.includes('WHERE id = $1') && q.includes('AND LOWER(organizer_id::text) = LOWER($2)'),
+          mockQueryResponses.single(publishedInstance)
+        );
+
+        // Second publish should be idempotent
+        const result2 = await customContestService.publishContestInstance(
+          mockPool, TEST_INSTANCE_ID, TEST_USER_ID
+        );
+        expect(result2.join_token).toBe(originalToken);
+
+        // Verify no second INSERT happened on idempotent retry
+        queries = mockPool.getQueryHistory();
+        const secondInsertQueries = queries.filter(q => q.sql.includes('INSERT INTO contest_participants'));
+        expect(secondInsertQueries).toHaveLength(0);
+      });
+
+      it('should detect race anomaly: UPDATE returns 0 rows but fallback SELECT shows join_token IS NULL', async () => {
+        const scheduledInstance = {
+          ...mockInstance,
+          status: 'SCHEDULED',
+          join_token: null,
+          entry_count: 0,
+          user_has_entered: false,
+          organizer_name: 'Test Organizer'
+        };
+
+        // Initial fetch returns contest without token
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id = \$1/,
+          mockQueryResponses.single(scheduledInstance)
+        );
+
+        // UPDATE returns 0 rows (something prevented the update but not due to join_token IS NOT NULL)
+        mockPool.setQueryResponse(
+          /UPDATE contest_instances[\s\S]*join_token IS NULL/,
+          mockQueryResponses.empty()
+        );
+
+        // Fallback SELECT returns row, but join_token is still NULL (impossible race anomaly)
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT *') && q.includes('FROM contest_instances') && q.includes('WHERE id = $1') && q.includes('AND LOWER(organizer_id::text) = LOWER($2)'),
+          mockQueryResponses.single(scheduledInstance)
+        );
+
+        await expect(
+          customContestService.publishContestInstance(mockPool, TEST_INSTANCE_ID, TEST_USER_ID)
+        ).rejects.toThrow('Contest was modified by another operation');
+      });
+
+      it('should handle race condition when contest deleted or ownership changed between fetch and update', async () => {
         const mockDbRow = {
           ...mockInstance,
           status: 'SCHEDULED',
@@ -1314,15 +1422,20 @@ describe('Custom Contest Service Unit Tests', () => {
           /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.id = \$1/,
           mockQueryResponses.single(mockDbRow)
         );
-        // Simulate race: UPDATE returns no rows (contest was modified/deleted)
+        // Simulate race: UPDATE returns no rows (contest was deleted or ownership changed)
         mockPool.setQueryResponse(
-          /UPDATE contest_instances/,
+          /UPDATE contest_instances[\s\S]*join_token IS NULL/,
+          mockQueryResponses.empty()
+        );
+        // Fallback SELECT returns 0 rows (contest deleted or not owned by organizer)
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT *') && q.includes('FROM contest_instances') && q.includes('WHERE id = $1') && q.includes('AND LOWER(organizer_id::text) = LOWER($2)'),
           mockQueryResponses.empty()
         );
 
         await expect(
           customContestService.publishContestInstance(mockPool, TEST_INSTANCE_ID, TEST_USER_ID)
-        ).rejects.toThrow('Contest was modified by another operation');
+        ).rejects.toThrow('Only the organizer can publish contest');
       });
     });
   });

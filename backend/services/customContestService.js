@@ -977,24 +977,59 @@ async function publishContestInstance(pool, instanceId, organizerId) {
   // Generate the join token
   const joinToken = generateJoinToken();
 
-  // Perform atomic update: set the join_token
+  // Perform atomic update: set the join_token (only if not already set)
+  // WHERE join_token IS NULL ensures DB-level idempotency: if another transaction
+  // already published, this UPDATE returns 0 rows and we fetch the existing token.
   const result = await pool.query(
-    `UPDATE contest_instances SET join_token = $1, updated_at = NOW() WHERE id = $2 AND LOWER(organizer_id::text) = LOWER($3) RETURNING *`,
+    `UPDATE contest_instances SET join_token = $1, updated_at = NOW() WHERE id = $2 AND LOWER(organizer_id::text) = LOWER($3) AND join_token IS NULL RETURNING *`,
     [joinToken, instanceId, organizerId]
   );
 
+  let instance;
+  let didPublish = false;
+
   if (result.rows.length === 0) {
-    // Race condition: contest was modified between fetch and update
-    throw new Error('Contest was modified by another operation');
+    // UPDATE returned 0 rows: either already published, or race anomaly.
+    // Fetch to distinguish: idempotent (token exists) vs anomaly (token missing).
+    // Preserve authorization boundary: only fetch if organizer_id matches.
+    const fetchResult = await pool.query(
+      `SELECT *
+       FROM contest_instances
+       WHERE id = $1
+       AND LOWER(organizer_id::text) = LOWER($2)`,
+      [instanceId, organizerId]
+    );
+
+    if (fetchResult.rows.length === 0) {
+      // Contest not found or not owned by this organizer (same error as before).
+      throw new Error('Only the organizer can publish contest');
+    }
+
+    instance = fetchResult.rows[0];
+
+    if (instance.join_token) {
+      // Idempotent case: another transaction already published this contest.
+      // Return existing token without re-joining organizer.
+      didPublish = false;
+    } else {
+      // Race anomaly: UPDATE failed but token is still NULL.
+      // This means something else changed that wasn't caught by WHERE join_token IS NULL.
+      throw new Error('Contest was modified by another operation');
+    }
+  } else {
+    // UPDATE succeeded: we set the token (first publish).
+    instance = result.rows[0];
+    didPublish = true;
   }
 
-  // Auto-join organizer as first participant
-  await pool.query(
-    'INSERT INTO contest_participants (contest_instance_id, user_id) VALUES ($1, $2) ON CONFLICT (contest_instance_id, user_id) DO NOTHING',
-    [instanceId, organizerId]
-  );
+  // Auto-join organizer as first participant (only on first publish)
+  if (didPublish) {
+    await pool.query(
+      'INSERT INTO contest_participants (contest_instance_id, user_id) VALUES ($1, $2) ON CONFLICT (contest_instance_id, user_id) DO NOTHING',
+      [instanceId, organizerId]
+    );
+  }
 
-  const instance = result.rows[0];
   return {
     ...instance,
     join_url: generateJoinUrl(instance.join_token)

@@ -1231,6 +1231,16 @@ describe('Custom Contest Routes', () => {
         /UPDATE contest_instances SET join_token/,
         mockQueryResponses.empty()
       );
+      // Re-fetch after UPDATE fails: token is still NULL (race anomaly detected)
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE id = \$1[\s\S]*AND LOWER/,
+        mockQueryResponses.single({
+          id: TEST_INSTANCE_ID,
+          join_token: null,
+          organizer_id: TEST_USER_ID,
+          status: 'SCHEDULED'
+        })
+      );
 
       const response = await request(app)
         .post(`/api/custom-contests/${TEST_INSTANCE_ID}/publish`)
@@ -1393,25 +1403,74 @@ describe('Custom Contest Routes', () => {
     });
 
     it('should return 200 on successful join', async () => {
+      // User lock query (required for wallet-funded join)
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single(openInstance)
+        sql => sql.includes('FROM users') && sql.includes('FOR UPDATE'),
+        mockQueryResponses.single({ id: TEST_USER_ID })
       );
-      // Pre-check: no existing participant
+      // Contest lock query
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*id[\s\S]*contest_instance_id[\s\S]*user_id[\s\S]*FROM contest_participants[\s\S]*WHERE[\s\S]*contest_instance_id[\s\S]*AND[\s\S]*user_id/,
+        sql => sql.includes('FROM contest_instances') && sql.includes('FOR UPDATE'),
+        mockQueryResponses.single({
+          id: TEST_INSTANCE_ID,
+          status: 'SCHEDULED',
+          join_token: 'dev_some_token',
+          max_entries: 20,
+          lock_time: new Date(Date.now() + 3600 * 1000).toISOString(),
+          entry_fee_cents: 2500
+        })
+      );
+      // Pre-check: no existing participant (SELECT ... WHERE contest_instance_id AND user_id)
+      mockPool.setQueryResponse(
+        sql => sql.includes('FROM contest_participants') && sql.includes('contest_instance_id') && sql.includes('user_id'),
         mockQueryResponses.empty()
       );
-      // Capacity check
+      // Capacity check (SELECT COUNT(*) FROM contest_participants WHERE contest_instance_id)
       mockPool.setQueryResponse(
-        /SELECT COUNT\(\*\) AS current_count FROM contest_participants/,
+        sql => sql.includes('COUNT(*)') && sql.includes('FROM contest_participants') && sql.includes('contest_instance_id'),
         mockQueryResponses.single({ current_count: '3' })
       );
-      // INSERT succeeds with capacity available
+      // Wallet balance query (required for wallet-funded join)
       mockPool.setQueryResponse(
-        /INSERT INTO contest_participants[\s\S]*ON CONFLICT[\s\S]*DO NOTHING/,
-        mockQueryResponses.single(mockParticipant)
+        sql => sql.includes('FROM ledger') && sql.includes('COALESCE'),
+        mockQueryResponses.single({ balance_cents: '50000' })
       );
+      // Participant INSERT succeeds with capacity available
+      mockPool.setQueryResponse(
+        sql => sql.includes('INSERT INTO contest_participants') && sql.includes('ON CONFLICT'),
+        mockQueryResponses.single({
+          id: TEST_INSTANCE_ID,
+          contest_instance_id: TEST_INSTANCE_ID,
+          user_id: TEST_USER_ID,
+          joined_at: new Date().toISOString()
+        })
+      );
+      // Ledger debit INSERT (idempotent)
+      mockPool.setQueryResponse(
+        sql => sql.includes('INSERT INTO ledger') && sql.includes('WALLET_DEBIT') && sql.includes('ON CONFLICT'),
+        mockQueryResponses.single({
+          id: 'ledger-1',
+          entry_type: 'WALLET_DEBIT',
+          direction: 'DEBIT',
+          amount_cents: 2500
+        })
+      );
+      // Ledger verification SELECT (if INSERT returns 0 rows, verify existing debit)
+      mockPool.setQueryResponse(
+        sql => sql.includes('SELECT') && sql.includes('FROM ledger') && sql.includes('idempotency_key'),
+        mockQueryResponses.single({
+          entry_type: 'WALLET_DEBIT',
+          direction: 'DEBIT',
+          amount_cents: 2500,
+          reference_type: 'WALLET',
+          reference_id: TEST_USER_ID,
+          idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
+        })
+      );
+      // Transaction control queries
+      mockPool.setQueryResponse(/^BEGIN$/i, mockQueryResponses.empty());
+      mockPool.setQueryResponse(/^COMMIT$/i, mockQueryResponses.empty());
+      mockPool.setQueryResponse(/^ROLLBACK$/i, mockQueryResponses.empty());
 
       const response = await request(app)
         .post(`/api/custom-contests/${TEST_INSTANCE_ID}/join`)
@@ -1424,7 +1483,11 @@ describe('Custom Contest Routes', () => {
     });
 
     it('should return 200 (idempotent) when user already joined', async () => {
-      // Simulate user already being a participant
+      // User lock query (required for wallet-funded join)
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
       // Contest lock query
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
@@ -1448,6 +1511,12 @@ describe('Custom Contest Routes', () => {
     });
 
     it('should return 409 for CONTEST_FULL', async () => {
+      // User lock query (required for wallet-funded join)
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
+      // Contest lock query
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({ ...openInstance, max_entries: 5 })
@@ -1472,6 +1541,12 @@ describe('Custom Contest Routes', () => {
     });
 
     it('should return 404 for non-existent contest', async () => {
+      // User lock query (required for wallet-funded join)
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
+      // Contest not found
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.empty()
@@ -1486,6 +1561,12 @@ describe('Custom Contest Routes', () => {
     });
 
     it('should return 409 for locked contest', async () => {
+      // User lock query (required for wallet-funded join)
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
+      // Locked contest
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({ ...openInstance, status: 'LOCKED' })
@@ -1500,6 +1581,12 @@ describe('Custom Contest Routes', () => {
     });
 
     it('should return 409 for unpublished contest', async () => {
+      // User lock query (required for wallet-funded join)
+      mockPool.setQueryResponse(
+        /SELECT id FROM users WHERE id[\s\S]*FOR UPDATE/,
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
+      // Unpublished contest (no join token)
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
         mockQueryResponses.single({ ...openInstance, status: 'SCHEDULED', join_token: null })

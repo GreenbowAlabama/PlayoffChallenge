@@ -32,8 +32,13 @@ describe('lock_time enforcement', () => {
     it('should reject join when lock_time has passed (rejected before insert)', async () => {
       const pastLockTime = new Date(Date.now() - 60000).toISOString(); // 1 minute ago
 
+      // joinContest requires user row lock (wallet-funded join contract)
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances[\s\S]*FOR UPDATE/,
+        sql => sql.includes('FROM users') && sql.includes('FOR UPDATE'),
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
+      mockPool.setQueryResponse(
+        sql => sql.includes('FROM contest_instances') && sql.includes('FOR UPDATE'),
         mockQueryResponses.single({
           id: TEST_INSTANCE_ID,
           status: 'SCHEDULED',
@@ -52,14 +57,53 @@ describe('lock_time enforcement', () => {
     it('should allow join when lock_time is in the future', async () => {
       const futureLockTime = new Date(Date.now() + 3600000).toISOString(); // 1 hour from now
 
+      // joinContest requires user row lock (wallet-funded join contract)
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances[\s\S]*FOR UPDATE/,
+        sql => sql.includes('FROM users') && sql.includes('FOR UPDATE'),
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
+      mockPool.setQueryResponse(
+        sql => sql.includes('FROM contest_instances') && sql.includes('FOR UPDATE'),
         mockQueryResponses.single({
           id: TEST_INSTANCE_ID,
           status: 'SCHEDULED',
           join_token: 'dev_some_token',
           max_entries: null,
-          lock_time: futureLockTime
+          lock_time: futureLockTime,
+          entry_fee_cents: 2500
+        })
+      );
+      // Wallet balance query (wallet-atomic join contract)
+      mockPool.setQueryResponse(
+        sql => sql.includes('FROM ledger') && sql.includes('COALESCE'),
+        mockQueryResponses.single({ balance_cents: '50000' })
+      );
+      // Ledger debit insert (wallet-atomic join contract)
+      mockPool.setQueryResponse(
+        sql =>
+          sql.includes('INSERT INTO ledger') &&
+          sql.includes('WALLET_DEBIT') &&
+          sql.includes('ON CONFLICT'),
+        mockQueryResponses.single({
+          id: 'ledger-1',
+          entry_type: 'WALLET_DEBIT',
+          direction: 'DEBIT',
+          amount_cents: 2500
+        })
+      );
+      // Ledger verification SELECT (execution-driven: INSERT returns 0 rows → verify existing debit)
+      mockPool.setQueryResponse(
+        sql =>
+          sql.includes('SELECT') &&
+          sql.includes('FROM ledger') &&
+          sql.includes('idempotency_key'),
+        mockQueryResponses.single({
+          entry_type: 'WALLET_DEBIT',
+          direction: 'DEBIT',
+          amount_cents: 2500,
+          reference_type: 'WALLET',
+          reference_id: TEST_USER_ID,
+          idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
         })
       );
       // Pre-check: user not yet participant
@@ -86,14 +130,53 @@ describe('lock_time enforcement', () => {
     });
 
     it('should allow join when lock_time is NULL', async () => {
+      // joinContest requires user row lock (wallet-funded join contract)
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances[\s\S]*FOR UPDATE/,
+        sql => sql.includes('FROM users') && sql.includes('FOR UPDATE'),
+        mockQueryResponses.single({ id: TEST_USER_ID })
+      );
+      mockPool.setQueryResponse(
+        sql => sql.includes('FROM contest_instances') && sql.includes('FOR UPDATE'),
         mockQueryResponses.single({
           id: TEST_INSTANCE_ID,
           status: 'SCHEDULED',
           join_token: 'dev_some_token',
           max_entries: null,
-          lock_time: null
+          lock_time: null,
+          entry_fee_cents: 2500
+        })
+      );
+      // Wallet balance query (wallet-atomic join contract)
+      mockPool.setQueryResponse(
+        sql => sql.includes('FROM ledger') && sql.includes('COALESCE'),
+        mockQueryResponses.single({ balance_cents: '50000' })
+      );
+      // Ledger debit insert (wallet-atomic join contract)
+      mockPool.setQueryResponse(
+        sql =>
+          sql.includes('INSERT INTO ledger') &&
+          sql.includes('WALLET_DEBIT') &&
+          sql.includes('ON CONFLICT'),
+        mockQueryResponses.single({
+          id: 'ledger-1',
+          entry_type: 'WALLET_DEBIT',
+          direction: 'DEBIT',
+          amount_cents: 2500
+        })
+      );
+      // Ledger verification SELECT (execution-driven: INSERT returns 0 rows → verify existing debit)
+      mockPool.setQueryResponse(
+        sql =>
+          sql.includes('SELECT') &&
+          sql.includes('FROM ledger') &&
+          sql.includes('idempotency_key'),
+        mockQueryResponses.single({
+          entry_type: 'WALLET_DEBIT',
+          direction: 'DEBIT',
+          amount_cents: 2500,
+          reference_type: 'WALLET',
+          reference_id: TEST_USER_ID,
+          idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
         })
       );
       // Pre-check: user not yet participant
@@ -123,7 +206,7 @@ describe('lock_time enforcement', () => {
       const pastLockTime = new Date(Date.now() - 60000).toISOString();
 
       mockPool.setQueryResponse(
-        /SELECT[\s\S]*FROM contest_instances[\s\S]*FOR UPDATE/,
+        sql => sql.includes('FROM contest_instances') && sql.includes('FOR UPDATE'),
         mockQueryResponses.single({
           id: TEST_INSTANCE_ID,
           status: 'SCHEDULED',
