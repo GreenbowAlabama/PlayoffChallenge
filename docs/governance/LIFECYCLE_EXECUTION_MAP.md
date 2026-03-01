@@ -283,6 +283,47 @@ No admin endpoint, scheduler, or service may directly invoke transition primitiv
 
 ---
 
+## Single-Instance Admin Transitions (FROZEN — Path A Sealed)
+
+**Entry Point:** Admin routes → `adminContestService.js` → frozen single-instance primitives
+
+### Mutation Surface Contract
+
+All admin-triggered state mutations flow through a unified frozen primitive layer:
+
+**Internal Canonical Helper:**
+- `performSingleStateTransition(pool, now, contestInstanceId, allowedFromStates, toState, triggeredBy, reason, callback?, extraUpdates?)`
+  - Location: `backend/services/contestLifecycleService.js`
+  - Guarantees: Atomic row lock → state validation → optional callback → single UPDATE (status + extra fields) → idempotent transition record → commit
+  - No code duplication; all admin mutations use this pattern
+
+**Public Frozen Primitives (thin wrappers):**
+
+| Transition | Primitive | Entry Point | Atomicity | Status |
+|-----------|-----------|-------------|-----------|--------|
+| SCHEDULED → LOCKED (manual) | `lockScheduledContestForAdmin(pool, now, contestInstanceId)` | `POST /api/admin/contests/:id/force-lock` | Atomic with `lock_time` | ✅ **FROZEN** |
+| X → ERROR (manual) | `markContestAsErrorForAdmin(pool, now, contestInstanceId)` | `POST /api/admin/contests/:id/mark-error` | Atomic status update | ✅ **FROZEN** |
+| ERROR → COMPLETE/CANCELLED | `resolveContestErrorForAdmin(pool, now, contestInstanceId, toStatus)` | `POST /api/admin/contests/:id/resolve-error` | Atomic status update | ✅ **FROZEN** |
+| LIVE → COMPLETE (manual) | `transitionSingleLiveToComplete(pool, now, contestInstanceId)` | `POST /api/admin/contests/:id/settle` | Atomic + settlement callback | ✅ **FROZEN** |
+| X → CANCELLED (manual) | `cancelContestForAdmin(pool, now, contestInstanceId)` | `POST /api/admin/contests/:id/cancel` | Atomic status update | ✅ **FROZEN** |
+
+**Key Architectural Properties:**
+- ✅ No direct `UPDATE contest_instances SET status` in admin service
+- ✅ All mutations route through `performSingleStateTransition()`
+- ✅ Extra field updates (e.g., `lock_time`) included in single atomic UPDATE
+- ✅ Consistent idempotency: If already in target state, returns noop (zero mutations)
+- ✅ Consistent transition record insertion (idempotent via NOT EXISTS)
+- ✅ All use injected `now` (deterministic, testable)
+- ✅ Test coverage locks the seal (32 admin operation tests)
+
+**Defects Sealed:**
+- ❌ BEFORE: Defect #1 — `triggerSettlement()` did direct UPDATE (LIVE → COMPLETE bypass)
+- ✅ AFTER: Now calls `transitionSingleLiveToComplete()` frozen primitive
+- ❌ BEFORE: Defect #2 — Four undocumented admin mutations (force-lock, mark-error, resolve, cancel)
+- ✅ AFTER: All documented and sealed via frozen primitives above
+
+---
+
 ## Next Phase: Orchestration Layer Design
 
 **Critical decisions before wiring execution:**

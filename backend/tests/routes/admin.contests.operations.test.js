@@ -104,6 +104,9 @@ describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
     // Clean up in reverse FK order
     // Note: contest_state_transitions cascades on delete via FK
     await pool.query('DELETE FROM admin_contest_audit WHERE contest_instance_id = $1', [contestId]);
+    await pool.query('DELETE FROM settlement_records WHERE contest_instance_id = $1', [contestId]);
+    await pool.query('DELETE FROM event_data_snapshots WHERE contest_instance_id = $1', [contestId]);
+    await pool.query('DELETE FROM contest_participants WHERE contest_instance_id = $1', [contestId]);
     await pool.query('DELETE FROM contest_instances WHERE id = $1', [contestId]);
     // Note: organizer user and template cleanup handled by cascade or separate cleanup if needed
   });
@@ -406,6 +409,14 @@ describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
   describe('POST /:id/settle', () => {
     it('transitions LIVE → COMPLETE', async () => {
       await pool.query('UPDATE contest_instances SET status = $1 WHERE id = $2', ['LIVE', contestId]);
+
+      // Create FINAL snapshot (required for settlement)
+      const snapshotId = randomUUID();
+      await pool.query(
+        `INSERT INTO event_data_snapshots (id, contest_instance_id, provider_event_id, payload, snapshot_hash, provider_final_flag)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [snapshotId, contestId, 'event-123', JSON.stringify({}), 'hash-abc123', true]
+      );
 
       const response = await request(app)
         .post(`/api/admin/contests/${contestId}/settle`)

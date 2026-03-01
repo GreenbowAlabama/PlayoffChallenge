@@ -955,7 +955,78 @@ A future `contracts/openapi-admin.yaml` may document them separately.
 
 ---
 
-# 19. iOS SWEEP PROTOCOL (MANDATORY)
+# 19. MUTATION SURFACE SEAL (MANDATORY)
+
+## Contest Instance Status Updates
+
+**Rule (HARD):**
+
+No `UPDATE contest_instances SET status` outside `backend/services/contestLifecycleService.js`.
+
+### Where status mutations ARE allowed:
+1. **Bulk transitions** (automatic orchestration):
+   - `transitionScheduledToLocked()`
+   - `transitionLockedToLive()`
+   - `transitionLiveToComplete()`
+   - Called ONLY from `lifecycleReconciliationService.js:reconcileLifecycle()`
+
+2. **Single-instance transitions** (admin operations):
+   - `transitionSingleLiveToComplete()`
+   - `lockScheduledContestForAdmin()`
+   - `markContestAsErrorForAdmin()`
+   - `resolveContestErrorForAdmin()`
+   - `cancelContestForAdmin()`
+   - All call `performSingleStateTransition()` internally
+
+3. **Discovery cascade** (provider-initiated):
+   - Inline CTE in `discoveryService.js:processDiscovery()` Phase 1
+   - Cascades non-COMPLETE instances → CANCELLED
+
+### Where status mutations are FORBIDDEN:
+- ❌ `adminContestService.js` (use frozen primitives instead)
+- ❌ Direct SQL `UPDATE contest_instances SET status` in any route
+- ❌ Direct SQL in any service except `contestLifecycleService.js` and `discoveryService.js`
+- ❌ Conditional logic in Views, ViewModels, or Controllers
+
+### Implementation Pattern (All New Admin Mutations)
+
+For any new admin state transition:
+```javascript
+// Inside contestLifecycleService.js
+async function newAdminTransition(pool, now, contestInstanceId) {
+  const result = await performSingleStateTransition(
+    pool, now, contestInstanceId,
+    ['FROM_STATE'],  // allowedFromStates
+    'TO_STATE',      // toState
+    'ADMIN_REASON',  // triggeredBy
+    'Human reason',  // reason
+    null,            // callback (if special logic needed, e.g., settlement)
+    {
+      // extraUpdates: optional field updates bundled atomically
+      // Example: { lock_time: 'COALESCE(lock_time, NOW())' }
+    }
+  );
+  return { success: result.success, changed: result.changed };
+}
+
+// Inside adminContestService.js
+async function adminEndpoint(pool, contestId, adminUserId, reason) {
+  // Call frozen primitive
+  await newAdminTransition(pool, new Date(), contestId);
+  // Write admin audit (separate from lifecycle transition)
+}
+```
+
+### Enforcement
+
+**Test Guard:** See `backend/tests/governance/mutation-surface-seal.test.js`
+- Fails CI if direct status UPDATE found in admin service
+- Scans for `UPDATE contest_instances SET status` outside frozen layer
+- Exceptions: Only allowed in `contestLifecycleService.js` and `discoveryService.js`
+
+---
+
+# 20. iOS SWEEP PROTOCOL (MANDATORY)
 
 All iOS development must follow the structured sweep batching model defined in:
 

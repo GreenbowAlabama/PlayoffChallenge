@@ -15,6 +15,13 @@
 
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
 const { assertAllowedDbStatusTransition, ACTORS, TransitionNotAllowedError } = require('./helpers/contestTransitionValidator');
+const {
+  transitionSingleLiveToComplete,
+  lockScheduledContestForAdmin,
+  markContestAsErrorForAdmin,
+  resolveContestErrorForAdmin,
+  cancelContestForAdmin
+} = require('./contestLifecycleService');
 
 /**
  * Write a contest state transition record.
@@ -176,30 +183,32 @@ async function forceLockContestInstance(pool, contestId, adminUserId, reason) {
     throw new Error('reason is required for force lock');
   }
 
-  const client = await pool.connect();
+  // Verify contest exists and fetch current status
+  const checkClient = await pool.connect();
+  let contest;
   try {
-    await client.query('BEGIN');
-
-    // Step 1: Lock row
-    const lockResult = await client.query(
-      'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
+    const checkResult = await checkClient.query(
+      'SELECT * FROM contest_instances WHERE id = $1',
       [contestId]
     );
-
-    if (lockResult.rows.length === 0) {
-      await client.query('ROLLBACK');
+    if (!checkResult.rows.length) {
       const err = new Error('Contest not found');
       err.code = 'CONTEST_NOT_FOUND';
       throw err;
     }
+    contest = checkResult.rows[0];
+  } finally {
+    checkClient.release();
+  }
 
-    const contest = lockResult.rows[0];
-    const fromStatus = contest.status;
+  const fromStatus = contest.status;
 
-    // Step 2: Check status AFTER lock
-    // Idempotency: already locked
-    if (fromStatus === 'LOCKED') {
-      await _writeAdminAudit(client, {
+  // Idempotency: already locked
+  if (fromStatus === 'LOCKED') {
+    const auditClient = await pool.connect();
+    try {
+      await auditClient.query('BEGIN');
+      await _writeAdminAudit(auditClient, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'force_lock',
@@ -208,17 +217,19 @@ async function forceLockContestInstance(pool, contestId, adminUserId, reason) {
         to_status: fromStatus,
         payload: { noop: true }
       });
-      await client.query('COMMIT');
-      return {
-        success: true,
-        contest,
-        noop: true
-      };
+      await auditClient.query('COMMIT');
+    } finally {
+      auditClient.release();
     }
+    return { success: true, contest, noop: true };
+  }
 
-    // Rejection: only SCHEDULED allowed
-    if (fromStatus !== 'SCHEDULED') {
-      await _writeAdminAudit(client, {
+  // Rejection: only SCHEDULED allowed
+  if (fromStatus !== 'SCHEDULED') {
+    const auditClient = await pool.connect();
+    try {
+      await auditClient.query('BEGIN');
+      await _writeAdminAudit(auditClient, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'force_lock',
@@ -227,59 +238,66 @@ async function forceLockContestInstance(pool, contestId, adminUserId, reason) {
         to_status: fromStatus,
         payload: { noop: true, rejected: true, error_code: 'INVALID_STATUS' }
       });
-      await client.query('COMMIT');
-      const err = new Error(`Cannot force lock from status '${fromStatus}'. Only SCHEDULED contests can be force-locked.`);
-      err.code = 'INVALID_STATUS';
-      throw err;
+      await auditClient.query('COMMIT');
+    } finally {
+      auditClient.release();
     }
+    const err = new Error(`Cannot force lock from status '${fromStatus}'. Only SCHEDULED contests can be force-locked.`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
 
-    // Step 3: Validate SYSTEM transition
-    // This enforces the actor model: SYSTEM performs the transition
-    assertAllowedDbStatusTransition({
-      fromStatus,
-      toStatus: 'LOCKED',
-      actor: ACTORS.SYSTEM
-    });
+  // Validate SYSTEM transition via actor model
+  assertAllowedDbStatusTransition({
+    fromStatus,
+    toStatus: 'LOCKED',
+    actor: ACTORS.SYSTEM
+  });
 
-    // Step 4: Update lock_time (ADMIN action)
-    const lockTimeResult = await client.query(
-      'UPDATE contest_instances SET lock_time = COALESCE(lock_time, NOW()), updated_at = NOW() WHERE id = $1 RETURNING *',
-      [contestId]
-    );
-
-    const lockTimeUpdatedContest = lockTimeResult.rows[0];
-
-    // Step 5: Update status (SYSTEM transition)
-    // DB-level guard: only update if still in SCHEDULED state
-    const statusResult = await client.query(
-      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *',
-      ['LOCKED', contestId, 'SCHEDULED']
-    );
-
-    // Detect lifecycle race: status changed between SELECT and UPDATE
-    if (statusResult.rows.length === 0) {
-      await _writeAdminAudit(client, {
+  // Call frozen lifecycle primitive
+  // This atomically updates status + lock_time + inserts transition record
+  const now = new Date();
+  let transitionResult;
+  try {
+    transitionResult = await lockScheduledContestForAdmin(pool, now, contestId);
+  } catch (err) {
+    const auditClient = await pool.connect();
+    try {
+      await auditClient.query('BEGIN');
+      await _writeAdminAudit(auditClient, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'force_lock',
         reason,
         from_status: fromStatus,
         to_status: fromStatus,
-        payload: { rejected: true, error_code: 'LIFECYCLE_RACE', race_detected: true }
+        payload: { rejected: true, error_code: 'LIFECYCLE_ERROR', error: err.message }
       });
-      await client.query('COMMIT');
-      const err = new Error('Lifecycle transition race detected');
-      err.code = 'LIFECYCLE_RACE';
-      throw err;
+      await auditClient.query('COMMIT');
+    } finally {
+      auditClient.release();
     }
+    throw err;
+  }
 
-    const updatedContest = statusResult.rows[0];
+  // Fetch final updated contest
+  const fetchClient = await pool.connect();
+  let updatedContest;
+  try {
+    const fetchResult = await fetchClient.query(
+      'SELECT * FROM contest_instances WHERE id = $1',
+      [contestId]
+    );
+    updatedContest = fetchResult.rows[0];
+  } finally {
+    fetchClient.release();
+  }
 
-    // Step 6: Log state transition (append-only)
-    await _writeStateTransition(client, contestId, fromStatus, 'LOCKED', reason);
-
-    // Step 7: Write audit
-    await _writeAdminAudit(client, {
+  // Write admin audit record
+  const auditClient = await pool.connect();
+  try {
+    await auditClient.query('BEGIN');
+    await _writeAdminAudit(auditClient, {
       contest_instance_id: contestId,
       admin_user_id: adminUserId,
       action: 'force_lock',
@@ -287,26 +305,21 @@ async function forceLockContestInstance(pool, contestId, adminUserId, reason) {
       from_status: fromStatus,
       to_status: 'LOCKED',
       payload: {
-        noop: false,
+        noop: !transitionResult.changed,
         lock_time_set: !contest.lock_time,
-        lock_time: lockTimeUpdatedContest.lock_time
+        lock_time: updatedContest.lock_time
       }
     });
-
-    // Step 7: Commit
-    await client.query('COMMIT');
-
-    return {
-      success: true,
-      contest: updatedContest,
-      noop: false
-    };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
+    await auditClient.query('COMMIT');
   } finally {
-    client.release();
+    auditClient.release();
   }
+
+  return {
+    success: true,
+    contest: updatedContest,
+    noop: !transitionResult.changed
+  };
 }
 
 /**
@@ -523,30 +536,32 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
     throw new Error('reason is required for contest cancellation');
   }
 
-  const client = await pool.connect();
+  // Verify contest exists and fetch current status
+  const checkClient = await pool.connect();
+  let contest;
   try {
-    await client.query('BEGIN');
-
-    // Step 1: Lock row
-    const lockResult = await client.query(
-      'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
+    const checkResult = await checkClient.query(
+      'SELECT * FROM contest_instances WHERE id = $1',
       [contestId]
     );
-
-    if (lockResult.rows.length === 0) {
-      await client.query('ROLLBACK');
+    if (!checkResult.rows.length) {
       const err = new Error('Contest not found');
       err.code = 'CONTEST_NOT_FOUND';
       throw err;
     }
+    contest = checkResult.rows[0];
+  } finally {
+    checkClient.release();
+  }
 
-    const contest = lockResult.rows[0];
-    const fromStatus = contest.status;
+  const fromStatus = contest.status;
 
-    // Step 2: Check status AFTER lock
-    // Idempotency: already cancelled
-    if (fromStatus === 'CANCELLED') {
-      await _writeAdminAudit(client, {
+  // Idempotency: already cancelled
+  if (fromStatus === 'CANCELLED') {
+    const auditClient = await pool.connect();
+    try {
+      await auditClient.query('BEGIN');
+      await _writeAdminAudit(auditClient, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'cancel_contest',
@@ -555,18 +570,19 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
         to_status: fromStatus,
         payload: { noop: true }
       });
-      await client.query('COMMIT');
-      return {
-        success: true,
-        contest,
-        noop: true
-      };
+      await auditClient.query('COMMIT');
+    } finally {
+      auditClient.release();
     }
+    return { success: true, contest, noop: true };
+  }
 
-    // Step 3: Fail-closed: only SCHEDULED, LOCKED, ERROR allowed
-    // If future statuses added, reject rather than allow
-    if (!['SCHEDULED', 'LOCKED', 'ERROR'].includes(fromStatus)) {
-      await _writeAdminAudit(client, {
+  // Fail-closed: only SCHEDULED, LOCKED, ERROR allowed
+  if (!['SCHEDULED', 'LOCKED', 'ERROR'].includes(fromStatus)) {
+    const auditClient = await pool.connect();
+    try {
+      await auditClient.query('BEGIN');
+      await _writeAdminAudit(auditClient, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'cancel_contest',
@@ -575,48 +591,64 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
         to_status: fromStatus,
         payload: { rejected: true, error_code: 'INVALID_STATUS' }
       });
-      await client.query('COMMIT');
-      const err = new Error(`Cannot cancel contest in status '${fromStatus}'. Only SCHEDULED, LOCKED, and ERROR contests can be cancelled.`);
-      err.code = 'INVALID_STATUS';
-      throw err;
+      await auditClient.query('COMMIT');
+    } finally {
+      auditClient.release();
     }
+    const err = new Error(`Cannot cancel contest in status '${fromStatus}'. Only SCHEDULED, LOCKED, and ERROR contests can be cancelled.`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
 
-    // Step 4: Validate transition via validator
-    assertAllowedDbStatusTransition({
-      fromStatus,
-      toStatus: 'CANCELLED',
-      actor: ACTORS.ADMIN
-    });
+  // Validate transition via actor model
+  assertAllowedDbStatusTransition({
+    fromStatus,
+    toStatus: 'CANCELLED',
+    actor: ACTORS.ADMIN
+  });
 
-    // Step 5: Update status
-    // DB-level guard: only update if status hasn't changed since SELECT
-    const updateResult = await client.query(
-      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *',
-      ['CANCELLED', contestId, fromStatus]
-    );
-
-    // Detect lifecycle race: status changed between SELECT and UPDATE
-    if (updateResult.rows.length === 0) {
-      await _writeAdminAudit(client, {
+  // Call frozen lifecycle primitive
+  const now = new Date();
+  try {
+    await cancelContestForAdmin(pool, now, contestId);
+  } catch (err) {
+    const auditClient = await pool.connect();
+    try {
+      await auditClient.query('BEGIN');
+      await _writeAdminAudit(auditClient, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'cancel_contest',
         reason,
         from_status: fromStatus,
         to_status: fromStatus,
-        payload: { rejected: true, error_code: 'LIFECYCLE_RACE', race_detected: true }
+        payload: { rejected: true, error_code: 'LIFECYCLE_ERROR', error: err.message }
       });
-      await client.query('COMMIT');
-      const err = new Error('Lifecycle transition race detected');
-      err.code = 'LIFECYCLE_RACE';
-      throw err;
+      await auditClient.query('COMMIT');
+    } finally {
+      auditClient.release();
     }
+    throw err;
+  }
 
-    // Step 6: Log state transition (append-only)
-    await _writeStateTransition(client, contestId, fromStatus, 'CANCELLED', reason);
+  // Fetch updated contest
+  const fetchClient = await pool.connect();
+  let updatedContest;
+  try {
+    const fetchResult = await fetchClient.query(
+      'SELECT * FROM contest_instances WHERE id = $1',
+      [contestId]
+    );
+    updatedContest = fetchResult.rows[0];
+  } finally {
+    fetchClient.release();
+  }
 
-    // Step 7: Write audit
-    await _writeAdminAudit(client, {
+  // Write admin audit
+  const auditClient = await pool.connect();
+  try {
+    await auditClient.query('BEGIN');
+    await _writeAdminAudit(auditClient, {
       contest_instance_id: contestId,
       admin_user_id: adminUserId,
       action: 'cancel_contest',
@@ -625,21 +657,16 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
       to_status: 'CANCELLED',
       payload: { noop: false }
     });
-
-    // Step 6: Commit
-    await client.query('COMMIT');
-
-    return {
-      success: true,
-      contest: updateResult.rows[0],
-      noop: false
-    };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
+    await auditClient.query('COMMIT');
   } finally {
-    client.release();
+    auditClient.release();
   }
+
+  return {
+    success: true,
+    contest: updatedContest,
+    noop: false
+  };
 }
 
 /**
@@ -795,28 +822,30 @@ async function triggerSettlement(pool, contestId, adminUserId, reason) {
     throw new Error('reason is required for settlement trigger');
   }
 
-  const client = await pool.connect();
+  // Verify contest exists and fetch current status for audit
+  const checkClient = await pool.connect();
+  let fromStatus;
   try {
-    await client.query('BEGIN');
-
-    const lockResult = await client.query(
-      'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
+    const checkResult = await checkClient.query(
+      'SELECT status FROM contest_instances WHERE id = $1',
       [contestId]
     );
-
-    if (lockResult.rows.length === 0) {
-      await client.query('ROLLBACK');
+    if (checkResult.rows.length === 0) {
       const err = new Error('Contest not found');
       err.code = 'CONTEST_NOT_FOUND';
       throw err;
     }
+    fromStatus = checkResult.rows[0].status;
+  } finally {
+    checkClient.release();
+  }
 
-    const contest = lockResult.rows[0];
-    const fromStatus = contest.status;
-
-    // Idempotent if already COMPLETE
-    if (fromStatus === 'COMPLETE') {
-      await _writeAdminAudit(client, {
+  // Idempotent if already COMPLETE
+  if (fromStatus === 'COMPLETE') {
+    const auditClient = await pool.connect();
+    try {
+      await auditClient.query('BEGIN');
+      await _writeAdminAudit(auditClient, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'trigger_settlement',
@@ -825,17 +854,22 @@ async function triggerSettlement(pool, contestId, adminUserId, reason) {
         to_status: fromStatus,
         payload: { noop: true }
       });
-      await client.query('COMMIT');
-      return {
-        success: true,
-        contest,
-        noop: true
-      };
+      await auditClient.query('COMMIT');
+    } finally {
+      auditClient.release();
     }
+    return {
+      success: true,
+      noop: true
+    };
+  }
 
-    // Reject if not LIVE
-    if (fromStatus !== 'LIVE') {
-      await _writeAdminAudit(client, {
+  // Reject if not LIVE
+  if (fromStatus !== 'LIVE') {
+    const auditClient = await pool.connect();
+    try {
+      await auditClient.query('BEGIN');
+      await _writeAdminAudit(auditClient, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'trigger_settlement',
@@ -844,62 +878,79 @@ async function triggerSettlement(pool, contestId, adminUserId, reason) {
         to_status: fromStatus,
         payload: { noop: true, rejected: true, error_code: 'INVALID_STATUS' }
       });
-      await client.query('COMMIT');
-      const err = new Error(`Cannot settle contest in status '${fromStatus}'. Only LIVE contests can be settled.`);
-      err.code = 'INVALID_STATUS';
-      throw err;
+      await auditClient.query('COMMIT');
+    } finally {
+      auditClient.release();
     }
+    const err = new Error(`Cannot settle contest in status '${fromStatus}'. Only LIVE contests can be settled.`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
 
-    // Update to COMPLETE
-    // DB-level guard: only update if still in LIVE state
-    const updateResult = await client.query(
-      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3 RETURNING *',
-      ['COMPLETE', contestId, 'LIVE']
-    );
-
-    // Detect lifecycle race: status changed between SELECT and UPDATE
-    if (updateResult.rows.length === 0) {
-      await _writeAdminAudit(client, {
+  // Call frozen lifecycle primitive with injected now
+  const now = new Date();
+  let result;
+  try {
+    result = await transitionSingleLiveToComplete(pool, now, contestId);
+  } catch (err) {
+    // Settlement error - write audit and rethrow
+    const auditClient = await pool.connect();
+    try {
+      await auditClient.query('BEGIN');
+      await _writeAdminAudit(auditClient, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'trigger_settlement',
         reason,
         from_status: fromStatus,
         to_status: fromStatus,
-        payload: { rejected: true, error_code: 'LIFECYCLE_RACE', race_detected: true }
+        payload: { rejected: true, error_code: 'SETTLEMENT_ERROR', error: err.message }
       });
-      await client.query('COMMIT');
-      const err = new Error('Lifecycle transition race detected');
-      err.code = 'LIFECYCLE_RACE';
-      throw err;
+      await auditClient.query('COMMIT');
+    } finally {
+      auditClient.release();
     }
+    throw err;
+  }
 
-    // Log state transition (append-only)
-    await _writeStateTransition(client, contestId, fromStatus, 'COMPLETE', reason);
+  // Fetch updated contest for response and audit
+  const fetchClient = await pool.connect();
+  let updatedContest;
+  let toStatus = fromStatus;
+  try {
+    const fetchResult = await fetchClient.query(
+      'SELECT * FROM contest_instances WHERE id = $1',
+      [contestId]
+    );
+    updatedContest = fetchResult.rows[0];
+    toStatus = updatedContest?.status || fromStatus;
+  } finally {
+    fetchClient.release();
+  }
 
-    // Audit success
-    await _writeAdminAudit(client, {
+  // Write audit record
+  const auditClient = await pool.connect();
+  try {
+    await auditClient.query('BEGIN');
+    await _writeAdminAudit(auditClient, {
       contest_instance_id: contestId,
       admin_user_id: adminUserId,
       action: 'trigger_settlement',
       reason,
       from_status: fromStatus,
-      to_status: 'COMPLETE',
-      payload: { noop: false }
+      to_status: toStatus,
+      payload: { noop: !result.changedId }
     });
-
-    await client.query('COMMIT');
-
-    return {
-      success: true,
-      contest: updateResult.rows[0]
-    };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
+    await auditClient.query('COMMIT');
   } finally {
-    client.release();
+    auditClient.release();
   }
+
+  return {
+    success: true,
+    contest: updatedContest,
+    noop: !result.changedId
+  };
 }
 
 /**
