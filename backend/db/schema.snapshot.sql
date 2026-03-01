@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict c44pkZ1EJE0tjqlunnak0X5u42h9jxxZQHPTa7bgA8iTXXxerUBahUePOzSBAKd
+\restrict 32QHfe0TIHzhwEcoUhYgi031WrsgBzAlZj0d9QHPcHPslgIsGcZbMN8g7MKh2nc
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -657,6 +657,50 @@ COMMENT ON COLUMN public.ledger.scoring_run_id IS 'Reference to the scoring comp
 
 
 --
+-- Name: lifecycle_outbox; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.lifecycle_outbox (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    contest_instance_id uuid NOT NULL,
+    event_type text NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: lifecycle_reconciler_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.lifecycle_reconciler_runs (
+    id bigint NOT NULL,
+    run_at timestamp with time zone DEFAULT now() NOT NULL,
+    transitions_count integer NOT NULL,
+    error_count integer DEFAULT 0 NOT NULL
+);
+
+
+--
+-- Name: lifecycle_reconciler_runs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.lifecycle_reconciler_runs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: lifecycle_reconciler_runs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.lifecycle_reconciler_runs_id_seq OWNED BY public.lifecycle_reconciler_runs.id;
+
+
+--
 -- Name: payment_intents; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1136,6 +1180,17 @@ CREATE TABLE public.settlement_audit (
 
 
 --
+-- Name: settlement_consumption; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.settlement_consumption (
+    contest_instance_id uuid NOT NULL,
+    consumed_outbox_id uuid NOT NULL,
+    consumed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: settlement_records; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1498,6 +1553,13 @@ CREATE TABLE public.withdrawal_config (
 
 
 --
+-- Name: lifecycle_reconciler_runs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lifecycle_reconciler_runs ALTER COLUMN id SET DEFAULT nextval('public.lifecycle_reconciler_runs_id_seq'::regclass);
+
+
+--
 -- Name: payout_structure id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1695,6 +1757,22 @@ ALTER TABLE ONLY public.ledger
 
 ALTER TABLE ONLY public.ledger
     ADD CONSTRAINT ledger_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: lifecycle_outbox lifecycle_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lifecycle_outbox
+    ADD CONSTRAINT lifecycle_outbox_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: lifecycle_reconciler_runs lifecycle_reconciler_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lifecycle_reconciler_runs
+    ADD CONSTRAINT lifecycle_reconciler_runs_pkey PRIMARY KEY (id);
 
 
 --
@@ -1935,6 +2013,14 @@ ALTER TABLE ONLY public.settlement_audit
 
 ALTER TABLE ONLY public.settlement_audit
     ADD CONSTRAINT settlement_audit_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: settlement_consumption settlement_consumption_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.settlement_consumption
+    ADD CONSTRAINT settlement_consumption_pkey PRIMARY KEY (contest_instance_id);
 
 
 --
@@ -2354,6 +2440,27 @@ CREATE INDEX idx_ledger_wallet_lookup ON public.ledger USING btree (reference_ty
 
 
 --
+-- Name: idx_lifecycle_outbox_contest_instance_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_lifecycle_outbox_contest_instance_id ON public.lifecycle_outbox USING btree (contest_instance_id);
+
+
+--
+-- Name: idx_lifecycle_outbox_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_lifecycle_outbox_created_at ON public.lifecycle_outbox USING btree (created_at);
+
+
+--
+-- Name: idx_lifecycle_reconciler_runs_run_at_desc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_lifecycle_reconciler_runs_run_at_desc ON public.lifecycle_reconciler_runs USING btree (run_at DESC);
+
+
+--
 -- Name: idx_payment_intents_contest_user; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2638,6 +2745,13 @@ CREATE INDEX idx_users_state ON public.users USING btree (state);
 --
 
 CREATE INDEX idx_wallet_withdrawals_stripe_payout_id ON public.wallet_withdrawals USING btree (stripe_payout_id);
+
+
+--
+-- Name: idx_wallet_withdrawals_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wallet_withdrawals_user_id ON public.wallet_withdrawals USING btree (user_id);
 
 
 --
@@ -3226,5 +3340,5 @@ ALTER TABLE ONLY public.wallet_withdrawals
 -- PostgreSQL database dump complete
 --
 
-\unrestrict c44pkZ1EJE0tjqlunnak0X5u42h9jxxZQHPTa7bgA8iTXXxerUBahUePOzSBAKd
+\unrestrict 32QHfe0TIHzhwEcoUhYgi031WrsgBzAlZj0d9QHPcHPslgIsGcZbMN8g7MKh2nc
 

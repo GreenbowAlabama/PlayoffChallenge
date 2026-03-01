@@ -1,42 +1,77 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "-----------------------------------------"
-echo "CLAUDE GOVERNANCE LAUNCHER"
-echo "-----------------------------------------"
+ROOT="/Users/iancarter/Documents/workspace/playoff-challenge"
 
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-DIRTY=$(git status --porcelain)
+echo ""
+echo "==============================================="
+echo "        67 ENTERPRISES — SYSTEM MODE"
+echo "==============================================="
+echo ""
 
-echo "Current branch: $BRANCH"
-
-if [ ! -z "$DIRTY" ]; then
-  echo "ERROR: Working tree not clean."
-  echo "Commit or stash changes before proceeding."
+cd "$ROOT" || {
+  echo "ERROR: Could not change to project root."
   exit 1
-fi
+}
 
-if [ "$BRANCH" != "staging" ] && [ "$BRANCH" != "main" ]; then
-  echo "WARNING: Non-protected branch detected."
-  echo "Confirm intentional feature development."
-fi
+REQUIRED_FILES=(
+  "docs/governance/CLAUDE_RULES.md"
+  "docs/governance/LIFECYCLE_EXECUTION_MAP.md"
+  "docs/governance/FINANCIAL_INVARIANTS.md"
+  "docs/governance/IOS_SWEEP_PROTOCOL.md"
+  "docs/governance/ARCHITECTURE_ENFORCEMENT.md"
+  "backend/contracts/openapi.yaml"
+  "backend/db/schema.snapshot.sql"
+)
 
+for file in "${REQUIRED_FILES[@]}"; do
+  if [ ! -f "$file" ]; then
+    echo "ERROR: Missing required governance file: $file"
+    exit 1
+  fi
+done
+
+echo "Governance files verified."
 echo ""
-echo "SYSTEM STATE:"
-echo "Lifecycle Engine: FROZEN (v1)"
-echo "Settlement: Automatic + Snapshot-Bound"
-echo "Wallet Join Atomicity: FROZEN"
-echo "Discovery Cascade Ordering: FROZEN"
-echo "Withdrawal Engine: DESIGN ONLY (Feature Flag Required)"
+echo "System Status:"
+echo "  - Financial Invariants: FROZEN"
+echo "  - Lifecycle Engine: FROZEN"
+echo "  - Mutation Surface: SEALED"
+echo "  - OpenAPI Contract: FROZEN"
 echo ""
 
-echo "MANDATORY GOVERNANCE PRE-READ:"
-echo "- docs/governance/CLAUDE_RULES.md"
-echo "- docs/governance/LIFECYCLE_EXECUTION_MAP.md"
-echo "- docs/governance/FINANCIAL_INVARIANTS.md"
-echo "- docs/governance/IOS_SWEEP_PROTOCOL.md"
+BOOTSTRAP_FILE=".claude_bootstrap.txt"
+
+cat <<'BOOTSTRAP' > "$BOOTSTRAP_FILE"
+67 ENTERPRISES — SYSTEM MODE (GOVERNANCE BOOT)
+
+HARD GATE:
+- Your first action is to READ the files below.
+- After reading them, your first output must be exactly:
+  READ COMPLETE
+
+NO CLAIMS RULE:
+- Do not claim test counts, past defects, completion status, or “memory context”
+  unless you have verified it by reading repo files in THIS session.
+
+READ THESE FILES (IN ORDER):
+1. docs/governance/CLAUDE_RULES.md
+2. docs/governance/LIFECYCLE_EXECUTION_MAP.md
+3. docs/governance/FINANCIAL_INVARIANTS.md
+4. docs/governance/IOS_SWEEP_PROTOCOL.md
+5. docs/governance/ARCHITECTURE_ENFORCEMENT.md
+6. backend/contracts/openapi.yaml
+7. backend/db/schema.snapshot.sql
+
+OPERATING RULES:
+- Respect frozen financial invariants
+- Respect lifecycle ordering (Phase 1 → 2 → 3)
+- Respect mutation surface seal
+- Never weaken tests to satisfy code
+- Operate at system scope, not feature scope
+BOOTSTRAP
+
+echo "Launching Claude in SYSTEM MODE..."
 echo ""
 
-echo "Launching Claude..."
-echo "-----------------------------------------"
-
-claude
+claude < "$BOOTSTRAP_FILE"
