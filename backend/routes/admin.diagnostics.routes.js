@@ -16,6 +16,7 @@ const timelineService = require('../services/adminTimeline.service');
 const healthService = require('../services/adminHealth.service');
 const rateLimitService = require('../services/adminRateLimit.service');
 const jobsService = require('../services/adminJobs.service');
+const lifecycleHealthService = require('../services/lifecycleHealthService');
 
 // ============================================
 // USER ENTITLEMENT & AUTH DIAGNOSTICS
@@ -355,6 +356,37 @@ router.post('/run-payout-scheduler', async (req, res) => {
       error: 'scheduler_failed',
       error_message: err.message
     });
+  }
+});
+
+// ============================================
+// LIFECYCLE OPERATIONAL HEALTH
+// ============================================
+
+/**
+ * GET /api/admin/diagnostics/lifecycle-health
+ * Returns aggregated lifecycle health metrics.
+ *
+ * Detects:
+ * - SCHEDULED contests past lock_time
+ * - LOCKED contests past tournament_start_time
+ * - LIVE contests past tournament_end_time
+ * - COMPLETE contests without settlement records
+ * - Last reconciler run timestamp and transition count
+ */
+router.get('/lifecycle-health', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const now = new Date();
+    const health = await lifecycleHealthService.getLifecycleHealth(pool, now);
+
+    res.json({
+      timestamp: now.toISOString(),
+      ...health
+    });
+  } catch (err) {
+    console.error('[Admin Diagnostics] Error fetching lifecycle health:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

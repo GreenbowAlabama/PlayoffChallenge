@@ -24,6 +24,7 @@
  */
 
 const { reconcileLifecycle } = require('../services/lifecycleReconciliationService');
+const { insertReconcilerRun } = require('../services/lifecycleHealthService');
 
 let reconcilerInterval = null;
 
@@ -59,6 +60,14 @@ function startLifecycleReconciler(pool, options = {}) {
         console.log(
           `Lifecycle reconciliation: SCHEDULED→LOCKED=${result.scheduledToLocked.count}, LOCKED→LIVE=${result.lockedToLive.count}, LIVE→COMPLETE=${result.liveToCompleted.count}, total=${result.totals.count}`
         );
+      }
+
+      // Track run in database (secondary, must never block lifecycle)
+      try {
+        await insertReconcilerRun(pool, result.totals.count);
+      } catch (err) {
+        console.error('Lifecycle monitoring insert failed:', err.message);
+        // Do NOT rethrow — lifecycle must remain primary
       }
     } catch (err) {
       console.error('Lifecycle reconciliation error:', err.message);

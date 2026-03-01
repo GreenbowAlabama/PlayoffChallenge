@@ -149,6 +149,17 @@ export interface CacheStatusResponse {
   gameUpdateTimes: GameUpdateTime[];
 }
 
+export interface LifecycleHealthResponse {
+  timestamp: string;
+  scheduledPastLock: number;
+  lockedPastStart: number;
+  livePastEnd: number;
+  completeWithoutSettlement: number;
+  settlementFailures: number | null;
+  lastReconcilerRun: string | null;
+  transitionsLastRun: number | null;
+}
+
 // ============================================
 // PICKS EXPLORER TYPES
 // ============================================

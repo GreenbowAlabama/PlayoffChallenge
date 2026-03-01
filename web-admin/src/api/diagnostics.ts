@@ -14,6 +14,7 @@ import type {
   UserTimelineResponse,
   JobsStatusResponse,
   CacheStatusResponse,
+  LifecycleHealthResponse,
 } from '../types';
 
 // ============================================
@@ -62,4 +63,12 @@ export async function getJobsStatus(): Promise<JobsStatusResponse> {
 
 export async function getCacheStatus(): Promise<CacheStatusResponse> {
   return apiRequest<CacheStatusResponse>('/api/admin/cache-status');
+}
+
+// ============================================
+// LIFECYCLE HEALTH
+// ============================================
+
+export async function getLifecycleHealth(): Promise<LifecycleHealthResponse> {
+  return apiRequest<LifecycleHealthResponse>('/api/admin/diagnostics/lifecycle-health');
 }

@@ -11,7 +11,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { getHealthCheck, getUserStats, getJobsStatus } from '../api/diagnostics';
+import { getHealthCheck, getUserStats, getJobsStatus, getLifecycleHealth } from '../api/diagnostics';
+import { LifecycleHealthPanel } from '../components/LifecycleHealthPanel';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -82,12 +83,24 @@ export function DiagnosticsDashboard() {
     staleTime: Infinity,
   });
 
-  const isAnyFetching = healthFetching || statsFetching || jobsFetching;
+  const {
+    data: lifecycleHealth,
+    isLoading: lifecycleLoading,
+    refetch: refetchLifecycleHealth,
+    isFetching: lifecycleFetching,
+  } = useQuery({
+    queryKey: ['diagnostics', 'lifecycleHealth'],
+    queryFn: getLifecycleHealth,
+    staleTime: Infinity,
+  });
+
+  const isAnyFetching = healthFetching || statsFetching || jobsFetching || lifecycleFetching;
 
   const handleRefreshAll = () => {
     refetchHealth();
     refetchStats();
     refetchJobs();
+    refetchLifecycleHealth();
   };
 
   return (
@@ -234,6 +247,9 @@ export function DiagnosticsDashboard() {
           )}
         </div>
       </div>
+
+      {/* Lifecycle Health Panel */}
+      <LifecycleHealthPanel isFetching={lifecycleFetching} />
 
       {/* User Statistics Panel */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
