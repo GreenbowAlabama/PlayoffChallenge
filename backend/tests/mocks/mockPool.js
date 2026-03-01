@@ -16,6 +16,43 @@
 function createMockPool() {
   const queryResponses = new Map();
   const queryHistory = [];
+  const contestStore = new Map(); // In-memory table for contest_instances
+
+  function normalizeSql(sql) {
+    return String(sql).replace(/\s+/g, ' ').trim().toUpperCase();
+  }
+
+  /**
+   * Safely merge a new row into an existing row, never overwriting with null/undefined
+   */
+  function mergeRow(existing, incoming) {
+    if (!existing) return incoming;
+    const merged = { ...existing };
+    for (const [k, v] of Object.entries(incoming || {})) {
+      if (v !== undefined && v !== null) merged[k] = v;
+    }
+    return merged;
+  }
+
+  /**
+   * Store a contest row, safely merging with existing data
+   */
+  function storeContestRow(row) {
+    if (!row || !row.id) return;
+    const prev = contestStore.get(row.id);
+    contestStore.set(row.id, mergeRow(prev, row));
+  }
+
+  /**
+   * Check if a stored row has at least all the fields of a template row
+   */
+  function storeRowSatisfies(templateRow, storeRow) {
+    if (!templateRow || !storeRow) return false;
+    for (const k of Object.keys(templateRow)) {
+      if (!(k in storeRow)) return false;
+    }
+    return true;
+  }
 
   const mockPool = {
     /**
@@ -24,8 +61,10 @@ function createMockPool() {
     query: jest.fn(async (sql, params = []) => {
       queryHistory.push({ sql, params, timestamp: Date.now() });
 
+      const normalized = normalizeSql(sql);
+
       // Check for exact match first
-      const key = `${sql}::${JSON.stringify(params)}`;
+      const key = `${normalized}::${JSON.stringify(params)}`;
       if (queryResponses.has(key)) {
         const response = queryResponses.get(key);
         if (response instanceof Error) throw response;
@@ -33,8 +72,8 @@ function createMockPool() {
       }
 
       // Check for SQL-only match (ignores params)
-      if (queryResponses.has(sql)) {
-        const response = queryResponses.get(sql);
+      if (queryResponses.has(normalized)) {
+        const response = queryResponses.get(normalized);
         if (response instanceof Error) throw response;
         return response;
       }
@@ -46,23 +85,169 @@ function createMockPool() {
           continue;
         }
 
-        // RegExp matching
+        let matched = false;
+
+        // RegExp matching (test against original SQL to preserve case-sensitivity of test patterns)
         if (pattern instanceof RegExp && pattern.test(sql)) {
-          if (response instanceof Error) throw response;
-          return response;
+          matched = true;
         }
 
         // Function predicate matching (new: allows flexible query matching)
-        if (typeof pattern === 'function') {
+        // Pass original SQL (not normalized) to preserve case for test predicates
+        if (!matched && typeof pattern === 'function') {
           try {
-            if (pattern(sql)) {
-              if (response instanceof Error) throw response;
-              return response;
+            if (pattern(sql, params)) {
+              matched = true;
             }
           } catch (err) {
             // Predicate threw - treat as non-match and continue
-            continue;
+            matched = false;
           }
+        }
+
+        if (matched) {
+          if (response instanceof Error) throw response;
+
+          // Simulate row persistence for UPDATE contest_instances
+          if (
+            normalized.startsWith('UPDATE CONTEST_INSTANCES') &&
+            response &&
+            response.rows &&
+            response.rows.length > 0
+          ) {
+            const updatedRow = response.rows[0];
+            storeContestRow(updatedRow);
+          }
+
+          // When a FOR UPDATE SELECT is stubbed, populate contestStore
+          // so subsequent non-locking SELECTs find the row
+          if (
+            normalized.startsWith('SELECT') &&
+            normalized.includes('FROM CONTEST_INSTANCES') &&
+            normalized.includes('FOR UPDATE') &&
+            response &&
+            response.rows &&
+            response.rows.length > 0
+          ) {
+            const row = response.rows[0];
+            storeContestRow(row);
+          }
+
+          return response;
+        }
+      }
+
+      // Fallback: if code now does a non-locking SELECT followed by a FOR UPDATE SELECT,
+      // allow tests that only stub the FOR UPDATE variant to keep working.
+      const isContestSelect =
+        normalized.startsWith('SELECT') &&
+        normalized.includes('FROM CONTEST_INSTANCES') &&
+        normalized.includes('WHERE') &&
+        normalized.includes('ID');
+
+      const isForUpdate = normalized.includes('FOR UPDATE');
+
+      if (isContestSelect && !isForUpdate) {
+        const normalizedForUpdate = `${normalized} FOR UPDATE`;
+
+        const keyForUpdate = `${normalizedForUpdate}::${JSON.stringify(params)}`;
+        if (queryResponses.has(keyForUpdate)) {
+          const response = queryResponses.get(keyForUpdate);
+          if (response instanceof Error) throw response;
+          // Populate contestStore only if not already populated (don't overwrite fresher data)
+          if (response && response.rows && response.rows.length > 0) {
+            const row = response.rows[0];
+            if (!contestStore.has(row.id)) {
+              storeContestRow(row);
+            }
+          }
+          // Return from contestStore only if it satisfies the template
+          const storeRow = contestStore.get(params[0]);
+          const templateRow = response?.rows?.[0];
+          if (storeRow && storeRowSatisfies(templateRow, storeRow)) {
+            return { rows: [storeRow], rowCount: 1 };
+          }
+          return response;
+        }
+
+        if (queryResponses.has(normalizedForUpdate)) {
+          const response = queryResponses.get(normalizedForUpdate);
+          if (response instanceof Error) throw response;
+          // Populate contestStore only if not already populated (don't overwrite fresher data)
+          if (response && response.rows && response.rows.length > 0) {
+            const row = response.rows[0];
+            if (!contestStore.has(row.id)) {
+              storeContestRow(row);
+            }
+          }
+          // Return from contestStore only if it satisfies the template
+          const storeRow = contestStore.get(params[0]);
+          const templateRow = response?.rows?.[0];
+          if (storeRow && storeRowSatisfies(templateRow, storeRow)) {
+            return { rows: [storeRow], rowCount: 1 };
+          }
+          return response;
+        }
+
+        for (const [pattern, response] of queryResponses.entries()) {
+          if (typeof pattern === 'string') continue;
+
+          // Construct what the FOR UPDATE query would look like (original case)
+          const sqlForUpdate = `${sql} FOR UPDATE`;
+
+          if (pattern instanceof RegExp && pattern.test(sqlForUpdate)) {
+            if (response instanceof Error) throw response;
+            // Populate contestStore only if not already populated (don't overwrite fresher data)
+            if (response && response.rows && response.rows.length > 0) {
+              const row = response.rows[0];
+              if (!contestStore.has(row.id)) {
+                storeContestRow(row);
+              }
+            }
+            // Return from contestStore only if it satisfies the template
+            const storeRow = contestStore.get(params[0]);
+            const templateRow = response?.rows?.[0];
+            if (storeRow && storeRowSatisfies(templateRow, storeRow)) {
+              return { rows: [storeRow], rowCount: 1 };
+            }
+            return response;
+          }
+
+          if (typeof pattern === 'function') {
+            try {
+              if (pattern(sqlForUpdate, params)) {
+                if (response instanceof Error) throw response;
+                // Populate contestStore only if not already populated (don't overwrite fresher data)
+                if (response && response.rows && response.rows.length > 0) {
+                  const row = response.rows[0];
+                  if (!contestStore.has(row.id)) {
+                    storeContestRow(row);
+                  }
+                }
+                // Return from contestStore only if it satisfies the template
+                const storeRow = contestStore.get(params[0]);
+                const templateRow = response?.rows?.[0];
+                if (storeRow && storeRowSatisfies(templateRow, storeRow)) {
+                  return { rows: [storeRow], rowCount: 1 };
+                }
+                return response;
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
+      // Fallback: Check in-memory contest store for SELECTs on contest_instances
+      // This simulates a real table, allowing subsequent SELECTs to see UPDATEs
+      if (
+        normalized.startsWith('SELECT') &&
+        normalized.includes('FROM CONTEST_INSTANCES') &&
+        params &&
+        params.length > 0
+      ) {
+        const row = contestStore.get(params[0]);
+        if (row) {
+          return { rows: [row], rowCount: 1 };
         }
       }
 
@@ -92,9 +277,12 @@ function createMockPool() {
      */
     setQueryResponse(sqlOrPattern, response, params = null) {
       if (params !== null) {
-        const key = `${sqlOrPattern}::${JSON.stringify(params)}`;
+        const key = `${normalizeSql(sqlOrPattern)}::${JSON.stringify(params)}`;
         queryResponses.set(key, response);
+      } else if (typeof sqlOrPattern === 'string') {
+        queryResponses.set(normalizeSql(sqlOrPattern), response);
       } else {
+        // RegExp or Function - don't normalize, use as-is
         queryResponses.set(sqlOrPattern, response);
       }
       return this;

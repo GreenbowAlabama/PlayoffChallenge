@@ -322,213 +322,238 @@ function canonicalizeJson(obj) {
  * @returns {Promise<Object>} Settlement record from database (includes id for use as scoring_run_id), or { noop: true, reason: string } if status not LIVE
  * @throws {Error} On any failure (transaction rolled back) or missing snapshot binding
  */
+/**
+ * Transaction-safe settlement core.
+ * Accepts client, does NOT manage transaction boundaries.
+ * Caller is responsible for BEGIN/COMMIT/ROLLBACK.
+ */
+async function executeSettlementTx({
+  client,
+  contestInstanceId,
+  snapshotId,
+  snapshotHash,
+  now = new Date(),
+}) {
+  // 1. LOCK: SELECT FOR UPDATE to prevent concurrent settlement attempts
+  const lockResult = await client.query(
+    'SELECT id, status, entry_fee_cents, payout_structure, settle_time FROM contest_instances WHERE id = $1 FOR UPDATE',
+    [contestInstanceId]
+  );
+
+  if (lockResult.rows.length === 0) {
+    throw new Error(`Contest instance ${contestInstanceId} not found`);
+  }
+
+  const lockedContest = lockResult.rows[0];
+
+  // 2. IDEMPOTENCY CHECK (after lock): settlement already exists?
+  const existingSettlement = await client.query(
+    'SELECT * FROM settlement_records WHERE contest_instance_id = $1',
+    [contestInstanceId]
+  );
+
+  if (existingSettlement.rows.length > 0) {
+    // Settlement already executed, return existing record (no-op)
+    return existingSettlement.rows[0];
+  }
+
+  // 3. CONSISTENCY VALIDATION: settle_time set but no record?
+  if (lockedContest.settle_time && existingSettlement.rows.length === 0) {
+    throw new Error('INCONSISTENT_STATE: settle_time is set but no settlement_records entry exists');
+  }
+
+  // 3b. STATUS GUARD: Only settle LIVE contests (idempotent, no-throw)
+  if (lockedContest.status !== 'LIVE') {
+    return {
+      noop: true,
+      reason: `STATUS_NOT_LIVE: Contest status is ${lockedContest.status}, expected LIVE`
+    };
+  }
+
+  // 4. LOAD TEMPLATE - read settlement_strategy_key from contest template
+  // Strategy key must always come from template
+  const templateResult = await client.query(
+    `SELECT ct.settlement_strategy_key
+     FROM contest_instances ci
+     JOIN contest_templates ct ON ct.id = ci.template_id
+     WHERE ci.id = $1`,
+    [contestInstanceId]
+  );
+
+  if (templateResult.rows.length === 0) {
+    throw new Error(`No template found for contest instance ${contestInstanceId}`);
+  }
+
+  const settlementStrategyKey = templateResult.rows[0].settlement_strategy_key;
+
+  // 5. VALIDATE STRATEGY KEY BEFORE SNAPSHOT BINDING (ensures clear error ordering)
+  const { getSettlementStrategy } = require('./settlementRegistry');
+  const settleFn = getSettlementStrategy(settlementStrategyKey);
+
+  // 6. SNAPSHOT BINDING VALIDATION (PGA v1 Section 4.1)
+  // Must occur after strategy validation so unknown strategy errors are not masked
+  if (!snapshotId) {
+    throw new Error('SETTLEMENT_REQUIRES_SNAPSHOT_ID: Settlement refuses to execute without snapshot_id binding (PGA v1 Section 4.1)');
+  }
+  if (!snapshotHash) {
+    throw new Error('SETTLEMENT_REQUIRES_SNAPSHOT_HASH: Settlement refuses to execute without snapshot_hash binding (PGA v1 Section 4.1)');
+  }
+
+  // 7. COMPUTE SETTLEMENT - dispatch to validated strategy
+  const scoreRows = await settleFn(contestInstanceId, client);
+
+  // 8. CALL COMPUTE SETTLEMENT with snapshot binding (required)
+  // scoringRunId will be set to settlement_records.id after INSERT
+  const settlementPlan = computeSettlement(
+    settlementStrategyKey,
+    lockedContest,
+    scoreRows,
+    snapshotId,
+    snapshotHash
+  );
+
+  const participantCount = settlementPlan.participant_count;
+  const totalPoolCents = settlementPlan.total_pool_cents;
+  const platformRemainderCents = settlementPlan.platform_remainder_cents;
+
+  // Compute SHA-256 hash for immutability verification
+  // Include platform remainder for audit trail and conservation verification
+  const results = {
+    rankings: settlementPlan.rankings,
+    payouts: settlementPlan.payouts,
+    platform_remainder_cents: platformRemainderCents,
+    rake_cents: settlementPlan.rake_cents,
+    distributable_cents: settlementPlan.distributable_cents
+  };
+  const resultsHash = crypto.createHash('sha256')
+    .update(JSON.stringify(canonicalizeJson(results)))
+    .digest('hex');
+
+  // 9. INSERT SETTLEMENT RECORD with snapshot binding (exactly once)
+  const insertResult = await client.query(`
+    INSERT INTO settlement_records (
+      contest_instance_id,
+      snapshot_id,
+      snapshot_hash,
+      settled_at,
+      results,
+      results_sha256,
+      settlement_version,
+      participant_count,
+      total_pool_cents
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    RETURNING *
+  `, [
+    contestInstanceId,
+    snapshotId,
+    snapshotHash,
+    now,
+    JSON.stringify(results),
+    resultsHash,
+    'v1',
+    participantCount,
+    totalPoolCents
+  ]);
+
+  const settlementRecord = insertResult.rows[0];
+  const scoringRunId = settlementRecord.id; // scoring_run_id IS settlement_records.id (PGA v1 Section 4.1)
+
+  // 9b. UPDATE settlement_records to set scoring_run_id now that we have the id (for explicit binding in record)
+  await client.query(
+    'UPDATE settlement_records SET scoring_run_id = $1 WHERE id = $2',
+    [scoringRunId, settlementRecord.id]
+  );
+
+  // 10. WRITE settle_time and status to COMPLETE (only if currently LIVE)
+  const previousStatus = lockedContest.status;
+  const newStatus = 'COMPLETE';
+
+  const statusUpdateResult = await client.query(
+    'UPDATE contest_instances SET settle_time = $1, status = $2 WHERE id = $3 AND status = $4 RETURNING id',
+    [now, newStatus, contestInstanceId, 'LIVE']
+  );
+
+  // If UPDATE affected 0 rows, status was already changed (e.g., to CANCELLED)
+  // This is idempotent - settlement already happened, so return existing record
+  if (statusUpdateResult.rows.length === 0) {
+    return settlementRecord;
+  }
+
+  // 10b. INSERT LIFECYCLE TRANSITION RECORD (LIVE → COMPLETE)
+  // Idempotent via NOT EXISTS to prevent duplicate rows if function is re-called
+  await client.query(`
+    INSERT INTO contest_state_transitions (
+      contest_instance_id,
+      from_state,
+      to_state,
+      triggered_by,
+      reason,
+      created_at
+    )
+    SELECT $1, $2, $3, $4, $5, $6
+    WHERE NOT EXISTS (
+      SELECT 1 FROM contest_state_transitions
+      WHERE contest_instance_id = $1
+        AND from_state = $2
+        AND to_state = $3
+        AND triggered_by = $4
+    )
+  `, [
+    contestInstanceId,
+    'LIVE',
+    'COMPLETE',
+    'TOURNAMENT_END_TIME_REACHED',
+    'Automatic settlement at tournament end time',
+    now
+  ]);
+
+  // 11. WRITE SYSTEM AUDIT RECORD with snapshot context
+  const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+  await client.query(`
+    INSERT INTO admin_contest_audit
+    (contest_instance_id, admin_user_id, action, reason, from_status, to_status, payload)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+  `, [
+    contestInstanceId,
+    SYSTEM_USER_ID,
+    'system_settlement_complete',
+    'Settlement executed successfully with snapshot binding (PGA v1)',
+    previousStatus,
+    newStatus,
+    JSON.stringify({
+      snapshot_id: snapshotId,
+      snapshot_hash: snapshotHash,
+      scoring_run_id: scoringRunId,
+      participant_count: participantCount,
+      total_pool_cents: totalPoolCents,
+      results_sha256: resultsHash,
+      settlement_version: 'v1'
+    })
+  ]);
+
+  return settlementRecord;
+}
+
+/**
+ * Wrapper: Transaction-managed settlement execution.
+ * Accepts pool and contestInstance object.
+ * Manages BEGIN/COMMIT/ROLLBACK.
+ */
 async function executeSettlement(contestInstance, pool, snapshotId, snapshotHash, now = new Date()) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // 1. LOCK: SELECT FOR UPDATE to prevent concurrent settlement attempts
-    const lockResult = await client.query(
-      'SELECT id, status, entry_fee_cents, payout_structure, settle_time FROM contest_instances WHERE id = $1 FOR UPDATE',
-      [contestInstance.id]
-    );
-
-    if (lockResult.rows.length === 0) {
-      throw new Error(`Contest instance ${contestInstance.id} not found`);
-    }
-
-    const lockedContest = lockResult.rows[0];
-
-    // 2. IDEMPOTENCY CHECK (after lock): settlement already exists?
-    const existingSettlement = await client.query(
-      'SELECT * FROM settlement_records WHERE contest_instance_id = $1',
-      [contestInstance.id]
-    );
-
-    if (existingSettlement.rows.length > 0) {
-      // Settlement already executed, return existing record (no-op)
-      await client.query('COMMIT');
-      return existingSettlement.rows[0];
-    }
-
-    // 3. CONSISTENCY VALIDATION: settle_time set but no record?
-    if (lockedContest.settle_time && existingSettlement.rows.length === 0) {
-      throw new Error('INCONSISTENT_STATE: settle_time is set but no settlement_records entry exists');
-    }
-
-    // 3b. STATUS GUARD: Only settle LIVE contests (idempotent, no-throw)
-    if (lockedContest.status !== 'LIVE') {
-      await client.query('COMMIT');
-      return {
-        noop: true,
-        reason: `STATUS_NOT_LIVE: Contest status is ${lockedContest.status}, expected LIVE`
-      };
-    }
-
-    // 4. LOAD TEMPLATE - read settlement_strategy_key from contest template
-    // Strategy key must always come from template
-    const templateResult = await client.query(
-      `SELECT ct.settlement_strategy_key
-       FROM contest_instances ci
-       JOIN contest_templates ct ON ct.id = ci.template_id
-       WHERE ci.id = $1`,
-      [contestInstance.id]
-    );
-
-    if (templateResult.rows.length === 0) {
-      throw new Error(`No template found for contest instance ${contestInstance.id}`);
-    }
-
-    const settlementStrategyKey = templateResult.rows[0].settlement_strategy_key;
-
-    // 5. VALIDATE STRATEGY KEY BEFORE SNAPSHOT BINDING (ensures clear error ordering)
-    const { getSettlementStrategy } = require('./settlementRegistry');
-    const settleFn = getSettlementStrategy(settlementStrategyKey);
-
-    // 6. SNAPSHOT BINDING VALIDATION (PGA v1 Section 4.1)
-    // Must occur after strategy validation so unknown strategy errors are not masked
-    if (!snapshotId) {
-      throw new Error('SETTLEMENT_REQUIRES_SNAPSHOT_ID: Settlement refuses to execute without snapshot_id binding (PGA v1 Section 4.1)');
-    }
-    if (!snapshotHash) {
-      throw new Error('SETTLEMENT_REQUIRES_SNAPSHOT_HASH: Settlement refuses to execute without snapshot_hash binding (PGA v1 Section 4.1)');
-    }
-
-    // 7. COMPUTE SETTLEMENT - dispatch to validated strategy
-    const scoreRows = await settleFn(contestInstance.id, client);
-
-    // 8. CALL COMPUTE SETTLEMENT with snapshot binding (required)
-    // scoringRunId will be set to settlement_records.id after INSERT
-    const settlementPlan = computeSettlement(
-      settlementStrategyKey,
-      lockedContest,
-      scoreRows,
-      snapshotId,
-      snapshotHash
-    );
-
-    const participantCount = settlementPlan.participant_count;
-    const totalPoolCents = settlementPlan.total_pool_cents;
-    const platformRemainderCents = settlementPlan.platform_remainder_cents;
-
-    // Compute SHA-256 hash for immutability verification
-    // Include platform remainder for audit trail and conservation verification
-    const results = {
-      rankings: settlementPlan.rankings,
-      payouts: settlementPlan.payouts,
-      platform_remainder_cents: platformRemainderCents,
-      rake_cents: settlementPlan.rake_cents,
-      distributable_cents: settlementPlan.distributable_cents
-    };
-    const resultsHash = crypto.createHash('sha256')
-      .update(JSON.stringify(canonicalizeJson(results)))
-      .digest('hex');
-
-    // 9. INSERT SETTLEMENT RECORD with snapshot binding (exactly once)
-    const insertResult = await client.query(`
-      INSERT INTO settlement_records (
-        contest_instance_id,
-        snapshot_id,
-        snapshot_hash,
-        settled_at,
-        results,
-        results_sha256,
-        settlement_version,
-        participant_count,
-        total_pool_cents
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *
-    `, [
-      contestInstance.id,
+    const result = await executeSettlementTx({
+      client,
+      contestInstanceId: contestInstance.id,
       snapshotId,
       snapshotHash,
       now,
-      JSON.stringify(results),
-      resultsHash,
-      'v1',
-      participantCount,
-      totalPoolCents
-    ]);
-
-    const settlementRecord = insertResult.rows[0];
-    const scoringRunId = settlementRecord.id; // scoring_run_id IS settlement_records.id (PGA v1 Section 4.1)
-
-    // 9b. UPDATE settlement_records to set scoring_run_id now that we have the id (for explicit binding in record)
-    await client.query(
-      'UPDATE settlement_records SET scoring_run_id = $1 WHERE id = $2',
-      [scoringRunId, settlementRecord.id]
-    );
-
-    // 10. WRITE settle_time and status to COMPLETE (only if currently LIVE)
-    const previousStatus = lockedContest.status;
-    const newStatus = 'COMPLETE';
-
-    const statusUpdateResult = await client.query(
-      'UPDATE contest_instances SET settle_time = $1, status = $2 WHERE id = $3 AND status = $4 RETURNING id',
-      [now, newStatus, contestInstance.id, 'LIVE']
-    );
-
-    // If UPDATE affected 0 rows, status was already changed (e.g., to CANCELLED)
-    // This is idempotent - settlement already happened, so return existing record
-    if (statusUpdateResult.rows.length === 0) {
-      await client.query('COMMIT');
-      return settlementRecord;
-    }
-
-    // 10b. INSERT LIFECYCLE TRANSITION RECORD (LIVE → COMPLETE)
-    // Idempotent via NOT EXISTS to prevent duplicate rows if function is re-called
-    await client.query(`
-      INSERT INTO contest_state_transitions (
-        contest_instance_id,
-        from_state,
-        to_state,
-        triggered_by,
-        reason,
-        created_at
-      )
-      SELECT $1, $2, $3, $4, $5, $6
-      WHERE NOT EXISTS (
-        SELECT 1 FROM contest_state_transitions
-        WHERE contest_instance_id = $1
-          AND from_state = $2
-          AND to_state = $3
-          AND triggered_by = $4
-      )
-    `, [
-      contestInstance.id,
-      'LIVE',
-      'COMPLETE',
-      'TOURNAMENT_END_TIME_REACHED',
-      'Automatic settlement at tournament end time',
-      now
-    ]);
-
-    // 11. WRITE SYSTEM AUDIT RECORD with snapshot context
-    const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
-    await client.query(`
-      INSERT INTO admin_contest_audit
-      (contest_instance_id, admin_user_id, action, reason, from_status, to_status, payload)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `, [
-      contestInstance.id,
-      SYSTEM_USER_ID,
-      'system_settlement_complete',
-      'Settlement executed successfully with snapshot binding (PGA v1)',
-      previousStatus,
-      newStatus,
-      JSON.stringify({
-        snapshot_id: snapshotId,
-        snapshot_hash: snapshotHash,
-        scoring_run_id: scoringRunId,
-        participant_count: participantCount,
-        total_pool_cents: totalPoolCents,
-        results_sha256: resultsHash,
-        settlement_version: 'v1'
-      })
-    ]);
+    });
 
     await client.query('COMMIT');
-    return settlementRecord;
+    return result;
 
   } catch (err) {
     await client.query('ROLLBACK');
@@ -542,6 +567,7 @@ async function executeSettlement(contestInstance, pool, snapshotId, snapshotHash
 module.exports = {
   // Settlement execution
   executeSettlement,
+  executeSettlementTx,
 
   // Settlement computation (pure function)
   computeSettlement,

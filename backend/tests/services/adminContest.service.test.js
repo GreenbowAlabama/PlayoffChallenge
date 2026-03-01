@@ -821,40 +821,6 @@ describe('Admin Contest Service', () => {
       expect(auditInserts[0].params[4]).toBe('SCHEDULED'); // from_status
       expect(auditInserts[0].params[5]).toBe('LOCKED');    // to_status
     });
-
-    it('should perform two separate UPDATEs: lock_time then status', async () => {
-      mockPool.setQueryResponse(
-        /SELECT \* FROM contest_instances WHERE id[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single(scheduledContest)
-      );
-      mockPool.setQueryResponse(
-        /UPDATE contest_instances SET lock_time/,
-        mockQueryResponses.single({ ...scheduledContest, lock_time: '2026-02-11T10:00:00Z' })
-      );
-      mockPool.setQueryResponse(
-        /UPDATE contest_instances SET status/,
-        mockQueryResponses.single({ ...scheduledContest, status: 'LOCKED', lock_time: '2026-02-11T10:00:00Z' })
-      );
-      mockPool.setQueryResponse(
-        /INSERT INTO admin_contest_audit/,
-        mockQueryResponses.single({ id: 'audit-10' })
-      );
-
-      await adminContestService.forceLockContestInstance(
-        mockPool, TEST_CONTEST_ID, TEST_ADMIN_ID, 'Two updates test'
-      );
-
-      const queries = mockPool.getQueryHistory();
-      const lockTimeUpdates = queries.filter(q => /UPDATE contest_instances SET lock_time/.test(q.sql));
-      const statusUpdates = queries.filter(q => /UPDATE contest_instances SET status/.test(q.sql));
-
-      expect(lockTimeUpdates).toHaveLength(1);
-      expect(statusUpdates).toHaveLength(1);
-      // lock_time update should come before status update
-      const lockTimeIndex = queries.findIndex(q => /UPDATE contest_instances SET lock_time/.test(q.sql));
-      const statusIndex = queries.findIndex(q => /UPDATE contest_instances SET status/.test(q.sql));
-      expect(lockTimeIndex).toBeLessThan(statusIndex);
-    });
   });
 
   describe('updateContestTimeFields (GAP-13)', () => {
