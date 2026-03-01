@@ -234,8 +234,6 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
     time_until_lock = Math.max(0, Math.floor((lockTimeMs - nowMs) / 1000));
   }
 
-  console.log('🔵 EXEC_MARKER:MAPPER_INPUT id:', contestRow.id, 'organizer_name:', contestRow.organizer_name);
-
   // --- Iteration 01: Derive presentation fields ---
   const leaderboard_state = deriveLeaderboardState(contestRow, settlementRecordExists);
   const actions = deriveContestActions(
@@ -288,8 +286,6 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
     payout_table,
     roster_config
   };
-
-  console.log('🔵 EXEC_MARKER:MAPPER_OUTPUT id:', response.id, 'organizer_name:', response.organizer_name);
 
   return response;
 }

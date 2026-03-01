@@ -703,14 +703,15 @@ describe('Settlement Strategy', () => {
         }) // lock
         ._queueResponse({ rows: [] }) // no existing
         ._queueResponse({ rows: [{ settlement_strategy_key: 'final_standings' }] }) // template query
-        ._queueResponse({ rows: [{ playoff_start_week: 19 }] }) // settings
+        ._queueResponse({ rows: [{ playoff_start_week: 19 }] }) // nflSettlementFn: get start week
         ._queueResponse({
           rows: [{ user_id: 'user1', total_score: 100 }]
-        }) // scores
-        ._queueResponse({ rows: [{ id: 'settlement' }] }) // insert settlement
+        }) // nflSettlementFn: get scores
+        ._queueResponse({ rows: [{ id: 'settlement-123', contest_instance_id: 'contest-id' }] }) // insert settlement
         ._queueResponse({ rows: [] }) // update scoring_run_id
-        ._queueResponse({ rows: [] }) // update settle_time
-        ._queueResponse({ rows: [] }); // audit
+        ._queueResponse({ rows: [{ id: 'contest-id' }] }) // update contest_instances (RETURNING id)
+        ._queueResponse({ rows: [] }) // INSERT contest_state_transitions
+        ._queueResponse({ rows: [] }); // INSERT admin_contest_audit
 
       await settlementStrategy.executeSettlement(
         contestInstance,
@@ -861,14 +862,15 @@ describe('Settlement Strategy', () => {
         }) // lock
         ._queueResponse({ rows: [] }) // no existing
         ._queueResponse({ rows: [{ settlement_strategy_key: 'final_standings' }] }) // template
-        ._queueResponse({ rows: [{ playoff_start_week: 19 }] }) // settings
+        ._queueResponse({ rows: [{ playoff_start_week: 19 }] }) // nflSettlementFn: get start week
         ._queueResponse({
           rows: [{ user_id: 'user1', total_score: 100 }]
-        }) // scores
-        ._queueResponse({ rows: [{ id: 'settlement-id' }] }) // insert settlement
+        }) // nflSettlementFn: get scores
+        ._queueResponse({ rows: [{ id: 'settlement-123', contest_instance_id: 'contest-id' }] }) // insert settlement
         ._queueResponse({ rows: [] }) // update scoring_run_id
-        ._queueResponse({ rows: [] }) // update settle_time
-        ._queueResponse({ rows: [] }); // audit
+        ._queueResponse({ rows: [{ id: 'contest-id' }] }) // update contest_instances (RETURNING id)
+        ._queueResponse({ rows: [] }) // INSERT contest_state_transitions
+        ._queueResponse({ rows: [] }); // INSERT admin_contest_audit
 
       await settlementStrategy.executeSettlement(
         contestInstance,

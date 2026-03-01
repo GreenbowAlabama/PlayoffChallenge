@@ -50,30 +50,21 @@ function extractUserId(req, res, next) {
   const authHeader = req.headers['authorization'];
   const xUserId = req.headers['x-user-id'];
 
-  // Detailed logging for debugging
-  console.log('[Auth] ENTER extractUserId middleware');
-  console.log('[Auth] req.method:', req.method);
-  console.log('[Auth] req.url:', req.originalUrl);
-  console.log('[Auth] Authorization Header:', authHeader);
-  console.log('[Auth] X-User-Id Header:', xUserId);
-
   if (authHeader && authHeader.startsWith('Bearer ')) {
     userId = authHeader.substring(7, authHeader.length);
-    console.log('[Auth] Extracted userId from Bearer token:', userId);
   } else if (xUserId) {
     userId = xUserId;
-    console.log('[Auth] Extracted userId from X-User-Id header:', userId);
   } else {
-    console.log('[Auth] No user ID found in headers.');
     return res.status(401).json({ error: 'Authentication required' });
   }
 
   if (!isValidUUID(userId)) {
-    console.log('[Auth] Invalid UUID format for userId:', userId);
     return res.status(400).json({ error: 'Invalid user ID format' });
   }
 
-  console.log('[Auth] Successfully validated userId:', userId);
+  if (process.env.LOG_AUTH_DEBUG === 'true') {
+    console.log('[Auth]', req.method, req.originalUrl, 'user_id_suffix:', userId.slice(-6));
+  }
   req.userId = userId;
   next();
 }

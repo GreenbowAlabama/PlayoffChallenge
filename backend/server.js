@@ -1318,7 +1318,7 @@ app.post('/api/users', authLimiter, async (req, res) => {
   try {
     const { apple_id, email, name, state, eligibility_certified, tos_version } = req.body;
 
-    console.log('POST /api/users - Received:', { apple_id, email, name, state, eligibility_certified });
+    console.log('POST /api/users');
 
     if (!apple_id) {
       return res.status(400).json({ error: 'apple_id is required' });
@@ -1400,7 +1400,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
     const { email, password, name, state, eligibility_certified, tos_version } = req.body;
 
-    console.log('POST /api/auth/register - Received:', { email, name, state, eligibility_certified });
+    console.log('POST /api/auth/register');
 
     // Validation
     if (!email || !password) {
@@ -1464,7 +1464,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    console.log('POST /api/auth/login - Received:', { email });
+    console.log('POST /api/auth/login');
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
