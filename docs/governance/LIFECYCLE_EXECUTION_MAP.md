@@ -269,6 +269,10 @@ Primitive status and trigger status are independent classifications.
 
 ## Execution Entry Points (Current State)
 
+**Single Orchestration Rule:**
+All automatic lifecycle transitions must flow exclusively through `reconcileLifecycle(pool, now)`.
+No admin endpoint, scheduler, or service may directly invoke transition primitives.
+
 | Transition | Orchestration Entry Point | Trigger Mechanism | Status |
 |-----------|-----------|---------------------|--------|
 | SCHEDULED → LOCKED | `reconcileLifecycle(pool, now)` (Phase 1) | Background poller (30s interval, ENABLE_LIFECYCLE_RECONCILER=true) | 🔄 **EVOLVING (Operational)** |

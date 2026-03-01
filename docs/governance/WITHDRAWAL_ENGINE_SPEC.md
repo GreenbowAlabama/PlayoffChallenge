@@ -1,8 +1,17 @@
+> Status: DESIGN ONLY — Not active in production.
+> Implementation requires:
+> - Feature flag gating
+> - Full invariant alignment with FINANCIAL_INVARIANTS.md
+> - Governance review before enabling in staging or production.
+
 # Withdrawal Engine Specification
 
 **Status:** DESIGN (pressure-tested, ready for implementation)
 **Phase:** 3+
 **Constraints:** Deterministic, idempotent, ledger-backed, Stripe-integrated, TestFlight-safe
+
+**Stripe Object Decision:** Payouts API (customer bank withdrawals)
+**Decision Date:** 2026-03-01
 
 ---
 

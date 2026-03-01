@@ -1,4 +1,8 @@
+> Status: FROZEN — Changes require governance review.
+
 # Financial Invariants — Wallet Debit & Entry Fee Immutability
+
+> All future wallet mutation systems (withdrawals, refunds, adjustments) must conform to these atomicity and idempotency guarantees.
 
 **Purpose:** Define atomic guarantees for contest entry fees and wallet mutations. These rules are frozen and tested.
 
