@@ -9,12 +9,12 @@ Prevents fragmented execution entry points and orchestration drift.
 
 | Document | Authority | Purpose |
 |----------|-----------|---------|
-| **CLAUDE_RULES.md** | GOVERNANCE LOCK | Defines frozen vs evolving layers, system maturity axes, change control |
-| **LIFECYCLE_EXECUTION_MAP.md** | OPERATIONAL REFERENCE | Names exact primitives, entry points, and execution model per transition |
+| **docs/governance/CLAUDE_RULES.md** | GOVERNANCE LOCK | Defines frozen vs evolving layers, system maturity axes, change control |
+| **docs/governance/LIFECYCLE_EXECUTION_MAP.md** | OPERATIONAL REFERENCE | Names exact primitives, entry points, and execution model per transition |
 
-**Conflict Resolution:** If this map conflicts with CLAUDE_RULES.md, CLAUDE_RULES.md prevails.
+**Conflict Resolution:** If this map conflicts with docs/governance/CLAUDE_RULES.md, CLAUDE_RULES.md prevails.
 
-**Status Language:** All statuses align with CLAUDE_RULES.md § 17 System Maturity Matrix:
+**Status Language:** All statuses align with docs/governance/CLAUDE_RULES.md § 17 System Maturity Matrix:
 - **FROZEN:** Primitive contract locked by tests and governance. No further changes allowed.
 - **EVOLVING:** Primitive exists but trigger/execution model still being designed.
 - **PENDING:** Primitive does not yet exist. Requires implementation.
@@ -69,7 +69,7 @@ Prevents fragmented execution entry points and orchestration drift.
 | **Test Coverage** | ✅ 8 lifecycle + 4 reconciler tests (boundary, atomicity, idempotency, ordering) |
 | **Requirements** | `lock_time IS NOT NULL`, `now >= lock_time` |
 | **Implementation** | `backend/services/contestLifecycleService.js`, `lifecycleReconciliationService.js`, `lifecycleReconcilerWorker.js` |
-| **Governance** | CLAUDE_RULES.md § 16 + new § Lifecycle Orchestration Rules |
+| **Governance** | docs/governance/CLAUDE_RULES.md § 16 + new § Lifecycle Orchestration Rules |
 | **Operational Status** | Primitive frozen, trigger operational, HA/monitoring pending (Phase 2D) |
 
 #### Timestamp Strategy (Day 1)
@@ -110,7 +110,7 @@ This is intentional and safe due to:
 | **Test Coverage** | ✅ 8 integration tests (boundary, isolation, atomicity) |
 | **Requirements** | `tournament_start_time IS NOT NULL`, `now >= tournament_start_time` |
 | **Implementation** | `backend/services/contestLifecycleService.js` |
-| **Governance** | CLAUDE_RULES.md Section 16 |
+| **Governance** | docs/governance/CLAUDE_RULES.md Section 16 |
 | **Notes** | Injected `now` enforces determinism. No raw database clock. Ready to be called from scheduler, admin endpoint, or event-driven trigger. |
 
 ---
@@ -131,7 +131,7 @@ This is intentional and safe due to:
 | **Test Coverage** | ✅ `contestLifecycleCompletion.integration.test.js` (6 tests: boundary, null, idempotency, missing snapshot, transition structure) |
 | **Requirements** | status = LIVE, tournament_end_time IS NOT NULL, now >= tournament_end_time, FINAL snapshot must exist |
 | **Settlement Binding** | ✅ executeSettlement validates snapshot_id + snapshot_hash inside transaction |
-| **Governance** | CLAUDE_RULES.md § 7 (Settlement Engine Rule), § 16 (Frozen Invariants) |
+| **Governance** | docs/governance/CLAUDE_RULES.md § 7 (Settlement Engine Rule), § 16 (Frozen Invariants) |
 | **Notes** | If snapshot missing, leaves contest LIVE and continues (non-fatal). Errors logged but don't block batch. |
 
 #### executeSettlement Enhancements (Backward Compatible)
@@ -166,14 +166,14 @@ This is intentional and safe due to:
 | **Primitive Owner** | `discoveryService.processDiscovery()` (Phase 1: Provider state changes) |
 | **Primitive File** | `backend/services/discovery/discoveryService.js` (lines ~104-143) |
 | **Primitive Type** | Service function (CTE-based atomic cascade) |
-| **Frozen Status** | **FROZEN** — Cascade ordering Phase 1 → 2 → 3 locked by CLAUDE_RULES.md § 12 |
+| **Frozen Status** | **FROZEN** — Cascade ordering Phase 1 → 2 → 3 locked by docs/governance/CLAUDE_RULES.md § 12 |
 | **Trigger Owner** | Discovery webhook or admin endpoint (discovery trigger varies) |
 | **Entry Point** | Discovery ingestion pipeline (external provider webhook) |
 | **Atomicity** | ✅ CTE with FOR UPDATE lock (atomic UPDATE + INSERT transitions) |
 | **Idempotency** | ✅ Verified (repeated CANCELLED discovery = zero duplicate transitions) |
 | **State Persistence** | ✅ `contest_state_transitions` records (triggered_by = 'PROVIDER_TOURNAMENT_CANCELLED') |
 | **Test Coverage** | ✅ `discoveryService.cancellation.test.js` (cascade, idempotency, ordering) |
-| **Governance** | CLAUDE_RULES.md § 12 (Discovery Service Lifecycle Ordering) |
+| **Governance** | docs/governance/CLAUDE_RULES.md § 12 (Discovery Service Lifecycle Ordering) |
 | **Notes** | Provider cancellation is Phase 1 of discovery lifecycle. Cascades all non-terminal instances under same template. |
 
 #### Primitive 2: Admin-Initiated Cancellation
@@ -190,7 +190,7 @@ This is intentional and safe due to:
 | **Idempotency** | ✅ If already CANCELLED, returns noop=true (test-verified) |
 | **State Persistence** | ✅ `contest_state_transitions` record (triggered_by = 'ADMIN' or similar) |
 | **Test Coverage** | ✅ Admin service tests |
-| **Governance** | CLAUDE_RULES.md § 16 (Frozen Invariants) |
+| **Governance** | docs/governance/CLAUDE_RULES.md § 16 (Frozen Invariants) |
 | **Notes** | Admin cancellation is manual, single-contest operation. Does not cascade. |
 
 ---
@@ -212,7 +212,7 @@ Primitive status and trigger status are independent classifications.
 | **Primitive** | ✅ **FROZEN** | `contestLifecycleService.transitionScheduledToLocked(pool, now)` — Contract locked by 8 integration tests (signature, semantics, determinism) |
 | **Trigger** | 🔄 **EVOLVING** | Background poller (`startLifecycleReconciler()`) on 30s interval, guarded by `ENABLE_LIFECYCLE_RECONCILER=true` |
 | **Orchestration** | `reconcileLifecycle()` | Single entry point in `lifecycleReconciliationService.js` — only caller of frozen primitives |
-| **Governance** | CLAUDE_RULES.md § 16 | Primitive frozen. Trigger operational but subject to monitoring / HA hardening |
+| **Governance** | docs/governance/CLAUDE_RULES.md § 16 | Primitive frozen. Trigger operational but subject to monitoring / HA hardening |
 | **Test Suite** | `contestLifecycleTransitions.integration.test.js` (8) + `lifecycleReconcilerWorker.integration.test.js` (4) | Covers boundary, atomicity, idempotency, ordering |
 | **Transition Status** | 🔄 **EVOLVING (Operational)** | Primitive frozen, trigger implemented but not yet GA-hardened |
 
@@ -225,7 +225,7 @@ Primitive status and trigger status are independent classifications.
 | **Primitive** | ✅ **FROZEN** | `contestLifecycleService.transitionLockedToLive(pool, now)` — Contract locked by 8 integration tests (signature, semantics, determinism) |
 | **Trigger** | 🔄 **EVOLVING** | Background poller (`startLifecycleReconciler()`) on 30s interval, guarded by `ENABLE_LIFECYCLE_RECONCILER=true` |
 | **Orchestration** | `reconcileLifecycle()` | Single entry point in `lifecycleReconciliationService.js` — only caller of frozen primitives |
-| **Governance** | CLAUDE_RULES.md § 16 | Primitive frozen. Trigger operational but subject to monitoring / HA hardening |
+| **Governance** | docs/governance/CLAUDE_RULES.md § 16 | Primitive frozen. Trigger operational but subject to monitoring / HA hardening |
 | **Test Suite** | `contestLifecycleTransitions.integration.test.js` (8) + `lifecycleReconcilerWorker.integration.test.js` (4) | Covers boundary, atomicity, idempotency, ordering |
 | **Transition Status** | 🔄 **EVOLVING (Operational)** | Primitive frozen, trigger implemented but not yet GA-hardened |
 
@@ -237,7 +237,7 @@ Primitive status and trigger status are independent classifications.
 |-------|--------|---------|
 | **Primitive** | ✅ **FROZEN** | `contestLifecycleService.transitionLiveToComplete()` — Locked by 6 integration tests (idempotency, snapshot binding, missing snapshot handling) |
 | **Trigger** | ✅ **FROZEN** | Automatic via background reconciler (every 30s, Phase 3). Entry point: `reconcileLifecycle(pool, now)` |
-| **Governance** | CLAUDE_RULES.md § 7, § 16 | Settlement Engine Rule: deterministic, snapshot-bound, idempotent; Lifecycle Orchestration: time-driven, atomic, error-escalating |
+| **Governance** | docs/governance/CLAUDE_RULES.md § 7, § 16 | Settlement Engine Rule: deterministic, snapshot-bound, idempotent; Lifecycle Orchestration: time-driven, atomic, error-escalating |
 | **Test Suite** | `contestLifecycleCompletion.integration.test.js` | 6 tests: boundary (tournament_end_time), null handling, idempotency, missing snapshot, settlement binding, audit trail |
 | **Transition Status** | ✅ **FROZEN** | Both primitive and trigger frozen. Automatic, deterministic, settlement-bound. No manual paths in MVP. |
 
@@ -249,7 +249,7 @@ Primitive status and trigger status are independent classifications.
 |-------|--------|---------|
 | **Primitive** | ✅ **FROZEN** | `discoveryService.processDiscovery()` Phase 1 cascade — CTE atomicity, ordering (Phase 1 → 2 → 3) locked by tests |
 | **Trigger** | ✅ **FROZEN** | Discovery webhook pipeline (external provider contract stable) |
-| **Governance** | CLAUDE_RULES.md § 12 | Discovery Service Lifecycle Ordering — cascade ordering is immutable |
+| **Governance** | docs/governance/CLAUDE_RULES.md § 12 | Discovery Service Lifecycle Ordering — cascade ordering is immutable |
 | **Test Suite** | `discoveryService.cancellation.test.js` | Covers cascade atomicity, idempotency, ordering verification |
 | **Transition Status** | ✅ **FROZEN** | Both primitive and trigger frozen. Cascade ordering locked. |
 
@@ -261,7 +261,7 @@ Primitive status and trigger status are independent classifications.
 |-------|--------|---------|
 | **Primitive** | ✅ **FROZEN** | `adminContestService.cancelContestInstance()` — Test-locked, idempotent (returns noop=true if already CANCELLED) |
 | **Trigger** | ✅ **FROZEN** | Admin endpoint (`POST /api/admin/contests/:id/cancel`) — explicit, well-defined entry point |
-| **Governance** | CLAUDE_RULES.md § 16 | Admin transition, idempotency enforced |
+| **Governance** | docs/governance/CLAUDE_RULES.md § 16 | Admin transition, idempotency enforced |
 | **Test Suite** | `admin.contests.operations.test.js` | Covers idempotency, cancellation from various states |
 | **Transition Status** | ✅ **FROZEN** | Both primitive and trigger frozen. Well-defined, idempotent operation. |
 

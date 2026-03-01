@@ -41,11 +41,10 @@ struct AvailableContestsView: View {
                         }
                 } else {
                     ForEach(viewModel.regularContests) { contest in
-                        let payoutCents = contest.entryFeeCents * contest.entryCount
-                        let payoutDollars = payoutCents / 100
-                        let payoutText = contest.entryCount > 0 && payoutDollars > 0
-                            ? (contest.status == .complete ? "$\(payoutDollars) paid out" : "$\(payoutDollars) pot")
-                            : nil
+                        // Payout display: only show "Settled" for complete contests.
+                        // Backend-computed payouts available in payout_table at settlement.
+                        // Client does not compute pot/payout (no rake/rounding/tie logic).
+                        let payoutText: String? = contest.status == .complete ? "Settled" : nil
 
                         ContestRowView(
                             contestName: contest.contestName,

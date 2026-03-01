@@ -9,8 +9,12 @@
 import Foundation
 import Core
 
-/// Protocol for fetching contest detail by ID
-/// Returns Domain types only — no DTO exposure
+/// Protocol for fetching contest detail by ID.
+/// BOUNDARY CONTRACT: Implementations must perform pure DTO→Domain mapping only.
+/// Services must NOT embed business rules, conditional domain shaping,
+/// or lock/capacity/payout logic. Transport hygiene (HTTP status checks)
+/// is allowed. All domain decisions belong in ViewModels or Domain layer.
+/// Returns Domain types only — no DTO exposure to callers.
 protocol ContestDetailFetching: Sendable {
     func fetchContestActionState(contestId: UUID) async throws -> ContestActionState
     func fetchLeaderboard(contestId: UUID) async throws -> Leaderboard

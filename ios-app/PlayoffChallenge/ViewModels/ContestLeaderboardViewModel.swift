@@ -12,6 +12,12 @@ import Core
 
 /// ViewModel for Contest Leaderboard screen.
 /// Manages leaderboard data from the authoritative backend contract.
+///
+/// SNAPSHOT IMMUTABILITY CONTRACT:
+/// - LIVE leaderboards: Dynamic standings (refresh-capable, mutable)
+/// - COMPLETE leaderboards: Frozen settlement standings (single-fetch-only, immutable)
+/// - leaderboard_state=computed indicates final settlement
+/// - COMPLETE leaderboards will not refresh; treated as authoritative settlement record
 @MainActor
 final class ContestLeaderboardViewModel: ObservableObject {
 
@@ -25,14 +31,17 @@ final class ContestLeaderboardViewModel: ObservableObject {
 
     internal let contestId: UUID
     private let fetcher: ContestDetailFetching
+    private let contestStatus: ContestStatus  // Injected to determine immutability
 
     // MARK: - Initialization
 
     init(
         contestId: UUID,
+        status: ContestStatus = .scheduled,
         fetcher: ContestDetailFetching? = nil
     ) {
         self.contestId = contestId
+        self.contestStatus = status
         self.fetcher = fetcher ?? ContestDetailService()
     }
 
@@ -88,6 +97,13 @@ final class ContestLeaderboardViewModel: ObservableObject {
     }
 
     func refresh() async {
+        // IMMUTABILITY ENFORCEMENT: COMPLETE leaderboards are frozen.
+        // Do not refresh; settlement snapshot is authoritative and immutable.
+        guard contestStatus != .complete else {
+            print("ContestLeaderboardViewModel: Refresh blocked for COMPLETE contest (settlement is immutable)")
+            return
+        }
+
         await loadLeaderboard()
     }
 }

@@ -7,6 +7,16 @@ If any rule here conflicts with a suggested action, this file wins.
 
 ---
 
+## Governance Location
+
+**All governance documents live under:** `docs/governance/`
+
+If a copy exists elsewhere in the repository, it is obsolete and should be deleted.
+
+Single source of truth prevents drift.
+
+---
+
 Scout's rule - leave the place cleaner than when you arrived.
 
 ---
@@ -157,7 +167,7 @@ No silent math edits.
 # 8. NEVER WEAKEN SAFETY FOR CONVENIENCE
 
 Do not:
-- Remove constraints to “make it pass”
+- Remove constraints to "make it pass"
 - Bypass validation
 - Comment out failing tests
 - Add catch-all error suppression
@@ -744,6 +754,140 @@ If a document implies full-system freeze, it must explicitly clarify axis scope.
 Admin endpoints are intentionally excluded from openapi.yaml.
 
 A future `contracts/openapi-admin.yaml` may document them separately.
+
+---
+
+# 19. iOS SWEEP PROTOCOL (MANDATORY)
+
+All iOS development must follow the structured sweep batching model defined in:
+
+**`docs/governance/IOS_SWEEP_PROTOCOL.md`** (Authoritative for client work)
+
+This section reinforces the protocol's governance binding and non-negotiable rules.
+
+## Pre-Sweep Gate (Mandatory)
+
+Before any iOS implementation work, Claude must read:
+- docs/governance/CLAUDE_RULES.md (this file)
+- docs/governance/LIFECYCLE_EXECUTION_MAP.md
+- backend/contracts/openapi.yaml
+- ios-app/PlayoffChallenge/Contracts/* (all DTOs)
+- ios-app/PlayoffChallenge/ViewModels/* (all ViewModels)
+- ios-app/PlayoffChallenge/Services/* (all Services)
+
+**No implementation before this read.**
+
+## Sweep Execution Rules
+
+All iOS changes must follow the 5-sweep model:
+1. **Sweep 1** — Contract & Domain Integrity (MANDATORY)
+2. **Sweep 2** — Lineup & Lock Enforcement (MANDATORY)
+3. **Sweep 3** — Leaderboards (MANDATORY)
+4. **Sweep 4** — Payment Automation Surface (MANDATORY)
+5. **Sweep 5** — UX & Cosmetic Hardening (OPTIONAL)
+
+Each sweep must:
+- [ ] Run `swift build` (zero warnings)
+- [ ] Run `swift test` (all tests pass)
+- [ ] Fix until green
+- [ ] File Gap Report
+- [ ] Update relevant documentation
+
+**Exit Criteria:** No iOS changes complete until `swift build` and `swift test` pass.
+
+## Layer Boundary Enforcement
+
+### Forbidden Crossings
+
+- **DTO Mutation:** No modification without OpenAPI alignment
+- **DTO in State:** No DTOs in `@Published` properties (convert to Domain in ViewModel init)
+- **Service Calls in Views:** All Service calls must be in ViewModel only
+- **Business Logic in Views:** Decision logic belongs in ViewModel or Domain layer
+- **Client-Side Financial Math:** No payout calculation, score recalculation, or capacity math in iOS
+- **Status-Only Enforcement:** Entry gates must use `lock_time`, never status alone
+  - Correct: `canJoin = (now < lock_time) && status == "SCHEDULED"`
+  - Forbidden: `canJoin = status == "SCHEDULED"`
+
+### Contest Type Abstraction
+
+- Contest `type` field defines behavior (e.g., "PGA", "NFL")
+- ViewModels must remain sport-agnostic
+- Domain layer enforces contest-specific rules
+- Views must never hardcode type-specific logic
+
+## Non-Negotiable Rules
+
+### 1. No UI-Driven Lifecycle Modification
+
+The lifecycle primitives (SCHEDULED→LOCKED→LIVE→COMPLETE) are frozen in the backend.
+
+**Forbidden:**
+- iOS Views cannot request state changes (e.g., "Force LIVE button")
+- iOS ViewModels cannot bypass backend checks
+- iOS logic cannot decide when to transition contests
+- UI simplification must NOT modify backend invariants
+
+**Allowed:**
+- Display lifecycle state based on backend response
+- Show transitions visually (status badges, button state)
+- Interpret frozen lifecycle states for UX purposes
+
+**Violation Example:**
+```swift
+// ❌ FORBIDDEN: UI proposing state change
+button.action = {
+  await contestService.forceContestLive(contestId)
+}
+```
+
+**Correct Pattern:**
+```swift
+// ✅ ALLOWED: Display frozen state
+let isLive = contest.status == "LIVE"
+button.isEnabled = isLive && !contest.isSettled
+```
+
+### 2. Backend Invariants Override UX Simplification
+
+If backend enforces:
+- Time-based lock gates (lock_time)
+- Capacity limits (max_entries)
+- Status-based permissions (can_join in actions)
+- Snapshot-based leaderboards (COMPLETE uses settlement only)
+
+**Then iOS must enforce them too, even if UX becomes complex.**
+
+Example: If backend requires `lock_time < tournament_start_time` for some contest types, iOS cannot simplify this away by hiding LOCKED state.
+
+### 3. Gap Reporting is Mandatory
+
+At end of each sweep, Claude must document:
+- Contract gaps (missing fields, undocumented variations)
+- Architecture boundary gaps (boundary violations found)
+- Contest-type behavior gaps (type-specific logic discovered)
+- UI/Backend assumption drift (what UI assumes vs. what backend provides)
+- Recommended next sweep (based on gaps found)
+
+See `docs/governance/IOS_SWEEP_PROTOCOL.md` § 5 for format.
+
+### 4. Documentation Updates Before Finishing Session
+
+Every session must:
+- [ ] Update ViewModel comments with findings
+- [ ] Document contest-type rules if discovered
+- [ ] Update architecture docs if boundaries clarified
+- [ ] Note all gaps in appropriate files
+
+**Forbidden:** Silently leaving ambiguity in code or docs.
+
+## Snapshot Rendering Rule
+
+- **LIVE Leaderboard:** Use dynamic standings from API (can refresh)
+- **COMPLETE Leaderboard:** Use settlement_snapshot ONLY (immutable)
+
+**Selection Logic:** In ViewModel based on status, not View.
+
+**Forbidden:** Client-side score recalculation or payout math.
 
 ---
 

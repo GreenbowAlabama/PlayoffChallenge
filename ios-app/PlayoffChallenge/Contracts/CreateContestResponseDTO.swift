@@ -11,6 +11,12 @@ import Foundation
 /// Minimal draft representation returned by POST /api/custom-contests.
 /// Separate from ContestDetailResponseDTO (GET response) — different shapes.
 /// Only contains fields POST actually returns.
+///
+/// NOTE: This DTO uses camelCase property names with explicit CodingKeys mapping
+/// from snake_case wire format. This is intentional — this DTO predates the
+/// project-wide convention of using snake_case properties directly.
+/// All other Contracts/ DTOs use snake_case property names. Do not extend
+/// the camelCase pattern to new DTOs.
 struct CreateContestResponseDTO: Decodable {
     let id: UUID
     let templateId: UUID

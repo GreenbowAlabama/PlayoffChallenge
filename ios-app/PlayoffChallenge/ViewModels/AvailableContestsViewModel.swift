@@ -28,7 +28,10 @@ final class AvailableContestsViewModel: ObservableObject {
             .filter { $0.isPlatformOwned == true }
             .filter { $0.status != .complete && $0.status != .cancelled }
             .filter { contest in
-                // Exclude scheduled contests past their lock time
+                // PRESENTATION ONLY: Hide scheduled contests that have passed lock_time from
+                // featured display. This is a display-freshness filter, not a join gate.
+                // Join eligibility is determined exclusively by backend actions.canJoin.
+                // Backend re-validates all join constraints on every join attempt.
                 if contest.status == .scheduled,
                    let lockTime = contest.lockTime,
                    Date.now > lockTime {

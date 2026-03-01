@@ -9,6 +9,7 @@ import Foundation
 struct ContestDetailResponseDTO: Decodable {
     // Required fields
     let id: UUID
+    let contest_id: UUID?  // Alias for id per OpenAPI (client compatibility field; may be absent in legacy responses)
     let template_id: UUID
     let type: String
     let organizer_id: UUID
@@ -37,10 +38,13 @@ struct ContestDetailResponseDTO: Decodable {
     let lock_time: Date?
     let join_token: String?
     let is_platform_owned: Bool?
+    // Backend OMITS this key entirely for non-LIVE/COMPLETE statuses (per OpenAPI).
+    // iOS decodes as optional for safe handling when key is absent from JSON.
+    // Do NOT treat nil as "no standings computed" — check leaderboard_state instead.
     let standings: [StandingDTO]?
 
     enum CodingKeys: String, CodingKey {
-        case id, template_id, type, organizer_id, organizer_name
+        case id, contest_id, template_id, type, organizer_id, organizer_name
         case entry_fee_cents, payout_structure, contest_name
         case start_time, end_time, lock_time, max_entries, join_token
         case created_at, updated_at, is_platform_owned, status
@@ -54,6 +58,7 @@ struct ContestDetailResponseDTO: Decodable {
 
         // Required fields
         id = try c.decode(UUID.self, forKey: .id)
+        contest_id = try c.decodeIfPresent(UUID.self, forKey: .contest_id)
         template_id = try c.decode(UUID.self, forKey: .template_id)
         type = try c.decode(String.self, forKey: .type)
         organizer_id = try c.decode(UUID.self, forKey: .organizer_id)

@@ -18,16 +18,9 @@ struct FeaturedContestHeroView: View {
     }
 
     private var payoutDisplay: String? {
-        guard contest.entryCount > 0 else { return nil }
-        let totalCents = contest.entryFeeCents * contest.entryCount
-        let totalDollars = totalCents / 100
-        guard totalDollars > 0 else { return nil }
-
-        if contest.status == .complete {
-            return "$\(totalDollars) paid out"
-        } else {
-            return "$\(totalDollars) pot"
-        }
+        // FINANCIAL BOUNDARY: Client does not compute pot or payout.
+        // Backend settlement is authoritative via payout_table.
+        return contest.status == .complete ? "Settled" : nil
     }
 
     private var ctaText: String {
