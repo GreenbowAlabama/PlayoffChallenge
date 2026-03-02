@@ -221,14 +221,16 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       `INSERT INTO contest_instances (
         template_id, organizer_id, entry_fee_cents, payout_structure,
         status, contest_name, tournament_start_time, tournament_end_time,
-        lock_time, provider_event_id, is_platform_owned
+        lock_time, provider_event_id
+        -- is_platform_owned deliberately omitted: defaults to false (schema authoritative)
+        -- Reason: PGA_BASE contests must be visible to iOS users
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
       )
       ON CONFLICT (provider_event_id, template_id)
       WHERE provider_event_id IS NOT NULL
       DO NOTHING
-      RETURNING id`,
+      RETURNING id, is_platform_owned`,
       [
         tournamentTemplateId,
         organizerId,
@@ -239,15 +241,24 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
         event.start_time,
         event.end_time,
         event.start_time, // lock_time = tournament_start_time
-        event.provider_event_id,
-        true // is_platform_owned
+        event.provider_event_id
       ]
     );
 
     if (instanceInsertResult.rows.length > 0) {
       const contestInstanceId = instanceInsertResult.rows[0].id;
+      const isPlatformOwned = instanceInsertResult.rows[0].is_platform_owned;
       instance_created = true;
-      console.log(`[Discovery] Contest instance CREATED: id=${contestInstanceId}, event=${event.provider_event_id}`);
+
+      console.log(
+        `[Discovery] Contest instance CREATED: id=${contestInstanceId}, event=${event.provider_event_id}, is_platform_owned=${isPlatformOwned}`
+      );
+
+      if (isPlatformOwned === true) {
+        console.warn(
+          `[Discovery] ⚠️  GOVERNANCE ALERT: Contest ${contestInstanceId} has is_platform_owned=true. Expected false for iOS visibility.`
+        );
+      }
 
       // Audit logging (non-blocking: failures do not fail transaction)
       try {
@@ -268,7 +279,8 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
               provider_tournament_id: providerTournamentId,
               season_year: seasonYear,
               template_id: tournamentTemplateId,
-              event_name: event.name
+              event_name: event.name,
+              is_platform_owned: isPlatformOwned
             })
           ]
         );
@@ -279,7 +291,19 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
         );
       }
     } else {
-      console.log(`[Discovery] Contest instance already exists for event=${event.provider_event_id}`);
+      // Instance already exists: verify is_platform_owned is preserved
+      const existingInstance = await client.query(
+        `SELECT id, is_platform_owned FROM contest_instances
+         WHERE provider_event_id = $1 AND template_id = $2`,
+        [event.provider_event_id, tournamentTemplateId]
+      );
+
+      if (existingInstance.rows.length > 0) {
+        const existing = existingInstance.rows[0];
+        console.log(
+          `[Discovery] Contest instance already exists for event=${event.provider_event_id}, id=${existing.id}, is_platform_owned=${existing.is_platform_owned}`
+        );
+      }
     }
 
     await client.query('COMMIT');
