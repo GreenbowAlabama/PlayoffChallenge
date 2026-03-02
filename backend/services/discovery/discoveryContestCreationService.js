@@ -235,7 +235,7 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
         tournamentTemplateId,
         organizerId,
         baseTemplate.default_entry_fee_cents,
-        payoutStructure,
+        JSON.stringify(payoutStructure),
         'SCHEDULED',
         `${tournamentName} Contest`,
         event.start_time,
