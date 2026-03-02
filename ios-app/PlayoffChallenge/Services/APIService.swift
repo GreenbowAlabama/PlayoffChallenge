@@ -16,6 +16,8 @@ case unauthorized
 case notFound
 case restrictedState(String)
 case needsEligibility
+case validationError(String)
+case insufficientFunds
 
     var errorDescription: String? {
         switch self {
@@ -35,6 +37,10 @@ case needsEligibility
             return message
         case .needsEligibility:
             return "Eligibility confirmation required"
+        case .validationError(let message):
+            return message
+        case .insufficientFunds:
+            return "Insufficient wallet funds"
         }
     }
 }

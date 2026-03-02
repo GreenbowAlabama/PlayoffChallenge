@@ -211,9 +211,39 @@ async function computeWalletBalance(client, userId) {
   return parsed;
 }
 
+/**
+ * Get wallet ledger entries for a user.
+ *
+ * Returns all wallet transactions for a user, ordered by creation time (newest first).
+ * Used for wallet activity display and history.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} userId - UUID of user
+ * @param {number} [limit] - Maximum entries to return (default: 50)
+ * @returns {Promise<Array>} Array of ledger entries (empty array if none)
+ */
+async function getWalletLedger(pool, userId, limit = 50) {
+  if (!userId) {
+    throw new Error('userId is required');
+  }
+
+  const result = await pool.query(
+    `SELECT id, entry_type, direction, amount_cents, currency, reference_type,
+            reference_id, idempotency_key, created_at
+     FROM ledger
+     WHERE user_id = $1 AND reference_type = 'WALLET'
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [userId, limit]
+  );
+
+  return result.rows;
+}
+
 module.exports = {
   insertLedgerEntry,
   findByIdempotencyKey,
   getWalletBalance,
-  computeWalletBalance
+  computeWalletBalance,
+  getWalletLedger
 };

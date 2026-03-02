@@ -90,6 +90,15 @@ final class UserWalletViewModel: ObservableObject {
     /// Error message (if fetch failed).
     @Published private(set) var errorMessage: String? = nil
 
+    /// Loading indicator for deposit operations.
+    @Published private(set) var isDepositing: Bool = false
+
+    /// Loading indicator for withdrawal operations.
+    @Published private(set) var isWithdrawing: Bool = false
+
+    /// Stripe PaymentIntent client secret for deposit (set when fund succeeds).
+    @Published private(set) var depositClientSecret: String? = nil
+
     /// Computed formatted balance (display-only, no math).
     var displayBalance: String {
         guard let wallet = wallet else { return "$0.00" }
@@ -186,6 +195,115 @@ final class UserWalletViewModel: ObservableObject {
     /// Clear error message.
     func clearError() {
         errorMessage = nil
+    }
+
+    /// Deposit funds into wallet (create PaymentIntent).
+    /// - Parameter amountCents: Amount to deposit in cents
+    func depositFunds(amountCents: Int) async {
+        print("[UserWalletViewModel] depositFunds(\(amountCents) cents)")
+
+        guard let userId = authService.currentUser?.id else {
+            errorMessage = "Please sign in to deposit funds"
+            return
+        }
+
+        isDepositing = true
+        errorMessage = nil
+        depositClientSecret = nil
+
+        do {
+            // Generate unique idempotency key for this deposit request
+            let idempotencyKey = UUID().uuidString
+
+            let fundResponse = try await walletService.fundWallet(
+                amountCents: amountCents,
+                idempotencyKey: idempotencyKey
+            )
+
+            await MainActor.run {
+                print("[UserWalletViewModel] Deposit succeeded: client_secret available")
+                self.depositClientSecret = fundResponse.client_secret
+                self.isDepositing = false
+            }
+
+            // After payment sheet completes, refresh wallet
+            // (In UI, this would be called after Stripe payment sheet dismisses)
+        } catch APIError.validationError(let message) {
+            await MainActor.run {
+                self.errorMessage = message
+                self.isDepositing = false
+            }
+        } catch APIError.unauthorized {
+            await MainActor.run {
+                self.errorMessage = "Please sign in to deposit funds"
+                self.isDepositing = false
+            }
+        } catch {
+            await MainActor.run {
+                print("[UserWalletViewModel] Deposit failed: \(error)")
+                self.errorMessage = error.localizedDescription
+                self.isDepositing = false
+            }
+        }
+    }
+
+    /// Withdraw funds from wallet.
+    /// - Parameter amountCents: Amount to withdraw in cents
+    func withdraw(amountCents: Int) async {
+        print("[UserWalletViewModel] withdraw(\(amountCents) cents)")
+
+        guard let userId = authService.currentUser?.id else {
+            errorMessage = "Please sign in to withdraw funds"
+            return
+        }
+
+        isWithdrawing = true
+        errorMessage = nil
+
+        do {
+            // Generate unique idempotency key for this withdrawal request
+            let idempotencyKey = UUID().uuidString
+
+            let withdrawResponse = try await walletService.withdrawFunds(
+                amountCents: amountCents,
+                method: "standard",
+                idempotencyKey: idempotencyKey
+            )
+
+            await MainActor.run {
+                print("[UserWalletViewModel] Withdrawal succeeded: \(withdrawResponse.withdrawal_id), status=\(withdrawResponse.status)")
+                self.isWithdrawing = false
+            }
+
+            // Refresh wallet to reflect deducted balance
+            await fetchWallet()
+        } catch APIError.insufficientFunds {
+            await MainActor.run {
+                self.errorMessage = "Insufficient wallet funds"
+                self.isWithdrawing = false
+            }
+        } catch APIError.validationError(let message) {
+            await MainActor.run {
+                self.errorMessage = message
+                self.isWithdrawing = false
+            }
+        } catch APIError.unauthorized {
+            await MainActor.run {
+                self.errorMessage = "Please sign in to withdraw funds"
+                self.isWithdrawing = false
+            }
+        } catch {
+            await MainActor.run {
+                print("[UserWalletViewModel] Withdrawal failed: \(error)")
+                self.errorMessage = error.localizedDescription
+                self.isWithdrawing = false
+            }
+        }
+    }
+
+    /// Clear deposit client secret (after payment sheet completes).
+    func clearDepositClientSecret() {
+        depositClientSecret = nil
     }
 
     // MARK: - Private Helpers

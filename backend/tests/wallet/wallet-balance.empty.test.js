@@ -48,13 +48,22 @@ describe('Wallet Balance — Empty', () => {
     mockPool.reset();
   });
 
-  it('should return 0 balance when no wallet ledger entries exist', async () => {
-    // Mock the SUM query to return 0 for empty wallet
+  it('should return 0 balance with empty ledger when no wallet entries exist', async () => {
+    // Mock the balance query to return 0
     mockPool.setQueryResponse(
-      /FROM ledger/i,
+      /COALESCE.*SUM.*FROM ledger/i,
       {
         rows: [{ balance_cents: 0 }],
         rowCount: 1
+      }
+    );
+
+    // Mock the ledger query to return empty array
+    mockPool.setQueryResponse(
+      /SELECT.*FROM ledger.*WHERE user_id.*ORDER BY created_at/i,
+      {
+        rows: [],
+        rowCount: 0
       }
     );
 
@@ -65,7 +74,8 @@ describe('Wallet Balance — Empty', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
-      balance_cents: 0
+      balance_cents: 0,
+      ledger: []
     });
   });
 

@@ -754,6 +754,137 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/wallet:
+    get:
+      tags:
+        - Wallet
+      summary: Get user wallet balance and ledger
+      description: Retrieve the authenticated user's wallet balance and transaction history
+      operationId: getWallet
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Wallet balance and ledger retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/wallet/fund:
+    post:
+      tags:
+        - Wallet
+      summary: Create wallet top-up PaymentIntent
+      description: Create a Stripe PaymentIntent for depositing funds into the wallet (QA/testing)
+      operationId: fundWallet
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Unique request identifier for idempotency
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletFundRequest'
+      responses:
+        '200':
+          description: PaymentIntent created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletFundResponse'
+        '400':
+          description: Invalid request (amount, header, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error (Stripe or database)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/wallet/withdraw:
+    post:
+      tags:
+        - Wallet
+      summary: Create wallet withdrawal request
+      description: Create a withdrawal request to transfer funds from wallet to bank account
+      operationId: withdrawFunds
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Unique request identifier for idempotency
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletWithdrawRequest'
+      responses:
+        '200':
+          description: Withdrawal created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletWithdrawResponse'
+        '400':
+          description: Invalid request (amount, method, header, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Insufficient wallet funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1498,3 +1629,108 @@ components:
         metadata:
           type: object
           description: Additional leaderboard metadata
+
+    LedgerEntry:
+      type: object
+      description: Wallet ledger transaction entry
+      properties:
+        id:
+          type: string
+          format: uuid
+        entry_type:
+          type: string
+          description: Type of ledger entry (e.g., WALLET_DEPOSIT, WALLET_DEBIT, ENTRY_FEE)
+        direction:
+          type: string
+          enum: [CREDIT, DEBIT]
+        amount_cents:
+          type: integer
+          description: Amount in cents
+        currency:
+          type: string
+          default: USD
+        reference_type:
+          type: string
+          description: Type of related entity (WALLET, CONTEST, stripe_event)
+        reference_id:
+          type: string
+          description: ID of related entity
+        idempotency_key:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    WalletResponse:
+      type: object
+      description: User wallet balance and transaction history
+      required:
+        - balance_cents
+      properties:
+        balance_cents:
+          type: integer
+          description: Current wallet balance in cents
+        ledger:
+          type: array
+          description: Recent wallet transactions (newest first)
+          items:
+            $ref: '#/components/schemas/LedgerEntry'
+
+    WalletFundRequest:
+      type: object
+      description: Request to create wallet top-up PaymentIntent
+      required:
+        - amount_cents
+      properties:
+        amount_cents:
+          type: integer
+          description: Amount to deposit in cents (must be positive)
+
+    WalletFundResponse:
+      type: object
+      description: Response from wallet fund request
+      required:
+        - client_secret
+        - amount_cents
+      properties:
+        client_secret:
+          type: string
+          description: Stripe PaymentIntent client secret for payment sheet
+        amount_cents:
+          type: integer
+          description: Amount to be deposited in cents
+
+    WalletWithdrawRequest:
+      type: object
+      description: Request to create wallet withdrawal
+      required:
+        - amount_cents
+        - method
+      properties:
+        amount_cents:
+          type: integer
+          description: Amount to withdraw in cents (must be positive)
+        method:
+          type: string
+          enum: [standard, instant]
+          description: Withdrawal method (standard or instant)
+
+    WalletWithdrawResponse:
+      type: object
+      description: Response from wallet withdrawal request
+      required:
+        - withdrawal_id
+        - status
+        - amount_cents
+      properties:
+        withdrawal_id:
+          type: string
+          format: uuid
+          description: Withdrawal request ID
+        status:
+          type: string
+          description: Current withdrawal status (REQUESTED, PROCESSING, PAID, FAILED, CANCELLED)
+        amount_cents:
+          type: integer
+          description: Withdrawal amount in cents

@@ -14,11 +14,21 @@ struct WalletDetailView: View {
     @ObservedObject var viewModel: UserWalletViewModel
     @Environment(\.dismiss) var dismiss
 
+    @State private var showDepositSheet = false
+    @State private var showWithdrawSheet = false
+    @State private var depositAmount: String = "10.00"
+    @State private var withdrawAmount: String = ""
+
     var body: some View {
         VStack(spacing: 0) {
             // Header: Balance
             walletBalanceHeaderView
                 .padding(.vertical, DesignTokens.Spacing.xl)
+                .padding(.horizontal, DesignTokens.Spacing.lg)
+
+            // Action buttons
+            walletActionButtonsView
+                .padding(.vertical, DesignTokens.Spacing.md)
                 .padding(.horizontal, DesignTokens.Spacing.lg)
                 .background(Color(.systemGray6))
 
@@ -52,9 +62,219 @@ struct WalletDetailView: View {
             print("[WalletDetailView] Pull-to-refresh triggered")
             await viewModel.refreshBalance()
         }
+        .sheet(isPresented: $showDepositSheet) {
+            depositSheet
+        }
+        .sheet(isPresented: $showWithdrawSheet) {
+            withdrawSheet
+        }
     }
 
     // MARK: - Subviews
+
+    @ViewBuilder
+    private var walletActionButtonsView: some View {
+        HStack(spacing: DesignTokens.Spacing.md) {
+            // Add Funds button
+            Button(action: {
+                print("[WalletDetailView] Add Funds button tapped")
+                showDepositSheet = true
+            }) {
+                HStack {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Add Funds")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(DesignTokens.Spacing.md)
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(8)
+            }
+            .disabled(viewModel.isDepositing || viewModel.isWithdrawing)
+
+            // Withdraw button
+            Button(action: {
+                print("[WalletDetailView] Withdraw button tapped")
+                showWithdrawSheet = true
+            }) {
+                HStack {
+                    Image(systemName: "arrow.up.circle.fill")
+                    Text("Withdraw")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(DesignTokens.Spacing.md)
+                .background(Color.orange)
+                .foregroundColor(.white)
+                .cornerRadius(8)
+            }
+            .disabled(viewModel.isWithdrawing || viewModel.isDepositing)
+        }
+    }
+
+    @ViewBuilder
+    private var depositSheet: some View {
+        NavigationStack {
+            VStack(spacing: DesignTokens.Spacing.lg) {
+                Text("Add Funds to Wallet")
+                    .font(.headline)
+                    .padding(.top, DesignTokens.Spacing.lg)
+
+                // Preset amount buttons
+                VStack(spacing: DesignTokens.Spacing.md) {
+                    ForEach(["5.00", "10.00", "25.00", "50.00"], id: \.self) { amount in
+                        Button(action: {
+                            print("[WalletDetailView:DepositSheet] Amount selected: $\(amount)")
+                            depositAmount = amount
+                        }) {
+                            Text("$\(amount)")
+                                .frame(maxWidth: .infinity)
+                                .padding(DesignTokens.Spacing.md)
+                                .background(depositAmount == amount ? Color.blue : Color(.systemGray5))
+                                .foregroundColor(depositAmount == amount ? .white : .primary)
+                                .cornerRadius(8)
+                        }
+                    }
+                }
+
+                Spacer()
+
+                // Action button
+                if viewModel.isDepositing {
+                    VStack {
+                        ProgressView()
+                        Text("Creating payment...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(DesignTokens.Spacing.lg)
+                } else {
+                    Button(action: {
+                        let cents = Int(Double(depositAmount) ?? 0 * 100)
+                        print("[WalletDetailView:DepositSheet] Proceed button tapped")
+                        print("[WalletDetailView:DepositSheet] Converting $\(depositAmount) to \(cents) cents")
+                        Task {
+                            print("[WalletDetailView:DepositSheet] Calling viewModel.depositFunds(amountCents: \(cents))")
+                            await viewModel.depositFunds(amountCents: cents)
+                            // After successful deposit, refresh wallet
+                            if viewModel.depositClientSecret != nil {
+                                print("[WalletDetailView:DepositSheet] Payment succeeded, refreshing balance")
+                                await viewModel.refreshBalance()
+                                showDepositSheet = false
+                            } else {
+                                print("[WalletDetailView:DepositSheet] No client secret received, payment may have failed")
+                            }
+                        }
+                    }) {
+                        Text("Proceed to Payment")
+                            .frame(maxWidth: .infinity)
+                            .padding(DesignTokens.Spacing.md)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                }
+
+                // Error message
+                if let error = viewModel.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+            .padding(DesignTokens.Spacing.lg)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Close") { showDepositSheet = false }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var withdrawSheet: some View {
+        NavigationStack {
+            VStack(spacing: DesignTokens.Spacing.lg) {
+                Text("Withdraw from Wallet")
+                    .font(.headline)
+                    .padding(.top, DesignTokens.Spacing.lg)
+
+                // Display current balance
+                VStack(spacing: DesignTokens.Spacing.xs) {
+                    Text("Available Balance")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(viewModel.displayBalance)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(DesignTokens.Spacing.md)
+                .background(Color(.systemGray6))
+                .cornerRadius(8)
+
+                // Amount input
+                VStack(spacing: DesignTokens.Spacing.sm) {
+                    Text("Withdrawal Amount")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack {
+                        Text("$")
+                            .font(.body)
+                        TextField("0.00", text: $withdrawAmount)
+                            .keyboardType(.decimalPad)
+                            .font(.body)
+                    }
+                    .padding(DesignTokens.Spacing.md)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
+                }
+
+                Spacer()
+
+                // Action button
+                if viewModel.isWithdrawing {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(DesignTokens.Spacing.lg)
+                } else {
+                    Button(action: {
+                        let cents = Int(Double(withdrawAmount) ?? 0 * 100)
+                        Task {
+                            await viewModel.withdraw(amountCents: cents)
+                            if viewModel.errorMessage == nil {
+                                showWithdrawSheet = false
+                            }
+                        }
+                    }) {
+                        Text("Withdraw")
+                            .frame(maxWidth: .infinity)
+                            .padding(DesignTokens.Spacing.md)
+                            .background(Color.orange)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                }
+
+                // Error message
+                if let error = viewModel.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+            .padding(DesignTokens.Spacing.lg)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Close") { showWithdrawSheet = false }
+                }
+            }
+        }
+    }
 
     @ViewBuilder
     private var walletBalanceHeaderView: some View {
@@ -168,5 +388,13 @@ struct WalletDetailView: View {
 class MockWalletService: WalletFetching {
     func fetchWallet() async throws -> WalletResponseDTO {
         return WalletResponseDTO(balance_cents: 50000, ledger: nil)
+    }
+
+    func fundWallet(amountCents: Int, idempotencyKey: String) async throws -> WalletFundResponseDTO {
+        return WalletFundResponseDTO(client_secret: "pi_mock_\(UUID().uuidString)", amount_cents: amountCents)
+    }
+
+    func withdrawFunds(amountCents: Int, method: String, idempotencyKey: String) async throws -> WalletWithdrawResponseDTO {
+        return WalletWithdrawResponseDTO(withdrawal_id: UUID().uuidString, status: "PROCESSING", amount_cents: amountCents)
     }
 }

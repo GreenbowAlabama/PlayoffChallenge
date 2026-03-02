@@ -326,7 +326,7 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING id, entry_type, direction, amount_cents`,
-      [userId, 'WALLET_DEBIT', 'DEBIT', withdrawal.amount_cents, 'WITHDRAWAL', withdrawalId, idempotencyKey]
+      [userId, 'WALLET_DEBIT', 'DEBIT', withdrawal.amount_cents, 'WALLET', withdrawalId, idempotencyKey]
     );
 
     // If debit was inserted, rowCount > 0
@@ -351,7 +351,7 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
         existingDebit.entry_type === 'WALLET_DEBIT' &&
         existingDebit.direction === 'DEBIT' &&
         parseInt(existingDebit.amount_cents, 10) === withdrawal.amount_cents &&
-        existingDebit.reference_type === 'WITHDRAWAL' &&
+        existingDebit.reference_type === 'WALLET' &&
         existingDebit.reference_id === withdrawalId
       );
 
@@ -359,7 +359,7 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
         await client.query('ROLLBACK');
         throw new Error(
           `Invariant violation: WALLET_DEBIT with idempotency_key ${idempotencyKey} exists but fields mismatch. ` +
-          `Expected: WALLET_DEBIT, DEBIT, ${withdrawal.amount_cents}, WITHDRAWAL, ${withdrawalId}. ` +
+          `Expected: WALLET_DEBIT, DEBIT, ${withdrawal.amount_cents}, WALLET, ${withdrawalId}. ` +
           `Found: ${JSON.stringify(existingDebit)}`
         );
       }

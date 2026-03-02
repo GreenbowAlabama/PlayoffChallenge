@@ -94,3 +94,59 @@ struct LedgerEntryDTO: Decodable {
         created_at = try c.decode(String.self, forKey: .created_at)
     }
 }
+
+/// DTO for wallet fund (deposit) request to POST /api/wallet/fund
+struct WalletFundRequestDTO: Encodable {
+    /// Amount to deposit in cents (must be positive)
+    let amount_cents: Int
+
+    enum CodingKeys: String, CodingKey {
+        case amount_cents = "amount_cents"
+    }
+}
+
+/// DTO for wallet fund response from POST /api/wallet/fund
+struct WalletFundResponseDTO: Decodable {
+    /// Stripe PaymentIntent client secret for payment sheet
+    let client_secret: String
+
+    /// Amount to be deposited in cents
+    let amount_cents: Int
+
+    enum CodingKeys: String, CodingKey {
+        case client_secret = "client_secret"
+        case amount_cents = "amount_cents"
+    }
+}
+
+/// DTO for wallet withdrawal request to POST /api/wallet/withdraw
+struct WalletWithdrawRequestDTO: Encodable {
+    /// Amount to withdraw in cents (must be positive)
+    let amount_cents: Int
+
+    /// Withdrawal method: "standard" or "instant"
+    let method: String
+
+    enum CodingKeys: String, CodingKey {
+        case amount_cents = "amount_cents"
+        case method = "method"
+    }
+}
+
+/// DTO for wallet withdrawal response from POST /api/wallet/withdraw
+struct WalletWithdrawResponseDTO: Decodable {
+    /// Unique withdrawal request ID (UUID)
+    let withdrawal_id: String
+
+    /// Current withdrawal status (REQUESTED, PROCESSING, PAID, FAILED, CANCELLED)
+    let status: String
+
+    /// Withdrawal amount in cents
+    let amount_cents: Int
+
+    enum CodingKeys: String, CodingKey {
+        case withdrawal_id = "withdrawal_id"
+        case status = "status"
+        case amount_cents = "amount_cents"
+    }
+}

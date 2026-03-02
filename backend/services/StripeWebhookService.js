@@ -110,9 +110,9 @@ async function handleStripeEvent(rawBody, stripeSignature, pool) {
 /**
  * Process payment_intent.succeeded event.
  *
- * Creates ledger entry for successful payment.
- * Handles idempotency: if payment already marked SUCCEEDED, skip ledger insert.
- * If ledger entry already exists (via idempotency_key), treat as idempotent success.
+ * Routes to appropriate handler based on purpose metadata:
+ * - WALLET_TOPUP: Wallet deposit flow
+ * - (default): Entry fee contest join flow
  *
  * @param {Object} client - Database transaction client
  * @param {Object} event - Stripe event object
@@ -121,6 +121,101 @@ async function handleStripeEvent(rawBody, stripeSignature, pool) {
  * @throws {Error} Error with code property
  */
 async function processPaymentIntentSucceeded(client, event, stripeEventsId) {
+  const purpose = event.data.object.metadata?.purpose;
+
+  if (purpose === 'WALLET_TOPUP') {
+    await handleWalletTopupSuccess(client, event);
+  } else {
+    await handleEntryFeeSuccess(client, event);
+  }
+}
+
+/**
+ * Handle wallet top-up PaymentIntent success.
+ *
+ * Updates wallet_deposit_intents status and inserts ledger CREDIT.
+ *
+ * @param {Object} client - Database transaction client
+ * @param {Object} event - Stripe event object
+ * @returns {Promise<void>}
+ * @throws {Error}
+ */
+async function handleWalletTopupSuccess(client, event) {
+  const stripePaymentIntentId = event.data.object.id;
+  const amountCents = event.data.object.amount;
+  const userId = event.data.object.metadata?.user_id;
+
+  if (!userId) {
+    throw new Error('WALLET_TOPUP payment intent missing user_id in metadata');
+  }
+
+  // Find wallet_deposit_intent by stripe_payment_intent_id
+  const walletIntentResult = await client.query(
+    `SELECT id, user_id, amount_cents, status FROM wallet_deposit_intents
+     WHERE stripe_payment_intent_id = $1`,
+    [stripePaymentIntentId]
+  );
+
+  if (walletIntentResult.rows.length === 0) {
+    throw new Error(`Wallet deposit intent not found: ${stripePaymentIntentId}`);
+  }
+
+  const walletIntent = walletIntentResult.rows[0];
+
+  // If already SUCCEEDED, skip ledger insert (idempotent)
+  if (walletIntent.status === 'SUCCEEDED') {
+    return;
+  }
+
+  // Update wallet_deposit_intent status to SUCCEEDED
+  await client.query(
+    `UPDATE wallet_deposit_intents SET status = $1, updated_at = NOW() WHERE id = $2`,
+    ['SUCCEEDED', walletIntent.id]
+  );
+
+  // Insert ledger CREDIT entry
+  const ledgerIdempotencyKey = `wallet_deposit:${event.id}`;
+
+  try {
+    await LedgerRepository.insertLedgerEntry(client, {
+      user_id: userId,
+      entry_type: 'WALLET_DEPOSIT',
+      direction: 'CREDIT',
+      amount_cents: amountCents,
+      currency: 'USD',
+      reference_type: 'WALLET',
+      reference_id: userId,
+      stripe_event_id: event.id,
+      idempotency_key: ledgerIdempotencyKey
+    });
+  } catch (err) {
+    if (process.env.NODE_ENV === 'test') {
+      console.error('Wallet ledger insert error:', {
+        message: err.message,
+        code: err.code,
+        constraint: err.constraint,
+        detail: err.detail
+      });
+    }
+    // If duplicate idempotency_key (PG error 23505), treat as idempotent success
+    if (err.code === '23505') {
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Handle entry fee PaymentIntent success.
+ *
+ * Original payment_intent.succeeded handler for contest entry fees.
+ *
+ * @param {Object} client - Database transaction client
+ * @param {Object} event - Stripe event object
+ * @returns {Promise<void>}
+ * @throws {Error}
+ */
+async function handleEntryFeeSuccess(client, event) {
   // Extract Stripe payment intent ID
   const stripePaymentIntentId = event.data.object.id;
   const amountCents = event.data.object.amount;

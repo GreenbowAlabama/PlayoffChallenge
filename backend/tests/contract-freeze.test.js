@@ -31,11 +31,12 @@ describe('Contract Freeze', () => {
       .digest('hex');
 
     // Expected hash (update this when intentionally changing the contract)
-    // This hash was generated after UI-Contract Parity Audit (2026-02-19):
-    // - Added organizer_name (optional, nullable) to ContestDetailResponse
-    // - Added lock_time (optional, nullable) to ContestDetailResponse
-    // - Brings detail endpoint into parity with list endpoint
-    const expectedHash = '0246282fac60b98d9f691156e46be8675985b7546c51e85e638326c899799a9d';
+    // This hash was generated after Wallet API Implementation (2026-03-02):
+    // - Added GET /api/wallet endpoint (returns balance + ledger)
+    // - Added POST /api/wallet/fund endpoint (creates PaymentIntent)
+    // - Added POST /api/wallet/withdraw endpoint (creates withdrawal request)
+    // - Added wallet schemas: WalletResponse, WalletFundRequest, WalletFundResponse, WalletWithdrawRequest, WalletWithdrawResponse, LedgerEntry
+    const expectedHash = '7f09629fb071f081d037334ea7d08fc4cb03538c336d228c220526579a8064f8';
 
     // The hashes must match - if they don't, the contract has drifted
     expect(currentHash).toBe(expectedHash);
@@ -61,7 +62,10 @@ describe('Contract Freeze', () => {
       '/api/users',
       '/api/auth/register',
       '/api/auth/login',
-      '/api/user'
+      '/api/user',
+      '/api/wallet',
+      '/api/wallet/fund',
+      '/api/wallet/withdraw'
     ];
 
     requiredPaths.forEach((path) => {

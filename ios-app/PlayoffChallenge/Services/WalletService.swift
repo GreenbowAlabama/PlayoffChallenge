@@ -14,6 +14,8 @@ import Core
 /// DTO→Domain conversion happens in ViewModel.
 protocol WalletFetching: Sendable {
     func fetchWallet() async throws -> WalletResponseDTO
+    func fundWallet(amountCents: Int, idempotencyKey: String) async throws -> WalletFundResponseDTO
+    func withdrawFunds(amountCents: Int, method: String, idempotencyKey: String) async throws -> WalletWithdrawResponseDTO
 }
 
 /// Production implementation for wallet fetching.
@@ -86,6 +88,166 @@ final class WalletService: WalletFetching, @unchecked Sendable {
             return walletDTO
         } catch {
             print("[WalletService] Failed to decode response: \(error)")
+            throw APIError.decodingError
+        }
+    }
+
+    /// Create wallet top-up PaymentIntent (idempotent).
+    /// - Parameters:
+    ///   - amountCents: Amount to deposit in cents
+    ///   - idempotencyKey: Unique request identifier
+    /// - Returns: WalletFundResponseDTO with client_secret for payment sheet
+    /// - Throws: APIError on network, validation, or server error
+    func fundWallet(amountCents: Int, idempotencyKey: String) async throws -> WalletFundResponseDTO {
+        let url = URL(string: "\(baseURL)/api/wallet/fund")!
+
+        print("[WalletService:Fund] ========== STARTING FUND WALLET ==========")
+        print("[WalletService:Fund] Target URL: \(url)")
+        print("[WalletService:Fund] Amount: \(amountCents) cents ($\(Double(amountCents) / 100.0))")
+        print("[WalletService:Fund] Idempotency Key: \(idempotencyKey)")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+
+        print("[WalletService:Fund] Headers added: Content-Type=application/json, Idempotency-Key=\(idempotencyKey)")
+
+        // Add Authorization header
+        if let userId = authService.currentUser?.id {
+            let bearerToken = userId.uuidString
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+            print("[WalletService:Fund] Authorization header added: Bearer \(bearerToken.prefix(20))...")
+        } else {
+            print("[WalletService:Fund] ERROR: No authenticated user available")
+            throw APIError.unauthorized
+        }
+
+        // Build request body
+        let requestBody = WalletFundRequestDTO(amount_cents: amountCents)
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(requestBody)
+        print("[WalletService:Fund] Request body encoded: amount_cents=\(amountCents)")
+
+        print("[WalletService:Fund] Sending request...")
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            print("[WalletService:Fund] ERROR: Invalid response type (not HTTPURLResponse)")
+            throw APIError.invalidResponse
+        }
+
+        print("[WalletService:Fund] Response received: HTTP \(http.statusCode)")
+        print("[WalletService:Fund] Response headers: \(http.allHeaderFields)")
+        print("[WalletService:Fund] Response body size: \(data.count) bytes")
+
+        switch http.statusCode {
+        case 200:
+            print("[WalletService:Fund] Status 200: Success")
+        case 400:
+            let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            print("[WalletService:Fund] Status 400: \(errorMsg)")
+            throw APIError.validationError("Invalid request")
+        case 401:
+            print("[WalletService:Fund] Status 401: Unauthorized")
+            throw APIError.unauthorized
+        default:
+            let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            print("[WalletService:Fund] Status \(http.statusCode): \(errorMsg)")
+            throw APIError.serverError("Server returned \(http.statusCode): \(errorMsg)")
+        }
+
+        let decoder = JSONDecoder()
+        do {
+            let fundResponse = try decoder.decode(WalletFundResponseDTO.self, from: data)
+            print("[WalletService:Fund] Decoded response: client_secret=\(fundResponse.client_secret.prefix(20))..., amount=\(fundResponse.amount_cents)")
+            print("[WalletService:Fund] ========== FUND WALLET SUCCESS ==========")
+            return fundResponse
+        } catch {
+            print("[WalletService:Fund] ERROR: Failed to decode response: \(error)")
+            print("[WalletService:Fund] Raw response data: \(String(data: data, encoding: .utf8) ?? "Unable to convert to string")")
+            throw APIError.decodingError
+        }
+    }
+
+    /// Create wallet withdrawal request (idempotent).
+    /// - Parameters:
+    ///   - amountCents: Amount to withdraw in cents
+    ///   - method: Withdrawal method ("standard" or "instant")
+    ///   - idempotencyKey: Unique request identifier
+    /// - Returns: WalletWithdrawResponseDTO with withdrawal_id and status
+    /// - Throws: APIError on network, validation, insufficient funds, or server error
+    func withdrawFunds(amountCents: Int, method: String, idempotencyKey: String) async throws -> WalletWithdrawResponseDTO {
+        let url = URL(string: "\(baseURL)/api/wallet/withdraw")!
+
+        print("[WalletService:Withdraw] ========== STARTING WITHDRAWAL ==========")
+        print("[WalletService:Withdraw] Target URL: \(url)")
+        print("[WalletService:Withdraw] Amount: \(amountCents) cents ($\(Double(amountCents) / 100.0))")
+        print("[WalletService:Withdraw] Method: \(method)")
+        print("[WalletService:Withdraw] Idempotency Key: \(idempotencyKey)")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+
+        print("[WalletService:Withdraw] Headers added: Content-Type=application/json, Idempotency-Key=\(idempotencyKey)")
+
+        // Add Authorization header
+        if let userId = authService.currentUser?.id {
+            let bearerToken = userId.uuidString
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+            print("[WalletService:Withdraw] Authorization header added: Bearer \(bearerToken.prefix(20))...")
+        } else {
+            print("[WalletService:Withdraw] ERROR: No authenticated user available")
+            throw APIError.unauthorized
+        }
+
+        // Build request body
+        let requestBody = WalletWithdrawRequestDTO(amount_cents: amountCents, method: method)
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(requestBody)
+        print("[WalletService:Withdraw] Request body encoded: amount_cents=\(amountCents), method=\(method)")
+
+        print("[WalletService:Withdraw] Sending request...")
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            print("[WalletService:Withdraw] ERROR: Invalid response type (not HTTPURLResponse)")
+            throw APIError.invalidResponse
+        }
+
+        print("[WalletService:Withdraw] Response received: HTTP \(http.statusCode)")
+        print("[WalletService:Withdraw] Response body size: \(data.count) bytes")
+
+        switch http.statusCode {
+        case 200:
+            print("[WalletService:Withdraw] Status 200: Success")
+        case 400:
+            let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            print("[WalletService:Withdraw] Status 400: \(errorMsg)")
+            throw APIError.validationError("Invalid request")
+        case 401:
+            print("[WalletService:Withdraw] Status 401: Unauthorized")
+            throw APIError.unauthorized
+        case 422:
+            print("[WalletService:Withdraw] Status 422: Insufficient funds")
+            throw APIError.insufficientFunds
+        default:
+            let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            print("[WalletService:Withdraw] Status \(http.statusCode): \(errorMsg)")
+            throw APIError.serverError("Server returned \(http.statusCode): \(errorMsg)")
+        }
+
+        let decoder = JSONDecoder()
+        do {
+            let withdrawResponse = try decoder.decode(WalletWithdrawResponseDTO.self, from: data)
+            print("[WalletService:Withdraw] Decoded response: withdrawal_id=\(withdrawResponse.withdrawal_id), status=\(withdrawResponse.status), amount=\(withdrawResponse.amount_cents)")
+            print("[WalletService:Withdraw] ========== WITHDRAWAL SUCCESS ==========")
+            return withdrawResponse
+        } catch {
+            print("[WalletService:Withdraw] ERROR: Failed to decode response: \(error)")
+            print("[WalletService:Withdraw] Raw response data: \(String(data: data, encoding: .utf8) ?? "Unable to convert to string")")
             throw APIError.decodingError
         }
     }
