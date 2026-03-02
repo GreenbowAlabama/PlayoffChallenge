@@ -94,6 +94,9 @@ async function computeAvailableBalance(client, userId) {
  * @returns {Promise<Object>} Withdrawal or error response
  */
 async function createWithdrawalRequest(pool, userId, input, environment) {
+  // Normalize UUID to lowercase to ensure consistent idempotency keys
+  userId = userId.toLowerCase();
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -251,6 +254,9 @@ async function createWithdrawalRequest(pool, userId, input, environment) {
  * @returns {Promise<Object>} { success, withdrawal, stripe_payout_id } or error
  */
 async function processWithdrawal(pool, withdrawalId, stripeAccount) {
+  // Normalize UUID to lowercase to ensure consistent idempotency keys
+  withdrawalId = withdrawalId.toLowerCase();
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -530,6 +536,10 @@ async function handlePayoutFailed(pool, payout) {
  * @returns {Promise<Object>} { success, withdrawal } or error
  */
 async function cancelWithdrawal(pool, withdrawalId, userId) {
+  // Normalize UUIDs to lowercase to ensure consistent idempotency keys
+  withdrawalId = withdrawalId.toLowerCase();
+  userId = userId.toLowerCase();
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

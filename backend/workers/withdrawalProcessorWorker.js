@@ -213,8 +213,8 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
 
     // 2. If REQUESTED, transition to PROCESSING (insert debit idempotently)
     if (withdrawal.status === 'REQUESTED') {
-      // Insert ledger DEBIT idempotently
-      const idempotencyKey = `wallet_debit:${withdrawal.id}:${withdrawal.user_id}`;
+      // Insert ledger DEBIT idempotently (normalize UUIDs to lowercase)
+      const idempotencyKey = `wallet_debit:${withdrawal.id.toLowerCase()}:${withdrawal.user_id.toLowerCase()}`;
 
       await pool.query(
         `INSERT INTO ledger (
@@ -325,8 +325,8 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
     }
 
     // Permanent error OR max retries exhausted
-    // Insert reversal to return funds to wallet
-    const reversalIdempotencyKey = `wallet_withdrawal_reversal:${withdrawal.id}`;
+    // Insert reversal to return funds to wallet (normalize UUID to lowercase)
+    const reversalIdempotencyKey = `wallet_withdrawal_reversal:${withdrawal.id.toLowerCase()}`;
 
     await pool.query(
       `INSERT INTO ledger (

@@ -1070,6 +1070,10 @@ async function publishContestInstance(pool, instanceId, organizerId) {
  * @returns {Promise<Object>} Join result { joined: true, participant } or { joined: false, error_code, reason }
  */
 async function joinContest(pool, contestInstanceId, userId, optionalToken = null) {
+  // Normalize UUIDs to lowercase to ensure consistent idempotency keys
+  userId = userId.toLowerCase();
+  contestInstanceId = contestInstanceId.toLowerCase();
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
