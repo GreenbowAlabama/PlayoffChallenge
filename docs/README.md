@@ -1,16 +1,6 @@
-# Welcome to Playoff Challenge Development
+# Playoff Challenge Development
 
-Welcome to the Playoff Challenge team. This documentation guides you through the governance infrastructure, frozen invariants, and development workflow for the fantasy football playoff app.
-
-## What is Playoff Challenge?
-
-Playoff Challenge is a fantasy football application where users pick NFL players and compete for prizes based on real-time performance during the NFL playoffs.
-
-Users can:
-- Pick players for each playoff week
-- Track live scores during games
-- View leaderboards and compete with friends
-- Manage payment and prize distribution (backend-authoritative)
+Welcome to the Playoff Challenge team. This documentation guides you through the governance infrastructure, frozen invariants, and development workflow.
 
 ## System Architecture Overview
 
@@ -19,7 +9,7 @@ Users can:
 This system operates under **Governance First** discipline:
 
 1. **Frozen Invariants** — Protected by comprehensive test suites
-   - Financial atomicity (wallet debit on join)
+   - Financial atomicity (atomic operations on join)
    - Lifecycle state machine (all 4 transitions)
    - Settlement snapshot binding
    - Mutation surface seal
@@ -41,9 +31,9 @@ This system operates under **Governance First** discipline:
 |-----------|-----------|---------|
 | **iOS App** | Swift / SwiftUI | Primary user interface |
 | **Backend API** | Node.js / Express | REST API with contest lifecycle |
-| **Database** | PostgreSQL (Railway) | Authoritative state store |
-| **Test Suite** | Jest (Node) + Swift test | 1995+ backend tests, Swift unit tests |
-| **External APIs** | ESPN, Sleeper | Live stats and player data |
+| **Database** | PostgreSQL | Authoritative state store |
+| **Test Suite** | Jest (Node) + Swift test | Comprehensive backend + client tests |
+| **External APIs** | Multiple providers | Data integration |
 
 ## Repository Structure Overview
 
@@ -52,19 +42,17 @@ playoff-challenge/
 ├── docs/governance/                 ← GOLDEN REFERENCE (read first)
 │   ├── CLAUDE_RULES.md             [✓] Global governance, frozen layers
 │   ├── LIFECYCLE_EXECUTION_MAP.md   [✓] All state transitions
-│   ├── FINANCIAL_INVARIANTS.md      [✓] Wallet & entry fee rules
+│   ├── FINANCIAL_INVARIANTS.md      [✓] Atomic operation rules
 │   ├── IOS_SWEEP_PROTOCOL.md        [✓] Layer boundary enforcement
 │   └── ARCHITECTURE_ENFORCEMENT.md  [✓] Design system enforcement
+├── docs/archive/                    ← SUPERSEDED DOCS (historical reference only)
 ├── backend/                         ← BACKEND SERVICE
 │   ├── contracts/openapi.yaml       [✓] Public API contract (frozen)
 │   ├── db/schema.snapshot.sql       [✓] Authoritative schema
 │   ├── services/                    [✓] Domain logic (frozen primitives)
-│   │   ├── contestLifecycleService.js
-│   │   ├── customContestService.js
-│   │   └── discovery/discoveryService.js
-│   └── tests/                       [✓] 1995+ tests (invariant-locked)
+│   └── tests/                       [✓] Comprehensive test coverage
 │       ├── e2e/                     [✓] Lifecycle & settlement (frozen)
-│       ├── discovery/               [✓] Cascade & ordering (117 tests)
+│       ├── governance/              [✓] Cascade & ordering
 │       └── services/                [✓] Financial & domain logic
 ├── ios-app/PlayoffChallenge/        ← iOS CLIENT
 │   ├── Contracts/                   [✓] DTOs (OpenAPI-aligned)
@@ -99,21 +87,21 @@ Follow these sections **in order**. All development flows through governance lay
 
 ### 1. Prerequisites
 
-docs/setup/Prerequisites.md
+docs/setup/Prerequisites.md (if present)
 
 ### 2. Development Environment Setup
 
-- `docs/setup/Backend-Setup.md` — Node/PostgreSQL/Jest setup
-- `docs/setup/iOS-Setup.md` — Xcode/Swift setup
+- Backend setup: See docs/setup/ or backend/README.md
+- iOS setup: See ios-app/README.md or docs/setup/iOS-Setup.md
 - Scripts directory: `scripts/README.md`
 
 ### 3. Understanding System & Frozen Infrastructure
 
 **Read these in order:**
 
-1. `docs/architecture/Architecture-Deep-Dive.md` — System design
+1. `docs/governance/CLAUDE_RULES.md` — Global governance, frozen layers
 2. `docs/governance/LIFECYCLE_EXECUTION_MAP.md` — State machine (all 4 transitions)
-3. `docs/governance/FINANCIAL_INVARIANTS.md` — Wallet atomicity rules
+3. `docs/governance/FINANCIAL_INVARIANTS.md` — Atomic operation rules
 4. `docs/governance/IOS_SWEEP_PROTOCOL.md` — Layer boundary enforcement
 
 ### 4. Working with Frozen Infrastructure
@@ -138,8 +126,6 @@ docs/setup/Prerequisites.md
 
 ### 5. Making Changes
 
-`docs/process/Making-Changes.md`
-
 **Mandatory workflow:**
 1. Read all governance files (hard gate)
 2. Understand scope: frozen vs evolving layer
@@ -154,46 +140,46 @@ docs/setup/Prerequisites.md
 
 | Component | Evidence | Status |
 |-----------|----------|--------|
-| **Financial Atomicity** | `joinContest()` with wallet lock | Tests: `customContest.service.test.js` |
+| **Financial Atomicity** | Atomic operations with wallet locking | Test-locked |
 | **Entry Fee Immutability** | DB trigger after publish | `schema.snapshot.sql` |
-| **Lifecycle State Machine** | 4 atomic transitions | Tests: `contestLifecycleTransitions.integration.test.js`, `contestLifecycleCompletion.integration.test.js` |
-| **Settlement Snapshot Binding** | `transitionLiveToComplete()` | Tests: `pgaSettlementInvariants.test.js` |
-| **Mutation Surface** | All status via `contestLifecycleService` | Tests: `mutation-surface-seal.test.js` |
-| **Discovery Cascade** | Phase 1→2→3 ordering | Tests: `discoveryService.cancellation.test.js` |
-| **OpenAPI Contract** | `backend/contracts/openapi.yaml` | Freeze test: `openapi-freeze.test.js` |
+| **Lifecycle State Machine** | 4 atomic transitions | Test-locked across all transitions |
+| **Settlement Snapshot Binding** | `transitionLiveToComplete()` | Test-locked |
+| **Mutation Surface** | All status via `contestLifecycleService` | Test-locked |
+| **Provider Cascade** | Phase 1→2→3 ordering | Test-locked |
+| **OpenAPI Contract** | `backend/contracts/openapi.yaml` | Freeze test: immutable hash |
 | **Database Schema** | `backend/db/schema.snapshot.sql` | Authoritative source |
 
 ### 🔄 OPERATIONAL (Implemented, HA pending)
 
 | Component | Details | Next Steps |
 |-----------|---------|-----------|
-| **Lifecycle Reconciler** | 30s poller, 3-phase orchestration | Monitoring + multi-instance HA |
-| **Discovery Webhook** | Provider cancellation cascade | Event-driven enhancement |
+| **Lifecycle Reconciler** | Automatic state machine orchestration | Monitoring + multi-instance HA |
+| **Provider Pipeline** | Cascade & state transition automation | Event-driven enhancement |
 | **Admin Operations** | Sealed mutation primitives | Formal OpenAPI documentation |
 
-### 🔜 EVOLVING (Not yet started)
+### 🔜 EVOLVING (Design phase)
 
 | Layer | Scope | Dependencies |
 |-------|-------|--------------|
 | **Contract Versioning Runtime** | Multi-version API routing | Frozen invariants (Phase 1) |
-| **Tournament Discovery Automation** | Auto-template + external events | Frozen lifecycle (Phase 2) |
+| **Tournament Automation** | Auto-template + external events | Frozen lifecycle (Phase 2) |
 | **Advanced Monitoring** | Dashboards + alerts + SLOs | Operational layer (Phase 3) |
 
 ## Test Infrastructure
 
 ### Core Test Suites (Frozen Primitives)
 
-**Backend** — Comprehensive test coverage across multiple suites:
+**Backend** — Comprehensive test coverage:
 
-| Suite | Purpose | Evidence |
-|-------|---------|----------|
-| **Lifecycle Transitions** | SCHEDULED→LOCKED→LIVE primitives | `contestLifecycleTransitions.integration.test.js` |
-| **Lifecycle Completion** | LIVE→COMPLETE + snapshot binding | `contestLifecycleCompletion.integration.test.js` |
-| **Settlement Isolation** | LIVE/CANCELLED independence | `cancellationSettlementIsolation.test.js` |
-| **Admin Operations** | Sealed mutation primitives | `admin.contests.operations.test.js` |
-| **Discovery Service** | Cascade + ordering + idempotency | `tests/discovery/` (multiple files) |
-| **Financial Invariants** | Join + wallet + debit atomicity | `customContest.service.test.js` |
-| **Contract Freeze** | OpenAPI immutability enforcement | `openapi-freeze.test.js` |
+| Suite | Purpose |
+|-------|---------|
+| **Lifecycle Transitions** | State machine transitions (SCHEDULED→LOCKED→LIVE→COMPLETE) |
+| **Lifecycle Completion** | Settlement + snapshot binding |
+| **Settlement Isolation** | Multi-contest independence |
+| **Admin Operations** | Sealed mutation primitives |
+| **Governance Layer** | Cascade ordering + idempotency |
+| **Financial Integrity** | Join + wallet + debit atomicity |
+| **Contract Freeze** | OpenAPI immutability enforcement |
 
 **iOS** — Swift unit tests:
 - Layer boundary enforcement (DTO/ViewModel/View isolation)
@@ -204,27 +190,27 @@ docs/setup/Prerequisites.md
 
 Use these for rapid validation (don't run full suite on every change):
 
-**Tier 1 — Discovery Surface**
+**Tier 1 — Governance Surface**
 ```bash
 cd backend && \
-ADMIN_JWT_SECRET=test-admin-jwt-secret \
-TEST_DB_ALLOW_DBNAME=railway \
-npm test -- tests/discovery/ --runInBand --forceExit
+ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-test-admin-jwt-secret} \
+TEST_DB_ALLOW_DBNAME=${TEST_DB_ALLOW_DBNAME:-railway} \
+npm test -- tests/governance/ --runInBand --forceExit
 ```
 
-**Tier 2 — Settlement Invariants**
+**Tier 2 — Frozen Invariants**
 ```bash
 cd backend && \
-ADMIN_JWT_SECRET=test-admin-jwt-secret \
-TEST_DB_ALLOW_DBNAME=railway \
-npm test -- tests/e2e/pgaSettlementInvariants.test.js --runInBand --forceExit
+ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-test-admin-jwt-secret} \
+TEST_DB_ALLOW_DBNAME=${TEST_DB_ALLOW_DBNAME:-railway} \
+npm test -- tests/e2e/ --runInBand --forceExit
 ```
 
 **Tier 3 — Full Backend Validation**
 ```bash
 cd backend && \
-ADMIN_JWT_SECRET=test-admin-jwt-secret \
-TEST_DB_ALLOW_DBNAME=railway \
+ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-test-admin-jwt-secret} \
+TEST_DB_ALLOW_DBNAME=${TEST_DB_ALLOW_DBNAME:-railway} \
 npm test -- --forceExit
 ```
 
@@ -232,16 +218,12 @@ npm test -- --forceExit
 
 ## Operational Documentation
 
-`docs/operations/` — Runbooks, incident response, troubleshooting.
-
-## Release & Testing Documentation
-
-`docs/implementations/` — Feature rollout, testing strategies, deployment procedures.
+`docs/operations/` — Runbooks, incident response, troubleshooting (if present).
 
 ## Governance & AI Workflow
 
 - `CLAUDE.md` — Master AI usage rules and discipline
-- `docs/governance/` — All governance documents (7 files)
+- `docs/governance/` — All governance documents (5 files)
 - `scripts/launch-claude.sh` — System mode bootstrap
 
 ## Quick Links
@@ -252,16 +234,14 @@ npm test -- --forceExit
 | `docs/governance/CLAUDE_RULES.md` | Global governance + frozen layers |
 | `docs/governance/IOS_SWEEP_PROTOCOL.md` | iOS development structure |
 | `backend/contracts/openapi.yaml` | Public API contract |
-| Production API | https://playoffchallenge-production.up.railway.app |
-| Health check | https://playoffchallenge-production.up.railway.app/health |
 
 ## Important Notes
 
 ### Security
 
-- **Never commit secrets** — All secrets via Railway environment variables
+- **Never commit secrets** — All secrets via environment variables
 - **Public repository** — Assume all code is visible
-- **Database credentials** — Only in Railway, never in code
+- **Database credentials** — Only in env vars, never in code
 
 ### Development Discipline
 
@@ -304,7 +284,7 @@ npm test -- --forceExit
 1. **Read governance files** — Start with `docs/governance/CLAUDE_RULES.md`
 2. **Understand system scope** — Which layer does your work touch?
 3. **Review frozen infrastructure** — What can't you change?
-4. **Set up development environment** — `docs/setup/` (Backend + iOS)
+4. **Set up development environment** — See setup docs
 5. **Run fast feedback tiers** — Validate your changes quickly
 6. **Make changes with discipline** — Respect boundaries, update tests, document decisions
 

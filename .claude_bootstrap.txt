@@ -1,26 +1,126 @@
 67 ENTERPRISES — SYSTEM MODE (GOVERNANCE BOOT)
 
-HARD GATE:
-- Your first action is to READ the files below.
-- After reading them, your first output must be exactly:
+================================================================================
+HARD GATE: Read governance files in order before any work
+================================================================================
+
+Your first action is to READ the files below.
+After reading them, your first output must be exactly:
   READ COMPLETE
 
 NO CLAIMS RULE:
-- Do not claim test counts, past defects, completion status, or “memory context”
+- Do not claim test counts, past defects, completion status, or "memory context"
   unless you have verified it by reading repo files in THIS session.
 
+================================================================================
 READ THESE FILES (IN ORDER):
-1. docs/governance/CLAUDE_RULES.md
-2. docs/governance/LIFECYCLE_EXECUTION_MAP.md
-3. docs/governance/FINANCIAL_INVARIANTS.md
-4. docs/governance/IOS_SWEEP_PROTOCOL.md
-5. docs/governance/ARCHITECTURE_ENFORCEMENT.md
-6. backend/contracts/openapi.yaml
-7. backend/db/schema.snapshot.sql
+================================================================================
 
-OPERATING RULES:
-- Respect frozen financial invariants
-- Respect lifecycle ordering (Phase 1 → 2 → 3)
-- Respect mutation surface seal
-- Never weaken tests to satisfy code
-- Operate at system scope, not feature scope
+1. docs/governance/CLAUDE_RULES.md
+   → Global governance, frozen invariants, architecture boundaries
+   → Change control & system maturity matrix
+
+2. docs/governance/LIFECYCLE_EXECUTION_MAP.md
+   → Authoritative lifecycle state machine
+   → All 4 transitions (SCHEDULED→LOCKED→LIVE→COMPLETE, CANCELLED)
+
+3. docs/governance/FINANCIAL_INVARIANTS.md
+   → Atomic wallet debit on join (frozen)
+   → Entry fee immutability (DB-enforced)
+   → Idempotency & error handling
+
+4. docs/governance/IOS_SWEEP_PROTOCOL.md
+   → Layer boundary enforcement (DTO→Domain→ViewModel→View)
+   → Time-based lock enforcement (not status-only)
+   → Financial boundary protection (backend-authoritative)
+
+5. docs/governance/ARCHITECTURE_ENFORCEMENT.md
+   → Design system token enforcement (iOS)
+   → Radius & spacing normalization
+
+6. backend/contracts/openapi.yaml
+   → Public API contract (immutable)
+   → All response shapes for client consumption
+
+7. backend/db/schema.snapshot.sql
+   → Authoritative database schema
+   → All triggers, constraints, functions
+
+================================================================================
+OPERATING RULES (NON-NEGOTIABLE):
+================================================================================
+
+✓ Respect frozen financial invariants
+✓ Respect lifecycle ordering (Phase 1 → 2 → 3)
+✓ Respect mutation surface seal (only contestLifecycleService writes status)
+✓ Never weaken tests to satisfy code
+✓ Operate at system scope, not feature scope
+
+Frozen Primitives (Protected by Tests):
+  • All 4 lifecycle transitions (atomic, idempotent, deterministic)
+  • Wallet debit atomicity on join
+  • Settlement snapshot binding
+  • Discovery cascade ordering (Phase 1 → 2 → 3)
+
+Golden Contracts (No Breaking Changes):
+  • backend/contracts/openapi.yaml (hash-locked)
+  • backend/db/schema.snapshot.sql (authoritative)
+  • CLAUDE.md (master instructions)
+
+iOS Architecture (Non-Negotiable):
+  • DTOs never leak into ViewModel state
+  • Service calls only in ViewModel, never Views
+  • Lock enforcement uses lock_time (not status alone)
+  • No client-side financial math or score recalculation
+  • Contest type abstraction preserved
+
+================================================================================
+FAST FEEDBACK TIERS (Available for Testing):
+================================================================================
+
+Tier 1 — Discovery Service (117 tests, ~10s)
+  cd backend && \
+  ADMIN_JWT_SECRET=test-admin-jwt-secret \
+  TEST_DB_ALLOW_DBNAME=railway \
+  npm test -- tests/discovery/ --runInBand --forceExit
+
+Tier 2 — Settlement Invariants (6 tests, ~5s)
+  cd backend && \
+  ADMIN_JWT_SECRET=test-admin-jwt-secret \
+  TEST_DB_ALLOW_DBNAME=railway \
+  npm test -- tests/e2e/pgaSettlementInvariants.test.js --runInBand --forceExit
+
+Tier 3 — Full Backend Validation (1995+ tests, ~60s)
+  cd backend && \
+  ADMIN_JWT_SECRET=test-admin-jwt-secret \
+  TEST_DB_ALLOW_DBNAME=railway \
+  npm test -- --forceExit
+
+================================================================================
+TASK: Operate at system scope, not feature scope
+================================================================================
+
+Your work must:
+1. Respect all frozen infrastructure (no silent edits)
+2. Update governance docs if behavior changes
+3. Ensure tests validate your changes
+4. Add progress markers to documentation
+5. Maintain clarity on frozen vs evolving layers
+
+Feature work must not:
+- Break frozen invariants or contracts
+- Bypass mutation surface seal
+- Weaken or skip tests
+- Introduce undocumented drift
+- Violate architecture boundaries
+
+================================================================================
+YOU ARE NOW IN SYSTEM MODE
+================================================================================
+
+All feature-specific context is secondary.
+Governance layer is primary.
+Frozen infrastructure is non-negotiable.
+
+Proceed with read-first discipline.
+

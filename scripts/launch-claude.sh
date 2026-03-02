@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/Users/iancarter/Documents/workspace/playoff-challenge"
+ROOT="${ROOT:-.}"
 
 echo ""
 echo "==============================================="
@@ -65,18 +65,18 @@ echo ""
 
 echo "[✓] Frozen Infrastructure Layer:"
 echo "    [✓] Financial Invariants (FROZEN)"
-echo "        - Atomic join debit with wallet locking"
+echo "        - Atomic operations with wallet/entry locking"
 echo "        - Entry fee immutability DB-enforced"
 echo "        - Idempotency key uniqueness via constraint"
 echo "    [✓] Lifecycle Engine (FROZEN)"
-echo "        - SCHEDULED → LOCKED primitive"
-echo "        - LOCKED → LIVE primitive"
-echo "        - LIVE → COMPLETE with settlement binding"
-echo "        - CANCELLED cascade (provider & admin)"
+echo "        - All 4 state transitions (atomic, idempotent, deterministic)"
+echo "        - Mutation surface sealed (contestLifecycleService only)"
+echo "        - Provider-initiated cascades (atomic via CTE)"
+echo "        - Admin operations via frozen single-instance primitives"
 echo "    [✓] Mutation Surface (SEALED)"
 echo "        - All status mutations via contestLifecycleService"
-echo "        - Admin paths use frozen single-instance primitives"
-echo "        - Discovery cascade atomic via CTE"
+echo "        - Admin paths use frozen primitives"
+echo "        - No direct UPDATE status outside frozen layer"
 echo "    [✓] OpenAPI Contract (FROZEN)"
 echo "        - Public client-facing contract immutable"
 echo "        - Freeze test enforces hash stability"
@@ -91,25 +91,25 @@ echo ""
 
 echo "[✓] Backend Test Layer:"
 echo "    [✓] Core Invariant Tests (Frozen Primitives)"
-echo "        - Lifecycle transitions tests (SCHEDULED → LOCKED → LIVE)"
-echo "        - Lifecycle completion tests (LIVE → COMPLETE)"
-echo "        - Settlement isolation tests"
-echo "        - Admin operations tests (sealed mutation surface)"
-echo "    [✓] Discovery Service Tests (Governance Locked)"
-echo "        - Cancellation cascade tests (atomicity + idempotency)"
-echo "        - Lifecycle ordering: Phase 1 → 2 → 3 enforced"
-echo "        - Comprehensive discovery test suite"
+echo "        - Lifecycle state machine tests (all transitions)"
+echo "        - Settlement snapshot binding tests"
+echo "        - Mutation surface seal tests"
+echo "        - Admin operations tests (sealed via frozen primitives)"
+echo "    [✓] Governance Tests (Contract Enforcement)"
+echo "        - Provider-initiated cascades (atomicity + idempotency)"
+echo "        - Lifecycle phase ordering enforcement"
+echo "        - Comprehensive governance test coverage"
 echo "    [✓] Financial Integrity Tests"
-echo "        - Join flow with wallet atomicity"
-echo "        - Idempotent wallet debit"
+echo "        - Join flow with atomic operations"
+echo "        - Idempotency key uniqueness"
 echo "        - Balance computation tests"
 echo "    [✓] Contract Freeze Tests"
-echo "        - OpenAPI hash validation (tests/openapi-freeze.test.js)"
+echo "        - OpenAPI immutability validation"
 echo "        - Schema mutation prevention"
 echo "    [✓] Fast Feedback Tiers (Run before merge)"
-echo "        - Tier 1: Discovery surface"
-echo "        - Tier 2: Settlement invariants"
-echo "        - Tier 3: Full backend validation"
+echo "        - Tier 1: Governance surface tests (~N tests, ~10s)"
+echo "        - Tier 2: Frozen invariant tests (~N tests, ~5s)"
+echo "        - Tier 3: Full backend validation (all suites, ~60s)"
 echo ""
 
 # ============================================================================
@@ -127,9 +127,9 @@ echo "    [✓] Snapshot Rendering (LIVE vs COMPLETE segregated)"
 echo ""
 
 echo "[✓] iOS Design System Enforcement:"
-echo "    [✓] Radius Token Enforcement (37 files migrated)"
-echo "    [✓] Spacing Token Enforcement (85+ normalizations)"
-echo "    [✓] CI Guards in place (enforcement scripts operational)"
+echo "    [✓] Radius Token Enforcement (CI guard operational)"
+echo "    [✓] Spacing Token Enforcement (CI guard operational)"
+echo "    [✓] Design system drift prevention active"
 echo ""
 
 # ============================================================================
@@ -147,16 +147,16 @@ echo "      • OpenAPI contract (public schema immutable)"
 echo "      • Database schema (authoritative snapshot)"
 echo ""
 echo "    OPERATIONAL (Implemented, HA Pending):"
-echo "      • Background lifecycle reconciler (30s interval)"
-echo "      • Discovery webhook pipeline"
+echo "      • Background lifecycle reconciler"
+echo "      • Provider-initiated cascade pipeline"
 echo "      • Monitoring & alerting (partial)"
 echo ""
-echo "    EVOLVING (Not yet started):"
+echo "    EVOLVING (Design phase):"
 echo "      • Contract versioning runtime"
 echo "      • Tournament discovery automation"
 echo "      • Auto-template generation"
 echo ""
-echo "    PENDING (Out of scope, Phase 2+):"
+echo "    PENDING (Future phases):"
 echo "      • Distributed HA hardening"
 echo "      • Advanced monitoring dashboards"
 echo "      • Multi-region failover"
@@ -196,7 +196,7 @@ READ THESE FILES (IN ORDER):
    → All 4 transitions (SCHEDULED→LOCKED→LIVE→COMPLETE, CANCELLED)
 
 3. docs/governance/FINANCIAL_INVARIANTS.md
-   → Atomic wallet debit on join (frozen)
+   → Atomic operations on join (frozen)
    → Entry fee immutability (DB-enforced)
    → Idempotency & error handling
 
@@ -229,9 +229,9 @@ OPERATING RULES (NON-NEGOTIABLE):
 
 Frozen Primitives (Protected by Tests):
   • All 4 lifecycle transitions (atomic, idempotent, deterministic)
-  • Wallet debit atomicity on join
+  • Atomic operations with wallet/entry locking
   • Settlement snapshot binding
-  • Discovery cascade ordering (Phase 1 → 2 → 3)
+  • Provider-initiated cascade ordering (Phase 1 → 2 → 3)
 
 Golden Contracts (No Breaking Changes):
   • backend/contracts/openapi.yaml (hash-locked)
@@ -249,22 +249,24 @@ iOS Architecture (Non-Negotiable):
 FAST FEEDBACK TIERS (Available for Testing):
 ================================================================================
 
-Tier 1 — Discovery Service (117 tests, ~10s)
+Tier 1 — Governance Surface Tests
   cd backend && \
-  ADMIN_JWT_SECRET=test-admin-jwt-secret \
-  TEST_DB_ALLOW_DBNAME=railway \
-  npm test -- tests/discovery/ --runInBand --forceExit
+  ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-test-admin-jwt-secret} \
+  TEST_DB_ALLOW_DBNAME=${TEST_DB_ALLOW_DBNAME:-railway} \
+  npm test -- tests/governance/ --runInBand --forceExit
 
-Tier 2 — Settlement Invariants (6 tests, ~5s)
-  cd backend && \
-  ADMIN_JWT_SECRET=test-admin-jwt-secret \
-  TEST_DB_ALLOW_DBNAME=railway \
-  npm test -- tests/e2e/pgaSettlementInvariants.test.js --runInBand --forceExit
+  (See docs/governance/CLAUDE_RULES.md § 15 for test suite location)
 
-Tier 3 — Full Backend Validation (1995+ tests, ~60s)
+Tier 2 — Frozen Invariant Tests
   cd backend && \
-  ADMIN_JWT_SECRET=test-admin-jwt-secret \
-  TEST_DB_ALLOW_DBNAME=railway \
+  ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-test-admin-jwt-secret} \
+  TEST_DB_ALLOW_DBNAME=${TEST_DB_ALLOW_DBNAME:-railway} \
+  npm test -- tests/e2e/ --runInBand --forceExit
+
+Tier 3 — Full Backend Validation
+  cd backend && \
+  ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-test-admin-jwt-secret} \
+  TEST_DB_ALLOW_DBNAME=${TEST_DB_ALLOW_DBNAME:-railway} \
   npm test -- --forceExit
 
 ================================================================================
