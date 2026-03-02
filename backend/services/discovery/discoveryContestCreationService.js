@@ -150,6 +150,9 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
     const seasonYear = event.start_time.getFullYear();
     const tournamentName = `PGA — ${event.name} ${seasonYear}`;
 
+    console.log(`[Discovery] Processing: ${providerTournamentId} (${event.name}) season=${seasonYear}`);
+    console.log(`[Discovery] Base template: id=${baseTemplate.id}, fee=${baseTemplate.default_entry_fee_cents}¢`);
+
     // Step 2: Insert tournament template (clone from base, idempotent)
     const templateInsertResult = await client.query(
       `INSERT INTO contest_templates (
@@ -177,8 +180,10 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       // New template created
       tournamentTemplateId = templateInsertResult.rows[0].id;
       template_created = true;
+      console.log(`[Discovery] Tournament template CREATED: id=${tournamentTemplateId}`);
     } else {
       // Template already exists, resolve its ID
+      console.log(`[Discovery] Tournament template exists, resolving ID...`);
       const existingResult = await client.query(
         `SELECT id FROM contest_templates
          WHERE provider_tournament_id = $1
@@ -190,6 +195,9 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
 
       if (existingResult.rows.length > 0) {
         tournamentTemplateId = existingResult.rows[0].id;
+        console.log(`[Discovery] Tournament template resolved: id=${tournamentTemplateId}`);
+      } else {
+        console.warn(`[Discovery] ⚠️  Could not resolve tournament template: ${providerTournamentId}/${seasonYear}`);
       }
     }
 
@@ -239,6 +247,7 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
     if (instanceInsertResult.rows.length > 0) {
       const contestInstanceId = instanceInsertResult.rows[0].id;
       instance_created = true;
+      console.log(`[Discovery] Contest instance CREATED: id=${contestInstanceId}, event=${event.provider_event_id}`);
 
       // Audit logging (non-blocking: failures do not fail transaction)
       try {
@@ -269,6 +278,8 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
           `[Discovery] Audit log failed for contest ${contestInstanceId}: ${auditErr.message}`
         );
       }
+    } else {
+      console.log(`[Discovery] Contest instance already exists for event=${event.provider_event_id}`);
     }
 
     await client.query('COMMIT');
