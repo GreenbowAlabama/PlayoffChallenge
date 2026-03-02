@@ -84,8 +84,6 @@ export function DiagnosticsDashboard() {
   });
 
   const {
-    data: lifecycleHealth,
-    isLoading: lifecycleLoading,
     refetch: refetchLifecycleHealth,
     isFetching: lifecycleFetching,
   } = useQuery({

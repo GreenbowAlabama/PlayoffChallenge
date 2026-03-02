@@ -18,7 +18,6 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { getLifecycleHealth } from '../api/diagnostics';
-import type { LifecycleHealthResponse } from '../types';
 
 // ============================================
 // STATUS INDICATOR COMPONENT
