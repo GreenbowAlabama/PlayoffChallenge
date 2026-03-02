@@ -32,6 +32,7 @@ final class ContestLeaderboardViewModel: ObservableObject {
     internal let contestId: UUID
     private let fetcher: ContestDetailFetching
     private let contestStatus: ContestStatus  // Injected to determine immutability
+    private var currentUserId: UUID?
 
     // MARK: - Initialization
 
@@ -43,6 +44,12 @@ final class ContestLeaderboardViewModel: ObservableObject {
         self.contestId = contestId
         self.contestStatus = status
         self.fetcher = fetcher ?? ContestDetailService()
+    }
+
+    /// Configure the user ID for leaderboard fetches.
+    /// Called from parent View with fresh authService.currentUser?.id.
+    func configure(currentUserId: UUID?) {
+        self.currentUserId = currentUserId
     }
 
     // MARK: - Computed Properties
@@ -86,7 +93,11 @@ final class ContestLeaderboardViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let fetched = try await fetcher.fetchLeaderboard(contestId: contestId)
+            // Pass currentUserId explicitly — set via configure() from View
+            let fetched = try await fetcher.fetchLeaderboard(
+                contestId: contestId,
+                userId: currentUserId
+            )
             leaderboard = fetched
         } catch {
             errorMessage = error.localizedDescription

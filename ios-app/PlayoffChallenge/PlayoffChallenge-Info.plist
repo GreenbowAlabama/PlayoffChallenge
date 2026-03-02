@@ -4,5 +4,7 @@
 <dict>
 	<key>API_BASE_URL</key>
 	<string>$(API_BASE_URL)</string>
+	<key>JOIN_BASE_URL</key>
+	<string>$(JOIN_BASE_URL)</string>
 </dict>
 </plist>

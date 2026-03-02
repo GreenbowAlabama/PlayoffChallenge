@@ -459,6 +459,14 @@ func deleteAccount(userId: UUID) async throws {
   var request = URLRequest(url: url)
   request.httpMethod = "DELETE"
   request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+  addCapabilityHeaders(to: &request)
+  addAuthorizationHeader(to: &request)
+
+  // INSTRUMENTATION: Log request details before sending
+  print("🔍 DELETE ACCOUNT DEBUG:")
+  print("   URL: \(url.absoluteString)")
+  print("   Method: \(request.httpMethod ?? "UNKNOWN")")
+  print("   Headers: \(request.allHTTPHeaderFields ?? [:])")
 
   let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -466,11 +474,21 @@ func deleteAccount(userId: UUID) async throws {
       throw APIError.invalidResponse
   }
 
+  // INSTRUMENTATION: Log response details
+  print("🔍 DELETE ACCOUNT RESPONSE:")
+  print("   Status Code: \(httpResponse.statusCode)")
+  if let rawBody = String(data: data, encoding: .utf8) {
+    print("   Raw Body: \(rawBody)")
+  } else {
+    print("   Raw Body: [could not stringify]")
+  }
+
   if httpResponse.statusCode == 401 {
       throw APIError.unauthorized
   }
 
-  guard httpResponse.statusCode == 200 else {
+  // Accept both 200 (OK) and 204 (No Content) as success
+  guard (200...204).contains(httpResponse.statusCode) else {
       if let errorDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
          let errorMessage = errorDict["error"] as? String {
           throw APIError.serverError(errorMessage)

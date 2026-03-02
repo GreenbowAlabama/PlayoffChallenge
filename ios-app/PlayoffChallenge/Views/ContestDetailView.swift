@@ -215,8 +215,20 @@ struct ContestDetailView: View {
                 .redacted(reason: viewModel.contest.contestName == "Loading…" ? .placeholder : [])
 
                 // MARK: - Share Link Section (conditional)
-                if viewModel.actionState?.actions.canShareInvite == true, let joinToken = viewModel.contest.joinToken {
-                    let joinURL = AppEnvironment.shared.baseURL.appendingPathComponent("custom-contests/join/\(joinToken)")
+                if viewModel.actionState?.actions.canShareInvite == true {
+                    let joinURL: URL = {
+                        // GOVERNANCE: Server-driven actions (actions.can_share_invite).
+                        // Share URL generation:
+                        // - If join_token exists: /custom-contests/join/{token}
+                        // - Else: /custom-contests/{contestId}
+                        if let joinToken = viewModel.contest.joinToken {
+                            // Private contest with share token
+                            return AppEnvironment.shared.joinBaseURL.appendingPathComponent("custom-contests/join/\(joinToken)")
+                        } else {
+                            // System contest: use contest ID only
+                            return AppEnvironment.shared.joinBaseURL.appendingPathComponent("custom-contests/\(viewModel.contest.id.uuidString)")
+                        }
+                    }()
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
                         HStack {
                             Text("Share Invite")

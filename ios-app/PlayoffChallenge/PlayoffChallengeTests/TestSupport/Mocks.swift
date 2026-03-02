@@ -39,55 +39,41 @@ extension MockContestJoiner {
 
 @MainActor
 final class MockContestDetailFetcher: ContestDetailFetching, @unchecked Sendable {
-    var fetchDetailCallCount = 0
-    var fetchContractCallCount = 0
+    var fetchActionStateCallCount = 0
     var fetchLeaderboardCallCount = 0
 
-    var lastDetailContestId: UUID?
-    var lastContractContestId: UUID?
+    var lastActionStateContestId: UUID?
     var lastLeaderboardContestId: UUID?
 
-    var detailResult: Result<MockContest, Error>
-    var contractResult: Result<ContestDetailResponseContract, Error>
-    var leaderboardResult: Result<LeaderboardResponseContract, Error>
+    var actionStateResult: Result<ContestActionState, Error>
+    var leaderboardResult: Result<Leaderboard, Error>
 
     init(
-        detailResult: Result<MockContest, Error>? = nil,
-        contractResult: Result<ContestDetailResponseContract, Error>? = nil,
-        leaderboardResult: Result<LeaderboardResponseContract, Error>? = nil
+        actionStateResult: Result<ContestActionState, Error>? = nil,
+        leaderboardResult: Result<Leaderboard, Error>? = nil
     ) {
-        self.detailResult = detailResult ?? .success(.fixture())
-        self.contractResult = contractResult ?? .success(.fixture())
+        self.actionStateResult = actionStateResult ?? .success(.fixture())
         self.leaderboardResult = leaderboardResult ?? .success(.fixture())
     }
 
-    func fetchDetail(contestId: UUID) async throws -> MockContest {
-        fetchDetailCallCount += 1
-        lastDetailContestId = contestId
-        return try detailResult.get()
+    func fetchContestActionState(contestId: UUID, userId: UUID?) async throws -> ContestActionState {
+        fetchActionStateCallCount += 1
+        lastActionStateContestId = contestId
+        return try actionStateResult.get()
     }
 
-    func fetchContestDetailContract(contestId: UUID) async throws -> ContestDetailResponseContract {
-        fetchContractCallCount += 1
-        lastContractContestId = contestId
-        return try contractResult.get()
-    }
-
-    func fetchLeaderboard(contestId: UUID) async throws -> LeaderboardResponseContract {
+    func fetchLeaderboard(contestId: UUID, userId: UUID?) async throws -> Leaderboard {
         fetchLeaderboardCallCount += 1
         lastLeaderboardContestId = contestId
         return try leaderboardResult.get()
     }
 
     func reset() {
-        fetchDetailCallCount = 0
-        fetchContractCallCount = 0
+        fetchActionStateCallCount = 0
         fetchLeaderboardCallCount = 0
-        lastDetailContestId = nil
-        lastContractContestId = nil
+        lastActionStateContestId = nil
         lastLeaderboardContestId = nil
-        detailResult = .success(.fixture())
-        contractResult = .success(.fixture())
+        actionStateResult = .success(.fixture())
         leaderboardResult = .success(.fixture())
     }
 }

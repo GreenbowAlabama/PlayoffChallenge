@@ -42,15 +42,11 @@ final class ContestDetailViewModel: ObservableObject {
         contestId: UUID,
         placeholder: Contest? = nil,
         contestJoiner: ContestJoining,
-        detailFetcher: ContestDetailFetching? = nil,
-        getCurrentUserId: @escaping () -> UUID? = {
-            guard let s = UserDefaults.standard.string(forKey: "userId") else { return nil }
-            return UUID(uuidString: s)
-        }
+        detailFetcher: ContestDetailFetching? = nil
     ) {
         self.contestId = contestId
         self.contestJoiner = contestJoiner
-        self.detailFetcher = detailFetcher ?? ContestDetailService(getCurrentUserId: getCurrentUserId)
+        self.detailFetcher = detailFetcher ?? ContestDetailService()
 
         // Use placeholder if provided, otherwise create a minimal loading state
         let initial = placeholder ?? Contest.stub(
@@ -61,7 +57,9 @@ final class ContestDetailViewModel: ObservableObject {
         self.contest = initial
     }
 
-    /// Configure the user ID for join operations
+    /// Configure the user ID for fetch and join operations.
+    /// This is the ONLY source of auth identity — never read from UserDefaults.
+    /// Called from ContestDetailView.onAppear() with fresh authService.currentUser?.id.
     func configure(currentUserId: UUID?) {
         self.currentUserId = currentUserId
     }
@@ -85,7 +83,11 @@ final class ContestDetailViewModel: ObservableObject {
 
         do {
             // Fetch the authoritative action state from backend
-            let fetchedActionState = try await detailFetcher.fetchContestActionState(contestId: contestId)
+            // Pass currentUserId explicitly — it's set via configure() from View
+            let fetchedActionState = try await detailFetcher.fetchContestActionState(
+                contestId: contestId,
+                userId: currentUserId
+            )
             actionState = fetchedActionState
 
             // Log server-returned actions (DEBUGGING)
@@ -115,7 +117,11 @@ final class ContestDetailViewModel: ObservableObject {
 
         do {
             // Fetch the authoritative action state from backend
-            let fetchedActionState = try await detailFetcher.fetchContestActionState(contestId: contestId)
+            // Pass currentUserId explicitly — it's set via configure() from View
+            let fetchedActionState = try await detailFetcher.fetchContestActionState(
+                contestId: contestId,
+                userId: currentUserId
+            )
             actionState = fetchedActionState
 
             // Log server-returned actions (DEBUGGING)
@@ -219,14 +225,13 @@ final class ContestDetailViewModel: ObservableObject {
 
 
     /// Attempt to join the contest. This is the sole join entry point in the app.
+    /// Branches on join_token presence:
+    /// - If token exists: calls joinContest(token:) for private contests
+    /// - If token nil: calls joinSystemContest() for system contests
+    /// Server enforces joinability exclusively via actions.can_join.
     func joinContest() async {
         guard let userId = currentUserId else {
             errorMessage = "Please sign in to join this contest."
-            return
-        }
-
-        guard let token = contest.joinToken else {
-            errorMessage = "This contest cannot be joined (no join token)."
             return
         }
 
@@ -234,7 +239,13 @@ final class ContestDetailViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            _ = try await contestJoiner.joinContest(contestId: contest.id, token: token, userId: userId)
+            if let token = contest.joinToken {
+                // Private contest with explicit share token
+                _ = try await contestJoiner.joinContest(contestId: contest.id, token: token, userId: userId)
+            } else {
+                // System contest: server enforces access via actions.can_join
+                _ = try await contestJoiner.joinSystemContest(contestId: contest.id, userId: userId)
+            }
 
             // Refetch contest detail from backend to get accurate join state and other fields
             await fetchContestDetailForRefresh()

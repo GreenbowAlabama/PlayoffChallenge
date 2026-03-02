@@ -15,35 +15,34 @@ import Core
 /// or lock/capacity/payout logic. Transport hygiene (HTTP status checks)
 /// is allowed. All domain decisions belong in ViewModels or Domain layer.
 /// Returns Domain types only — no DTO exposure to callers.
+/// User identity is EXPLICIT parameter, never resolved internally.
 protocol ContestDetailFetching: Sendable {
-    func fetchContestActionState(contestId: UUID) async throws -> ContestActionState
-    func fetchLeaderboard(contestId: UUID) async throws -> Leaderboard
+    func fetchContestActionState(contestId: UUID, userId: UUID?) async throws -> ContestActionState
+    func fetchLeaderboard(contestId: UUID, userId: UUID?) async throws -> Leaderboard
 }
 
 /// Production implementation that calls GET /api/custom-contests/:id
+/// Stateless service — user identity is explicitly provided by caller.
 final class ContestDetailService: ContestDetailFetching, @unchecked Sendable {
 
     private let baseURL: String
-    private let getCurrentUserId: () -> UUID?
 
-    init(getCurrentUserId: @escaping () -> UUID? = { nil }) {
+    init() {
         self.baseURL = AppEnvironment.shared.baseURL.absoluteString
-        self.getCurrentUserId = getCurrentUserId
     }
 
-    init(baseURL: String, getCurrentUserId: @escaping () -> UUID? = { nil }) {
+    init(baseURL: String) {
         self.baseURL = baseURL
-        self.getCurrentUserId = getCurrentUserId
     }
 
-    func fetchContestActionState(contestId: UUID) async throws -> ContestActionState {
+    func fetchContestActionState(contestId: UUID, userId: UUID?) async throws -> ContestActionState {
         let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)")!
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if let userId = getCurrentUserId() {
+        if let userId = userId {
             request.setValue(userId.uuidString.lowercased(), forHTTPHeaderField: "X-User-Id")
         }
 
@@ -68,14 +67,14 @@ final class ContestDetailService: ContestDetailFetching, @unchecked Sendable {
         }
     }
 
-    func fetchLeaderboard(contestId: UUID) async throws -> Leaderboard {
+    func fetchLeaderboard(contestId: UUID, userId: UUID?) async throws -> Leaderboard {
         let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)/leaderboard")!
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if let userId = getCurrentUserId() {
+        if let userId = userId {
             request.setValue(userId.uuidString.lowercased(), forHTTPHeaderField: "X-User-Id")
         }
 

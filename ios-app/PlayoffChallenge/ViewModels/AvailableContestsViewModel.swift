@@ -132,9 +132,17 @@ final class AvailableContestsViewModel: ObservableObject {
 
             errorMessage = nil
         } catch {
+            // GOVERNANCE: Suppress NSURLErrorDomain Code -999 (cancelled).
+            // These are expected during SwiftUI lifecycle transitions.
+            if let urlError = error as? URLError,
+               urlError.code == .cancelled {
+                print("[AvailableContestsViewModel] Request cancelled — ignoring.")
+                return
+            }
+
             print("[AvailableContestsViewModel] ERROR loading contests: \(error)")
-            // CRITICAL: Clear stale contests when error occurs to prevent ghost rows.
-            // Error state and data state must be mutually exclusive.
+
+            // Only mutate state for real failures
             contests = []
             errorMessage = error.localizedDescription
         }

@@ -18,7 +18,20 @@ final class ContestJoinService: ContestJoining {
     }
 
     func joinContest(contestId: UUID, token: String, userId: UUID) async throws -> ContestJoinResult {
-        guard !token.isEmpty else {
+        return try await performJoin(contestId: contestId, token: token, userId: userId)
+    }
+
+    func joinSystemContest(contestId: UUID, userId: UUID) async throws -> ContestJoinResult {
+        return try await performJoin(contestId: contestId, token: nil, userId: userId)
+    }
+
+    private func performJoin(
+        contestId: UUID,
+        token: String?,
+        userId: UUID
+    ) async throws -> ContestJoinResult {
+        // For private contests: token is required
+        if let token = token, token.isEmpty {
             throw JoinLinkError.contestNotFound
         }
 
@@ -31,9 +44,7 @@ final class ContestJoinService: ContestJoining {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
 
-        let body: [String: Any] = [
-            "token": token
-        ]
+        let body: [String: Any] = token.map { ["token": $0] } ?? [:]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
@@ -93,6 +104,7 @@ final class ContestJoinService: ContestJoining {
             throw JoinLinkError.networkError(underlying: error.localizedDescription)
         }
     }
+
 
     private func mapAPIError(_ response: JoinAPIErrorResponse) -> JoinLinkError {
         switch response.code {

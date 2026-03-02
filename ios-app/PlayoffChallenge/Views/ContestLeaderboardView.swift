@@ -90,6 +90,7 @@ struct ContestLeaderboardView: View {
         .navigationTitle("Leaderboard")
         .navigationBarTitleDisplayMode(.large)
         .task {
+            viewModel.configure(currentUserId: authService.currentUser?.id)
             await viewModel.loadLeaderboard()
         }
         .refreshable {
