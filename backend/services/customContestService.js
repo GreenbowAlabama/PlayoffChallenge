@@ -471,6 +471,19 @@ async function createContestInstance(pool, organizerId, input) {
   validateEntryFeeAgainstTemplate(input.entry_fee_cents, template);
   validatePayoutStructureAgainstTemplate(input.payout_structure, template);
 
+  // HARD GUARD: Prevent malformed percentage payout structures
+  if (
+    input.payout_structure?.type === 'percentage' &&
+    (
+      !Array.isArray(input.payout_structure.payout_percentages) ||
+      input.payout_structure.payout_percentages.length === 0
+    )
+  ) {
+    throw new Error(
+      '[Validation Error] payout_percentages required for percentage type'
+    );
+  }
+
   // Derive and validate contest_name (non-null, non-empty string)
   const contestName = (input.contest_name ?? input.contestName ?? '').trim();
   if (!contestName) {

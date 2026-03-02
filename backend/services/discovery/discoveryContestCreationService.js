@@ -167,7 +167,8 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
         $2, $3, true, true, 'SCHEDULED'
       FROM contest_templates
       WHERE id = $4
-      ON CONFLICT ON CONSTRAINT uq_contest_templates_provider_tournament
+      ON CONFLICT (provider_tournament_id, season_year)
+      WHERE is_system_generated = true
       DO NOTHING
       RETURNING id`,
       [tournamentName, providerTournamentId, seasonYear, baseTemplate.id]
@@ -232,7 +233,8 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
       )
-      ON CONFLICT ON CONSTRAINT uq_contest_instances_provider_event_template
+      ON CONFLICT (provider_event_id, template_id)
+      WHERE provider_event_id IS NOT NULL
       DO NOTHING
       RETURNING id, is_platform_owned`,
       [
