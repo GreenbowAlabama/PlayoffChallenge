@@ -206,12 +206,12 @@ function derivePayoutTable(payoutStructureJson) {
         }
         // Return payout_table rows directly without mutation
         return structure.payout_percentages.map((percent, index) => ({
-          place: index + 1,
+          place: String(index + 1),
           rank_min: index + 1,
           rank_max: index + 1,
           amount: null,
           currency: 'USD',
-          payout_percent: percent
+          payout_percent: Math.round(percent * 100)
         }));
 
       // Other semantic types would be handled here
