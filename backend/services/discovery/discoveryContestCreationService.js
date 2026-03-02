@@ -168,7 +168,6 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       FROM contest_templates
       WHERE id = $4
       ON CONFLICT (provider_tournament_id, season_year)
-      WHERE is_system_generated = true
       DO NOTHING
       RETURNING id`,
       [tournamentName, providerTournamentId, seasonYear, baseTemplate.id]
@@ -217,6 +216,12 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       ? baseTemplate.allowed_payout_structures[0]
       : baseTemplate.allowed_payout_structures;
 
+    // Enforce non-null template_id before instance creation (invariant violation check)
+    if (!tournamentTemplateId || typeof tournamentTemplateId !== 'string' || tournamentTemplateId.trim() === '') {
+      await client.query('ROLLBACK');
+      throw new Error('[Invariant Violation] template_id required before contest instance creation');
+    }
+
     const instanceInsertResult = await client.query(
       `INSERT INTO contest_instances (
         template_id, organizer_id, entry_fee_cents, payout_structure,
@@ -228,7 +233,6 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
       )
       ON CONFLICT (provider_event_id, template_id)
-      WHERE provider_event_id IS NOT NULL
       DO NOTHING
       RETURNING id, is_platform_owned`,
       [
