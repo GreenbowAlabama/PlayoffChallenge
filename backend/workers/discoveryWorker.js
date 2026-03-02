@@ -70,9 +70,9 @@ function startDiscoveryWorker(pool, options = {}) {
       const now = new Date();
       const result = await runDiscoveryCycle(pool, now, organizerId);
 
-      if (result.success && (result.created > 0 || result.skipped > 0)) {
+      if (result.success) {
         console.log(
-          `[Discovery] Cycle complete: event=${result.event_id}, created=${result.created}, skipped=${result.skipped}`
+          `[Discovery] Cycle complete: event=${result.event_id}, template_created=${result.template_created}, instance_created=${result.instance_created}`
         );
       }
 
