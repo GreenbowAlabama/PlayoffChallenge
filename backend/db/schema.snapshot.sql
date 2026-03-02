@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 32QHfe0TIHzhwEcoUhYgi031WrsgBzAlZj0d9QHPcHPslgIsGcZbMN8g7MKh2nc
+\restrict 0yhD671lQN5RAvDKGt7QyKkrXb5ywImQmRXnAdQszBekQUL2VjcjX0FU3U0xv37
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -415,6 +415,7 @@ CREATE TABLE public.contest_instances (
     tournament_start_time timestamp with time zone,
     tournament_end_time timestamp with time zone,
     is_primary_marketing boolean DEFAULT false NOT NULL,
+    provider_event_id text,
     CONSTRAINT entry_fee_non_negative CHECK ((entry_fee_cents >= 0)),
     CONSTRAINT max_entries_positive CHECK (((max_entries IS NULL) OR (max_entries > 0))),
     CONSTRAINT status_valid CHECK ((status = ANY (ARRAY['SCHEDULED'::text, 'LOCKED'::text, 'LIVE'::text, 'COMPLETE'::text, 'CANCELLED'::text, 'ERROR'::text])))
@@ -2832,6 +2833,13 @@ CREATE UNIQUE INDEX unique_espn_id ON public.players USING btree (espn_id);
 
 
 --
+-- Name: uq_contest_instances_provider_event_template; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_contest_instances_provider_event_template ON public.contest_instances USING btree (provider_event_id, template_id) WHERE (provider_event_id IS NOT NULL);
+
+
+--
 -- Name: users_stripe_connected_account_id_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3340,5 +3348,5 @@ ALTER TABLE ONLY public.wallet_withdrawals
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 32QHfe0TIHzhwEcoUhYgi031WrsgBzAlZj0d9QHPcHPslgIsGcZbMN8g7MKh2nc
+\unrestrict 0yhD671lQN5RAvDKGt7QyKkrXb5ywImQmRXnAdQszBekQUL2VjcjX0FU3U0xv37
 
