@@ -23,6 +23,7 @@ struct StripePaymentSheetController: UIViewControllerRepresentable {
     let onResult: (WalletPaymentResult) -> Void
 
     func makeUIViewController(context: Context) -> UIViewController {
+        print("[StripePaymentSheetController] ⚠️ makeUIViewController called!")
         let controller = UIViewController()
 
         var configuration = PaymentSheet.Configuration()
@@ -35,21 +36,46 @@ struct StripePaymentSheetController: UIViewControllerRepresentable {
         )
 
         DispatchQueue.main.async {
+            print("[StripePaymentSheetController] DEBUG: Entering async block")
+            print("[StripePaymentSheetController] DEBUG: connectedScenes count: \(UIApplication.shared.connectedScenes.count)")
+
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+                print("[StripePaymentSheetController] ERROR: No UIWindowScene found")
+                return
+            }
+
+            print("[StripePaymentSheetController] DEBUG: windowScene found: \(windowScene)")
+            print("[StripePaymentSheetController] DEBUG: windows count: \(windowScene.windows.count)")
+
+            guard let rootVC = windowScene.windows.first?.rootViewController else {
+                print("[StripePaymentSheetController] ERROR: Unable to find root view controller")
+                print("[StripePaymentSheetController] DEBUG: first window: \(String(describing: windowScene.windows.first))")
+                return
+            }
+
+            print("[StripePaymentSheetController] DEBUG: rootVC found: \(type(of: rootVC))")
             onPresented()
-            paymentSheet.present(from: controller) { result in
-                DispatchQueue.main.async {
-                    switch result {
-                    case .completed:
-                        print("[StripePaymentSheetController] Payment completed")
-                        onResult(.completed)
-                    case .canceled:
-                        print("[StripePaymentSheetController] Payment cancelled by user")
-                        onResult(.cancelled)
-                    case .failed(let error):
-                        print("[StripePaymentSheetController] Payment failed: \(error.localizedDescription)")
-                        onResult(.failed(message: error.localizedDescription))
+            print("[StripePaymentSheetController] DEBUG: Calling paymentSheet.present(from:)")
+
+            do {
+                paymentSheet.present(from: rootVC) { result in
+                    DispatchQueue.main.async {
+                        switch result {
+                        case .completed:
+                            print("[StripePaymentSheetController] Payment completed")
+                            onResult(.completed)
+                        case .canceled:
+                            print("[StripePaymentSheetController] Payment cancelled by user")
+                            onResult(.cancelled)
+                        case .failed(let error):
+                            print("[StripePaymentSheetController] Payment failed: \(error.localizedDescription)")
+                            onResult(.failed(message: error.localizedDescription))
+                        }
                     }
                 }
+                print("[StripePaymentSheetController] DEBUG: paymentSheet.present() called")
+            } catch {
+                print("[StripePaymentSheetController] ERROR: Exception during present: \(error)")
             }
         }
 

@@ -13,7 +13,7 @@
  */
 
 const LedgerRepository = require('../repositories/LedgerRepository');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
+const StripeWithdrawalAdapter = require('./StripeWithdrawalAdapter');
 
 const WITHDRAWAL_ERROR_CODES = {
   INSUFFICIENT_BALANCE: 'INSUFFICIENT_BALANCE',
@@ -326,7 +326,7 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING id, entry_type, direction, amount_cents`,
-      [userId, 'WALLET_DEBIT', 'DEBIT', withdrawal.amount_cents, 'WALLET', withdrawalId, idempotencyKey]
+      [userId, 'WALLET_WITHDRAWAL', 'DEBIT', withdrawal.amount_cents, 'WALLET', withdrawalId, idempotencyKey]
     );
 
     // If debit was inserted, rowCount > 0
@@ -348,7 +348,7 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
 
       // Verify fields match
       const fieldsMatch = (
-        existingDebit.entry_type === 'WALLET_DEBIT' &&
+        existingDebit.entry_type === 'WALLET_WITHDRAWAL' &&
         existingDebit.direction === 'DEBIT' &&
         parseInt(existingDebit.amount_cents, 10) === withdrawal.amount_cents &&
         existingDebit.reference_type === 'WALLET' &&
@@ -358,8 +358,8 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
       if (!fieldsMatch) {
         await client.query('ROLLBACK');
         throw new Error(
-          `Invariant violation: WALLET_DEBIT with idempotency_key ${idempotencyKey} exists but fields mismatch. ` +
-          `Expected: WALLET_DEBIT, DEBIT, ${withdrawal.amount_cents}, WALLET, ${withdrawalId}. ` +
+          `Invariant violation: WALLET_WITHDRAWAL with idempotency_key ${idempotencyKey} exists but fields mismatch. ` +
+          `Expected: WALLET_WITHDRAWAL, DEBIT, ${withdrawal.amount_cents}, WALLET, ${withdrawalId}. ` +
           `Found: ${JSON.stringify(existingDebit)}`
         );
       }
@@ -394,15 +394,19 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
 }
 
 /**
- * Call Stripe Payout API and update withdrawal status
+ * Call Stripe Transfers API and update withdrawal status
  *
- * This function is called AFTER processWithdrawal commits.
- * If Stripe call fails, withdrawal remains in PROCESSING.
- * Retry logic will be handled by caller or async job.
+ * This function is called by withdrawalProcessorWorker to execute the Stripe transfer.
+ * Withdrawal must be in PROCESSING state with ledger DEBIT already inserted.
+ *
+ * Uses stripe.transfers.create() to move funds from platform account to
+ * user's connected Stripe account (users.stripe_connected_account_id).
+ *
+ * If Stripe call fails, withdrawal remains in PROCESSING for worker retry logic.
  *
  * @param {Object} pool - Database connection pool
  * @param {string} withdrawalId - UUID of withdrawal
- * @param {Object} stripeAccount - Stripe account config
+ * @param {Object} stripeAccount - Stripe account config { bankAccountId: acct_* }
  * @returns {Promise<Object>} { success, payout_id } or error details
  */
 async function callStripePayout(pool, withdrawalId, stripeAccount) {
@@ -430,43 +434,38 @@ async function callStripePayout(pool, withdrawalId, stripeAccount) {
     };
   }
 
-  try {
-    // 3. Create Stripe payout (using Payouts API)
-    const payout = await stripe.payouts.create(
-      {
-        amount: withdrawal.amount_cents,
-        currency: 'usd',
-        method: withdrawal.method === 'instant' ? 'instant' : 'standard',
-        destination: stripeAccount.bankAccountId || 'default'
-      },
-      {
-        idempotencyKey: withdrawal.idempotency_key
-      }
-    );
+  // 3. Call Stripe Transfers API (via adapter for error classification)
+  const stripeResult = await StripeWithdrawalAdapter.createTransfer({
+    amountCents: withdrawal.amount_cents,
+    destination: stripeAccount.bankAccountId, // This is acct_* (Stripe connected account ID)
+    withdrawalId: withdrawal.id,
+    userId: withdrawal.user_id,
+    timeoutMs: 30000
+  });
 
-    // 4. Update withdrawal with stripe_payout_id
-    const updateResult = await pool.query(
-      `UPDATE wallet_withdrawals
-       SET stripe_payout_id = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, stripe_payout_id, status`,
-      [payout.id, withdrawalId]
-    );
-
-    return {
-      success: true,
-      payout_id: payout.id,
-      status: payout.status
-    };
-
-  } catch (stripeErr) {
+  // 4. Handle result
+  if (!stripeResult.success) {
     return {
       success: false,
-      reason: stripeErr.message,
-      stripe_error_code: stripeErr.code,
-      stripe_error_type: stripeErr.type
+      reason: stripeResult.reason,
+      classification: stripeResult.classification
     };
   }
+
+  // 5. Success - update withdrawal with stripe_payout_id
+  const updateResult = await pool.query(
+    `UPDATE wallet_withdrawals
+     SET stripe_payout_id = $1, updated_at = NOW()
+     WHERE id = $2
+     RETURNING id, stripe_payout_id, status`,
+    [stripeResult.transferId, withdrawalId]
+  );
+
+  return {
+    success: true,
+    payout_id: stripeResult.transferId,
+    status: updateResult.rows[0]?.status
+  };
 }
 
 /**

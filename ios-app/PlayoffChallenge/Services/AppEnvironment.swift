@@ -16,6 +16,7 @@ final class AppEnvironment {
     let joinBaseURL: URL
     let authService: AuthService
     let environment: String
+    let stripePublishableKey: String
 
     private init() {
         guard let baseURLValue = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
@@ -30,9 +31,15 @@ final class AppEnvironment {
             fatalError("AppEnvironment: JOIN_BASE_URL not configured in Info.plist")
         }
 
+        guard let stripeKey = Bundle.main.object(forInfoDictionaryKey: "STRIPE_PUBLISHABLE_KEY") as? String,
+              !stripeKey.isEmpty else {
+            fatalError("AppEnvironment: STRIPE_PUBLISHABLE_KEY not configured in Info.plist")
+        }
+
         self.baseURL = url
         self.joinBaseURL = joinUrl
         self.authService = AuthService.shared
+        self.stripePublishableKey = stripeKey
 
         // Determine environment from URL
         if baseURLValue.contains("staging") {
@@ -50,10 +57,11 @@ final class AppEnvironment {
     }
 
     // For testing with custom environment
-    init(baseURL: URL, joinBaseURL: URL? = nil, authService: AuthService) {
+    init(baseURL: URL, joinBaseURL: URL? = nil, authService: AuthService, stripePublishableKey: String = "pk_test_mock") {
         self.baseURL = baseURL
         self.joinBaseURL = joinBaseURL ?? baseURL // Default to baseURL if not provided
         self.authService = authService
+        self.stripePublishableKey = stripePublishableKey
 
         // Determine environment from URL
         let baseURLString = baseURL.absoluteString

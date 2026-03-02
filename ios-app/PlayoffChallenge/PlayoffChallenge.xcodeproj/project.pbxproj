@@ -24,6 +24,7 @@
 		EA4764932F4E79DA00CC6C65 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4764912F4E79D900CC6C65 /* DesignTokens.swift */; };
 		EA74C87E2F4E295C002BFE04 /* CreateContestResponseDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA74C87D2F4E2953002BFE04 /* CreateContestResponseDTO.swift */; };
 		EA7A2A622F55676D00D557C8 /* WalletDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA7A2A612F55676C00D557C8 /* WalletDTO.swift */; };
+		EA7A2A692F5613C600D557C8 /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = EA7A2A682F5613C600D557C8 /* StripePaymentSheet */; };
 		EA8192012F45254D00B5A5E1 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = EA2A82CF2F4D663100698663 /* Core */; };
 		EA8194E92F46F5E000B5A5E1 /* ContestType.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8194E82F46F5E000B5A5E1 /* ContestType.swift */; };
 		EA83ECF72F4C2CE2002D227A /* RosterConfigDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECE72F4C2CE1002D227A /* RosterConfigDTO.swift */; };
@@ -145,6 +146,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EA7A2A692F5613C600D557C8 /* StripePaymentSheet in Frameworks */,
 				EA8192012F45254D00B5A5E1 /* Core in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -400,6 +402,7 @@
 			name = PlayoffChallenge;
 			packageProductDependencies = (
 				EA2A82CF2F4D663100698663 /* Core */,
+				EA7A2A682F5613C600D557C8 /* StripePaymentSheet */,
 			);
 			productName = PlayoffChallenge;
 			productReference = EA345EBA2EA45CB700689C4E /* PlayoffChallenge.app */;
@@ -458,6 +461,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				EA2A82CE2F4D663100698663 /* XCLocalSwiftPackageReference "../../core" */,
+				EA7A2A672F5613C600D557C8 /* XCRemoteSwiftPackageReference "stripe-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EA345EBB2EA45CB700689C4E /* Products */;
@@ -613,6 +617,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRIPE_PUBLISHABLE_KEY = pk_test_51SdK0iFo8mmM77fvOqdFR3lsFq75d6y9ILlV1JfeGq6etSuOeLaDBApZ89ValVp4JXvJyeOOtYneAeMkL4X63yrg00qyNvzwQ7;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -673,6 +678,7 @@
 				MTL_FAST_MATH = YES;
 				OTHER_SWIFT_FLAGS = "-D TESTFLIGHT";
 				SDKROOT = iphoneos;
+				STRIPE_PUBLISHABLE_KEY = pk_test_51SdK0iFo8mmM77fvOqdFR3lsFq75d6y9ILlV1JfeGq6etSuOeLaDBApZ89ValVp4JXvJyeOOtYneAeMkL4X63yrg00qyNvzwQ7;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -884,6 +890,7 @@
 				MTL_FAST_MATH = YES;
 				OTHER_SWIFT_FLAGS = "-D TESTFLIGHT";
 				SDKROOT = iphoneos;
+				STRIPE_PUBLISHABLE_KEY = pk_test_51SdK0iFo8mmM77fvOqdFR3lsFq75d6y9ILlV1JfeGq6etSuOeLaDBApZ89ValVp4JXvJyeOOtYneAeMkL4X63yrg00qyNvzwQ7;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -973,10 +980,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		EA7A2A672F5613C600D557C8 /* XCRemoteSwiftPackageReference "stripe-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stripe/stripe-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 25.7.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		EA2A82CF2F4D663100698663 /* Core */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Core;
+		};
+		EA7A2A682F5613C600D557C8 /* StripePaymentSheet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EA7A2A672F5613C600D557C8 /* XCRemoteSwiftPackageReference "stripe-ios" */;
+			productName = StripePaymentSheet;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
