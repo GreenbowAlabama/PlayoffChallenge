@@ -1533,7 +1533,6 @@ async function getAvailableContestInstances(pool, userId) {
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.status = 'SCHEDULED'
-    AND ci.join_token IS NOT NULL
     AND (ci.lock_time IS NULL OR ci.lock_time > NOW())
     ORDER BY ci.created_at DESC`,
     [userId]
