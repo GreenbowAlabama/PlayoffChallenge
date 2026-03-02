@@ -403,6 +403,7 @@ async function listActiveTemplates(pool) {
       allowed_entry_fee_max_cents
     FROM contest_templates
     WHERE is_active = true
+    AND template_type != 'PGA_BASE'
     ORDER BY name`
   );
 
