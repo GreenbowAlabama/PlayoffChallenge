@@ -48,7 +48,7 @@ function getAllEvents() {
 }
 
 /**
- * Get next upcoming event within 7-day window
+ * Get next upcoming event within 30-day window
  *
  * @param {Date} now - Current time (for determinism)
  * @returns {Object|null} Event object or null if no event in window
@@ -56,11 +56,11 @@ function getAllEvents() {
 function getNextUpcomingEvent(now = new Date()) {
   const events = getAllEvents();
 
-  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-  // Filter: start_time > now AND start_time <= now + 7 days
+  // Filter: start_time > now AND start_time <= now + 30 days
   const upcomingEvents = events.filter(
-    event => event.start_time > now && event.start_time <= sevenDaysFromNow
+    event => event.start_time > now && event.start_time <= thirtyDaysFromNow
   );
 
   if (upcomingEvents.length === 0) {
