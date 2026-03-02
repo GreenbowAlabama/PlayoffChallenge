@@ -25,7 +25,7 @@ READ THESE FILES (IN ORDER):
    → All 4 transitions (SCHEDULED→LOCKED→LIVE→COMPLETE, CANCELLED)
 
 3. docs/governance/FINANCIAL_INVARIANTS.md
-   → Atomic wallet debit on join (frozen)
+   → Atomic operations on join (frozen)
    → Entry fee immutability (DB-enforced)
    → Idempotency & error handling
 
@@ -58,9 +58,9 @@ OPERATING RULES (NON-NEGOTIABLE):
 
 Frozen Primitives (Protected by Tests):
   • All 4 lifecycle transitions (atomic, idempotent, deterministic)
-  • Wallet debit atomicity on join
+  • Atomic operations with wallet/entry locking
   • Settlement snapshot binding
-  • Discovery cascade ordering (Phase 1 → 2 → 3)
+  • Provider-initiated cascade ordering (Phase 1 → 2 → 3)
 
 Golden Contracts (No Breaking Changes):
   • backend/contracts/openapi.yaml (hash-locked)
@@ -78,22 +78,24 @@ iOS Architecture (Non-Negotiable):
 FAST FEEDBACK TIERS (Available for Testing):
 ================================================================================
 
-Tier 1 — Discovery Service (117 tests, ~10s)
+Tier 1 — Governance Surface Tests
   cd backend && \
-  ADMIN_JWT_SECRET=test-admin-jwt-secret \
-  TEST_DB_ALLOW_DBNAME=railway \
-  npm test -- tests/discovery/ --runInBand --forceExit
+  ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-test-admin-jwt-secret} \
+  TEST_DB_ALLOW_DBNAME=${TEST_DB_ALLOW_DBNAME:-railway} \
+  npm test -- tests/governance/ --runInBand --forceExit
 
-Tier 2 — Settlement Invariants (6 tests, ~5s)
-  cd backend && \
-  ADMIN_JWT_SECRET=test-admin-jwt-secret \
-  TEST_DB_ALLOW_DBNAME=railway \
-  npm test -- tests/e2e/pgaSettlementInvariants.test.js --runInBand --forceExit
+  (See docs/governance/CLAUDE_RULES.md § 15 for test suite location)
 
-Tier 3 — Full Backend Validation (1995+ tests, ~60s)
+Tier 2 — Frozen Invariant Tests
   cd backend && \
-  ADMIN_JWT_SECRET=test-admin-jwt-secret \
-  TEST_DB_ALLOW_DBNAME=railway \
+  ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-test-admin-jwt-secret} \
+  TEST_DB_ALLOW_DBNAME=${TEST_DB_ALLOW_DBNAME:-railway} \
+  npm test -- tests/e2e/ --runInBand --forceExit
+
+Tier 3 — Full Backend Validation
+  cd backend && \
+  ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-test-admin-jwt-secret} \
+  TEST_DB_ALLOW_DBNAME=${TEST_DB_ALLOW_DBNAME:-railway} \
   npm test -- --forceExit
 
 ================================================================================

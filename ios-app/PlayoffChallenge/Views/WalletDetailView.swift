@@ -119,13 +119,11 @@ struct WalletDetailView: View {
                     .font(.headline)
                     .padding(.top, DesignTokens.Spacing.lg)
 
-                // Preset amount buttons
                 VStack(spacing: DesignTokens.Spacing.md) {
                     ForEach(["5.00", "10.00", "25.00", "50.00"], id: \.self) { amount in
-                        Button(action: {
-                            print("[WalletDetailView:DepositSheet] Amount selected: $\(amount)")
+                        Button {
                             depositAmount = amount
-                        }) {
+                        } label: {
                             Text("$\(amount)")
                                 .frame(maxWidth: .infinity)
                                 .padding(DesignTokens.Spacing.md)
@@ -138,58 +136,84 @@ struct WalletDetailView: View {
 
                 Spacer()
 
-                // Action button
-                if viewModel.isDepositing {
-                    VStack {
+                switch viewModel.paymentState {
+                case .creatingIntent:
+                    VStack(spacing: DesignTokens.Spacing.sm) {
                         ProgressView()
                         Text("Creating payment...")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(DesignTokens.Spacing.lg)
-                } else {
-                    Button(action: {
-                        let cents = Int(Double(depositAmount) ?? 0 * 100)
-                        print("[WalletDetailView:DepositSheet] Proceed button tapped")
-                        print("[WalletDetailView:DepositSheet] Converting $\(depositAmount) to \(cents) cents")
-                        Task {
-                            print("[WalletDetailView:DepositSheet] Calling viewModel.depositFunds(amountCents: \(cents))")
-                            await viewModel.depositFunds(amountCents: cents)
-                            // After successful deposit, refresh wallet
-                            if viewModel.depositClientSecret != nil {
-                                print("[WalletDetailView:DepositSheet] Payment succeeded, refreshing balance")
-                                await viewModel.refreshBalance()
-                                showDepositSheet = false
-                            } else {
-                                print("[WalletDetailView:DepositSheet] No client secret received, payment may have failed")
-                            }
-                        }
-                    }) {
-                        Text("Proceed to Payment")
-                            .frame(maxWidth: .infinity)
-                            .padding(DesignTokens.Spacing.md)
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
+                    .padding(.bottom, DesignTokens.Spacing.lg)
+
+                case .ready:
+                    VStack(spacing: DesignTokens.Spacing.sm) {
+                        ProgressView()
+                        Text("Opening payment sheet...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
+                    .padding(.bottom, DesignTokens.Spacing.lg)
+
+                case .processing:
+                    VStack(spacing: DesignTokens.Spacing.sm) {
+                        ProgressView()
+                        Text("Processing payment...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.bottom, DesignTokens.Spacing.lg)
+
+                default:
+                    EmptyView()
                 }
 
-                // Error message
+                Button {
+                    let cents = Int((Double(depositAmount) ?? 0) * 100)
+                    Task { await viewModel.depositFunds(amountCents: cents) }
+                } label: {
+                    Text("Proceed to Payment")
+                        .frame(maxWidth: .infinity)
+                        .padding(DesignTokens.Spacing.md)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+                .disabled({
+                    switch viewModel.paymentState {
+                    case .creatingIntent, .ready, .processing:
+                        return true
+                    default:
+                        return false
+                    }
+                }())
+
                 if let error = viewModel.errorMessage {
                     Text(error)
                         .font(.caption)
                         .foregroundColor(.red)
+                        .padding(.top, DesignTokens.Spacing.sm)
                 }
             }
             .padding(DesignTokens.Spacing.lg)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Close") { showDepositSheet = false }
+                    Button("Close") {
+                        showDepositSheet = false
+                        viewModel.dismissPaymentSheet()
+                    }
+                }
+            }
+            .onChange(of: viewModel.paymentState) { _, newState in
+                if case .success = newState {
+                    print("[WalletDetailView] Payment successful, closing deposit sheet")
+                    showDepositSheet = false
+                    viewModel.dismissPaymentSheet()
                 }
             }
         }
+        .withPaymentSheet(viewModel: viewModel)
     }
 
     @ViewBuilder
@@ -242,7 +266,7 @@ struct WalletDetailView: View {
                         .padding(DesignTokens.Spacing.lg)
                 } else {
                     Button(action: {
-                        let cents = Int(Double(withdrawAmount) ?? 0 * 100)
+                        let cents = Int((Double(withdrawAmount) ?? 0) * 100)
                         Task {
                             await viewModel.withdraw(amountCents: cents)
                             if viewModel.errorMessage == nil {

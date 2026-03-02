@@ -11,6 +11,29 @@ import Foundation
 import Combine
 import Core
 
+/// Payment state machine for wallet funding flow.
+/// ViewModel owns state transitions, View owns presentation.
+enum PaymentState: Equatable {
+    case idle                          // No deposit in progress
+    case creatingIntent                // POST /api/wallet/fund in flight
+    case ready(clientSecret: String)   // PaymentIntent created, ready to present sheet
+    case processing                    // PaymentSheet active, user completing payment
+    case success                       // Payment succeeded, balance pending refresh
+    case failure(error: String)        // Payment failed or user cancelled
+
+    static func == (lhs: PaymentState, rhs: PaymentState) -> Bool {
+        switch (lhs, rhs) {
+        case (.idle, .idle): return true
+        case (.creatingIntent, .creatingIntent): return true
+        case (.ready(let lhsSecret), .ready(let rhsSecret)): return lhsSecret == rhsSecret
+        case (.processing, .processing): return true
+        case (.success, .success): return true
+        case (.failure(let lhsError), .failure(let rhsError)): return lhsError == rhsError
+        default: return false
+        }
+    }
+}
+
 /// Domain model: Wallet
 /// Internal representation (not DTO).
 /// Converted from WalletResponseDTO in ViewModel init.
@@ -98,6 +121,9 @@ final class UserWalletViewModel: ObservableObject {
 
     /// Stripe PaymentIntent client secret for deposit (set when fund succeeds).
     @Published private(set) var depositClientSecret: String? = nil
+
+    /// Payment orchestration state (NEW architecture).
+    @Published private(set) var paymentState: PaymentState = .idle
 
     /// Computed formatted balance (display-only, no math).
     var displayBalance: String {
@@ -197,22 +223,24 @@ final class UserWalletViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    /// Deposit funds into wallet (create PaymentIntent).
-    /// - Parameter amountCents: Amount to deposit in cents
+    /// Initiate wallet deposit: create PaymentIntent, transition to .ready state.
+    /// View listens to paymentState and presents PaymentSheet when ready.
     func depositFunds(amountCents: Int) async {
         print("[UserWalletViewModel] depositFunds(\(amountCents) cents)")
 
-        guard let userId = authService.currentUser?.id else {
-            errorMessage = "Please sign in to deposit funds"
+        guard let _ = authService.currentUser?.id else {
+            await MainActor.run {
+                self.errorMessage = "Please sign in to deposit funds"
+            }
             return
         }
 
-        isDepositing = true
-        errorMessage = nil
-        depositClientSecret = nil
+        await MainActor.run {
+            self.paymentState = .creatingIntent
+            self.errorMessage = nil
+        }
 
         do {
-            // Generate unique idempotency key for this deposit request
             let idempotencyKey = UUID().uuidString
 
             let fundResponse = try await walletService.fundWallet(
@@ -221,30 +249,66 @@ final class UserWalletViewModel: ObservableObject {
             )
 
             await MainActor.run {
-                print("[UserWalletViewModel] Deposit succeeded: client_secret available")
-                self.depositClientSecret = fundResponse.client_secret
-                self.isDepositing = false
+                print("[UserWalletViewModel] PaymentIntent created: \(fundResponse.client_secret.prefix(20))...")
+                self.paymentState = .ready(clientSecret: fundResponse.client_secret)
             }
-
-            // After payment sheet completes, refresh wallet
-            // (In UI, this would be called after Stripe payment sheet dismisses)
         } catch APIError.validationError(let message) {
             await MainActor.run {
+                self.paymentState = .failure(error: message)
                 self.errorMessage = message
-                self.isDepositing = false
             }
         } catch APIError.unauthorized {
             await MainActor.run {
+                self.paymentState = .failure(error: "Authentication required")
                 self.errorMessage = "Please sign in to deposit funds"
-                self.isDepositing = false
             }
         } catch {
             await MainActor.run {
+                let errorMsg = error.localizedDescription
+                self.paymentState = .failure(error: errorMsg)
+                self.errorMessage = errorMsg
                 print("[UserWalletViewModel] Deposit failed: \(error)")
-                self.errorMessage = error.localizedDescription
-                self.isDepositing = false
             }
         }
+    }
+
+    /// Called when PaymentSheet is presented.
+    /// Transitions state to processing to reflect payment in flight.
+    func onPaymentProcessing() {
+        if case .ready = paymentState {
+            paymentState = .processing
+            print("[UserWalletViewModel] onPaymentProcessing()")
+        }
+    }
+
+    /// Called when user successfully completes payment.
+    /// Refreshes wallet balance (ledger should now include CREDIT from webhook).
+    func onPaymentCompleted() async {
+        print("[UserWalletViewModel] onPaymentCompleted()")
+        await MainActor.run {
+            self.paymentState = .success
+        }
+        await fetchWallet()
+    }
+
+    /// Called when user cancels payment.
+    /// Returns to idle state without error.
+    func onPaymentCancelled() {
+        print("[UserWalletViewModel] onPaymentCancelled()")
+        self.paymentState = .idle
+    }
+
+    /// Called by View when payment is cancelled or fails.
+    func onPaymentFailed(error: String) {
+        print("[UserWalletViewModel] onPaymentFailed(\(error))")
+        self.paymentState = .failure(error: error)
+        self.errorMessage = error
+    }
+
+    /// Called by View to dismiss payment sheet and reset state.
+    func dismissPaymentSheet() {
+        print("[UserWalletViewModel] dismissPaymentSheet()")
+        self.paymentState = .idle
     }
 
     /// Withdraw funds from wallet.

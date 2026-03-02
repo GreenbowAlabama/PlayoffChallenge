@@ -6,9 +6,16 @@
 //
 
 import SwiftUI
+import StripePaymentSheet
 
 @main
 struct PlayoffChallengeApp: App {
+    init() {
+        // Set Stripe publishable key once at app launch
+        StripeAPI.defaultPublishableKey = AppEnvironment.shared.stripePublishableKey
+        print("[PlayoffChallengeApp] Stripe initialized with key: \(AppEnvironment.shared.stripePublishableKey.prefix(10))...")
+    }
+
     @StateObject private var authService = AuthService.shared
     @StateObject private var deepLinkCoordinator = DeepLinkCoordinator(
         joinLinkResolver: JoinLinkService(),
