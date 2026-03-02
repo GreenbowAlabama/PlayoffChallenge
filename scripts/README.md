@@ -1,12 +1,61 @@
 # Scripts Directory
 
-Utility scripts for managing the Playoff Challenge application.
+Utility and governance scripts for managing the Playoff Challenge application.
 
-## Available Scripts
+## Priority: System Mode Bootstrap
+
+### launch-claude.sh
+
+**Purpose:** Initialize Claude in SYSTEM MODE with full governance verification.
+
+**Usage:**
+```bash
+./scripts/launch-claude.sh
+```
+
+**What it does:**
+
+1. **Verifies Governance Infrastructure**
+   - Checks all 5 governance documents exist (CLAUDE_RULES.md, LIFECYCLE_EXECUTION_MAP.md, etc.)
+   - Validates golden contracts (openapi.yaml, schema.snapshot.sql)
+
+2. **Reports Frozen Infrastructure**
+   - Financial invariants status
+   - Lifecycle engine status (all 4 transitions)
+   - Mutation surface seal status
+   - OpenAPI contract status
+   - Database schema authority
+
+3. **Reports Backend Test Infrastructure**
+   - Core invariant tests (lifecycle, settlement, admin)
+   - Discovery service tests (117 total)
+   - Financial integrity tests
+   - Contract freeze tests
+   - Fast feedback tier availability
+
+4. **Reports iOS Architecture**
+   - DTO→Domain isolation status
+   - ViewModel service boundary status
+   - Design system enforcement (radius, spacing tokens)
+
+5. **Launches Claude in SYSTEM MODE**
+   - Hard gate: Must read governance files first
+   - Bootstrap includes fast feedback tier commands
+   - Operating rules enforced
+
+**When to use:** Every Claude session touching core infrastructure.
+
+---
+
+## Feature & Testing Utilities
+
+Utility scripts for development, testing, and data management.
 
 ### load-test-picks.js
 
 Automatically creates picks for test bot accounts (users with @test.com email addresses). Randomly selects players for each position to create complete rosters.
+
+**Status:** Operational (feature-specific, pre-governance era)
 
 **Usage:**
 ```bash
@@ -43,11 +92,15 @@ node scripts/load-test-picks.js 12 --delete-existing
 - Uses UPSERT logic to avoid duplicate picks
 - Shows before/after summary
 
+**Note:** This script pre-dates the governance layer and may require updates to align with current financial invariants (entry fee atomicity).
+
 ---
 
 ### reset-week.js
 
 Resets the current playoff week and optionally clears picks/scores for future weeks.
+
+**Status:** Operational (feature-specific, legacy)
 
 **Usage:**
 ```bash
@@ -115,6 +168,10 @@ node scripts/reset-week.js 13
 - Shows before/after state for verification
 - Requires explicit `--delete-future` flag to delete data
 - Uses transactions for safe database operations
+
+**Note:** This script pre-dates the governance layer. Future contest lifecycle changes may require updates to work with new SCHEDULED/LOCKED/LIVE/COMPLETE states.
+
+---
 
 ## Setup
 
@@ -219,3 +276,19 @@ When creating new utility scripts:
 6. Update this README with usage instructions
 7. Handle errors gracefully with try/catch
 8. Always release database connections in `finally` blocks
+
+### Governance Alignment
+
+If adding scripts that interact with:
+- **Contest status**: Respect frozen state machine (SCHEDULED→LOCKED→LIVE→COMPLETE)
+- **Wallet operations**: Ensure atomicity (no partial debits)
+- **Entry operations**: Use join endpoint (not direct DB insert)
+- **Settlement**: Never bypass snapshot binding
+
+Otherwise, scripts can proceed without governance approval.
+
+---
+
+**Last Updated:** March 2, 2026
+**Governance Status:** launch-claude.sh aligned with governance layer
+**Feature Scripts:** Operational but pre-governance (may need updates for future features)
