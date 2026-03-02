@@ -187,6 +187,33 @@ function derivePayoutTable(payoutStructureJson) {
         structure = { first: 100 };
         break;
 
+      case 'percentage':
+        // Percentage-based payout: payout_percentages is array of decimal fractions
+        // Return rows directly (no semantic mapping, no conversion, no structure mutation)
+        if (!Array.isArray(structure.payout_percentages) || structure.payout_percentages.length === 0) {
+          throw new Error(
+            `[Template Contract Violation] Invalid payout_percentages for percentage type: expected non-empty array`
+          );
+        }
+        // Validate each percentage is a number in [0, 1] range
+        for (let i = 0; i < structure.payout_percentages.length; i++) {
+          const pct = structure.payout_percentages[i];
+          if (typeof pct !== 'number' || pct < 0 || pct > 1) {
+            throw new Error(
+              `[Template Contract Violation] Invalid payout percentage at index ${i}: expected number between 0 and 1, got ${pct}`
+            );
+          }
+        }
+        // Return payout_table rows directly without mutation
+        return structure.payout_percentages.map((percent, index) => ({
+          place: index + 1,
+          rank_min: index + 1,
+          rank_max: index + 1,
+          amount: null,
+          currency: 'USD',
+          payout_percent: percent
+        }));
+
       // Other semantic types would be handled here
       // Fail loudly on unknown types to prevent silent degradation
       default:
