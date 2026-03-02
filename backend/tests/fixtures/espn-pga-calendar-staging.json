@@ -1,0 +1,28 @@
+{
+  "events": [
+    {
+      "id": "401811934",
+      "label": "Cognizant Classic in The Palm Beaches",
+      "startDate": "2026-02-26T05:00Z",
+      "endDate": "2026-03-01T05:00Z"
+    },
+    {
+      "id": "401811935",
+      "label": "Arnold Palmer Invitational pres. by Mastercard",
+      "startDate": "2026-03-05T05:00Z",
+      "endDate": "2026-03-08T05:00Z"
+    },
+    {
+      "id": "401811936",
+      "label": "Puerto Rico Open",
+      "startDate": "2026-03-05T05:00Z",
+      "endDate": "2026-03-08T05:00Z"
+    },
+    {
+      "id": "401811937",
+      "label": "THE PLAYERS Championship",
+      "startDate": "2026-03-12T04:00Z",
+      "endDate": "2026-03-15T04:00Z"
+    }
+  ]
+}

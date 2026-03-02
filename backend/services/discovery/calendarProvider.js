@@ -34,7 +34,7 @@ function getAllEvents() {
   // Batch 1: Read from fixture
   // Path is relative to this file (backend/services/discovery/)
   // so we go up two levels to backend, then to tests/fixtures
-  const calendarFixture = require('../../tests/fixtures/espn-pga-calendar-2026.json');
+  const calendarFixture = require('../../tests/fixtures/espn-pga-calendar-staging.json');
 
   // Normalize ESPN schema to internal format
   const normalizedEvents = calendarFixture.events.map(espnEvent => ({
@@ -48,7 +48,7 @@ function getAllEvents() {
 }
 
 /**
- * Get next upcoming event within 60-day window
+ * Get next upcoming event within 7-day window
  *
  * @param {Date} now - Current time (for determinism)
  * @returns {Object|null} Event object or null if no event in window
@@ -56,11 +56,11 @@ function getAllEvents() {
 function getNextUpcomingEvent(now = new Date()) {
   const events = getAllEvents();
 
-  const sixtyDaysFromNow = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  // Filter: start_time > now AND start_time <= now + 60 days
+  // Filter: start_time > now AND start_time <= now + 7 days
   const upcomingEvents = events.filter(
-    event => event.start_time > now && event.start_time <= sixtyDaysFromNow
+    event => event.start_time > now && event.start_time <= sevenDaysFromNow
   );
 
   if (upcomingEvents.length === 0) {
