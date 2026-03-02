@@ -34,17 +34,15 @@ struct HomeTabView: View {
                         .padding(.horizontal, DesignTokens.Spacing.lg)
                     }
 
-                    // My Active Contests Section
-                    // Displays all SCHEDULED contests sorted chronologically by start_time.
-                    // This section shows contests the user has created or joined, in order of when they start.
-                    if !viewModel.scheduledContests.isEmpty {
+                    // Open Contests Section (limited to 5)
+                    if viewModel.hasOpenContests {
                         VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                            Text("My Active Contests")
+                            Text("Open Contests")
                                 .font(.headline)
                                 .padding(.horizontal, DesignTokens.Spacing.lg)
 
                             VStack(spacing: DesignTokens.Spacing.md) {
-                                ForEach(viewModel.scheduledContests) { contest in
+                                ForEach(viewModel.openContests.prefix(5)) { contest in
                                     ContestCardView(
                                         contest: contest,
                                         style: .standard,
@@ -58,15 +56,17 @@ struct HomeTabView: View {
                         }
                     }
 
-                    // Open Contests Section (limited to 5)
-                    if viewModel.hasOpenContests {
+                    // My Active Contests Section
+                    // Displays all SCHEDULED contests sorted chronologically by start_time.
+                    // This section shows contests the user has created or joined, in order of when they start.
+                    if !viewModel.scheduledContests.isEmpty {
                         VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                            Text("Open Contests")
+                            Text("My Active Contests")
                                 .font(.headline)
                                 .padding(.horizontal, DesignTokens.Spacing.lg)
 
                             VStack(spacing: DesignTokens.Spacing.md) {
-                                ForEach(viewModel.openContests.prefix(5)) { contest in
+                                ForEach(viewModel.scheduledContests) { contest in
                                     ContestCardView(
                                         contest: contest,
                                         style: .standard,

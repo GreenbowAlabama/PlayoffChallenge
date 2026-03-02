@@ -138,7 +138,17 @@ final class CreateCustomContestViewModel: ObservableObject {
 
         let hasPayout = !payoutIsRequired || (selectedPayoutStructure != nil)
 
-        return validationError == nil && hasName && hasTemplate && hasPayout
+        // COMPLIANCE: For percentage type, payout_percentages must be present and non-empty.
+        // This prevents sending incomplete payoutStructure to backend.
+        let payoutValid = {
+            guard let structure = selectedPayoutStructure else { return true }
+            if structure.type == "percentage" {
+                return !(structure.payoutPercentages?.isEmpty ?? true)
+            }
+            return true
+        }()
+
+        return validationError == nil && hasName && hasTemplate && hasPayout && payoutValid
     }
 
     /// Whether the publish button should be enabled.
