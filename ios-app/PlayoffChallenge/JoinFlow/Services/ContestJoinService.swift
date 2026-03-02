@@ -30,14 +30,23 @@ final class ContestJoinService: ContestJoining {
         token: String?,
         userId: UUID
     ) async throws -> ContestJoinResult {
+        print("🌐 [SERVICE] performJoin ENTERED")
+        print("🌐 [SERVICE] contestId: \(contestId)")
+        print("🌐 [SERVICE] token: \(String(describing: token))")
+        print("🌐 [SERVICE] userId: \(userId)")
+
         // For private contests: token is required
         if let token = token, token.isEmpty {
+            print("🌐 [SERVICE] ERROR: token is empty string")
             throw JoinLinkError.contestNotFound
         }
 
         guard let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)/join") else {
+            print("🌐 [SERVICE] ERROR: Could not construct URL")
             throw JoinLinkError.contestNotFound
         }
+
+        print("🌐 [SERVICE] URL: \(url.absoluteString)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -45,13 +54,24 @@ final class ContestJoinService: ContestJoining {
         request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
 
         let body: [String: Any] = token.map { ["token": $0] } ?? [:]
+        print("🌐 [SERVICE] Body payload: \(body)")
+
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
+            print("🌐 [SERVICE] Sending POST request...")
             let (data, response) = try await URLSession.shared.data(for: request)
+            print("🌐 [SERVICE] Response received")
 
             guard let httpResponse = response as? HTTPURLResponse else {
+                print("🌐 [SERVICE] ERROR: response is not HTTPURLResponse")
                 throw JoinLinkError.networkError(underlying: "Invalid response")
+            }
+
+            print("🌐 [SERVICE] HTTP Status: \(httpResponse.statusCode)")
+
+            if let raw = String(data: data, encoding: .utf8) {
+                print("🌐 [SERVICE] Raw response: \(raw)")
             }
 
             switch httpResponse.statusCode {
@@ -99,10 +119,14 @@ final class ContestJoinService: ContestJoining {
             }
 
         } catch let error as JoinLinkError {
+            print("❌ [SERVICE] performJoin JoinLinkError: \(error)")
             throw error
         } catch {
+            print("❌ [SERVICE] performJoin ERROR: \(error)")
             throw JoinLinkError.networkError(underlying: error.localizedDescription)
         }
+
+        print("🌐 [SERVICE] performJoin EXIT (success)")
     }
 
 

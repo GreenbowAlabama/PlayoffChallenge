@@ -1069,7 +1069,7 @@ async function publishContestInstance(pool, instanceId, organizerId) {
  * @param {string} userId - UUID of the user joining
  * @returns {Promise<Object>} Join result { joined: true, participant } or { joined: false, error_code, reason }
  */
-async function joinContest(pool, contestInstanceId, userId) {
+async function joinContest(pool, contestInstanceId, userId, optionalToken = null) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1099,10 +1099,9 @@ async function joinContest(pool, contestInstanceId, userId) {
     const contest = contestResult.rows[0];
 
     // 2. Validate state BEFORE any writes (fail fast)
-    if (!contest.join_token) {
-      await client.query('ROLLBACK');
-      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is not joinable (no join token)' };
-    }
+    // GOVERNANCE: System contests have join_token = null and are still joinable.
+    // Joinability is gated by actions.can_join from the detail endpoint.
+    // Token validation only applies to private contests (where join_token IS NOT NULL).
 
     if (contest.status !== 'SCHEDULED') {
       await client.query('ROLLBACK');
@@ -1118,13 +1117,20 @@ async function joinContest(pool, contestInstanceId, userId) {
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: `Contest is in state '${contest.status}' and not joinable` };
     }
 
-    // 3. Enforce lock_time window (optional - only if lock_time is set)
+    // 3. Validate token for private contests (only if join_token IS NOT NULL)
+    // System contests (join_token = null) do not require token validation.
+    if (contest.join_token !== null && optionalToken !== contest.join_token) {
+      await client.query('ROLLBACK');
+      return { joined: false, error_code: JOIN_ERROR_CODES.INVALID_TOKEN, reason: 'Invalid join token' };
+    }
+
+    // 4. Enforce lock_time window (optional - only if lock_time is set)
     if (contest.lock_time !== null && new Date() >= new Date(contest.lock_time)) {
       await client.query('ROLLBACK');
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest join window has closed' };
     }
 
-    // 4. Check if user already joined (idempotent: return success)
+    // 5. Check if user already joined (idempotent: return success)
     const existingResult = await client.query(
       'SELECT id, contest_instance_id, user_id, joined_at FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
       [contestInstanceId, userId]

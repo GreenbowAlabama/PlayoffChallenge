@@ -545,12 +545,13 @@ router.post('/:id/join', extractUserId, async (req, res) => {
     const pool = req.app.locals.pool;
     const { id } = req.params;
     const userId = req.userId;
+    const { token } = req.body || {};
 
     if (!isValidUUID(id)) {
       return res.status(400).json({ error: 'Invalid contest ID format' });
     }
 
-    const result = await customContestService.joinContest(pool, id, userId);
+    const result = await customContestService.joinContest(pool, id, userId, token);
 
     if (result.joined) {
       return res.json(result);

@@ -85,11 +85,28 @@ struct ContestDetailView: View {
                 .padding(.horizontal)
                 .redacted(reason: viewModel.contest.contestName == "Loading…" ? .placeholder : [])
 
+                // CRITICAL RENDER DIAGNOSTICS
+                Group {
+                    let _ = print("🧠 [VIEW RENDER] canJoinContest = \(viewModel.canJoinContest)")
+                    let _ = print("🧠 [VIEW RENDER] actionState?.canJoin = \(viewModel.actionState?.actions.canJoin ?? false)")
+                    let _ = print("🧠 [VIEW RENDER] actionState = \(viewModel.actionState != nil ? "PRESENT" : "NIL")")
+                    let _ = print("🧠 [VIEW RENDER] contest.id = \(viewModel.contest.id)")
+                    EmptyView()
+                }
+
                 // MARK: - Primary Action: Join Button
                 if viewModel.canJoinContest {
                     Button {
+                        print("🚨 [UI] JOIN BUTTON TAPPED")
+                        print("🚨 [UI] Contest ID: \(viewModel.contest.id)")
+                        print("🚨 [UI] joinToken: \(String(describing: viewModel.contest.joinToken))")
+                        print("🚨 [UI] canJoin: \(viewModel.canJoinContest)")
+                        print("🚨 [UI] isReadOnly: \(viewModel.actionState?.actions.isReadOnly ?? false)")
+
                         Task {
+                            print("🚨 [UI] Task started for joinContest()")
                             await viewModel.joinContest()
+                            print("🚨 [UI] Task completed for joinContest()")
                             if viewModel.errorMessage == nil {
                                 await availableContestsVM.loadContests()
                                 await myContestsVM.loadMyContests()
@@ -117,6 +134,36 @@ struct ContestDetailView: View {
                     .padding(.horizontal)
                     .padding(.top, DesignTokens.Spacing.xl)
                 }
+
+                // DIAGNOSTIC: Force-enabled button (no guard condition)
+                Button {
+                    print("🚨 [FORCE-TEST] FORCED TAP - bypass all gates")
+                    Task {
+                        print("🚨 [FORCE-TEST] Task started for joinContest()")
+                        await viewModel.joinContest()
+                        print("🚨 [FORCE-TEST] Task completed for joinContest()")
+                    }
+                } label: {
+                    HStack(spacing: DesignTokens.Spacing.md) {
+                        if viewModel.isJoining {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.Color.Text.inverse))
+                        } else {
+                            Image(systemName: "person.badge.plus")
+                                .font(.title3)
+                        }
+                        Text("🔴 FORCE JOIN TEST (no gate)")
+                    }
+                    .font(.headline)
+                    .foregroundColor(DesignTokens.Color.Text.inverse)
+                    .frame(maxWidth: .infinity)
+                    .padding(DesignTokens.Spacing.lg)
+                    .background(DesignTokens.Color.Action.destructive)
+                    .cornerRadius(DesignTokens.Radius.lg)
+                }
+                .disabled(viewModel.isJoining)
+                .padding(.horizontal)
+                .padding(.top, DesignTokens.Spacing.md)
 
                 // MARK: - Quick Actions: Horizontal Buttons
                 VStack(spacing: DesignTokens.Spacing.lg) {

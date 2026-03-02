@@ -230,8 +230,15 @@ final class ContestDetailViewModel: ObservableObject {
     /// - If token nil: calls joinSystemContest() for system contests
     /// Server enforces joinability exclusively via actions.can_join.
     func joinContest() async {
+        print("🔥 [VM] joinContest() ENTERED")
+        print("🔥 [VM] contest.id: \(contest.id)")
+        print("🔥 [VM] currentUserId: \(String(describing: currentUserId))")
+        print("🔥 [VM] joinToken: \(String(describing: contest.joinToken))")
+        print("🔥 [VM] canJoin flag: \(actionState?.actions.canJoin ?? false)")
+
         guard let userId = currentUserId else {
             errorMessage = "Please sign in to join this contest."
+            print("🔥 [VM] ABORT: No currentUserId")
             return
         }
 
@@ -239,23 +246,34 @@ final class ContestDetailViewModel: ObservableObject {
         errorMessage = nil
 
         do {
+            print("🔥 [VM] About to branch join path...")
+
             if let token = contest.joinToken {
-                // Private contest with explicit share token
+                print("🔥 [VM] PRIVATE PATH — token present: \(token)")
+                print("🔥 [VM] Calling joinContest(token:)")
                 _ = try await contestJoiner.joinContest(contestId: contest.id, token: token, userId: userId)
+                print("🔥 [VM] PRIVATE PATH — returned from service")
             } else {
-                // System contest: server enforces access via actions.can_join
+                print("🔥 [VM] SYSTEM PATH — token nil")
+                print("🔥 [VM] Calling joinSystemContest()")
                 _ = try await contestJoiner.joinSystemContest(contestId: contest.id, userId: userId)
+                print("🔥 [VM] SYSTEM PATH — returned from service")
             }
 
+            print("🔥 [VM] Join succeeded, refetching contest detail...")
             // Refetch contest detail from backend to get accurate join state and other fields
             await fetchContestDetailForRefresh()
+            print("🔥 [VM] Refetch completed")
         } catch let error as JoinLinkError {
+            print("❌ [VM] joinContest() JoinLinkError: \(error)")
             handleJoinError(error)
         } catch {
+            print("❌ [VM] joinContest() ERROR: \(error)")
             errorMessage = error.localizedDescription
         }
 
         isJoining = false
+        print("🔥 [VM] joinContest() EXIT")
     }
 
     /// Delete contest (organizer-only)
