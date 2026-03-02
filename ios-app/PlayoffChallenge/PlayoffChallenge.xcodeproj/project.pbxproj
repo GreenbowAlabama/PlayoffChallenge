@@ -23,6 +23,7 @@
 		EA345EC22EA45CB900689C4E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EA345EC12EA45CB900689C4E /* Assets.xcassets */; };
 		EA4764932F4E79DA00CC6C65 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4764912F4E79D900CC6C65 /* DesignTokens.swift */; };
 		EA74C87E2F4E295C002BFE04 /* CreateContestResponseDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA74C87D2F4E2953002BFE04 /* CreateContestResponseDTO.swift */; };
+		EA7A2A622F55676D00D557C8 /* WalletDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA7A2A612F55676C00D557C8 /* WalletDTO.swift */; };
 		EA8192012F45254D00B5A5E1 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = EA2A82CF2F4D663100698663 /* Core */; };
 		EA8194E92F46F5E000B5A5E1 /* ContestType.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8194E82F46F5E000B5A5E1 /* ContestType.swift */; };
 		EA83ECF72F4C2CE2002D227A /* RosterConfigDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83ECE72F4C2CE1002D227A /* RosterConfigDTO.swift */; };
@@ -78,6 +79,7 @@
 		EA4764912F4E79D900CC6C65 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		EA493C3B2F45134300F878AD /* PlayoffChallengeUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlayoffChallengeUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA74C87D2F4E2953002BFE04 /* CreateContestResponseDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateContestResponseDTO.swift; sourceTree = "<group>"; };
+		EA7A2A612F55676C00D557C8 /* WalletDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletDTO.swift; sourceTree = "<group>"; };
 		EA8194E82F46F5E000B5A5E1 /* ContestType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestType.swift; sourceTree = "<group>"; };
 		EA83ECE12F4C2CE1002D227A /* ActionsDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionsDTO.swift; sourceTree = "<group>"; };
 		EA83ECE22F4C2CE1002D227A /* ContestDetailResponseDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestDetailResponseDTO.swift; sourceTree = "<group>"; };
@@ -289,6 +291,7 @@
 				EA83ECE62F4C2CE1002D227A /* PublishResponseDTO.swift */,
 				EA83ECE72F4C2CE1002D227A /* RosterConfigDTO.swift */,
 				EA83ECE82F4C2CE1002D227A /* StandingDTO.swift */,
+				EA7A2A612F55676C00D557C8 /* WalletDTO.swift */,
 			);
 			path = Contracts;
 			sourceTree = "<group>";
@@ -514,6 +517,7 @@
 				EA83ECF92F4C2CE2002D227A /* ContestListItemDTO.swift in Sources */,
 				EA83ECFA2F4C2CE2002D227A /* PayoutRowDTO.swift in Sources */,
 				EA83ECFC2F4C2CE2002D227A /* PublishResponseDTO.swift in Sources */,
+				EA7A2A622F55676D00D557C8 /* WalletDTO.swift in Sources */,
 				EA4764932F4E79DA00CC6C65 /* DesignTokens.swift in Sources */,
 				EA83ECFD2F4C2CE2002D227A /* DecoderConfiguration.swift in Sources */,
 				EA83ECFE2F4C2CE2002D227A /* JSONValue.swift in Sources */,
@@ -553,7 +557,6 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				API_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
-				JOIN_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -620,7 +623,6 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				API_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
-				JOIN_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -680,7 +682,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				API_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
-				JOIN_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PlayoffChallenge.entitlements;
@@ -697,6 +698,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				JOIN_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -832,7 +834,6 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				API_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
-				JOIN_BASE_URL = "https://playoffchallenge-staging.up.railway.app";
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
