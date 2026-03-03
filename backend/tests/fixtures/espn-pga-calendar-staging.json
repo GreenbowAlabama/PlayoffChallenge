@@ -23,6 +23,12 @@
       "label": "THE PLAYERS Championship",
       "startDate": "2026-03-12T04:00Z",
       "endDate": "2026-03-15T04:00Z"
+    },
+    {
+      "id": "401811941",
+      "label": "Masters Tournament",
+      "startDate": "2026-04-09T07:00Z",
+      "endDate": "2026-04-12T07:00Z"
     }
   ]
 }

@@ -9,6 +9,8 @@
  * (DB fields), never from transient or asynchronous operations.
  */
 
+const { getStrategy } = require('./scoringStrategyRegistry');
+
 /**
  * Derive leaderboard_state from contest status and settlement existence.
  *
@@ -254,25 +256,30 @@ function derivePayoutTable(payoutStructureJson) {
 /**
  * Derive roster configuration from contest template.
  *
- * In Iteration 01, returns a minimal stable config based on available template data.
- * This is a placeholder for future template-driven roster schema.
+ * Maps scoring_strategy_key to roster configuration including roster_size and validation rules.
+ * Delegates to strategy registry to eliminate string literal conditionals.
  *
- * @param {Object|null} templateRow - Contest template database row
- * @returns {Object} Roster configuration object
+ * @param {Object|null} templateRow - Contest template database row with scoring_strategy_key
+ * @returns {Object} Roster configuration object with entry_fields, roster_size, validation_rules
  */
 function deriveRosterConfig(templateRow) {
-  if (!templateRow) {
+  if (!templateRow || !templateRow.scoring_strategy_key) {
     return {
       entry_fields: [],
       validation_rules: {}
     };
   }
 
-  // Minimal stable config based on template type
-  return {
-    entry_fields: [],
-    validation_rules: {}
-  };
+  try {
+    const strategy = getStrategy(templateRow.scoring_strategy_key);
+    return strategy.rosterConfig();
+  } catch (err) {
+    // If strategy unknown, return stub config
+    return {
+      entry_fields: [],
+      validation_rules: {}
+    };
+  }
 }
 
 /**

@@ -28,7 +28,7 @@ function validateRoster(roster, config, validatedField) {
     return { valid: false, errors };
   }
 
-  if (!Array.isArray(validatedField)) {
+  if (validatedField !== null && !Array.isArray(validatedField)) {
     errors.push('ValidatedField must be an array');
     return { valid: false, errors };
   }
@@ -60,17 +60,21 @@ function validateRoster(roster, config, validatedField) {
   }
 
   // Constraint 3: Each player must exist in validated field
-  const validatedFieldIds = new Set(validatedField.map(p => p.player_id));
-  const unknownPlayers = [];
-  for (const player_id of roster) {
-    if (!validatedFieldIds.has(player_id)) {
-      unknownPlayers.push(player_id);
+  // Only enforced when a field exists (validatedField non-null).
+  // If no field_selections row exists, validatedField is null and this check is skipped.
+  if (validatedField !== null) {
+    const validatedFieldIds = new Set(validatedField.map(p => p.player_id));
+    const unknownPlayers = [];
+    for (const player_id of roster) {
+      if (!validatedFieldIds.has(player_id)) {
+        unknownPlayers.push(player_id);
+      }
     }
-  }
-  if (unknownPlayers.length > 0) {
-    errors.push(
-      `Players not in validated field: ${unknownPlayers.join(', ')}`
-    );
+    if (unknownPlayers.length > 0) {
+      errors.push(
+        `Players not in validated field: ${unknownPlayers.join(', ')}`
+      );
+    }
   }
 
   return {

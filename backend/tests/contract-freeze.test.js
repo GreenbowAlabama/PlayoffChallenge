@@ -36,7 +36,7 @@ describe('Contract Freeze', () => {
     // - Added POST /api/wallet/fund endpoint (creates PaymentIntent)
     // - Added POST /api/wallet/withdraw endpoint (creates withdrawal request)
     // - Added wallet schemas: WalletResponse, WalletFundRequest, WalletFundResponse, WalletWithdrawRequest, WalletWithdrawResponse, LedgerEntry
-    const expectedHash = '7f09629fb071f081d037334ea7d08fc4cb03538c336d228c220526579a8064f8';
+    const expectedHash = '08c2f38229be45c6633948c6d5fb69d40402fa8fd38397d65d85dd5b9289b7e8';
 
     // The hashes must match - if they don't, the contract has drifted
     expect(currentHash).toBe(expectedHash);

@@ -40,21 +40,46 @@ describe('discoveryContestCreationService', () => {
   });
 
   afterEach(async () => {
-    // Clean up test data (contests, then templates)
+    // Clean up test data in FK-safe order: audit → instances → templates
+
+    // 1. Audit records for instances we are about to delete
     await pool.query(
       `DELETE FROM admin_contest_audit
        WHERE contest_instance_id IN (
          SELECT id FROM contest_instances
          WHERE provider_event_id LIKE 'espn_pga_discovery_test_%'
+            OR provider_event_id = 'espn_pga_401811941'
+            OR template_id IN (
+              SELECT id FROM contest_templates
+              WHERE provider_tournament_id IS NULL
+              AND lock_strategy_key = 'auto_discovery'
+              AND is_system_generated = true
+            )
        )`
     );
+    // 2. Contest instances
     await pool.query(
       `DELETE FROM contest_instances
-       WHERE provider_event_id LIKE 'espn_pga_discovery_test_%'`
+       WHERE provider_event_id LIKE 'espn_pga_discovery_test_%'
+          OR provider_event_id = 'espn_pga_401811941'
+          OR template_id IN (
+            SELECT id FROM contest_templates
+            WHERE provider_tournament_id IS NULL
+            AND lock_strategy_key = 'auto_discovery'
+            AND is_system_generated = true
+          )`
     );
+    // 3. Templates by provider_tournament_id pattern (processEventDiscovery-created)
     await pool.query(
       `DELETE FROM contest_templates
        WHERE provider_tournament_id LIKE 'pga_discovery_test_%'`
+    );
+    // 4. Directly-inserted test templates (no provider_tournament_id, lock_strategy_key='auto_discovery')
+    await pool.query(
+      `DELETE FROM contest_templates
+       WHERE provider_tournament_id IS NULL
+       AND lock_strategy_key = 'auto_discovery'
+       AND is_system_generated = true`
     );
   });
 
@@ -124,7 +149,7 @@ describe('discoveryContestCreationService', () => {
       expect(contest.tournament_end_time).toEqual(testEvent.end_time);
       expect(contest.lock_time).toEqual(testEvent.start_time);
       expect(contest.is_platform_owned).toBe(true);
-      expect(contest.contest_name).toBe(`${templateResult.rows[0].id === templateId ? 'PGA Discovery Test Template' : ''} - ${testEvent.name}`);
+      expect(contest.contest_name).toBe(`PGA Discovery Test Template - ${testEvent.name}`);
     });
 
     it('should be idempotent: replaying does not create duplicates', async () => {
@@ -320,8 +345,11 @@ describe('discoveryContestCreationService', () => {
         ]
       );
 
-      // Use now from setup (2026-04-01) which is within 7 days of Masters (2026-04-09)
-      const result = await runDiscoveryCycle(pool, now, organizerId);
+      // Use a now that puts the Masters (2026-04-09T07:00:00Z) inside the 7-day window.
+      // Window: now < start_time <= now + 7 days
+      // April 3 00:00Z + 7 days = April 10 00:00Z — Masters (April 9 07:00Z) is inside.
+      const nowForTest = new Date('2026-04-03T00:00:00Z');
+      const result = await runDiscoveryCycle(pool, nowForTest, organizerId);
 
       expect(result.success).toBe(true);
       expect(result.event_id).toBe('espn_pga_401811941');

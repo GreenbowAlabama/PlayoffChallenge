@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict gQulpTSluRRanggua6WI0jbvgbn7iD01tApg9JXh9lCsDHQYSZnipYqb9vzTgXh
+\restrict 9yNEd0cLWBRoEVYFM1CHqOuCYVl8BRXWZqgX9BsusseYe6CMPrXdUsJBXbhWsdA
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -18,6 +18,20 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
+
+--
+-- Name: public; Type: SCHEMA; Schema: -; Owner: -
+--
+
+-- *not* creating schema, since initdb creates it
+
+
+--
+-- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON SCHEMA public IS '';
+
 
 --
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
@@ -275,6 +289,20 @@ $$;
 
 
 --
+-- Name: set_entry_rosters_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_entry_rosters_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: set_runbook_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -474,6 +502,20 @@ CREATE TABLE public.contest_templates (
     is_system_generated boolean DEFAULT false NOT NULL,
     status text DEFAULT 'SCHEDULED'::text NOT NULL,
     CONSTRAINT template_status_valid CHECK ((status = ANY (ARRAY['SCHEDULED'::text, 'COMPLETE'::text, 'CANCELLED'::text])))
+);
+
+
+--
+-- Name: entry_rosters; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entry_rosters (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    contest_instance_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    player_ids text[] NOT NULL,
+    submitted_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -1713,6 +1755,22 @@ ALTER TABLE ONLY public.contest_templates
 
 
 --
+-- Name: entry_rosters entry_rosters_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entry_rosters
+    ADD CONSTRAINT entry_rosters_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: entry_rosters entry_rosters_unique_entry; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entry_rosters
+    ADD CONSTRAINT entry_rosters_unique_entry UNIQUE (contest_instance_id, user_id);
+
+
+--
 -- Name: event_data_snapshots event_data_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2398,6 +2456,13 @@ CREATE INDEX idx_contest_templates_template_type ON public.contest_templates USI
 
 
 --
+-- Name: idx_entry_rosters_contest_instance; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_entry_rosters_contest_instance ON public.entry_rosters USING btree (contest_instance_id);
+
+
+--
 -- Name: idx_golfer_scores_contest_golfer_round; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3007,6 +3072,13 @@ CREATE TRIGGER stripe_events_no_update BEFORE DELETE OR UPDATE ON public.stripe_
 
 
 --
+-- Name: entry_rosters trg_entry_rosters_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_entry_rosters_updated_at BEFORE UPDATE ON public.entry_rosters FOR EACH ROW EXECUTE FUNCTION public.set_entry_rosters_updated_at();
+
+
+--
 -- Name: payout_transfers trg_payout_transfers_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3105,6 +3177,22 @@ ALTER TABLE ONLY public.admin_contest_audit
 
 ALTER TABLE ONLY public.contest_state_transitions
     ADD CONSTRAINT contest_state_transitions_contest_instance_id_fkey FOREIGN KEY (contest_instance_id) REFERENCES public.contest_instances(id) ON DELETE CASCADE;
+
+
+--
+-- Name: entry_rosters entry_rosters_contest_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entry_rosters
+    ADD CONSTRAINT entry_rosters_contest_instance_id_fkey FOREIGN KEY (contest_instance_id) REFERENCES public.contest_instances(id) ON DELETE CASCADE;
+
+
+--
+-- Name: entry_rosters entry_rosters_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entry_rosters
+    ADD CONSTRAINT entry_rosters_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
 
 
 --
@@ -3439,5 +3527,5 @@ ALTER TABLE ONLY public.wallet_withdrawals
 -- PostgreSQL database dump complete
 --
 
-\unrestrict gQulpTSluRRanggua6WI0jbvgbn7iD01tApg9JXh9lCsDHQYSZnipYqb9vzTgXh
+\unrestrict 9yNEd0cLWBRoEVYFM1CHqOuCYVl8BRXWZqgX9BsusseYe6CMPrXdUsJBXbhWsdA
 

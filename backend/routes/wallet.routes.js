@@ -57,7 +57,7 @@ function extractUserId(req, res, next) {
 /**
  * GET /api/wallet
  *
- * Get user wallet balance and transaction ledger.
+ * Get user wallet balance (balance-only endpoint).
  *
  * Request:
  * - Headers:
@@ -66,8 +66,7 @@ function extractUserId(req, res, next) {
  *
  * Response (200):
  * {
- *   balance_cents: number (can be 0 or positive),
- *   ledger: [{ id, amount_cents, direction, entry_type, ... }] (optional)
+ *   balance_cents: number (can be 0 or positive)
  * }
  *
  * Error responses:
@@ -78,6 +77,8 @@ function extractUserId(req, res, next) {
  * Authentication:
  * - Requires extractUserId middleware to set req.userId
  * - userId extracted from Authorization Bearer token or X-User-Id header
+ *
+ * Note: Ledger history is available via separate endpoint if needed.
  */
 router.get('/', extractUserId, async (req, res) => {
   try {
@@ -85,15 +86,13 @@ router.get('/', extractUserId, async (req, res) => {
     const userId = req.userId;
 
     const balanceCents = await LedgerRepository.getWalletBalance(pool, userId);
-    const ledgerEntries = await LedgerRepository.getWalletLedger(pool, userId);
 
     if (process.env.LOG_AUTH_DEBUG === 'true') {
-      console.log('[Wallet] Fetched balance for user:', userId.slice(-6), 'balance:', balanceCents, 'ledger entries:', ledgerEntries.length);
+      console.log('[Wallet] Fetched balance for user:', userId.slice(-6), 'balance:', balanceCents);
     }
 
     return res.status(200).json({
-      balance_cents: balanceCents,
-      ledger: ledgerEntries
+      balance_cents: balanceCents
     });
   } catch (err) {
     console.error('[Wallet] Error fetching balance', {

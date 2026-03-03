@@ -54,8 +54,9 @@ function getValidator(schemaName) {
   // Convert OpenAPI schema to JSON Schema
   const jsonSchema = convertOpenApiToJsonSchema(componentSchema, spec.components.schemas);
 
-  // Create AJV validator
-  const ajv = new Ajv({ allErrors: true });
+  // Create AJV validator. strict: false allows OpenAPI-specific keywords (e.g. 'example')
+  // that are not part of JSON Schema but are valid in OpenAPI specs.
+  const ajv = new Ajv({ allErrors: true, strict: false });
   addFormats(ajv);
 
   const validator = ajv.compile(jsonSchema);

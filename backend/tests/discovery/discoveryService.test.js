@@ -40,6 +40,36 @@ describe('discoveryService', () => {
        ON CONFLICT (id) DO NOTHING`,
       [userId, 'test-organizer@example.com', 'test-organizer']
     );
+
+    // Remove any stray system templates (and their instances) left by discoveryContestCreation.test.js.
+    // Must delete instances first to avoid FK violation.
+    await pool.query(
+      `DELETE FROM admin_contest_audit
+       WHERE contest_instance_id IN (
+         SELECT id FROM contest_instances
+         WHERE template_id IN (
+           SELECT id FROM contest_templates
+           WHERE provider_tournament_id IS NULL
+           AND lock_strategy_key = 'auto_discovery'
+           AND is_system_generated = true
+         )
+       )`
+    );
+    await pool.query(
+      `DELETE FROM contest_instances
+       WHERE template_id IN (
+         SELECT id FROM contest_templates
+         WHERE provider_tournament_id IS NULL
+         AND lock_strategy_key = 'auto_discovery'
+         AND is_system_generated = true
+       )`
+    );
+    await pool.query(
+      `DELETE FROM contest_templates
+       WHERE provider_tournament_id IS NULL
+       AND lock_strategy_key = 'auto_discovery'
+       AND is_system_generated = true`
+    );
   });
 
   afterEach(async () => {

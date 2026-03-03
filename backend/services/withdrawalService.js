@@ -97,8 +97,9 @@ async function createWithdrawalRequest(pool, userId, input, environment) {
   // Normalize UUID to lowercase to ensure consistent idempotency keys
   userId = userId.toLowerCase();
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
     // 1. Lock user row (serialize all balance operations)
@@ -237,7 +238,9 @@ async function createWithdrawalRequest(pool, userId, input, environment) {
     }
     throw err;
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
 
@@ -257,8 +260,9 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
   // Normalize UUID to lowercase to ensure consistent idempotency keys
   withdrawalId = withdrawalId.toLowerCase();
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
     // 1. Lock user row
@@ -395,7 +399,9 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
     }
     throw err;
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
 
@@ -540,8 +546,9 @@ async function cancelWithdrawal(pool, withdrawalId, userId) {
   withdrawalId = withdrawalId.toLowerCase();
   userId = userId.toLowerCase();
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
     // 1. Lock user row
@@ -620,7 +627,9 @@ async function cancelWithdrawal(pool, withdrawalId, userId) {
     }
     throw err;
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
 

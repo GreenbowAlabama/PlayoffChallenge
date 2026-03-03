@@ -227,8 +227,8 @@ describe('POST /api/admin/tournaments/discover', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
           ...validPayload,
-          start_time: '2026-06-01T08:00:00Z',
-          end_time: '2026-06-05T20:00:00Z'
+          start_time: '2026-09-01T08:00:00Z',
+          end_time: '2026-09-05T20:00:00Z'
         });
 
       expect(response.status).toBe(400);

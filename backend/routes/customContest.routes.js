@@ -17,6 +17,7 @@ const express = require('express');
 const router = express.Router();
 
 const customContestService = require('../services/customContestService');
+const entryRosterService = require('../services/entryRosterService');
 const { logJoinSuccess, logJoinFailure, logContestCreated, logContestPublished } = require('../services/joinAuditService');
 const { createCombinedJoinRateLimiter } = require('../middleware/joinRateLimit');
 const { createContractValidator } = require('../middleware/contractValidator');
@@ -671,5 +672,129 @@ router.delete('/:id/entry', extractUserId, async (req, res) => {
     res.status(500).json({ error: 'Failed to unjoin contest' });
   }
 });
+
+/**
+ * POST /api/custom-contests/:id/picks
+ * Submit (upsert) golfer/player picks for a user in a contest.
+ * Requires authentication.
+ *
+ * Request body: { player_ids: [string] }
+ *
+ * Response:
+ * - 200: { success: true, player_ids: [...], updated_at: ISO string }
+ * - 400: { error_code: 'VALIDATION_FAILED', errors: [...] }
+ * - 403: { error_code: 'NOT_A_PARTICIPANT', reason: '...' }
+ * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
+ * - 409: { error_code: 'CONTEST_NOT_SCHEDULED' | 'CONTEST_LOCKED', reason: '...' }
+ */
+router.post('/:id/picks', extractUserId, asyncHandler(async (req, res) => {
+  const pool = req.app.locals.pool;
+  const { id } = req.params;
+  const userId = req.userId;
+  const { player_ids } = req.body;
+
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ error: 'Invalid contest ID format' });
+  }
+
+  if (!Array.isArray(player_ids)) {
+    return res.status(400).json({ error: 'player_ids must be an array' });
+  }
+
+  try {
+    const result = await entryRosterService.submitPicks(pool, id, userId, player_ids);
+    res.json(result);
+  } catch (err) {
+    const errorCode = err.code || 'INTERNAL_ERROR';
+    const errorInfo = entryRosterService.ERROR_CODES[errorCode];
+    const status = errorInfo?.status || 500;
+
+    if (status < 500) {
+      return res.status(status).json({
+        error_code: errorCode,
+        reason: err.message,
+        ...(err.errors && { errors: err.errors })
+      });
+    }
+
+    console.error('[Custom Contest] Error submitting picks:', err);
+    res.status(500).json({ error: 'Failed to submit picks' });
+  }
+}));
+
+/**
+ * GET /api/custom-contests/:id/my-entry
+ * Get user's current picks and context for a contest.
+ * Requires authentication.
+ *
+ * Response:
+ * - 200: { player_ids: [...], can_edit: bool, lock_time: ISO|null, roster_config: {...}, available_players: [...] | null }
+ * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
+ */
+router.get('/:id/my-entry', extractUserId, asyncHandler(async (req, res) => {
+  const pool = req.app.locals.pool;
+  const { id } = req.params;
+  const userId = req.userId;
+
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ error: 'Invalid contest ID format' });
+  }
+
+  try {
+    const result = await entryRosterService.getMyEntry(pool, id, userId);
+    res.json(result);
+  } catch (err) {
+    const errorCode = err.code || 'INTERNAL_ERROR';
+    const errorInfo = entryRosterService.ERROR_CODES[errorCode];
+    const status = errorInfo?.status || 500;
+
+    if (status < 500) {
+      return res.status(status).json({
+        error_code: errorCode,
+        reason: err.message
+      });
+    }
+
+    console.error('[Custom Contest] Error fetching my-entry:', err);
+    res.status(500).json({ error: 'Failed to fetch entry' });
+  }
+}));
+
+/**
+ * GET /api/custom-contests/:id/rules
+ * Get scoring rules for a contest.
+ * Requires authentication.
+ *
+ * Response:
+ * - 200: { scoring_strategy: string, hole_scoring: {...}, roster: {...}, bonuses: {...}, tie_handling: string, payout_structure: {...} }
+ * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
+ */
+router.get('/:id/rules', extractUserId, asyncHandler(async (req, res) => {
+  const pool = req.app.locals.pool;
+  const { id } = req.params;
+
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ error: 'Invalid contest ID format' });
+  }
+
+  try {
+    const result = await entryRosterService.getContestRules(pool, id);
+    res.json(result);
+  } catch (err) {
+    const errorCode = err.code || 'INTERNAL_ERROR';
+    const errorInfo = entryRosterService.ERROR_CODES[errorCode];
+    const status = errorInfo?.status || 500;
+
+    if (status < 500) {
+      return res.status(status).json({
+        error_code: errorCode,
+        reason: err.message
+      });
+    }
+
+    console.error('[Custom Contest] Error fetching rules:', err);
+    res.status(500).json({ error: 'Failed to fetch rules' });
+  }
+}));
 
 module.exports = router;

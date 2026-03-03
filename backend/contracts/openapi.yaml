@@ -163,6 +163,149 @@ paths:
                 error_code: CONTEST_NOT_FOUND
                 reason: Contest not found
 
+  /api/custom-contests/{id}/picks:
+    post:
+      tags:
+        - Contests
+      summary: Submit or update golfer/player picks for a contest
+      description: |
+        Submit or update a roster of player picks for a PGA contest.
+        Only available for SCHEDULED contests before lock_time.
+        Upsert semantics: submitting again replaces the previous picks.
+      operationId: submitPicks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PicksSubmissionRequest'
+      responses:
+        '200':
+          description: Picks submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PicksSubmissionResponse'
+        '400':
+          description: Invalid input (wrong roster size, duplicates, unknown players)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseWithErrors'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - user is not a participant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict - contest is not SCHEDULED or entry window is closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/custom-contests/{id}/my-entry:
+    get:
+      tags:
+        - Contests
+      summary: Get user's current picks and entry context
+      description: |
+        Retrieve the user's current golfer picks for a contest, edit capability,
+        lock time, roster configuration, and available players to pick.
+        Available players are null if tournament field has not been populated yet.
+      operationId: getMyEntry
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User entry and context retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyEntryResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/custom-contests/{id}/rules:
+    get:
+      tags:
+        - Contests
+      summary: Get contest scoring rules and configuration
+      description: |
+        Retrieve the scoring rules, roster configuration, and payout structure for a contest.
+        Rules are determined by the contest's scoring_strategy (e.g., pga_standard_v1).
+      operationId: getContestRules
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rules retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContestRulesResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/custom-contests:
     get:
       tags:
@@ -1338,23 +1481,6 @@ components:
           nullable: true
           description: Maximum winners if payout strategy supports multiple winners
 
-    RosterConfig:
-      type: object
-      description: |
-        Entry roster configuration for this contest.
-        In Iteration 01, stub with empty placeholders.
-      required:
-        - entry_fields
-        - validation_rules
-      properties:
-        entry_fields:
-          type: array
-          items: {}
-          description: Entry field definitions (future use)
-        validation_rules:
-          type: object
-          description: Entry validation rules (future use)
-
     Standing:
       type: object
       description: Individual participant standing in the contest leaderboard
@@ -1734,3 +1860,171 @@ components:
         amount_cents:
           type: integer
           description: Withdrawal amount in cents
+
+    PicksSubmissionRequest:
+      type: object
+      description: Request to submit golfer/player picks for a contest
+      required:
+        - player_ids
+      properties:
+        player_ids:
+          type: array
+          items:
+            type: string
+          description: Array of player IDs (golfer IDs for PGA)
+          example: ["player-123", "player-456", "player-789"]
+
+    PicksSubmissionResponse:
+      type: object
+      description: Response after submitting picks
+      required:
+        - success
+        - player_ids
+        - updated_at
+      properties:
+        success:
+          type: boolean
+          description: Whether picks were submitted successfully
+        player_ids:
+          type: array
+          items:
+            type: string
+          description: Submitted player IDs
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of submission/update
+
+    PlayerInfo:
+      type: object
+      description: Information about a player (golfer) available for selection
+      required:
+        - player_id
+        - name
+      properties:
+        player_id:
+          type: string
+          description: Unique player identifier
+        name:
+          type: string
+          description: Player display name
+
+    MyEntryResponse:
+      type: object
+      description: User's current entry/picks and context for a contest
+      required:
+        - player_ids
+        - can_edit
+        - lock_time
+        - roster_config
+      properties:
+        player_ids:
+          type: array
+          items:
+            type: string
+          description: User's currently selected player IDs (empty array if no entry)
+        can_edit:
+          type: boolean
+          description: Whether user can still edit their picks (contest SCHEDULED and before lock_time)
+        lock_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: Entry lock time (null if no time-based lock)
+        roster_config:
+          $ref: '#/components/schemas/RosterConfig'
+        available_players:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlayerInfo'
+          nullable: true
+          description: Available players to pick from tournament field (null if field not yet populated)
+
+    RosterConfig:
+      type: object
+      description: Roster configuration for a contest type
+      properties:
+        roster_size:
+          type: integer
+          description: Number of players required in roster
+          example: 7
+        entry_fields:
+          type: array
+          items:
+            type: string
+          description: Fields that make up entry (e.g., player_ids)
+        validation_rules:
+          type: object
+          description: Validation rules for roster (no_duplicates, must_be_in_field, etc.)
+          additionalProperties: true
+
+    ContestRulesResponse:
+      type: object
+      description: Scoring rules and payout configuration for a contest
+      required:
+        - scoring_strategy
+        - hole_scoring
+        - roster
+        - tie_handling
+        - payout_structure
+      properties:
+        scoring_strategy:
+          type: string
+          description: Scoring strategy key (e.g., pga_standard_v1)
+        hole_scoring:
+          type: object
+          description: Points awarded per hole outcome
+          properties:
+            double_eagle_or_better:
+              type: integer
+            eagle:
+              type: integer
+            birdie:
+              type: integer
+            par:
+              type: integer
+            bogey:
+              type: integer
+            double_bogey_or_worse:
+              type: integer
+        roster:
+          type: object
+          description: Roster configuration (size, format, etc.)
+          properties:
+            roster_size:
+              type: integer
+            scoring_format:
+              type: string
+            description:
+              type: string
+        bonuses:
+          type: object
+          description: Bonus point rules and descriptions
+          additionalProperties:
+            type: string
+        tie_handling:
+          type: string
+          description: How ties are handled in rankings
+        payout_structure:
+          type: object
+          description: Prize pool payout configuration
+          additionalProperties: true
+
+    ErrorResponseWithErrors:
+      type: object
+      description: Error response that includes detailed error list
+      required:
+        - error_code
+        - reason
+      properties:
+        error_code:
+          type: string
+          description: Structured error code
+        reason:
+          type: string
+          description: Human-readable error message
+        errors:
+          type: array
+          items:
+            type: string
+          description: Array of specific validation errors

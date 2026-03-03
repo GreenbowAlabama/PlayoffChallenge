@@ -311,7 +311,7 @@ async function discoverTournament(input, pool, now) {
   } catch (err) {
     await client.query('ROLLBACK');
 
-    // Check for unique constraint violation
+    // Check for unique constraint on provider tournament
     if (err.code === '23505' && err.constraint === 'idx_contest_templates_provider_tournament_unique') {
       // Race condition: another request created the template
       // Try again to fetch it
@@ -333,6 +333,89 @@ async function discoverTournament(input, pool, now) {
           errorCode: null,
           statusCode: 200
         };
+      }
+    }
+
+    // Check for unique constraint on active template per type
+    if (err.code === '23505' && err.constraint === 'unique_active_template_per_type') {
+      // An active template already exists for this (sport, template_type).
+      // Create a new inactive template for this provider tournament
+      // OR update the existing one. For now, create inactive version.
+      const clientRetry = await pool.connect();
+      try {
+        await clientRetry.query('BEGIN');
+
+        // Insert template with is_active=false to avoid constraint violation
+        const newTemplate = await clientRetry.query(
+          `INSERT INTO contest_templates (
+            name, sport, template_type, scoring_strategy_key,
+            lock_strategy_key, settlement_strategy_key,
+            default_entry_fee_cents, allowed_entry_fee_min_cents,
+            allowed_entry_fee_max_cents, allowed_payout_structures,
+            is_active, provider_tournament_id, season_year,
+            is_system_generated, status
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+          )
+          RETURNING id`,
+          [
+            normalized.name, 'pga', 'daily', 'stroke_play',
+            'auto_discovery', 'pga_settlement',
+            5000, 1000, 50000,
+            JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
+            false, // is_active: false to avoid constraint violation
+            normalized.provider_tournament_id, normalized.season_year,
+            true, normalized.status
+          ]
+        );
+
+        const newTemplateId = newTemplate.rows[0].id;
+
+        // Still create marketing contest for this template
+        await clientRetry.query(
+          `INSERT INTO contest_instances (
+            template_id, organizer_id, entry_fee_cents, payout_structure,
+            status, start_time, contest_name, max_entries,
+            is_platform_owned, is_primary_marketing
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+          )
+          ON CONFLICT DO NOTHING`,
+          [
+            newTemplateId, '00000000-0000-0000-0000-000000000043',
+            5000, JSON.stringify({ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }),
+            normalized.status, now,
+            `${normalized.name} - Marketing`, 100,
+            true, true
+          ]
+        );
+
+        await clientRetry.query('COMMIT');
+
+        return {
+          success: true,
+          templateId: newTemplateId,
+          created: true,
+          updated: false,
+          error: null,
+          errorCode: null,
+          statusCode: 201
+        };
+      } catch (retryErr) {
+        await clientRetry.query('ROLLBACK');
+        clientRetry.release();
+
+        return {
+          success: false,
+          templateId: null,
+          created: false,
+          updated: false,
+          error: `Database error (retry): ${retryErr.message}`,
+          errorCode: 'DATABASE_ERROR',
+          statusCode: 500
+        };
+      } finally {
+        clientRetry.release();
       }
     }
 

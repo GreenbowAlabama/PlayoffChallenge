@@ -58,15 +58,6 @@ describe('Wallet Balance — Empty', () => {
       }
     );
 
-    // Mock the ledger query to return empty array
-    mockPool.setQueryResponse(
-      /SELECT.*FROM ledger.*WHERE user_id.*ORDER BY created_at/i,
-      {
-        rows: [],
-        rowCount: 0
-      }
-    );
-
     const response = await request(app)
       .get('/api/wallet')
       .set('Authorization', `Bearer ${TEST_USER_ID}`)
@@ -74,8 +65,7 @@ describe('Wallet Balance — Empty', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
-      balance_cents: 0,
-      ledger: []
+      balance_cents: 0
     });
   });
 

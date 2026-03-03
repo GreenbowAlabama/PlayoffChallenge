@@ -50,6 +50,7 @@ const mockInstance = {
   lock_time: new Date(Date.now() + 3600 * 1000).toISOString(), // 1 hour from now (required for SCHEDULED)
   settle_time: null,
   prize_pool_cents: 10000, // For payout table derivation
+  scoring_strategy_key: 'nfl_standard_v1', // Default strategy for test mocks
   created_at: new Date(),
   updated_at: new Date()
 };

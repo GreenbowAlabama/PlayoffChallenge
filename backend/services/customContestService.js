@@ -14,6 +14,7 @@ const config = require('../config');
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
 const { mapContestToApiResponse, mapContestToApiResponseForList } = require('./helpers/contestApiResponseMapper');
 const LedgerRepository = require('../repositories/LedgerRepository');
+const { getStrategy } = require('./scoringStrategyRegistry');
 
 // Function to compare two numbers with a fixed precision (e.g., 2 decimal places)
 const areScoresEqual = (score1, score2, precision = 2) => {
@@ -60,6 +61,7 @@ async function _getLiveStandings(pool, contestInstanceId) {
 
   return rankedScores;
 }
+
 
 // Helper to get complete standings from settlement_records and normalize their shape
 async function _getCompleteStandings(pool, contestInstanceId) {
@@ -568,6 +570,7 @@ async function getContestInstance(pool, instanceId, requestingUserId = null) {
       ci.settle_time,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
       cct.template_type AS template_type,
+      cct.scoring_strategy_key AS scoring_strategy_key,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
       ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered
     FROM contest_instances ci
@@ -584,7 +587,9 @@ async function getContestInstance(pool, instanceId, requestingUserId = null) {
 
   // Fetch standings if required
   if (row.status === 'LIVE') {
-    row.standings = await _getLiveStandings(pool, row.id);
+    // Dispatch to strategy-specific standings fetcher
+    const strategy = getStrategy(row.scoring_strategy_key);
+    row.standings = await strategy.liveStandings(pool, row.id);
   } else if (row.status === 'COMPLETE') {
     row.standings = await _getCompleteStandings(pool, row.id);
   }
@@ -634,6 +639,7 @@ async function getContestInstanceByToken(pool, token, requestingUserId = null) {
       ci.settle_time,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
       cct.template_type AS template_type,
+      cct.scoring_strategy_key AS scoring_strategy_key,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
       ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered
     FROM contest_instances ci
@@ -649,7 +655,9 @@ async function getContestInstanceByToken(pool, token, requestingUserId = null) {
 
   // Fetch standings if required
   if (row.status === 'LIVE') {
-    row.standings = await _getLiveStandings(pool, row.id);
+    // Dispatch to strategy-specific standings fetcher
+    const strategy = getStrategy(row.scoring_strategy_key);
+    row.standings = await strategy.liveStandings(pool, row.id);
   } else if (row.status === 'COMPLETE') {
     row.standings = await _getCompleteStandings(pool, row.id);
   }
@@ -1103,9 +1111,8 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
     const contest = contestResult.rows[0];
 
     // 2. Validate state BEFORE any writes (fail fast)
-    // GOVERNANCE: System contests have join_token = null and are still joinable.
-    // Joinability is gated by actions.can_join from the detail endpoint.
-    // Token validation only applies to private contests (where join_token IS NOT NULL).
+    // Phase 2 join is authenticated. Authentication is the access gate.
+    // No token matching required here — token is for Phase 1 (link resolution) only.
 
     if (contest.status !== 'SCHEDULED') {
       await client.query('ROLLBACK');
@@ -1121,20 +1128,14 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: `Contest is in state '${contest.status}' and not joinable` };
     }
 
-    // 3. Validate token for private contests (only if join_token IS NOT NULL)
-    // System contests (join_token = null) do not require token validation.
-    if (contest.join_token !== null && optionalToken !== contest.join_token) {
+    // 3. Unpublished guard: contest must have a join_token to be joinable.
+    // Contests without a join_token (null) are not yet published.
+    if (contest.join_token === null) {
       await client.query('ROLLBACK');
-      return { joined: false, error_code: JOIN_ERROR_CODES.INVALID_TOKEN, reason: 'Invalid join token' };
+      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is not yet published' };
     }
 
-    // 4. Enforce lock_time window (optional - only if lock_time is set)
-    if (contest.lock_time !== null && new Date() >= new Date(contest.lock_time)) {
-      await client.query('ROLLBACK');
-      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest join window has closed' };
-    }
-
-    // 5. Check if user already joined (idempotent: return success)
+    // 4. Check if user already joined (idempotent: return success)
     const existingResult = await client.query(
       'SELECT id, contest_instance_id, user_id, joined_at FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
       [contestInstanceId, userId]
@@ -1145,19 +1146,25 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
       return { joined: true, participant: existingResult.rows[0] };
     }
 
-    // 5. Check capacity before attempting insert
+    // 5. Enforce lock_time window (optional - only if lock_time is set)
+    if (contest.lock_time !== null && new Date() >= new Date(contest.lock_time)) {
+      await client.query('ROLLBACK');
+      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_LOCKED, reason: 'Contest join window has closed' };
+    }
+
+    // 6. Check capacity before attempting insert
     const capacityResult = await client.query(
       `SELECT COUNT(*) AS current_count FROM contest_participants WHERE contest_instance_id = $1`,
       [contestInstanceId]
     );
 
-    const currentCount = parseInt(capacityResult.rows[0].current_count, 10);
+    const currentCount = capacityResult.rows.length > 0 ? parseInt(capacityResult.rows[0].current_count, 10) : 0;
     if (contest.max_entries !== null && currentCount >= contest.max_entries) {
       await client.query('ROLLBACK');
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_FULL, reason: 'Contest has reached maximum participants' };
     }
 
-    // 6. Compute wallet balance (user row is locked, so computation is safe)
+    // 7. Compute wallet balance (user row is locked, so computation is safe)
     //    CRITICAL: Debit only occurs if participant insert succeeds
     const entryFeeCents = parseInt(contest.entry_fee_cents, 10);
     const walletBalance = await LedgerRepository.computeWalletBalance(client, userId);
@@ -1171,7 +1178,7 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
       };
     }
 
-    // 7. Insert with ON CONFLICT DO NOTHING for concurrency safety
+    // 8. Insert with ON CONFLICT DO NOTHING for concurrency safety
     //    CRITICAL: Debit must only occur if this insert succeeds
     const insertResult = await client.query(
       `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at)
@@ -1181,7 +1188,7 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
       [contestInstanceId, userId]
     );
 
-    // 7. Handle race condition: if insert returned 0 rows, recheck participant
+    // 8. Handle race condition: if insert returned 0 rows, recheck participant
     if (insertResult.rowCount === 0) {
       const recheckResult = await client.query(
         'SELECT id, contest_instance_id, user_id, joined_at FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
@@ -1200,7 +1207,7 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_FULL, reason: 'Contest has reached maximum participants' };
     }
 
-    // 8. Participant insert succeeded: now record entry fee (CRITICAL: only this path records fees)
+    // 9. Participant insert succeeded: now record entry fee (CRITICAL: only this path records fees)
     //    Use ON CONFLICT DO NOTHING with verification to preserve invariant:
     //    - Entry fee is recorded atomically with participant (same transaction)
     //    - Reference is CONTEST (not WALLET), with contest_instance_id for audit trail
@@ -1560,6 +1567,7 @@ async function getAvailableContestInstances(pool, userId) {
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.status = 'SCHEDULED'
+    AND ci.join_token IS NOT NULL
     AND (ci.lock_time IS NULL OR ci.lock_time > NOW())
     ORDER BY ci.created_at DESC`,
     [userId]
@@ -1696,7 +1704,8 @@ async function getContestLeaderboard(pool, instanceId) {
       ci.start_time,
       ci.lock_time,
       ci.end_time,
-      cct.template_type AS template_type
+      cct.template_type AS template_type,
+      cct.scoring_strategy_key AS scoring_strategy_key
     FROM contest_instances ci
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.id = $1`,
@@ -1733,10 +1742,12 @@ async function getContestLeaderboard(pool, instanceId) {
     };
   }
 
-  // Fetch standings based on contest status
+  // Fetch standings based on contest status and scoring strategy
   let standings = [];
   if (contestRow.status === 'LIVE') {
-    standings = await _getLiveStandings(pool, instanceId);
+    // Dispatch to strategy-specific standings fetcher
+    const strategy = getStrategy(contestRow.scoring_strategy_key);
+    standings = await strategy.liveStandings(pool, instanceId);
   } else if (contestRow.status === 'COMPLETE') {
     standings = await _getCompleteStandings(pool, instanceId);
   }

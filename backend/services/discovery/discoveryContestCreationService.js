@@ -66,6 +66,7 @@ async function runDiscoveryCycle(pool, now = new Date(), organizerId) {
       return {
         success: true,
         event_id: null,
+        created: 0,
         template_created: false,
         instance_created: false,
         errors: [],
@@ -73,16 +74,18 @@ async function runDiscoveryCycle(pool, now = new Date(), organizerId) {
       };
     }
 
-    // Step 2: Process event (clone template + create instance)
-    const result = await processEventDiscovery(pool, event, now, organizerId);
+    // Step 2: Create contest instances for all system-generated templates
+    const result = await createContestsForEvent(pool, event, now, organizerId);
 
     return {
       success: result.success,
       event_id: event.provider_event_id,
-      template_created: result.template_created,
-      instance_created: result.instance_created,
+      created: result.created,
+      // legacy fields kept for worker compatibility
+      template_created: false,
+      instance_created: result.created > 0,
       errors: result.errors,
-      message: result.message
+      message: `Event: ${event.provider_event_id}, created=${result.created}, skipped=${result.skipped}`
     };
   } catch (err) {
     return {
@@ -335,7 +338,111 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
   }
 }
 
+/**
+ * Create contest instances for a specific event, using all active system-generated templates.
+ *
+ * Each active system-generated template produces exactly one contest instance per event.
+ * Idempotent: ON CONFLICT (provider_event_id, template_id) DO NOTHING.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {Object} event - Normalized event {provider_event_id, name, start_time, end_time}
+ * @param {Date} now - Current time (for determinism, unused here but kept for signature parity)
+ * @param {string} organizerId - UUID of platform organizer user
+ *
+ * @returns {Promise<Object>} { success, created, skipped, errors }
+ */
+async function createContestsForEvent(pool, event, now = new Date(), organizerId) {
+  const client = await pool.connect();
+  let created = 0;
+  let skipped = 0;
+  const errors = [];
+
+  try {
+    await client.query('BEGIN');
+
+    // Find all active system-generated templates
+    const templatesResult = await client.query(
+      `SELECT id, name, default_entry_fee_cents, allowed_payout_structures
+       FROM contest_templates
+       WHERE is_system_generated = true
+       AND is_active = true`
+    );
+
+    for (const template of templatesResult.rows) {
+      const payoutStructure = Array.isArray(template.allowed_payout_structures)
+        ? template.allowed_payout_structures[0]
+        : template.allowed_payout_structures;
+
+      const contestName = `${template.name} - ${event.name}`;
+
+      const insertResult = await client.query(
+        `INSERT INTO contest_instances (
+          template_id, organizer_id, entry_fee_cents, payout_structure,
+          status, contest_name, tournament_start_time, tournament_end_time,
+          lock_time, provider_event_id, is_platform_owned
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)
+        ON CONFLICT (provider_event_id, template_id)
+        WHERE provider_event_id IS NOT NULL
+        DO NOTHING
+        RETURNING id`,
+        [
+          template.id,
+          organizerId,
+          template.default_entry_fee_cents,
+          JSON.stringify(payoutStructure),
+          'SCHEDULED',
+          contestName,
+          event.start_time,
+          event.end_time,
+          event.start_time,
+          event.provider_event_id
+        ]
+      );
+
+      if (insertResult.rows.length > 0) {
+        created++;
+        // Audit logging (non-blocking)
+        try {
+          await client.query(
+            `INSERT INTO admin_contest_audit (
+              contest_instance_id, admin_user_id, action, reason,
+              from_status, to_status, payload
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              insertResult.rows[0].id,
+              organizerId,
+              'AUTO_CREATE',
+              'Auto-created by discovery service for upcoming PGA event',
+              'NONE',
+              'SCHEDULED',
+              JSON.stringify({
+                provider_event_id: event.provider_event_id,
+                template_id: template.id,
+                event_name: event.name
+              })
+            ]
+          );
+        } catch (auditErr) {
+          console.warn(`[Discovery] Audit log failed: ${auditErr.message}`);
+        }
+      } else {
+        skipped++;
+      }
+    }
+
+    await client.query('COMMIT');
+    return { success: true, created, skipped, errors };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    errors.push(err.message);
+    return { success: false, created: 0, skipped: 0, errors };
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   runDiscoveryCycle,
-  processEventDiscovery
+  processEventDiscovery,
+  createContestsForEvent
 };
