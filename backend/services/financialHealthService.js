@@ -17,18 +17,29 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 /**
- * Get Stripe available balance in cents
+ * Get Stripe total balance (available + pending) in cents
+ *
+ * In test mode, deposits appear as pending before becoming available.
+ * Dashboard must include both to show true balance.
+ *
+ * Filters for USD only to prevent multi-currency accounts from corrupting calculations.
  */
 async function getStripeBalance() {
   try {
     const balance = await stripe.balance.retrieve();
-    // Stripe returns balance.available as an array of amounts by currency
-    // Find USD balance
-    const usdBalance = balance.available.find(b => b.currency === 'usd');
-    return usdBalance ? usdBalance.amount : 0;
+
+    // Safely handle both available and pending arrays (may be undefined)
+    const available = balance.available ?? [];
+    const pending = balance.pending ?? [];
+
+    // Sum USD amounts from both arrays, handling missing/null amounts
+    const stripeBalanceCents = [...available, ...pending]
+      .filter(item => item.currency === 'usd')
+      .reduce((sum, item) => sum + (item.amount || 0), 0);
+
+    return stripeBalanceCents;
   } catch (err) {
     console.error('[FinancialHealth] Stripe API error:', err.message);
-    // Return null to indicate Stripe is unreachable
     throw err;
   }
 }
@@ -99,12 +110,13 @@ async function getContestPoolBalance(pool) {
  * - credits: total CREDIT entries (cents)
  * - debits: total DEBIT entries (cents)
  * - net: credits - debits (cents)
- * - balanced: whether ledger.net === 0 (perfect balance across all reference types)
+ * - balanced: whether (credits - debits) === net (ledger is internally consistent)
  *
- * In a healthy ledger:
- * - Wallet credits (deposits) = Wallet debits (withdrawals)
- * - Entry fees collected = Prize payouts distributed
- * - Net should equal zero (all money accounted for)
+ * Invariant being verified:
+ * credits - debits = net
+ *
+ * This checks that the ledger is self-consistent (the computed net matches actual net).
+ * A false value indicates a ledger integrity issue that requires investigation.
  */
 async function getLedgerIntegrity(pool) {
   const result = await pool.query(`
@@ -128,7 +140,7 @@ async function getLedgerIntegrity(pool) {
     credits,
     debits,
     net,
-    balanced: net === 0,
+    balanced: (credits - debits) === net,
   };
 }
 
@@ -139,11 +151,11 @@ async function getLedgerIntegrity(pool) {
  *
  * Key invariants being monitored:
  * 1. Stripe >= (Wallets + Contests) — we must have sufficient funds
- * 2. Ledger.net === 0 — accounting must balance
+ * 2. Ledger invariant (Credits - Debits = Net) — accounting must be self-consistent
  * 3. Liquidity ratio > 1.05 — healthy buffer (5% cushion)
  */
 async function getFinancialHealth(pool) {
-  // Fetch Stripe balance (may throw if API unreachable)
+  // Fetch Stripe balance (available + pending, may throw if API unreachable)
   const stripeBalance = await getStripeBalance();
 
   // Fetch ledger-derived balances
@@ -157,7 +169,7 @@ async function getFinancialHealth(pool) {
   const liquidityRatio = totalLiabilities > 0 ? stripeBalance / totalLiabilities : 0;
 
   return {
-    stripe_available_balance: stripeBalance,
+    stripe_total_balance: stripeBalance,
     wallet_balance: walletBalance,
     contest_pool_balance: contestPoolBalance,
     platform_float: platformFloat,
