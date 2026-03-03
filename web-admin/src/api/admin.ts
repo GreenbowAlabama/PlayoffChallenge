@@ -5,7 +5,7 @@ import { apiRequest } from './client';
 // ============================================
 
 export interface FinancialHealthResponse {
-  stripe_available_balance: number;
+  stripe_total_balance: number;
   wallet_balance: number;
   contest_pool_balance: number;
   platform_float: number;

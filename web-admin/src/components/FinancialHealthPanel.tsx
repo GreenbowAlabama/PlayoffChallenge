@@ -216,9 +216,9 @@ export function FinancialHealthPanel() {
               <h3 className="text-sm font-medium text-gray-900 mb-4">Funds by Source</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <MetricCard
-                  label="Stripe Available"
-                  value={formatCurrency(data.stripe_available_balance)}
-                  subtext="Real bank balance"
+                  label="Stripe Total Balance"
+                  value={formatCurrency(data.stripe_total_balance)}
+                  subtext="Available + Pending settlement funds"
                 />
                 <MetricCard
                   label="User Wallets"
@@ -263,7 +263,7 @@ export function FinancialHealthPanel() {
                     Calculation
                   </p>
                   <p className="text-sm text-gray-600 mt-2 space-y-1">
-                    <div>Stripe: {formatCurrency(data.stripe_available_balance)}</div>
+                    <div>Stripe Total: {formatCurrency(data.stripe_total_balance)}</div>
                     <div className="text-gray-400">÷</div>
                     <div>
                       (Wallets + Pools):{' '}
@@ -285,7 +285,7 @@ export function FinancialHealthPanel() {
                     </p>
                     <StatusBadge
                       status={data.ledger.balanced ? 'healthy' : 'critical'}
-                      label={data.ledger.balanced ? 'Balanced' : 'Out of Balance'}
+                      label={data.ledger.balanced ? 'Balanced' : 'Mismatch'}
                     />
                   </div>
                   <dl className="space-y-2 text-sm">
@@ -322,7 +322,7 @@ export function FinancialHealthPanel() {
                         <span className="text-red-600">✗</span>
                       )}
                       <span className={data.ledger.balanced ? 'text-gray-700' : 'text-red-600'}>
-                        Ledger is balanced
+                        Ledger invariant (Credits - Debits = Net)
                       </span>
                     </li>
                     <li className="flex items-center gap-2">
