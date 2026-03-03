@@ -354,7 +354,7 @@ export function FinancialHealthPanel() {
                             : 'text-yellow-600'
                         }
                       >
-                        Healthy buffer (>5%)
+                        Healthy buffer ({'>'}5%)
                       </span>
                     </li>
                   </ul>
