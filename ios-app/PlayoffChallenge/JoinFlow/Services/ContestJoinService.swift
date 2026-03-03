@@ -25,6 +25,10 @@ final class ContestJoinService: ContestJoining {
         return try await performJoin(contestId: contestId, token: nil, userId: userId)
     }
 
+    func unjoinContest(id: UUID) async throws {
+        try await APIService.shared.unjoinContest(id: id)
+    }
+
     private func performJoin(
         contestId: UUID,
         token: String?,

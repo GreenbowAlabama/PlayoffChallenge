@@ -8,6 +8,16 @@
 import XCTest
 @testable import PlayoffChallenge
 
+// MARK: - Mock Wallet Refresher
+
+final class MockWalletRefresher: WalletRefreshing {
+    var refreshWalletCallCount = 0
+
+    func refreshWallet() async {
+        refreshWalletCallCount += 1
+    }
+}
+
 @MainActor
 final class ContestDetailViewModelTests: XCTestCase {
 
@@ -20,7 +30,9 @@ final class ContestDetailViewModelTests: XCTestCase {
         contest: MockContest? = nil,
         detailResult: Result<MockContest, Error>? = nil,
         contractResult: Result<ContestDetailResponseContract, Error>? = nil,
-        configureUser: Bool = false
+        configureUser: Bool = false,
+        walletRefresher: WalletRefreshing? = nil,
+        contestJoiner: ContestJoining? = nil
     ) -> (vm: ContestDetailViewModel, fetcher: MockContestDetailFetcher) {
         let testContest = contest ?? .fixture()
         let testDetailResult = detailResult ?? .success(.fixture())
@@ -33,11 +45,73 @@ final class ContestDetailViewModelTests: XCTestCase {
         let vm = ContestDetailViewModel(
             contestId: testContest.id,
             placeholder: testContest,
-            contestJoiner: MockContestJoiner.success(),
+            contestJoiner: contestJoiner ?? MockContestJoiner.success(),
             detailFetcher: fetcher,
-            getCurrentUserId: configureUser ? { self.testUserId } : { nil }
+            walletRefresher: walletRefresher
         )
+
+        if configureUser {
+            vm.configure(currentUserId: testUserId)
+        }
+
         return (vm, fetcher)
+    }
+
+    // MARK: - Unjoin Tests
+
+    @MainActor
+    func test_unjoinContest_success_triggersWalletRefreshOnce() async {
+        let walletRefresher = MockWalletRefresher()
+        let joiner = MockContestJoiner.success()
+        joiner.unjoinResult = .success(())
+
+        let (vm, _) = makeSUT(
+            configureUser: true,
+            walletRefresher: walletRefresher,
+            contestJoiner: joiner
+        )
+
+        await vm.unjoinContest()
+
+        XCTAssertEqual(walletRefresher.refreshWalletCallCount, 1)
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    @MainActor
+    func test_unjoinContest_notFound_triggersWalletRefreshOnce() async {
+        let walletRefresher = MockWalletRefresher()
+        let joiner = MockContestJoiner.success()
+        joiner.unjoinResult = .failure(.notFound)
+
+        let (vm, _) = makeSUT(
+            configureUser: true,
+            walletRefresher: walletRefresher,
+            contestJoiner: joiner
+        )
+
+        await vm.unjoinContest()
+
+        XCTAssertEqual(walletRefresher.refreshWalletCallCount, 1)
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    @MainActor
+    func test_unjoinContest_restrictedState_doesNotRefreshWallet_setsError() async {
+        let walletRefresher = MockWalletRefresher()
+        let joiner = MockContestJoiner.success()
+        let restrictedReason = "Cannot unjoin in LIVE status"
+        joiner.unjoinResult = .failure(.restrictedState(restrictedReason))
+
+        let (vm, _) = makeSUT(
+            configureUser: true,
+            walletRefresher: walletRefresher,
+            contestJoiner: joiner
+        )
+
+        await vm.unjoinContest()
+
+        XCTAssertEqual(walletRefresher.refreshWalletCallCount, 0)
+        XCTAssertEqual(vm.errorMessage, restrictedReason)
     }
 
     // MARK: - Initial State Tests

@@ -28,4 +28,10 @@ protocol ContestJoining {
     /// - Returns: Success confirmation with contest details
     /// - Throws: JoinLinkError if join fails
     func joinSystemContest(contestId: UUID, userId: UUID) async throws -> ContestJoinResult
+
+    /// Removes user participation from a contest (unjoin).
+    /// - Parameters:
+    ///   - id: The contest instance ID
+    /// - Throws: APIError if unjoin fails
+    func unjoinContest(id: UUID) async throws
 }

@@ -17,8 +17,8 @@ enum HomeTabRoute: Hashable {
 struct HomeTabView: View {
     @EnvironmentObject var availableVM: AvailableContestsViewModel
     @EnvironmentObject var myVM: MyContestsViewModel
+    @EnvironmentObject var walletVM: UserWalletViewModel
     @StateObject private var viewModel = HomeTabViewModel()
-    @StateObject private var walletVM = UserWalletViewModel()
 
     @State private var navigationPath: [HomeTabRoute] = []
     @State private var showWalletDetail = false
@@ -118,7 +118,7 @@ struct HomeTabView: View {
             .navigationDestination(for: HomeTabRoute.self) { route in
                 switch route {
                 case .detail(let contestId, let contest):
-                    ContestDetailView(contestId: contestId, placeholder: contest)
+                    ContestDetailView(contestId: contestId, placeholder: contest, walletRefresher: walletVM)
                 }
             }
             .refreshable {

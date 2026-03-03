@@ -395,3 +395,11 @@ final class UserWalletViewModel: ObservableObject {
         )
     }
 }
+
+// MARK: - WalletRefreshing Conformance
+
+extension UserWalletViewModel: WalletRefreshing {
+    func refreshWallet() async {
+        await refreshBalance()
+    }
+}

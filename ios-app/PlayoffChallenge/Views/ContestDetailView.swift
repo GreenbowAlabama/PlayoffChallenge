@@ -8,7 +8,41 @@
 import SwiftUI
 import UIKit
 
+/// Thin outer wrapper that passes dependencies to inner view.
+/// Accepts walletRefresher as explicit parameter (not via environment).
 struct ContestDetailView: View {
+    let contestId: UUID
+    let placeholder: Contest?
+    let contestJoiner: ContestJoining?
+    let walletRefresher: WalletRefreshing?
+
+    /// Primary initializer — contestId is the source of truth, placeholder is optional.
+    init(contestId: UUID, placeholder: Contest? = nil, contestJoiner: ContestJoining? = nil, walletRefresher: WalletRefreshing? = nil) {
+        self.contestId = contestId
+        self.placeholder = placeholder
+        self.contestJoiner = contestJoiner
+        self.walletRefresher = walletRefresher
+    }
+
+    /// Convenience initializer for callers that have a full Contest.
+    /// contestId is extracted from the contest; the contest is used as placeholder only.
+    init(contest: Contest, contestJoiner: ContestJoining? = nil, walletRefresher: WalletRefreshing? = nil) {
+        self.init(contestId: contest.id, placeholder: contest, contestJoiner: contestJoiner, walletRefresher: walletRefresher)
+    }
+
+    var body: some View {
+        ContestDetailViewInner(
+            contestId: contestId,
+            placeholder: placeholder,
+            contestJoiner: contestJoiner ?? ContestJoinService(),
+            walletRefresher: walletRefresher
+        )
+    }
+}
+
+// MARK: - Inner View (owns ViewModel and UI)
+
+struct ContestDetailViewInner: View {
     @StateObject private var viewModel: ContestDetailViewModel
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var availableContestsVM: AvailableContestsViewModel
@@ -21,20 +55,18 @@ struct ContestDetailView: View {
     @State private var showDeleteConfirmation = false
     @State private var showUnjoinConfirmation = false
 
-    /// Primary initializer — contestId is the source of truth, placeholder is optional.
-    init(contestId: UUID, placeholder: Contest? = nil, contestJoiner: ContestJoining? = nil) {
-        let joiner = contestJoiner ?? ContestJoinService()
+    init(
+        contestId: UUID,
+        placeholder: Contest? = nil,
+        contestJoiner: ContestJoining,
+        walletRefresher: WalletRefreshing? = nil
+    ) {
         _viewModel = StateObject(wrappedValue: ContestDetailViewModel(
             contestId: contestId,
             placeholder: placeholder,
-            contestJoiner: joiner
+            contestJoiner: contestJoiner,
+            walletRefresher: walletRefresher
         ))
-    }
-
-    /// Convenience initializer for callers that have a full Contest.
-    /// contestId is extracted from the contest; the contest is used as placeholder only.
-    init(contest: Contest, contestJoiner: ContestJoining? = nil) {
-        self.init(contestId: contest.id, placeholder: contest, contestJoiner: contestJoiner)
     }
 
     var body: some View {

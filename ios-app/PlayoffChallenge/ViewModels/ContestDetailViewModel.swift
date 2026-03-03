@@ -32,6 +32,7 @@ final class ContestDetailViewModel: ObservableObject {
     let contestId: UUID
     private let contestJoiner: ContestJoining
     private let detailFetcher: ContestDetailFetching
+    private let walletRefresher: WalletRefreshing?
     private var currentUserId: UUID?
     private var hasFetched = false
     private var refreshTask: Task<Void, Never>?
@@ -42,11 +43,13 @@ final class ContestDetailViewModel: ObservableObject {
         contestId: UUID,
         placeholder: Contest? = nil,
         contestJoiner: ContestJoining,
-        detailFetcher: ContestDetailFetching? = nil
+        detailFetcher: ContestDetailFetching? = nil,
+        walletRefresher: WalletRefreshing? = nil
     ) {
         self.contestId = contestId
         self.contestJoiner = contestJoiner
         self.detailFetcher = detailFetcher ?? ContestDetailService()
+        self.walletRefresher = walletRefresher
 
         // Use placeholder if provided, otherwise create a minimal loading state
         let initial = placeholder ?? Contest.stub(
@@ -308,7 +311,7 @@ final class ContestDetailViewModel: ObservableObject {
     }
 
     /// Unjoin contest (participant)
-    /// On success, dismiss the view
+    /// On success: refresh contest detail (user_has_entered becomes false) and refresh wallet.
     /// On 403, show alert and stay
     /// On 404, treat as idempotent and dismiss
     func unjoinContest() async {
@@ -321,10 +324,17 @@ final class ContestDetailViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            _ = try await APIService.shared.unjoinContest(id: contestId)
-            // Success — dismiss view (caller handles dismissal via @Environment)
+            try await contestJoiner.unjoinContest(id: contestId)
+            // Success — refresh contest detail and wallet
+            print("UNJOIN: Success, refetching contest detail and wallet...")
+            await fetchContestDetailForRefresh()
+            await walletRefresher?.refreshWallet()
+            print("UNJOIN: Refetch completed")
         } catch APIError.notFound {
-            // 404 — idempotent (already unjoined), dismiss anyway
+            // 404 — idempotent (already unjoined), still refresh state
+            print("UNJOIN: 404 (idempotent), refetching contest detail and wallet...")
+            await fetchContestDetailForRefresh()
+            await walletRefresher?.refreshWallet()
         } catch APIError.restrictedState(let reason) {
             // 403 — cannot leave in current state
             print("UNJOIN 403: \(reason)")
