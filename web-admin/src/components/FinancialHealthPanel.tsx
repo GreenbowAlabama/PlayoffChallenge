@@ -153,6 +153,13 @@ export function FinancialHealthPanel() {
             {(() => {
               const lastRec = historyData.records[0];
               const recStatus = lastRec.status === 'HEALTHY' ? 'healthy' : lastRec.status === 'WARNING' ? 'warning' : 'critical';
+              const diffDollars = Math.abs(lastRec.difference);
+              const diffColorClass =
+                lastRec.difference === 0
+                  ? 'text-green-600'
+                  : diffDollars < 100
+                    ? 'text-yellow-600'
+                    : 'text-red-600';
               return (
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -170,13 +177,7 @@ export function FinancialHealthPanel() {
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={recStatus} label={lastRec.status} />
-                    <span className={`text-xs font-medium ${
-                      lastRec.difference === 0
-                        ? 'text-green-600'
-                        : Math.abs(lastRec.difference) < 100
-                          ? 'text-yellow-600'
-                          : 'text-red-600'
-                    }`}>
+                    <span className={`text-xs font-medium ${diffColorClass}`}>
                       {formatCurrency(lastRec.difference)}
                     </span>
                   </div>
@@ -384,47 +385,50 @@ export function FinancialHealthPanel() {
                       </tr>
                     </thead>
                     <tbody>
-                      {historyData.records.slice(0, 30).map((record) => (
-                        <tr key={record.id} className="border-b border-gray-100">
-                          <td className="py-2 px-3 text-gray-900">
-                            {new Date(record.created_at).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </td>
-                          <td className="py-2 px-3 text-right text-gray-900">
-                            {formatCurrency(record.stripe_balance)}
-                          </td>
-                          <td className="py-2 px-3 text-right text-gray-900">
-                            {formatCurrency(record.wallet_balance)}
-                          </td>
-                          <td className="py-2 px-3 text-right text-gray-900">
-                            {formatCurrency(record.contest_pool_balance)}
-                          </td>
-                          <td className={`py-2 px-3 text-right font-medium ${
-                            record.difference === 0
-                              ? 'text-green-600'
-                              : Math.abs(record.difference) < 100
-                                ? 'text-yellow-600'
-                                : 'text-red-600'
-                          }`}>
-                            {formatCurrency(record.difference)}
-                          </td>
-                          <td className="py-2 px-3 text-center">
-                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              record.status === 'HEALTHY'
-                                ? 'bg-green-100 text-green-800'
-                                : record.status === 'WARNING'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : 'bg-red-100 text-red-800'
-                            }`}>
-                              {record.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {historyData.records.slice(0, 30).map((record) => {
+                        const recDiffDollars = Math.abs(record.difference);
+                        const recDiffColorClass =
+                          record.difference === 0
+                            ? 'text-green-600'
+                            : recDiffDollars < 100
+                              ? 'text-yellow-600'
+                              : 'text-red-600';
+                        const recStatusColorClass =
+                          record.status === 'HEALTHY'
+                            ? 'bg-green-100 text-green-800'
+                            : record.status === 'WARNING'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-red-100 text-red-800';
+                        return (
+                          <tr key={record.id} className="border-b border-gray-100">
+                            <td className="py-2 px-3 text-gray-900">
+                              {new Date(record.created_at).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </td>
+                            <td className="py-2 px-3 text-right text-gray-900">
+                              {formatCurrency(record.stripe_balance)}
+                            </td>
+                            <td className="py-2 px-3 text-right text-gray-900">
+                              {formatCurrency(record.wallet_balance)}
+                            </td>
+                            <td className="py-2 px-3 text-right text-gray-900">
+                              {formatCurrency(record.contest_pool_balance)}
+                            </td>
+                            <td className={`py-2 px-3 text-right font-medium ${recDiffColorClass}`}>
+                              {formatCurrency(record.difference)}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${recStatusColorClass}`}>
+                                {record.status}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
