@@ -18,7 +18,6 @@ import {
   getFinancialHealth,
   getFinancialReconciliationHistory,
   type FinancialHealthResponse,
-  type FinancialReconciliationHistoryResponse,
 } from '../api/admin';
 
 // ============================================
@@ -108,7 +107,6 @@ export function FinancialHealthPanel() {
   const getHealthStatus = (data: FinancialHealthResponse): 'healthy' | 'warning' | 'critical' => {
     const ledgerBalanced = data.ledger.balanced;
     const liquidityGood = data.liquidity_ratio >= 1.05;
-    const liquidityOkay = data.liquidity_ratio >= 1.0;
 
     if (!ledgerBalanced || data.liquidity_ratio < 1.0) {
       return 'critical';
