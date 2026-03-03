@@ -1,5 +1,27 @@
 import { apiRequest } from './client';
 
+// ============================================
+// FINANCIAL HEALTH TYPES
+// ============================================
+
+export interface FinancialHealthResponse {
+  stripe_available_balance: number;
+  wallet_balance: number;
+  contest_pool_balance: number;
+  platform_float: number;
+  liquidity_ratio: number;
+  ledger: {
+    credits: number;
+    debits: number;
+    net: number;
+    balanced: boolean;
+  };
+}
+
+// ============================================
+// GAME STATE & OTHER TYPES
+// ============================================
+
 // Types for admin API responses
 export interface GameState {
   currentWeek: number;
@@ -430,4 +452,50 @@ export async function getConferencePickTrends(weekRange: TrendWeekRange = 'curre
     // Return empty array on failure - do not retry
     return [];
   }
+}
+
+// ============================================
+// FINANCIAL HEALTH ENDPOINT
+// ============================================
+
+/**
+ * Fetch financial health dashboard data
+ * READ-ONLY: Displays Stripe balance, wallet balances, contest pools, and ledger integrity
+ */
+export async function getFinancialHealth(): Promise<FinancialHealthResponse> {
+  return apiRequest<FinancialHealthResponse>('/api/admin/financial-health');
+}
+
+// Reconciliation history types
+export interface FinancialReconciliationRecord {
+  id: string;
+  created_at: string;
+  stripe_balance: number;
+  wallet_balance: number;
+  contest_pool_balance: number;
+  pending_withdrawals: number;
+  platform_float: number;
+  expected_total: number;
+  difference: number;
+  status: 'HEALTHY' | 'WARNING' | 'CRITICAL';
+  alert_sent: boolean;
+  alert_channel?: string;
+  notes?: string;
+}
+
+export interface FinancialReconciliationHistoryResponse {
+  days_requested: number;
+  records: FinancialReconciliationRecord[];
+}
+
+/**
+ * Fetch reconciliation history
+ * READ-ONLY: Returns last N days of reconciliation records
+ */
+export async function getFinancialReconciliationHistory(
+  days: number = 30
+): Promise<FinancialReconciliationHistoryResponse> {
+  return apiRequest<FinancialReconciliationHistoryResponse>(
+    `/api/admin/financial-reconciliation-history?days=${days}`
+  );
 }

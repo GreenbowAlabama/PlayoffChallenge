@@ -8,6 +8,7 @@ import {
   getIncompleteLineups,
   getAllLineups,
 } from '../api/admin';
+import { FinancialHealthPanel } from '../components/FinancialHealthPanel';
 
 type LineupView = 'incomplete' | 'complete' | 'all';
 
@@ -318,6 +319,9 @@ export function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Financial Health Panel */}
+      <FinancialHealthPanel />
 
       {/* Quick Links Panel */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">

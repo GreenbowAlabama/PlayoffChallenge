@@ -948,6 +948,44 @@ app.get('/api/admin/cache-status', (req, res) => {
 });
 
 // ============================================
+// FINANCIAL HEALTH ENDPOINT
+// ============================================
+// Read-only operational dashboard for financial reconciliation.
+// Monitors Stripe balance, wallet balances, contest pools, and ledger integrity.
+
+const financialHealthService = require('./services/financialHealthService');
+const financialReconciliationService = require('./services/financialReconciliationService');
+
+app.get('/api/admin/financial-health', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const financialHealth = await financialHealthService.getFinancialHealth(pool);
+    res.json(financialHealth);
+  } catch (err) {
+    console.error('[Admin Financial Health] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get reconciliation history (last N days, default 30)
+app.get('/api/admin/financial-reconciliation-history', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { days = '30' } = req.query;
+    const numDays = Math.min(parseInt(days, 10) || 30, 365); // Cap at 1 year
+
+    const history = await financialReconciliationService.getReconciliationHistory(pool, numDays);
+    res.json({
+      days_requested: numDays,
+      records: history
+    });
+  } catch (err) {
+    console.error('[Admin Financial Reconciliation History] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 // VERIFICATION ENDPOINTS FOR WEEK TRANSITIONS
 // ============================================
 // These endpoints support post-transition verification in web-admin.
@@ -2367,6 +2405,69 @@ async function runPayoutSchedulerWithTracking() {
   }
 }
 
+// Financial reconciliation scheduler (daily at 02:00 UTC)
+let financialReconciliationInterval = null;
+
+async function startFinancialReconciliationScheduler() {
+  const financialReconciliationService = require('./services/financialReconciliationService');
+
+  // Register the job with diagnostics service
+  jobsService.registerJob('financial-reconciliation', {
+    interval_ms: 86400000, // 24 hours
+    description: 'Daily financial reconciliation and invariant verification'
+  });
+
+  console.log('Financial reconciliation scheduler initialized (runs daily at 02:00 UTC)');
+
+  // Calculate milliseconds until next 02:00 UTC
+  const now = new Date();
+  const next02UTC = new Date(now.getTime());
+  next02UTC.setUTCHours(2, 0, 0, 0);
+
+  // If it's already past 02:00 UTC today, schedule for tomorrow
+  if (now > next02UTC) {
+    next02UTC.setUTCDate(next02UTC.getUTCDate() + 1);
+  }
+
+  const msUntilNext = next02UTC.getTime() - now.getTime();
+  console.log(`[FinancialReconciliation] Next run scheduled in ${(msUntilNext / 1000 / 60 / 60).toFixed(1)} hours at ${next02UTC.toISOString()}`);
+
+  // Schedule first run
+  setTimeout(async () => {
+    await runFinancialReconciliationWithTracking();
+    // Then schedule daily
+    if (process.env.NODE_ENV !== 'test') {
+      financialReconciliationInterval = setInterval(
+        async () => {
+          await runFinancialReconciliationWithTracking();
+        },
+        86400000 // 24 hours
+      );
+    }
+  }, msUntilNext);
+}
+
+async function runFinancialReconciliationWithTracking() {
+  const financialReconciliationService = require('./services/financialReconciliationService');
+
+  jobsService.markJobRunning('financial-reconciliation');
+  try {
+    const result = await financialReconciliationService.runDailyReconciliation(pool);
+    jobsService.updateJobStatus('financial-reconciliation', {
+      success: true,
+      status: result.status,
+      difference: result.difference,
+      record_id: result.recordId
+    });
+  } catch (err) {
+    console.error('[FinancialReconciliation] Scheduler error:', err.message);
+    jobsService.updateJobStatus('financial-reconciliation', {
+      success: false,
+      error: err.message
+    });
+  }
+}
+
 // ==============================================
 // POSITION REQUIREMENTS ROUTES
 // ==============================================
@@ -3225,6 +3326,11 @@ function startServer() {
     // Start payout scheduler if not in test environment
     if (process.env.NODE_ENV !== 'test') {
       setTimeout(startPayoutScheduler, 5000); // Start after 5 seconds
+    }
+
+    // Start financial reconciliation scheduler if not in test environment
+    if (process.env.NODE_ENV !== 'test') {
+      setTimeout(startFinancialReconciliationScheduler, 5000); // Start after 5 seconds
     }
 
     // Start lifecycle reconciler if not in test environment
