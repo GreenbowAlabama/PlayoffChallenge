@@ -1,0 +1,101 @@
+/**
+ * InfoTooltip Styles
+ *
+ * Provides visual styling for informational tooltips throughout the dashboard.
+ * Supports both desktop hover and mobile tap interactions.
+ */
+
+.info-tooltip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  cursor: help;
+  position: relative;
+  user-select: none;
+}
+
+.info-icon {
+  color: #9ca3af;
+  font-size: 14px;
+  font-weight: bold;
+  transition: color 0.2s;
+}
+
+.info-tooltip:hover .info-icon {
+  color: #6b7280;
+}
+
+.tooltip-text {
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: #f3f4f6;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  width: 240px;
+  white-space: normal;
+  pointer-events: none;
+  z-index: 50;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border: 1px solid #374151;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* Tooltip arrow (optional visual enhancement) */
+.tooltip-text::before {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #1f2937;
+}
+
+/* Mobile tap support - ensure tooltip is visible on small screens */
+@media (max-width: 640px) {
+  .tooltip-text {
+    width: 200px;
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+
+  .info-tooltip {
+    margin-left: 4px;
+  }
+
+  .info-icon {
+    font-size: 12px;
+  }
+}
+
+/* Prevent tooltip from clipping at viewport edges */
+@media (max-width: 480px) {
+  .tooltip-text {
+    width: 160px;
+    right: 0;
+    left: auto;
+    transform: translateX(0);
+  }
+
+  .tooltip-text::before {
+    left: auto;
+    right: 12px;
+    transform: translateX(0);
+  }
+}

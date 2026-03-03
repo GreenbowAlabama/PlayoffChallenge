@@ -19,6 +19,7 @@ import {
   getFinancialReconciliationHistory,
   type FinancialHealthResponse,
 } from '../api/admin';
+import { InfoTooltip } from './InfoTooltip';
 
 // ============================================
 // CURRENCY FORMATTER
@@ -56,26 +57,6 @@ function StatusBadge({ status, label }: StatusBadgeProps) {
       {status === 'critical' && <span className="h-2 w-2 rounded-full bg-red-600 mr-1.5"></span>}
       {label}
     </span>
-  );
-}
-
-// ============================================
-// METRIC CARD COMPONENT
-// ============================================
-
-interface MetricCardProps {
-  label: string;
-  value: string;
-  subtext?: string;
-}
-
-function MetricCard({ label, value, subtext }: MetricCardProps) {
-  return (
-    <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
-      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{label}</p>
-      <p className="text-2xl font-semibold text-gray-900">{value}</p>
-      {subtext && <p className="text-xs text-gray-500 mt-1">{subtext}</p>}
-    </div>
   );
 }
 
@@ -215,32 +196,55 @@ export function FinancialHealthPanel() {
             <div>
               <h3 className="text-sm font-medium text-gray-900 mb-4">Funds by Source</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard
-                  label="Stripe Total Balance"
-                  value={formatCurrency(data.stripe_total_balance)}
-                  subtext="Available + Pending settlement funds"
-                />
-                <MetricCard
-                  label="User Wallets"
-                  value={formatCurrency(data.wallet_balance)}
-                  subtext="Total user balance"
-                />
-                <MetricCard
-                  label="Contest Pools"
-                  value={formatCurrency(data.contest_pool_balance)}
-                  subtext="Entry fees + prizes"
-                />
-                <MetricCard
-                  label="Platform Float"
-                  value={formatCurrency(data.platform_float)}
-                  subtext="Stripe minus liabilities"
-                />
+                <div>
+                  <div className="flex items-center mb-3">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Stripe Total Balance
+                      <InfoTooltip text="Total funds currently held by Stripe for the platform. Includes both available funds and pending deposits that have not fully settled yet." />
+                    </p>
+                  </div>
+                  <p className="text-2xl font-semibold text-gray-900">{formatCurrency(data.stripe_total_balance)}</p>
+                  <p className="text-xs text-gray-500 mt-1">Available + Pending settlement funds</p>
+                </div>
+                <div>
+                  <div className="flex items-center mb-3">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      User Wallets
+                      <InfoTooltip text="Total balance across all user wallets. This represents funds users can use to enter contests or withdraw." />
+                    </p>
+                  </div>
+                  <p className="text-2xl font-semibold text-gray-900">{formatCurrency(data.wallet_balance)}</p>
+                  <p className="text-xs text-gray-500 mt-1">Total user balance</p>
+                </div>
+                <div>
+                  <div className="flex items-center mb-3">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Contest Pools
+                      <InfoTooltip text="Funds currently locked inside contests. These are entry fees that have not yet been paid out to winners." />
+                    </p>
+                  </div>
+                  <p className="text-2xl font-semibold text-gray-900">{formatCurrency(data.contest_pool_balance)}</p>
+                  <p className="text-xs text-gray-500 mt-1">Entry fees + prizes</p>
+                </div>
+                <div>
+                  <div className="flex items-center mb-3">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Platform Float
+                      <InfoTooltip text="Funds held by the platform that are not owed to users. This includes rake, settlement timing differences, and Stripe processing delays." />
+                    </p>
+                  </div>
+                  <p className="text-2xl font-semibold text-gray-900">{formatCurrency(data.platform_float)}</p>
+                  <p className="text-xs text-gray-500 mt-1">Stripe minus liabilities</p>
+                </div>
               </div>
             </div>
 
             {/* Liquidity Coverage Section */}
             <div className="border-t border-gray-200 pt-6">
-              <h3 className="text-sm font-medium text-gray-900 mb-4">Liquidity Coverage</h3>
+              <div className="flex items-center mb-4">
+                <h3 className="text-sm font-medium text-gray-900">Liquidity Coverage</h3>
+                <InfoTooltip text="Measures whether the platform holds enough funds to cover all user balances and contest pools. A value above 100% means the platform is fully solvent." />
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
@@ -276,7 +280,10 @@ export function FinancialHealthPanel() {
 
             {/* Ledger Integrity Section */}
             <div className="border-t border-gray-200 pt-6">
-              <h3 className="text-sm font-medium text-gray-900 mb-4">Ledger Integrity</h3>
+              <div className="flex items-center mb-4">
+                <h3 className="text-sm font-medium text-gray-900">Ledger Integrity</h3>
+                <InfoTooltip text="Checks that the accounting ledger balances correctly using the invariant: Credits minus Debits equals Net." />
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
                   <div className="flex items-center justify-between mb-3">
