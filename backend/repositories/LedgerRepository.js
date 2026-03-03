@@ -118,9 +118,19 @@ async function findByIdempotencyKey(pool, idempotency_key) {
 /**
  * Get wallet balance for a user.
  *
- * Sums all CREDIT and DEBIT entries where reference_type = 'WALLET' and reference_id = user_id.
+ * Sums all CREDIT and DEBIT entries for this user across all entry types.
+ * Balance is user-scoped and direction-based: CREDIT increases, DEBIT decreases.
+ * Reference_type is metadata, not a filter for balance.
+ *
+ * Includes:
+ * - ENTRY_FEE (DEBIT on join)
+ * - ENTRY_FEE_REFUND (CREDIT on refund)
+ * - PAYOUT_COMPLETED (CREDIT on settlement)
+ * - WALLET_DEPOSIT (CREDIT)
+ * - WALLET_WITHDRAWAL (DEBIT)
+ *
  * Read-only query. Safe under concurrent inserts (uses SUM aggregate).
- * Returns 0 if no wallet entries exist.
+ * Returns 0 if no entries exist.
  *
  * @param {Object} pool - Database connection pool
  * @param {string} userId - UUID of user
@@ -140,8 +150,7 @@ async function getWalletBalance(pool, userId) {
        0
      ) as balance_cents
      FROM ledger
-     WHERE reference_type = 'WALLET'
-     AND reference_id = $1::UUID`,
+     WHERE user_id = $1::UUID`,
     [userId]
   );
 
@@ -172,6 +181,10 @@ async function getWalletBalance(pool, userId) {
  * This is NOT a locking function itself — the caller must manage the lock.
  * Used in atomic wallet debit flows where user row is already locked.
  *
+ * Balance is user-scoped and direction-based: includes all ledger entries
+ * (ENTRY_FEE, PAYOUT_COMPLETED, WALLET_DEPOSIT, WALLET_WITHDRAWAL, etc.)
+ * regardless of reference_type metadata.
+ *
  * @param {Object} client - Database transaction client (from pool.connect())
  * @param {string} userId - UUID of user (must be locked by caller)
  * @returns {Promise<number>} Balance in cents (can be 0 or negative)
@@ -191,8 +204,7 @@ async function computeWalletBalance(client, userId) {
        0
      ) as balance_cents
      FROM ledger
-     WHERE reference_type = 'WALLET'
-     AND reference_id = $1::UUID`,
+     WHERE user_id = $1::UUID`,
     [userId]
   );
 

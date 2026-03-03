@@ -82,13 +82,17 @@ describe('lock_time enforcement', () => {
       mockPool.setQueryResponse(
         sql =>
           sql.includes('INSERT INTO ledger') &&
-          sql.includes('WALLET_DEBIT') &&
+          sql.includes('ENTRY_FEE') &&
           sql.includes('ON CONFLICT'),
         mockQueryResponses.single({
           id: 'ledger-1',
-          entry_type: 'WALLET_DEBIT',
+          entry_type: 'ENTRY_FEE',
           direction: 'DEBIT',
-          amount_cents: 2500
+          amount_cents: 2500,
+          reference_type: 'CONTEST',
+          reference_id: TEST_INSTANCE_ID,
+          contest_instance_id: TEST_INSTANCE_ID,
+          idempotency_key: `entry_fee:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
         })
       );
       // Ledger verification SELECT (execution-driven: INSERT returns 0 rows → verify existing debit)
@@ -98,12 +102,13 @@ describe('lock_time enforcement', () => {
           sql.includes('FROM ledger') &&
           sql.includes('idempotency_key'),
         mockQueryResponses.single({
-          entry_type: 'WALLET_DEBIT',
+          entry_type: 'ENTRY_FEE',
           direction: 'DEBIT',
           amount_cents: 2500,
-          reference_type: 'WALLET',
-          reference_id: TEST_USER_ID,
-          idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
+          reference_type: 'CONTEST',
+          reference_id: TEST_INSTANCE_ID,
+          contest_instance_id: TEST_INSTANCE_ID,
+          idempotency_key: `entry_fee:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
         })
       );
       // Pre-check: user not yet participant
@@ -155,13 +160,17 @@ describe('lock_time enforcement', () => {
       mockPool.setQueryResponse(
         sql =>
           sql.includes('INSERT INTO ledger') &&
-          sql.includes('WALLET_DEBIT') &&
+          sql.includes('ENTRY_FEE') &&
           sql.includes('ON CONFLICT'),
         mockQueryResponses.single({
           id: 'ledger-1',
-          entry_type: 'WALLET_DEBIT',
+          entry_type: 'ENTRY_FEE',
           direction: 'DEBIT',
-          amount_cents: 2500
+          amount_cents: 2500,
+          reference_type: 'CONTEST',
+          reference_id: TEST_INSTANCE_ID,
+          contest_instance_id: TEST_INSTANCE_ID,
+          idempotency_key: `entry_fee:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
         })
       );
       // Ledger verification SELECT (execution-driven: INSERT returns 0 rows → verify existing debit)
@@ -171,12 +180,13 @@ describe('lock_time enforcement', () => {
           sql.includes('FROM ledger') &&
           sql.includes('idempotency_key'),
         mockQueryResponses.single({
-          entry_type: 'WALLET_DEBIT',
+          entry_type: 'ENTRY_FEE',
           direction: 'DEBIT',
           amount_cents: 2500,
-          reference_type: 'WALLET',
-          reference_id: TEST_USER_ID,
-          idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
+          reference_type: 'CONTEST',
+          reference_id: TEST_INSTANCE_ID,
+          contest_instance_id: TEST_INSTANCE_ID,
+          idempotency_key: `entry_fee:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
         })
       );
       // Pre-check: user not yet participant

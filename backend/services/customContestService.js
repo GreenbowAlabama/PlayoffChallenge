@@ -1200,11 +1200,12 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_FULL, reason: 'Contest has reached maximum participants' };
     }
 
-    // 8. Participant insert succeeded: now debit wallet (CRITICAL: only this path debits)
+    // 8. Participant insert succeeded: now record entry fee (CRITICAL: only this path records fees)
     //    Use ON CONFLICT DO NOTHING with verification to preserve invariant:
-    //    - Debit is only committed when participant + correct debit are both guaranteed
+    //    - Entry fee is recorded atomically with participant (same transaction)
+    //    - Reference is CONTEST (not WALLET), with contest_instance_id for audit trail
     //    - No blind error suppression
-    const idempotencyKey = `wallet_debit:${contestInstanceId}:${userId}`;
+    const idempotencyKey = `entry_fee:${contestInstanceId}:${userId}`;
 
     const debitResult = await client.query(
       `INSERT INTO ledger (
@@ -1214,59 +1215,61 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
          amount_cents,
          reference_type,
          reference_id,
+         contest_instance_id,
          idempotency_key,
          created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        ON CONFLICT (idempotency_key) DO NOTHING
-       RETURNING id, entry_type, direction, amount_cents, reference_type, reference_id, idempotency_key`,
-      [userId, 'WALLET_DEBIT', 'DEBIT', entryFeeCents, 'WALLET', userId, idempotencyKey]
+       RETURNING id, entry_type, direction, amount_cents, reference_type, reference_id, contest_instance_id, idempotency_key`,
+      [userId, 'ENTRY_FEE', 'DEBIT', entryFeeCents, 'CONTEST', contestInstanceId, contestInstanceId, idempotencyKey]
     );
 
-    // If RETURNING row exists, debit was inserted successfully
+    // If RETURNING row exists, entry fee was recorded successfully
     if (debitResult.rowCount > 0) {
       await client.query('COMMIT');
       return { joined: true, participant: insertResult.rows[0] };
     }
 
-    // No row returned: ON CONFLICT triggered (debit with same idempotency_key already exists)
+    // No row returned: ON CONFLICT triggered (entry fee with same idempotency_key already exists)
     // Query and verify it matches expected values (invariant check)
-    const existingDebitResult = await client.query(
-      `SELECT entry_type, direction, amount_cents, reference_type, reference_id, idempotency_key
+    const existingEntryFeeResult = await client.query(
+      `SELECT entry_type, direction, amount_cents, reference_type, reference_id, contest_instance_id, idempotency_key
        FROM ledger
        WHERE idempotency_key = $1`,
       [idempotencyKey]
     );
 
-    if (existingDebitResult.rows.length === 0) {
-      // Debit not found: invariant violation (ON CONFLICT should have found it)
+    if (existingEntryFeeResult.rows.length === 0) {
+      // Entry fee not found: invariant violation (ON CONFLICT should have found it)
       await client.query('ROLLBACK');
-      throw new Error(`Invariant violation: WALLET_DEBIT with idempotency_key ${idempotencyKey} was reported as conflicted but not found`);
+      throw new Error(`Invariant violation: ENTRY_FEE with idempotency_key ${idempotencyKey} was reported as conflicted but not found`);
     }
 
-    const existingDebit = existingDebitResult.rows[0];
+    const existingEntryFee = existingEntryFeeResult.rows[0];
 
-    // Verify debit fields match expected values
+    // Verify entry fee fields match expected values
     const fieldsMatch = (
-      existingDebit.entry_type === 'WALLET_DEBIT' &&
-      existingDebit.direction === 'DEBIT' &&
-      parseInt(existingDebit.amount_cents, 10) === entryFeeCents &&
-      existingDebit.reference_type === 'WALLET' &&
-      existingDebit.reference_id === userId &&
-      existingDebit.idempotency_key === idempotencyKey
+      existingEntryFee.entry_type === 'ENTRY_FEE' &&
+      existingEntryFee.direction === 'DEBIT' &&
+      parseInt(existingEntryFee.amount_cents, 10) === entryFeeCents &&
+      existingEntryFee.reference_type === 'CONTEST' &&
+      existingEntryFee.reference_id === contestInstanceId &&
+      existingEntryFee.contest_instance_id === contestInstanceId &&
+      existingEntryFee.idempotency_key === idempotencyKey
     );
 
     if (!fieldsMatch) {
-      // Debit exists but fields mismatch: invariant violation
+      // Entry fee exists but fields mismatch: invariant violation
       await client.query('ROLLBACK');
       throw new Error(
-        `Invariant violation: WALLET_DEBIT with idempotency_key ${idempotencyKey} exists but fields mismatch. ` +
-        `Expected: entry_type=WALLET_DEBIT, direction=DEBIT, amount_cents=${entryFeeCents}, ` +
-        `reference_type=WALLET, reference_id=${userId}. ` +
-        `Found: ${JSON.stringify(existingDebit)}`
+        `Invariant violation: ENTRY_FEE with idempotency_key ${idempotencyKey} exists but fields mismatch. ` +
+        `Expected: entry_type=ENTRY_FEE, direction=DEBIT, amount_cents=${entryFeeCents}, ` +
+        `reference_type=CONTEST, reference_id=${contestInstanceId}, contest_instance_id=${contestInstanceId}. ` +
+        `Found: ${JSON.stringify(existingEntryFee)}`
       );
     }
 
-    // Debit exists and fields match: safe to commit
+    // Entry fee exists and fields match: safe to commit
     await client.query('COMMIT');
     return { joined: true, participant: insertResult.rows[0] };
 
@@ -1924,13 +1927,34 @@ async function unJoinContest(pool, contestId, userId) {
       [contestId, userId]
     );
 
-    // Idempotent: if entry exists, delete it
+    // Idempotent: if entry exists, delete it AND refund entry fee
     if (participantResult.rows.length > 0) {
       // Delete the participant
       await client.query(
         'DELETE FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
         [contestId, userId]
       );
+
+      // Refund entry fee if contest has a non-zero entry fee (atomic with delete)
+      const entryFeeCents = parseInt(contest.entry_fee_cents, 10) || 0;
+      if (entryFeeCents > 0) {
+        const refundIdempotencyKey = `entry_fee_refund:${contestId}:${userId}`;
+        await client.query(
+          `INSERT INTO ledger (
+             user_id,
+             entry_type,
+             direction,
+             amount_cents,
+             reference_type,
+             reference_id,
+             contest_instance_id,
+             idempotency_key,
+             created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [userId, 'ENTRY_FEE_REFUND', 'CREDIT', entryFeeCents, 'CONTEST', contestId, contestId, refundIdempotencyKey]
+        );
+      }
     }
 
     // Compute current entry_count via COUNT(*) after potential deletion

@@ -1445,26 +1445,31 @@ describe('Custom Contest Routes', () => {
           joined_at: new Date().toISOString()
         })
       );
-      // Ledger debit INSERT (idempotent)
+      // Ledger entry fee INSERT (idempotent, CONTEST reference)
       mockPool.setQueryResponse(
-        sql => sql.includes('INSERT INTO ledger') && sql.includes('WALLET_DEBIT') && sql.includes('ON CONFLICT'),
+        sql => sql.includes('INSERT INTO ledger') && sql.includes('ENTRY_FEE') && sql.includes('ON CONFLICT'),
         mockQueryResponses.single({
           id: 'ledger-1',
-          entry_type: 'WALLET_DEBIT',
+          entry_type: 'ENTRY_FEE',
           direction: 'DEBIT',
-          amount_cents: 2500
+          amount_cents: 2500,
+          reference_type: 'CONTEST',
+          reference_id: TEST_INSTANCE_ID,
+          contest_instance_id: TEST_INSTANCE_ID,
+          idempotency_key: `entry_fee:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
         })
       );
-      // Ledger verification SELECT (if INSERT returns 0 rows, verify existing debit)
+      // Ledger verification SELECT (if INSERT returns 0 rows, verify existing entry fee)
       mockPool.setQueryResponse(
         sql => sql.includes('SELECT') && sql.includes('FROM ledger') && sql.includes('idempotency_key'),
         mockQueryResponses.single({
-          entry_type: 'WALLET_DEBIT',
+          entry_type: 'ENTRY_FEE',
           direction: 'DEBIT',
           amount_cents: 2500,
-          reference_type: 'WALLET',
-          reference_id: TEST_USER_ID,
-          idempotency_key: `wallet_debit:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
+          reference_type: 'CONTEST',
+          reference_id: TEST_INSTANCE_ID,
+          contest_instance_id: TEST_INSTANCE_ID,
+          idempotency_key: `entry_fee:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
         })
       );
       // Transaction control queries
