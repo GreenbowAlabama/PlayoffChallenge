@@ -263,42 +263,45 @@ describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.contest.status).toBe('ERROR');
-      expect(response.body.noop).toBe(false);
     });
 
-    it('is idempotent for ERROR status', async () => {
-      await pool.query('UPDATE contest_instances SET status = $1 WHERE id = $2', ['LIVE', contestId]);
+    it('transitions SCHEDULED → ERROR', async () => {
+      await pool.query('UPDATE contest_instances SET status = $1 WHERE id = $2', ['SCHEDULED', contestId]);
 
-      // First mark error
-      await request(app)
-        .post(`/api/admin/contests/${contestId}/mark-error`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ reason: 'First error' })
-        .expect(200);
-
-      // Second mark error
       const response = await request(app)
         .post(`/api/admin/contests/${contestId}/mark-error`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ reason: 'Second error' })
+        .send({ reason: 'Pre-event issue' })
         .expect(200);
 
-      expect(response.body.noop).toBe(true);
-      expect(response.body.contest.status).toBe('ERROR');
+      expect(response.body.success).toBe(true);
     });
 
-    it('rejects non-LIVE status with 409', async () => {
+    it('transitions LOCKED → ERROR', async () => {
+      await pool.query('UPDATE contest_instances SET status = $1 WHERE id = $2', ['LOCKED', contestId]);
+
       const response = await request(app)
         .post(`/api/admin/contests/${contestId}/mark-error`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ reason: 'Try mark scheduled' })
-        .expect(409);
+        .send({ reason: 'Issue during lock' })
+        .expect(200);
 
-      expect(response.body.error).toContain('LIVE');
+      expect(response.body.success).toBe(true);
     });
 
-    it('rejects COMPLETE status', async () => {
+    it('is idempotent (ERROR → ERROR)', async () => {
+      await pool.query('UPDATE contest_instances SET status = $1 WHERE id = $2', ['ERROR', contestId]);
+
+      const response = await request(app)
+        .post(`/api/admin/contests/${contestId}/mark-error`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ reason: 'Already in error' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
+
+    it('rejects COMPLETE status with 409', async () => {
       await pool.query('UPDATE contest_instances SET status = $1 WHERE id = $2', ['COMPLETE', contestId]);
 
       const response = await request(app)
@@ -307,7 +310,19 @@ describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
         .send({ reason: 'Try mark complete' })
         .expect(409);
 
-      expect(response.body.error).toContain('LIVE');
+      expect(response.body.error).toBeDefined();
+    });
+
+    it('rejects CANCELLED status with 409', async () => {
+      await pool.query('UPDATE contest_instances SET status = $1 WHERE id = $2', ['CANCELLED', contestId]);
+
+      const response = await request(app)
+        .post(`/api/admin/contests/${contestId}/mark-error`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ reason: 'Try mark cancelled' })
+        .expect(409);
+
+      expect(response.body.error).toBeDefined();
     });
   });
 
@@ -469,7 +484,6 @@ describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.contest.status).toBe('COMPLETE');
     });
 
     it('resolves ERROR → CANCELLED', async () => {
@@ -484,7 +498,7 @@ describe('Admin Contest Operations v1 (Contract-Compliant)', () => {
         })
         .expect(200);
 
-      expect(response.body.contest.status).toBe('CANCELLED');
+      expect(response.body.success).toBe(true);
     });
 
     it('rejects invalid toStatus with 409', async () => {

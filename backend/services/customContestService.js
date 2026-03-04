@@ -1099,7 +1099,7 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
 
     // 2. Lock and fetch contest state
     const contestResult = await client.query(
-      'SELECT id, status, max_entries, lock_time, join_token, entry_fee_cents FROM contest_instances WHERE id = $1 FOR UPDATE',
+      'SELECT id, status, max_entries, lock_time, join_token, entry_fee_cents, is_system_generated FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestInstanceId]
     );
 
@@ -1128,14 +1128,8 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
       return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: `Contest is in state '${contest.status}' and not joinable` };
     }
 
-    // 3. Unpublished guard: contest must have a join_token to be joinable.
-    // Contests without a join_token (null) are not yet published.
-    if (contest.join_token === null) {
-      await client.query('ROLLBACK');
-      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is not yet published' };
-    }
-
-    // 4. Check if user already joined (idempotent: return success)
+    // 3. Check if user already joined (idempotent: return success)
+    // Do this before unpublished guard so idempotent path works for all states
     const existingResult = await client.query(
       'SELECT id, contest_instance_id, user_id, joined_at FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
       [contestInstanceId, userId]
@@ -1144,6 +1138,15 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
     if (existingResult.rows.length > 0) {
       await client.query('COMMIT');
       return { joined: true, participant: existingResult.rows[0] };
+    }
+
+    // 4. Unpublished guard: contest must either have a join_token OR be system-generated.
+    // System contests (is_system_generated=true, join_token=null) are valid public contests.
+    // Private contests (is_system_generated=false, join_token!=null) require a token.
+    // Unpublished contests (is_system_generated=false, join_token=null) are blocked.
+    if (contest.join_token === null && !contest.is_system_generated) {
+      await client.query('ROLLBACK');
+      return { joined: false, error_code: JOIN_ERROR_CODES.CONTEST_UNAVAILABLE, reason: 'Contest is not yet published' };
     }
 
     // 5. Enforce lock_time window (optional - only if lock_time is set)
@@ -1165,7 +1168,7 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
     }
 
     // 7. Compute wallet balance (user row is locked, so computation is safe)
-    //    CRITICAL: Debit only occurs if participant insert succeeds
+    // CRITICAL: Debit only occurs if participant insert succeeds
     const entryFeeCents = parseInt(contest.entry_fee_cents, 10);
     const walletBalance = await LedgerRepository.computeWalletBalance(client, userId);
 

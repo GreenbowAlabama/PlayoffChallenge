@@ -46,6 +46,7 @@ const mockInstance = {
   payout_structure: { type: 'top_n_split', max_winners: 3 },
   status: 'SCHEDULED',
   join_token: null,
+  is_system_generated: true,  // System contest: no token required
   start_time: null,
   lock_time: new Date(Date.now() + 3600 * 1000).toISOString(), // 1 hour from now (required for SCHEDULED)
   settle_time: null,
@@ -1778,7 +1779,8 @@ describe('Custom Contest Service Unit Tests', () => {
     const openInstance = {
       id: TEST_INSTANCE_ID,
       status: 'SCHEDULED',
-      join_token: 'dev_some_token',
+      join_token: 'dev_some_token',  // Private contest with token
+      is_system_generated: false,  // Private contests are not system-generated
       max_entries: 10,
     };
 
@@ -1798,7 +1800,7 @@ describe('Custom Contest Service Unit Tests', () => {
       // Contest lock
       mockPool.setQueryResponse(
         q => q.includes('FROM contest_instances') && q.includes('FOR UPDATE'),
-        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500, join_token: null })
+        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500, join_token: null, is_system_generated: true })
       );
       // Pre-check: user not yet participant
       mockPool.setQueryResponse(
@@ -1850,7 +1852,7 @@ describe('Custom Contest Service Unit Tests', () => {
       );
       mockPool.setQueryResponse(
         q => q.includes('FROM contest_instances') && q.includes('FOR UPDATE'),
-        mockQueryResponses.single({ ...openInstance, max_entries: null, entry_fee_cents: 2500, join_token: null })
+        mockQueryResponses.single({ ...openInstance, max_entries: null, entry_fee_cents: 2500, join_token: null, is_system_generated: true })
       );
       // Pre-check: user not yet participant
       mockPool.setQueryResponse(
@@ -1898,7 +1900,7 @@ describe('Custom Contest Service Unit Tests', () => {
       );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500, join_token: null })
+        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500, join_token: null, is_system_generated: true })
       );
       // Pre-check finds user already participant
       mockPool.setQueryResponse(
@@ -1921,7 +1923,7 @@ describe('Custom Contest Service Unit Tests', () => {
       );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, max_entries: 5, entry_fee_cents: 2500, join_token: null })
+        mockQueryResponses.single({ ...openInstance, max_entries: 5, entry_fee_cents: 2500, join_token: null, is_system_generated: true })
       );
       // Pre-check: user not yet participant
       mockPool.setQueryResponse(
@@ -1963,7 +1965,7 @@ describe('Custom Contest Service Unit Tests', () => {
       );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, status: 'LOCKED', entry_fee_cents: 2500, join_token: null })
+        mockQueryResponses.single({ ...openInstance, status: 'LOCKED', entry_fee_cents: 2500, join_token: null, is_system_generated: true })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1979,7 +1981,7 @@ describe('Custom Contest Service Unit Tests', () => {
       );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, status: 'CANCELLED', entry_fee_cents: 2500, join_token: null })
+        mockQueryResponses.single({ ...openInstance, status: 'CANCELLED', entry_fee_cents: 2500, join_token: null, is_system_generated: true })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -1995,7 +1997,7 @@ describe('Custom Contest Service Unit Tests', () => {
       );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, status: 'COMPLETE', entry_fee_cents: 2500, join_token: null })
+        mockQueryResponses.single({ ...openInstance, status: 'COMPLETE', entry_fee_cents: 2500, join_token: null, is_system_generated: true })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
@@ -2003,7 +2005,7 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_COMPLETED);
     });
 
-    it('should return CONTEST_UNAVAILABLE if join_token is missing (rejected before insert)', async () => {
+    it('should return CONTEST_UNAVAILABLE if unpublished (join_token null and not system-generated)', async () => {
       // User lock
       mockPool.setQueryResponse(
         /SELECT id FROM users WHERE id = \$1 FOR UPDATE/,
@@ -2011,12 +2013,12 @@ describe('Custom Contest Service Unit Tests', () => {
       );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, join_token: 'test_token', entry_fee_cents: 2500 })
+        mockQueryResponses.single({ ...openInstance, join_token: null, entry_fee_cents: 2500, is_system_generated: false })
       );
 
       const result = await customContestService.joinContest(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);
       expect(result.joined).toBe(false);
-      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.INVALID_TOKEN);
+      expect(result.error_code).toBe(customContestService.JOIN_ERROR_CODES.CONTEST_UNAVAILABLE);
     });
 
     it('idempotent: second join via pre-check returns success without duplicate row', async () => {
@@ -2028,7 +2030,7 @@ describe('Custom Contest Service Unit Tests', () => {
       );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500, join_token: null })
+        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500, join_token: null, is_system_generated: true })
       );
 
       // Pre-check: user already participant (idempotent path)
@@ -2051,7 +2053,7 @@ describe('Custom Contest Service Unit Tests', () => {
       );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500, join_token: null })
+        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500, join_token: null, is_system_generated: true })
       );
 
       // Pre-check: user not yet participant
@@ -2079,7 +2081,7 @@ describe('Custom Contest Service Unit Tests', () => {
       );
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE[\s\S]*id[\s\S]*=[\s\S]*FOR UPDATE/,
-        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500, join_token: null })
+        mockQueryResponses.single({ ...openInstance, entry_fee_cents: 2500, join_token: null, is_system_generated: true })
       );
       // Pre-check
       mockPool.setQueryResponse(
@@ -2146,6 +2148,7 @@ describe('Custom Contest Service Unit Tests', () => {
         id: TEST_INSTANCE_ID,
         status: 'SCHEDULED',
         join_token: null,  // System contest (no token required)
+        is_system_generated: true,  // System contests don't require tokens
         max_entries: 10,
         entry_fee_cents: 2500
       };

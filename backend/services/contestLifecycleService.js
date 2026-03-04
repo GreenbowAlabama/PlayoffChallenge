@@ -323,7 +323,9 @@ async function performSingleStateTransition(
 
     if (!lockResult.rows.length) {
       await client.query('ROLLBACK');
-      throw new Error(`Contest ${contestInstanceId} not found`);
+      const err = new Error(`Contest ${contestInstanceId} not found`);
+      err.code = 'CONTEST_NOT_FOUND';
+      throw err;
     }
 
     const contest = lockResult.rows[0];
@@ -338,7 +340,9 @@ async function performSingleStateTransition(
     // Validate state is allowed
     if (!allowedFromStates.includes(fromState)) {
       await client.query('ROLLBACK');
-      throw new Error(`Cannot transition ${contestInstanceId} from ${fromState} to ${toState}. Allowed from: ${allowedFromStates.join(', ')}`);
+      const err = new Error(`Cannot transition ${contestInstanceId} from ${fromState} to ${toState}. Allowed from: ${allowedFromStates.join(', ')}`);
+      err.code = 'INVALID_STATUS';
+      throw err;
     }
 
     // Execute callback if provided (e.g., settlement logic)

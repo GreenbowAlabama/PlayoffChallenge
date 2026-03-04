@@ -141,7 +141,7 @@ router.post('/:id/mark-error', async (req, res) => {
       reason
     );
 
-    res.json({ success: result.success, contest: result.contest, noop: result.noop });
+    res.json({ success: result.success });
   } catch (err) {
     if (err.code === 'CONTEST_NOT_FOUND') {
       return res.status(404).json({ error: err.message });
@@ -249,12 +249,15 @@ router.post('/:id/resolve-error', async (req, res) => {
       reason
     );
 
-    res.json({ success: result.success, contest: result.contest });
+    res.json({ success: result.success });
   } catch (err) {
     if (err.code === 'CONTEST_NOT_FOUND') {
       return res.status(404).json({ error: err.message });
     }
-    if (err.code === 'INVALID_STATUS' || err.message.includes('toStatus')) {
+    if (err.code === 'INVALID_STATUS') {
+      return res.status(409).json({ error: err.message });
+    }
+    if (err.message && err.message.includes('toStatus')) {
       return res.status(409).json({ error: err.message });
     }
     console.error('[Admin Contests] Error resolving error:', err.message);

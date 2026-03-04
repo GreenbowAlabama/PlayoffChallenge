@@ -50,7 +50,7 @@ async function joinContest(pool, contestInstanceId, userId) {
 
 **Idempotency:**
 - Same join twice = one participant + one debit
-- Idempotency key ensures no duplicates: `wallet_debit:{contestInstanceId}:{userId}`
+- Idempotency key ensures no duplicates: `entry_fee:{contestInstanceId}:{userId}`
 
 **Race Condition Handling:**
 - Participant insert uses `ON CONFLICT DO NOTHING`
@@ -69,10 +69,13 @@ async function joinContest(pool, contestInstanceId, userId) {
 
 ### Contract
 
-Wallet balance is computed as the sum of all CREDIT and DEBIT entries where:
-- `reference_type = 'WALLET'`
-- `reference_id = user_id`
-- No filtering by contest or status
+Wallet balance is computed as the sum of all CREDIT and DEBIT entries for a user, regardless of reference type:
+
+**Included entry types:**
+- `ENTRY_FEE` (DEBIT on contest join) — reference_type = 'CONTEST'
+- `WALLET_WITHDRAWAL` (DEBIT on user withdrawal) — reference_type = 'WALLET'
+- `WALLET_DEPOSIT` (CREDIT on user top-up) — reference_type = 'WALLET'
+- `PAYOUT_COMPLETED` (CREDIT on settlement) — reference_type = 'PAYOUT_TRANSFER'
 
 **Formula:**
 ```
@@ -80,16 +83,19 @@ balance = SUM(
   CASE WHEN direction = 'CREDIT' THEN amount_cents
        WHEN direction = 'DEBIT' THEN -amount_cents
   END
-)
+) WHERE reference_id = user_id
 ```
+
+**Note:** Balance aggregates across all entry types. It is not filtered by reference_type.
 
 ### Implementation
 
-**File:** `backend/repositories/LedgerRepository.js:129-150`
+**File:** `backend/repositories/LedgerRepository.js:194-225` (computeWalletBalance)
 
 ```javascript
-async function getWalletBalance(pool, userId) {
-  const result = await pool.query(
+async function computeWalletBalance(client, userId) {
+  // Aggregates ALL entry types for the user (used inside transactions with user row locked)
+  const result = await client.query(
     `SELECT COALESCE(
        SUM(CASE
          WHEN direction = 'CREDIT' THEN amount_cents
@@ -98,14 +104,15 @@ async function getWalletBalance(pool, userId) {
        0
      ) as balance_cents
      FROM ledger
-     WHERE reference_type = 'WALLET'
-     AND reference_id = $1::UUID`,
+     WHERE reference_id = $1::UUID`,
     [userId]
   );
 
   return parseInt(result.rows[0].balance_cents, 10);
 }
 ```
+
+**Note:** `computeWalletBalance()` is used inside transactions with user row locked (SELECT...FOR UPDATE). It includes all entry types regardless of reference_type or reference_id.
 
 ### Critical Properties
 
@@ -165,11 +172,11 @@ Join debit insert conflicts (idempotency key already exists). This means:
 When conflict occurs:
 1. Query existing ledger row by idempotency_key
 2. Verify ALL fields:
-   - `entry_type = 'WALLET_DEBIT'`
+   - `entry_type = 'ENTRY_FEE'`
    - `direction = 'DEBIT'`
    - `amount_cents = entryFeeCents` (exact match)
-   - `reference_type = 'WALLET'`
-   - `reference_id = userId`
+   - `reference_type = 'CONTEST'`
+   - `reference_id = contestInstanceId`
 
 3. If ANY field mismatches:
    - Throw invariant violation error

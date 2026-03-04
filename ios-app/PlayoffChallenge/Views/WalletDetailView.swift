@@ -88,7 +88,7 @@ struct WalletDetailView: View {
                 .padding(DesignTokens.Spacing.md)
                 .background(Color.blue)
                 .foregroundColor(.white)
-                .cornerRadius(8)
+                .cornerRadius(DesignTokens.Radius.md)
             }
             .disabled(viewModel.isDepositing || viewModel.isWithdrawing)
 
@@ -105,7 +105,7 @@ struct WalletDetailView: View {
                 .padding(DesignTokens.Spacing.md)
                 .background(Color.orange)
                 .foregroundColor(.white)
-                .cornerRadius(8)
+                .cornerRadius(DesignTokens.Radius.md)
             }
             .disabled(viewModel.isWithdrawing || viewModel.isDepositing)
         }
@@ -129,7 +129,7 @@ struct WalletDetailView: View {
                                 .padding(DesignTokens.Spacing.md)
                                 .background(depositAmount == amount ? Color.blue : Color(.systemGray5))
                                 .foregroundColor(depositAmount == amount ? .white : .primary)
-                                .cornerRadius(8)
+                                .cornerRadius(DesignTokens.Radius.md)
                         }
                     }
                 }
@@ -177,7 +177,7 @@ struct WalletDetailView: View {
                         .padding(DesignTokens.Spacing.md)
                         .background(Color.blue)
                         .foregroundColor(.white)
-                        .cornerRadius(8)
+                        .cornerRadius(DesignTokens.Radius.md)
                 }
                 .disabled({
                     switch viewModel.paymentState {
@@ -236,7 +236,7 @@ struct WalletDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(DesignTokens.Spacing.md)
                 .background(Color(.systemGray6))
-                .cornerRadius(8)
+                .cornerRadius(DesignTokens.Radius.md)
 
                 // Amount input
                 VStack(spacing: DesignTokens.Spacing.sm) {
@@ -254,7 +254,7 @@ struct WalletDetailView: View {
                     }
                     .padding(DesignTokens.Spacing.md)
                     .background(Color(.systemGray6))
-                    .cornerRadius(8)
+                    .cornerRadius(DesignTokens.Radius.md)
                 }
 
                 Spacer()
@@ -279,7 +279,7 @@ struct WalletDetailView: View {
                             .padding(DesignTokens.Spacing.md)
                             .background(Color.orange)
                             .foregroundColor(.white)
-                            .cornerRadius(8)
+                            .cornerRadius(DesignTokens.Radius.md)
                     }
                 }
 
