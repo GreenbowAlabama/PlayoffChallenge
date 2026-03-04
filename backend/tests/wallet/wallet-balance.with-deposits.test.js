@@ -135,8 +135,8 @@ describe('Wallet Balance — With Deposits', () => {
       .set('Authorization', `Bearer ${TEST_USER_ID}`)
       .set('Content-Type', 'application/json');
 
-    // Verify query includes reference_type = 'WALLET' filter
-    expect(capturedQuery.sql).toMatch(/reference_type\s*=\s*'WALLET'/i);
+    // Verify query filters by user_id (includes ALL entry types regardless of reference_type)
+    expect(capturedQuery.sql).toMatch(/WHERE\s+user_id\s*=\s*\$\d+/i);
     // Verify user_id is passed as parameter
     expect(capturedQuery.params).toContain(TEST_USER_ID);
   });

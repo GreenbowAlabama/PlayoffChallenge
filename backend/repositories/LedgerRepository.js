@@ -150,8 +150,7 @@ async function getWalletBalance(pool, userId) {
        0
      ) as balance_cents
      FROM ledger
-     WHERE reference_type = 'WALLET'
-     AND reference_id = $1::UUID`,
+     WHERE user_id = $1::UUID`,
     [userId]
   );
 

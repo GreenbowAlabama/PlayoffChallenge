@@ -164,8 +164,8 @@ describe('Wallet Balance — Mixed Credit/Debit', () => {
       .set('Authorization', `Bearer ${TEST_USER_ID}`)
       .set('Content-Type', 'application/json');
 
-    // Verify reference_id is filtered to the user
-    expect(capturedQuery.sql).toMatch(/reference_id\s*=\s*\$\d+/i);
+    // Verify query filters by user_id (includes ALL entry types regardless of reference_type)
+    expect(capturedQuery.sql).toMatch(/WHERE\s+user_id\s*=\s*\$\d+/i);
     expect(capturedQuery.params).toContain(TEST_USER_ID);
   });
 
