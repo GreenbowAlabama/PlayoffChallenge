@@ -1557,6 +1557,7 @@ async function getAvailableContestInstances(pool, userId) {
       ci.contest_name,
       ci.end_time,
       ci.settle_time,
+      ci.is_platform_owned,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
       cct.name AS template_name,
       cct.sport AS template_sport,

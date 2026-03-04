@@ -980,7 +980,8 @@ describe('Custom Contest Routes', () => {
             user_has_entered: false,
             lock_time: futureTime,
             settle_time: null,
-            organizer_name: 'Test Organizer'
+            organizer_name: 'Test Organizer',
+            is_platform_owned: true
           }
         ])
       );
@@ -992,6 +993,43 @@ describe('Custom Contest Routes', () => {
       expect(response.status).toBe(200);
       // Full schema validation for each item
       assertMatchesContestListSchema(response.body);
+    });
+
+    it('FIX: system-generated contests must include is_platform_owned field in response', async () => {
+      // iOS Home tab filters featured contests by isPlatformOwned == true.
+      // System contests with is_platform_owned=true must be present in the response
+      // with that field populated (not nil).
+      const futureTime = new Date(Date.now() + 3600 * 1000).toISOString();
+      mockPool.setQueryResponse(
+        q => q.includes('FROM contest_instances') && q.includes('SCHEDULED'),
+        mockQueryResponses.multiple([
+          {
+            ...mockInstanceWithTemplate,
+            id: CONTEST_1_ID,
+            status: 'SCHEDULED',
+            join_token: 'dev_system1',
+            entry_count: 10,
+            user_has_entered: false,
+            lock_time: futureTime,
+            settle_time: null,
+            organizer_name: 'Platform',
+            is_platform_owned: true
+          }
+        ])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests/available')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(1);
+
+      // iOS Home tab uses isPlatformOwned filter: filter { $0.isPlatformOwned == true }
+      // This must be present (not null) for system contests to render
+      const systemContest = response.body[0];
+      expect(systemContest).toHaveProperty('is_platform_owned');
+      expect(systemContest.is_platform_owned).toBe(true);
     });
   });
 
