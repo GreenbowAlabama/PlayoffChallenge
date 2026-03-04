@@ -779,7 +779,17 @@ describe('Custom Contest Service Unit Tests', () => {
       });
 
       it('should return mapped instance with derived fields for COMPLETE contest', async () => {
-        const MOCK_COMPLETE_STANDINGS = [{ user_id: TEST_USER_ID, user_display_name: 'TestUser', total_score: 100, rank: 1 }];
+        const MOCK_COMPLETE_STANDINGS = [{
+          id: TEST_USER_ID,
+          user_id: TEST_USER_ID,
+          username: 'TestUser',
+          rank: 1,
+          values: {
+            total_score: 100,
+            rank: 1
+          },
+          tier: null
+        }];
         const mockDbRow = {
           ...mockInstance,
           status: 'COMPLETE',

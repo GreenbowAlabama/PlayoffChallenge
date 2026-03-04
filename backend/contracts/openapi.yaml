@@ -1744,17 +1744,95 @@ components:
 
     Leaderboard:
       type: object
-      description: Contest leaderboard with standings
+      description: Contest leaderboard response with standings and metadata
       required:
-        - standings
+        - contest_id
+        - contest_type
+        - leaderboard_state
+        - column_schema
+        - rows
       properties:
-        standings:
+        contest_id:
+          type: string
+          format: uuid
+          description: Contest instance UUID
+        contest_type:
+          type: string
+          description: Type of contest (e.g., "golf", "playoff")
+        leaderboard_state:
+          type: string
+          enum: [pending, computed, error, unknown]
+          description: Leaderboard computation state
+        generated_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp when leaderboard was generated
+        column_schema:
           type: array
+          description: Column definitions for dynamic leaderboard rendering
           items:
-            $ref: '#/components/schemas/Standing'
-        metadata:
+            $ref: '#/components/schemas/LeaderboardColumn'
+        rows:
+          type: array
+          description: Array of participant standings
+          items:
+            $ref: '#/components/schemas/LeaderboardRow'
+
+    LeaderboardColumn:
+      type: object
+      description: Column schema for leaderboard rendering
+      required:
+        - key
+        - label
+      properties:
+        key:
+          type: string
+          description: Column identifier (e.g., "rank", "username", "total_score")
+        label:
+          type: string
+          description: Display label for the column
+        type:
+          type: string
+          nullable: true
+          description: Data type hint (e.g., "integer", "string", "number")
+        format:
+          type: string
+          nullable: true
+          description: Format hint for rendering (e.g., "currency", "percentage")
+
+    LeaderboardRow:
+      type: object
+      description: Individual standing entry in leaderboard
+      required:
+        - id
+        - user_id
+        - username
+        - rank
+        - values
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Row identifier (typically same as user_id)
+        user_id:
+          type: string
+          format: uuid
+          description: User UUID
+        username:
+          type: string
+          description: User display name
+        rank:
+          type: integer
+          description: Ranking position in leaderboard
+        values:
           type: object
-          description: Additional leaderboard metadata
+          description: Dynamic values including scores and computed fields
+          additionalProperties: true
+        tier:
+          type: integer
+          nullable: true
+          description: Optional tier/division indicator
 
     LedgerEntry:
       type: object

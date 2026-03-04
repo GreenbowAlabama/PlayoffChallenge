@@ -1994,7 +1994,6 @@ describe('Custom Contest Routes', () => {
       expect(response.body).toHaveProperty('generated_at');
       expect(response.body).toHaveProperty('column_schema');
       expect(response.body).toHaveProperty('rows');
-      expect(response.body).toHaveProperty('pagination');
       expect(Array.isArray(response.body.rows)).toBe(true);
     });
 

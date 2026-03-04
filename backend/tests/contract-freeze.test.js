@@ -31,12 +31,12 @@ describe('Contract Freeze', () => {
       .digest('hex');
 
     // Expected hash (update this when intentionally changing the contract)
-    // This hash was generated after Wallet API Implementation (2026-03-02):
-    // - Added GET /api/wallet endpoint (returns balance + ledger)
-    // - Added POST /api/wallet/fund endpoint (creates PaymentIntent)
-    // - Added POST /api/wallet/withdraw endpoint (creates withdrawal request)
-    // - Added wallet schemas: WalletResponse, WalletFundRequest, WalletFundResponse, WalletWithdrawRequest, WalletWithdrawResponse, LedgerEntry
-    const expectedHash = '08c2f38229be45c6633948c6d5fb69d40402fa8fd38397d65d85dd5b9289b7e8';
+    // This hash was generated after Leaderboard Contract Alignment (2026-03-03):
+    // - Updated Leaderboard schema: added contest_id, contest_type, leaderboard_state, column_schema, rows
+    // - Added LeaderboardColumn schema for column metadata
+    // - Added LeaderboardRow schema for row data structure
+    // - Removed pagination from response (no longer part of contract)
+    const expectedHash = '862a40b665ce832c5a0a430d012f2096de7e75edaa087f8d4394dda0d9f0da88';
 
     // The hashes must match - if they don't, the contract has drifted
     expect(currentHash).toBe(expectedHash);

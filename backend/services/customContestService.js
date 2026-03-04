@@ -59,7 +59,18 @@ async function _getLiveStandings(pool, contestInstanceId) {
     rankedScores.push({ ...entry, rank: currentRank });
   });
 
-  return rankedScores;
+  // Map to LeaderboardRowContract format required by Core
+  return rankedScores.map(standing => ({
+    id: standing.user_id,
+    user_id: standing.user_id,
+    username: standing.user_display_name,
+    rank: standing.rank,
+    values: {
+      total_score: standing.total_score,
+      rank: standing.rank
+    },
+    tier: null
+  }));
 }
 
 
@@ -87,15 +98,27 @@ async function _getCompleteStandings(pool, contestInstanceId) {
   );
   const userDisplayNames = new Map(usersResult.rows.map(u => [u.id, u.user_display_name]));
 
-  // Normalize shape to match LIVE standings (user_id, user_display_name, total_score, rank)
-  const normalizedStandings = settlementResults.rankings.map(ranking => ({
-    user_id: ranking.user_id,
-    user_display_name: userDisplayNames.get(ranking.user_id) || 'Unknown', // Fallback if user not found
-    total_score: Number(ranking.score), // Map 'score' to 'total_score' and ensure numeric
-    rank: ranking.rank
-  }));
+  // Map to LeaderboardRowContract format required by Core
+  const mappedRows = settlementResults.rankings.map(ranking => {
+    const userId = ranking.user_id;
+    const displayName = userDisplayNames.get(userId) || 'Unknown';
+    const totalScore = Number(ranking.score);
+    const rank = ranking.rank;
 
-  return normalizedStandings;
+    return {
+      id: userId,
+      user_id: userId,
+      username: displayName,
+      rank: rank,
+      values: {
+        total_score: totalScore,
+        rank: rank
+      },
+      tier: null
+    };
+  });
+
+  return mappedRows;
 }
 
 const VALID_ENV_PREFIXES = ['dev', 'test', 'stg', 'prd'];
@@ -1741,8 +1764,7 @@ async function getContestLeaderboard(pool, instanceId) {
       leaderboard_state,
       generated_at: new Date().toISOString(),
       column_schema: deriveColumnSchema(contestRow),
-      rows: [],
-      pagination: { limit: 0, offset: 0, total: 0 }
+      rows: []
     };
   }
 
@@ -1762,12 +1784,7 @@ async function getContestLeaderboard(pool, instanceId) {
     leaderboard_state,
     generated_at: new Date().toISOString(),
     column_schema: deriveColumnSchema(contestRow),
-    rows: standings,
-    pagination: {
-      limit: standings.length,
-      offset: 0,
-      total: standings.length
-    }
+    rows: standings
   };
 }
 
