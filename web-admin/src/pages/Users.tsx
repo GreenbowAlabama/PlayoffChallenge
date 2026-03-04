@@ -72,11 +72,11 @@ function UserDetailPanel({ user }: { user: User }) {
               <div className="space-y-4">
                 {/* Recent Ledger Entries */}
                 {detail.recent_ledger_entries && detail.recent_ledger_entries.length > 0 && (
-                  <div>
+                  <section>
                     <h4 className="text-sm font-semibold text-gray-900 mb-2">Recent Wallet Activity</h4>
-                    <div className="space-y-1 text-xs">
+                    <ul className="space-y-1 text-xs">
                       {detail.recent_ledger_entries.map((entry: LedgerEntry) => (
-                        <div key={entry.id} className="flex gap-2 text-gray-600">
+                        <li key={entry.id} className="flex gap-2 text-gray-600">
                           <span className="w-12">{formatDate(entry.created_at)}</span>
                           <span className="w-20">{entry.entry_type}</span>
                           <span className={entry.direction === 'CREDIT' ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
@@ -85,19 +85,19 @@ function UserDetailPanel({ user }: { user: User }) {
                           {entry.contest_name && (
                             <span className="text-gray-500">{entry.contest_name}</span>
                           )}
-                        </div>
+                        </li>
                       ))}
-                    </div>
-                  </div>
+                    </ul>
+                  </section>
                 )}
 
                 {/* Active Contests */}
                 {detail.contests && detail.contests.length > 0 && (
-                  <div>
+                  <section>
                     <h4 className="text-sm font-semibold text-gray-900 mb-2">Contests</h4>
-                    <div className="space-y-1 text-xs">
+                    <ul className="space-y-1 text-xs">
                       {detail.contests.map((contest: UserContest) => (
-                        <div key={contest.id} className="flex gap-2 text-gray-600">
+                        <li key={contest.id} className="flex gap-2 text-gray-600">
                           <span className="font-medium">{contest.name}</span>
                           <span className={`px-2 py-0.5 rounded text-white text-xs ${
                             contest.status === 'SCHEDULED' ? 'bg-blue-500' :
@@ -109,10 +109,10 @@ function UserDetailPanel({ user }: { user: User }) {
                             {contest.status}
                           </span>
                           <span className="text-gray-500">Entry: {formatUSD(contest.entry_fee_cents)}</span>
-                        </div>
+                        </li>
                       ))}
-                    </div>
-                  </div>
+                    </ul>
+                  </section>
                 )}
 
                 {(!detail.recent_ledger_entries || detail.recent_ledger_entries.length === 0) &&

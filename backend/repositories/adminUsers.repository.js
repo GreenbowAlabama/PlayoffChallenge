@@ -68,7 +68,7 @@ async function getAllUsersWithWalletVisibility(pool) {
       SELECT
         cp.user_id,
         COUNT(DISTINCT cp.contest_instance_id) as active_contests_count,
-        MAX(cp.created_at) as last_contest_join_at
+        MAX(cp.joined_at) as last_contest_join_at
       FROM contest_participants cp
       INNER JOIN contest_instances ci ON cp.contest_instance_id = ci.id
       WHERE ci.status IN ('SCHEDULED', 'LOCKED', 'LIVE')
