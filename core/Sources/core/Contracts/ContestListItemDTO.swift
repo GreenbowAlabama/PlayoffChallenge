@@ -34,6 +34,7 @@ public struct ContestListItemDTO: Decodable, Identifiable {
     public let actions: ContestActionsContract?
     public let payoutTable: [PayoutTierContract]?
     public let rosterConfig: RosterConfigContract?
+    public let templateType: String?
     public let isPlatformOwned: Bool?
 
     enum CodingKeys: String, CodingKey {
@@ -55,6 +56,7 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         case actions
         case payoutTable = "payout_table"
         case rosterConfig = "roster_config"
+        case templateType = "template_type"
         case isPlatformOwned = "is_platform_owned"
     }
 
@@ -77,6 +79,7 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         actions: ContestActionsContract?,
         payoutTable: [PayoutTierContract]?,
         rosterConfig: RosterConfigContract?,
+        templateType: String?,
         isPlatformOwned: Bool?
     ) {
         self.id = id
@@ -97,6 +100,7 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         self.actions = actions
         self.payoutTable = payoutTable
         self.rosterConfig = rosterConfig
+        self.templateType = templateType
         self.isPlatformOwned = isPlatformOwned
     }
 }

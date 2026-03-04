@@ -2031,6 +2031,18 @@ components:
           type: integer
           description: Number of players required in roster
           example: 7
+        lineup_size:
+          type: integer
+          description: Number of players in lineup (PGA tournaments)
+          example: 7
+        scoring_count:
+          type: integer
+          description: Number of scores that count toward final score
+          example: 6
+        drop_lowest:
+          type: boolean
+          description: Whether lowest score is automatically dropped
+          example: true
         entry_fields:
           type: array
           items:

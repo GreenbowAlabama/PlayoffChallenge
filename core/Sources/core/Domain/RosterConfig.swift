@@ -18,6 +18,22 @@ public struct RosterConfig: Codable, Hashable, Equatable, Sendable {
         self.config = config
     }
 
+    // MARK: - Typed PGA Helpers
+    /// Number of golfers/players in lineup (PGA tournaments).
+    public var lineupSize: Int? {
+        config["lineup_size"]?.value as? Int
+    }
+
+    /// Number of scores that count toward final score (PGA tournaments).
+    public var scoringCount: Int? {
+        config["scoring_count"]?.value as? Int
+    }
+
+    /// Whether lowest score is automatically dropped (PGA tournaments).
+    public var dropLowest: Bool? {
+        config["drop_lowest"]?.value as? Bool
+    }
+
     // MARK: - Mapping
     /// Initialize from contract type.
     /// Contract is already [String: AnyCodable], so direct passthrough.
