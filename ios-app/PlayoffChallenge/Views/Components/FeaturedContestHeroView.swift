@@ -29,7 +29,8 @@ struct FeaturedContestHeroView: View {
         } else if contest.actions?.canEditEntry == true {
             return "View My Entry"
         } else if contest.actions?.canJoin == true {
-            return "Join Contest"
+            let entryFee = contest.entryFeeCents / 100
+            return entryFee == 0 ? "Join Free Contest" : "Enter $\(entryFee) Contest"
         } else {
             return "View Contest"
         }
@@ -110,10 +111,9 @@ struct FeaturedContestHeroView: View {
                 // Capacity Bar
                 VStack(alignment: .trailing, spacing: DesignTokens.Spacing.xxs) {
                     CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
-                    
+
                     if let maxEntries = contest.maxEntries, maxEntries > 0 {
-                        let percent = Int(Double(contest.entryCount) / Double(maxEntries) * 100)
-                        Text("\(percent)% full")
+                        Text("\(contest.entryCount) / \(maxEntries) spots filled")
                             .font(.caption2)
                             .foregroundColor(.white.opacity(0.8))
                     }

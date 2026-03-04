@@ -24,6 +24,10 @@ struct ContestCardView: View {
         contest.entryFeeCents == 0 ? "Free" : "$\(contest.entryFeeCents / 100)"
     }
 
+    private var organizerDisplayName: String {
+        (contest.isPlatformOwned ?? false) ? "67 Games" : (contest.organizerName ?? "Unknown")
+    }
+
     private var payoutDisplay: String? {
         // FINANCIAL BOUNDARY: Client does not compute pot or payout.
         // Backend settlement is authoritative via payout_table.
@@ -100,11 +104,9 @@ struct ContestCardView: View {
                         .foregroundColor(DesignTokens.Color.Text.primary)
                         .lineLimit(2)
 
-                    if let organizer = contest.organizerName {
-                        Text("by \(organizer)")
-                            .font(.caption)
-                            .foregroundColor(DesignTokens.Color.Text.secondary)
-                    }
+                    Text("by \(organizerDisplayName)")
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.Color.Text.secondary)
                 }
 
                 Spacer()
@@ -140,21 +142,21 @@ struct ContestCardView: View {
             CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
 
             VStack(alignment: .leading, spacing: 4) {
-                if let startTime = contest.startTime {
+                if let startTimeDisplay = formatStartTimeForDisplay(contest.startTime) {
                     HStack(spacing: 4) {
                         Image(systemName: "calendar")
                             .font(.caption2)
-                        Text("Starts \(startTime, style: .relative)")
+                        Text(startTimeDisplay)
                             .font(.caption2)
                     }
                     .foregroundColor(DesignTokens.Color.Text.secondary)
                 }
 
-                if let lockTime = contest.lockTime {
+                if let lockTime = contest.lockTime, let countdown = formatLockCountdown(lockTime) {
                     HStack(spacing: 4) {
                         Image(systemName: "lock.fill")
                             .font(.caption2)
-                        Text(lockTime, style: .relative)
+                        Text(countdown)
                             .font(.caption2)
                     }
                     .foregroundColor(lockUrgencyColor)
@@ -220,8 +222,8 @@ struct ContestCardView: View {
             VStack(alignment: .trailing, spacing: DesignTokens.Spacing.xxs) {
                 CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
 
-                if let lockTime = contest.lockTime {
-                    Text(lockTime, style: .relative)
+                if let lockTime = contest.lockTime, let countdown = formatLockCountdown(lockTime) {
+                    Text(countdown)
                         .font(.caption2)
                         .foregroundColor(lockUrgencyColor)
                 }

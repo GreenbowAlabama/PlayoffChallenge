@@ -34,7 +34,7 @@ struct CapacityBarView: View {
             }
             
             if let maxEntries = maxEntries {
-                Text("\(entryCount)/\(maxEntries)")
+                Text("\(entryCount) / \(maxEntries) spots")
                     .font(.caption.monospacedDigit())
                     .foregroundColor(DesignTokens.Color.Text.secondary)
                     .layoutPriority(1)

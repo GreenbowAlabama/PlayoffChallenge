@@ -101,12 +101,16 @@ final class HomeTabViewModel: ObservableObject {
                 return l < r
             }
 
-        // Open: joinable, not full, not yet joined
+        // Open: visible if status is scheduled or live (user can join or see details).
+        // The join button will be disabled server-side based on actions.canJoin.
+        // Visibility is NOT filtered by join eligibility; only status matters.
+        // Platform-owned contests are featured separately and excluded here.
         openContests = available
             .filter { contest in
-                contest.actions?.canJoin == true &&
+                (contest.status == .scheduled || contest.status == .live) &&
                 !(contest.actions?.canEditEntry ?? false) &&
-                !(contest.actions?.canUnjoin ?? false)
+                !(contest.actions?.canUnjoin ?? false) &&
+                !(contest.isPlatformOwned ?? false)
             }
             .sorted { lhs, rhs in
                 // Live first

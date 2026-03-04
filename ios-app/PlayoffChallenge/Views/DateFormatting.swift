@@ -7,6 +7,26 @@
 
 import Foundation
 
+// MARK: - Shared Formatters (avoid allocation in rendering code)
+
+private let timeFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "h:mm a"
+    return f
+}()
+
+private let dateFormatterCurrentYear: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "MMM d"
+    return f
+}()
+
+private let dateFormatterOtherYear: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "MMM d, yyyy"
+    return f
+}()
+
 /// Urgency level for a lock time (used to drive color in UI)
 enum LockUrgency {
     case normal      // >6 hours until lock
@@ -57,9 +77,6 @@ func formatLockTimeForDisplay(lockTime: Date?, status: ContestStatus) -> LockTim
     let isTomorrow = calendar.isDateInTomorrow(lockTime)
     let isThisYear = calendar.component(.year, from: lockTime) == calendar.component(.year, from: now)
 
-    // Format time of day (e.g., "8:00 PM")
-    let timeFormatter = DateFormatter()
-    timeFormatter.dateFormat = "h:mm a"
     let timeString = timeFormatter.string(from: lockTime)
 
     // Case 1: Lock time is today
@@ -79,9 +96,60 @@ func formatLockTimeForDisplay(lockTime: Date?, status: ContestStatus) -> LockTim
     }
 
     // Case 4: Lock time is multiple days away - show date
-    let dateFormatter = DateFormatter()
-    dateFormatter.dateFormat = isThisYear ? "MMM d" : "MMM d, yyyy"
+    let dateFormatter = isThisYear ? dateFormatterCurrentYear : dateFormatterOtherYear
     let dateString = dateFormatter.string(from: lockTime)
 
     return LockTimeDisplay(text: "Locks \(dateString) • \(timeString)", urgency: urgency)
+}
+
+/// Formats start_time for display on contest cards.
+/// Returns a human-readable string like "Starts Today • 8:00 AM" or "Starts Apr 10 • 8:00 AM".
+/// - Parameter startTime: The start time from the contest (optional)
+/// - Returns: Formatted display string, or nil if start time should not be shown
+func formatStartTimeForDisplay(_ startTime: Date?) -> String? {
+    guard let startTime = startTime else { return nil }
+
+    let now = Date()
+    let calendar = Calendar.current
+
+    let isToday = calendar.isDateInToday(startTime)
+    let isTomorrow = calendar.isDateInTomorrow(startTime)
+    let isThisYear = calendar.component(.year, from: startTime) == calendar.component(.year, from: now)
+
+    let timeString = timeFormatter.string(from: startTime)
+
+    // Case 1: Start time is today
+    if isToday {
+        return "Starts Today • \(timeString)"
+    }
+
+    // Case 2: Start time is tomorrow
+    if isTomorrow {
+        return "Starts Tomorrow • \(timeString)"
+    }
+
+    // Case 3: Start time is in the future - show date
+    let dateFormatter = isThisYear ? dateFormatterCurrentYear : dateFormatterOtherYear
+    let dateString = dateFormatter.string(from: startTime)
+
+    return "Starts \(dateString) • \(timeString)"
+}
+
+/// Formats countdown time until lock in compact format like "Locks in 21h 49m".
+/// - Parameter lockTime: The lock time to count down to (optional)
+/// - Returns: Formatted countdown string like "Locks in 5h 30m", or nil if time has passed
+func formatLockCountdown(_ lockTime: Date?) -> String? {
+    guard let lockTime = lockTime else { return nil }
+
+    let now = Date()
+    let timeInterval = lockTime.timeIntervalSince(now)
+
+    // If time has passed, return nil
+    guard timeInterval > 0 else { return nil }
+
+    let totalSeconds = Int(timeInterval)
+    let hours = totalSeconds / 3600
+    let minutes = (totalSeconds % 3600) / 60
+
+    return "Locks in \(hours)h \(minutes)m"
 }

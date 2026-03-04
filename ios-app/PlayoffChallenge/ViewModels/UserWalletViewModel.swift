@@ -157,6 +157,12 @@ final class UserWalletViewModel: ObservableObject {
     func fetchWallet() async {
         print("[UserWalletViewModel] fetchWallet() ENTERED")
 
+        // Guard against duplicate concurrent fetches
+        guard !isLoading else {
+            print("[UserWalletViewModel] Fetch already in progress, skipping duplicate")
+            return
+        }
+
         // Guard that user is authenticated
         guard let userId = authService.currentUser?.id else {
             print("[UserWalletViewModel] No authenticated user - cannot fetch wallet")

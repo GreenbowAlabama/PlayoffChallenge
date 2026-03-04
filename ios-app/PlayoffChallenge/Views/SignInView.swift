@@ -15,7 +15,7 @@ struct SignInView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 90, height: 90)
 
-                Text("PLAYOFF CHALLENGE")
+                Text("67 Games")
                     .font(.system(size: 28, weight: .black, design: .rounded))
                     .foregroundColor(Color("BrandBlack"))
                     .tracking(1.2)
