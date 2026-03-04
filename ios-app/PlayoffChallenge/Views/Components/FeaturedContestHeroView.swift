@@ -89,29 +89,23 @@ struct FeaturedContestHeroView: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Start Date
-                if let start = contest.startTime {
-                    Text("Starts \(start.formatted(date: .abbreviated, time: .omitted))")
+                // Event Start Time: Priority logic (tournamentStartTime > startTime > lockTime)
+                if let eventDisplay = formatContestEventStartTime(
+                    tournamentStartTime: contest.tournamentStartTime,
+                    startTime: contest.startTime,
+                    lockTime: contest.lockTime
+                ) {
+                    Text(eventDisplay)
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.8))
                 }
 
-                // Fee and Capacity Text (stacked for clarity)
+                // Fee and Payout Text (capacity displayed in CapacityBarView below)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("$\(contest.entryFeeCents / 100) entry")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(.white.opacity(0.9))
-
-                    if let maxEntries = contest.maxEntries {
-                        Text("\(contest.entryCount) / \(maxEntries) spots")
-                            .font(.caption)
-                            .foregroundColor(.white.opacity(0.8))
-                    } else {
-                        Text("\(contest.entryCount) entered")
-                            .font(.caption)
-                            .foregroundColor(.white.opacity(0.8))
-                    }
 
                     if let payout = payoutDisplay {
                         Text(payout)
@@ -121,15 +115,7 @@ struct FeaturedContestHeroView: View {
                 }
                 
                 // Capacity Bar
-                VStack(alignment: .trailing, spacing: DesignTokens.Spacing.xxs) {
-                    CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
-
-                    if let maxEntries = contest.maxEntries, maxEntries > 0 {
-                        Text("\(contest.entryCount) / \(maxEntries) spots filled")
-                            .font(.caption2)
-                            .foregroundColor(.white.opacity(0.8))
-                    }
-                }
+                CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
                 
                 // Lock Time
                 if let countdown = formatLockCountdown(contest.lockTime) {

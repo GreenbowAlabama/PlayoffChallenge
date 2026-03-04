@@ -73,6 +73,11 @@ struct MainTabView: View {
             NavigationStack {
                 ProfileView()
             }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    WalletBalanceButtonView(viewModel: walletVM)
+                }
+            }
             .tabItem {
                 Label("Profile", systemImage: "person.circle.fill")
             }

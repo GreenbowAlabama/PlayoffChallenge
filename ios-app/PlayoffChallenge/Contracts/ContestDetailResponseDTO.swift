@@ -35,6 +35,8 @@ struct ContestDetailResponseDTO: Decodable {
     let organizer_name: String?
     let start_time: Date?
     let end_time: Date?
+    let tournament_start_time: Date?
+    let tournament_end_time: Date?
     let lock_time: Date?
     let join_token: String?
     let is_platform_owned: Bool?
@@ -46,7 +48,7 @@ struct ContestDetailResponseDTO: Decodable {
     enum CodingKeys: String, CodingKey {
         case id, contest_id, template_id, type, organizer_id, organizer_name
         case entry_fee_cents, payout_structure, contest_name
-        case start_time, end_time, lock_time, max_entries, join_token
+        case start_time, end_time, tournament_start_time, tournament_end_time, lock_time, max_entries, join_token
         case created_at, updated_at, is_platform_owned, status
         case is_locked, is_live, is_settled, entry_count, user_has_entered
         case time_until_lock, standings, leaderboard_state, actions
@@ -84,6 +86,8 @@ struct ContestDetailResponseDTO: Decodable {
         organizer_name = try c.decodeIfPresent(String.self, forKey: .organizer_name)
         start_time = try c.decodeIfPresent(Date.self, forKey: .start_time)
         end_time = try c.decodeIfPresent(Date.self, forKey: .end_time)
+        tournament_start_time = try c.decodeIfPresent(Date.self, forKey: .tournament_start_time)
+        tournament_end_time = try c.decodeIfPresent(Date.self, forKey: .tournament_end_time)
         lock_time = try c.decodeIfPresent(Date.self, forKey: .lock_time)
         join_token = try c.decodeIfPresent(String.self, forKey: .join_token)
         is_platform_owned = try c.decodeIfPresent(Bool.self, forKey: .is_platform_owned)

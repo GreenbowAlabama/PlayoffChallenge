@@ -22,6 +22,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
     public let lockTime: Date?
     public let startTime: Date?
     public let endTime: Date?
+    public let tournamentStartTime: Date?
+    public let tournamentEndTime: Date?
     public let joinToken: String?
     public let createdAt: Date
     public let updatedAt: Date
@@ -43,6 +45,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         lockTime: Date?,
         startTime: Date?,
         endTime: Date?,
+        tournamentStartTime: Date?,
+        tournamentEndTime: Date?,
         joinToken: String?,
         createdAt: Date,
         updatedAt: Date,
@@ -63,6 +67,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         self.lockTime = lockTime
         self.startTime = startTime
         self.endTime = endTime
+        self.tournamentStartTime = tournamentStartTime
+        self.tournamentEndTime = tournamentEndTime
         self.joinToken = joinToken
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -85,6 +91,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         case lockTime = "lock_time"
         case startTime = "start_time"
         case endTime = "end_time"
+        case tournamentStartTime = "tournament_start_time"
+        case tournamentEndTime = "tournament_end_time"
         case joinToken = "join_token"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -128,6 +136,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             lockTime: contract.lockTime,
             startTime: contract.startTime,
             endTime: contract.endTime,
+            tournamentStartTime: nil,
+            tournamentEndTime: nil,
             joinToken: contract.joinToken,
             createdAt: contract.createdAt,
             updatedAt: contract.updatedAt,
@@ -155,6 +165,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             lockTime: nil,
             startTime: contract.start_time, // Now mapped from contract (OpenAPI schema line 1116)
             endTime: contract.end_time,     // Now mapped from contract (OpenAPI schema line 1123)
+            tournamentStartTime: contract.tournament_start_time,
+            tournamentEndTime: contract.tournament_end_time,
             joinToken: contract.join_token, // Now mapped from contract (OpenAPI schema line 1143)
             createdAt: Date(),
             updatedAt: Date(),
@@ -180,6 +192,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         lockTime: Date? = nil,
         startTime: Date? = nil,
         endTime: Date? = nil,
+        tournamentStartTime: Date? = nil,
+        tournamentEndTime: Date? = nil,
         joinToken: String? = "test-token",
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
@@ -201,6 +215,8 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             lockTime: lockTime,
             startTime: startTime,
             endTime: endTime,
+            tournamentStartTime: tournamentStartTime,
+            tournamentEndTime: tournamentEndTime,
             joinToken: joinToken,
             createdAt: createdAt,
             updatedAt: updatedAt,

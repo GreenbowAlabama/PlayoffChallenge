@@ -17,11 +17,9 @@ enum HomeTabRoute: Hashable {
 struct HomeTabView: View {
     @EnvironmentObject var availableVM: AvailableContestsViewModel
     @EnvironmentObject var myVM: MyContestsViewModel
-    @EnvironmentObject var walletVM: UserWalletViewModel
     @StateObject private var viewModel = HomeTabViewModel()
 
     @State private var navigationPath: [HomeTabRoute] = []
-    @State private var showWalletDetail = false
     @State private var isRefreshing = false
 
     var body: some View {
@@ -107,18 +105,10 @@ struct HomeTabView: View {
                 .padding(.vertical, DesignTokens.Spacing.lg)
             }
             .navigationTitle("67 Games")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    walletButtonView
-                }
-            }
-            .navigationDestination(isPresented: $showWalletDetail) {
-                WalletDetailView(viewModel: walletVM)
-            }
             .navigationDestination(for: HomeTabRoute.self) { route in
                 switch route {
                 case .detail(let contestId, let contest):
-                    ContestDetailView(contestId: contestId, placeholder: contest, walletRefresher: walletVM)
+                    ContestDetailView(contestId: contestId, placeholder: contest)
                 }
             }
             .refreshable {
@@ -148,31 +138,10 @@ struct HomeTabView: View {
             )
         }
         .onAppear {
-            print("[HomeTabView] Appeared - fetching wallet")
-            Task {
-                await walletVM.fetchWallet()
-            }
+            print("[HomeTabView] Appeared")
         }
     }
 
-    // MARK: - Wallet Button
-
-    @ViewBuilder
-    private var walletButtonView: some View {
-        Button(action: {
-            print("[HomeTabView] Wallet button tapped, balance=\(walletVM.displayBalance)")
-            showWalletDetail = true
-        }) {
-            VStack(spacing: 2) {
-                Image(systemName: "wallet.pass.fill")
-                    .font(.system(size: 14, weight: .semibold))
-
-                Text(walletVM.displayBalance)
-                    .font(.system(size: 9, weight: .semibold))
-            }
-            .foregroundColor(.blue)
-        }
-    }
 }
 
 // MARK: - Previews

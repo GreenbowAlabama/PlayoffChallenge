@@ -17,31 +17,31 @@ struct CapacityBarView: View {
     }
     
     var body: some View {
-        HStack(spacing: DesignTokens.Spacing.sm) {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
             if let progress = progress {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(DesignTokens.Color.Surface.elevated)
+                HStack {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(DesignTokens.Color.Surface.elevated)
 
-                        Capsule()
-                            .fill(DesignTokens.Color.Brand.primary)
-                            .frame(width: geo.size.width * CGFloat(min(1.0, max(0.0, progress))))
+                            Capsule()
+                                .fill(DesignTokens.Color.Brand.primary)
+                                .frame(width: geo.size.width * CGFloat(min(1.0, max(0.0, progress))))
+                        }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: DesignTokens.Size.capacityBarHeight)
                 }
-                .frame(maxWidth: .infinity, maxHeight: DesignTokens.Size.capacityBarHeight)
             }
-            
+
             if let maxEntries = maxEntries {
-                Text("\(entryCount) / \(maxEntries) spots")
+                Text("\(entryCount) / \(maxEntries)")
                     .font(.caption.monospacedDigit())
                     .foregroundColor(DesignTokens.Color.Text.secondary)
-                    .layoutPriority(1)
             } else {
                 Text("\(entryCount) entered")
                     .font(.caption)
                     .foregroundColor(DesignTokens.Color.Text.secondary)
-                    .layoutPriority(1)
             }
         }
     }
@@ -49,9 +49,34 @@ struct CapacityBarView: View {
 
 #Preview {
     VStack(spacing: DesignTokens.Spacing.xl) {
+        Text("Empty contest (0/20)")
+            .font(.caption)
+            .foregroundColor(.gray)
+        CapacityBarView(entryCount: 0, maxEntries: 20)
+
+        Text("Standard (16/20)")
+            .font(.caption)
+            .foregroundColor(.gray)
         CapacityBarView(entryCount: 16, maxEntries: 20)
+
+        Text("Large capacity (5/100)")
+            .font(.caption)
+            .foregroundColor(.gray)
         CapacityBarView(entryCount: 5, maxEntries: 100)
+
+        Text("Very large (3/500)")
+            .font(.caption)
+            .foregroundColor(.gray)
+        CapacityBarView(entryCount: 3, maxEntries: 500)
+
+        Text("Unlimited (42 entered)")
+            .font(.caption)
+            .foregroundColor(.gray)
         CapacityBarView(entryCount: 42, maxEntries: nil)
+
+        Text("Full (20/20)")
+            .font(.caption)
+            .foregroundColor(.gray)
         CapacityBarView(entryCount: 20, maxEntries: 20)
     }
     .padding()

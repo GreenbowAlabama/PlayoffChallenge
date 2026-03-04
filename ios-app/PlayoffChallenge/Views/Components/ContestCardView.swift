@@ -142,16 +142,22 @@ struct ContestCardView: View {
             CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
 
             VStack(alignment: .leading, spacing: 4) {
-                if let startTimeDisplay = formatStartTimeForDisplay(contest.startTime) {
+                // EVENT START TIME: Priority logic (tournamentStartTime > startTime > lockTime)
+                if let eventDisplay = formatContestEventStartTime(
+                    tournamentStartTime: contest.tournamentStartTime,
+                    startTime: contest.startTime,
+                    lockTime: contest.lockTime
+                ) {
                     HStack(spacing: 4) {
                         Image(systemName: "calendar")
                             .font(.caption2)
-                        Text(startTimeDisplay)
+                        Text(eventDisplay)
                             .font(.caption2)
                     }
                     .foregroundColor(DesignTokens.Color.Text.secondary)
                 }
 
+                // LOCK URGENCY INDICATOR (secondary): Shows countdown with urgency coloring
                 if let lockTime = contest.lockTime, let countdown = formatLockCountdown(lockTime) {
                     HStack(spacing: 4) {
                         Image(systemName: "lock.fill")

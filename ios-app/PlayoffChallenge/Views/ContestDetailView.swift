@@ -241,8 +241,16 @@ struct ContestDetailViewInner: View {
 
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
                         InfoRowView(label: "Status", value: viewModel.displayStatusMessage)
+                        // Event Start Time: Priority logic (tournamentStartTime > startTime > lockTime)
+                        if let eventDisplay = formatContestEventStartTime(
+                            tournamentStartTime: viewModel.contest.tournamentStartTime,
+                            startTime: viewModel.contest.startTime,
+                            lockTime: viewModel.contest.lockTime
+                        ) {
+                            InfoRowView(label: "Starts", value: eventDisplay)
+                        }
                         if let lockTime = viewModel.contest.lockTime {
-                            InfoRowView(label: "Lock Time", value: viewModel.formattedLockTime(lockTime))
+                            InfoRowView(label: "Locks", value: viewModel.formattedLockTime(lockTime))
                         }
                         InfoRowView(label: "Created", value: formattedCreatedDate(viewModel.contest.createdAt))
                     }

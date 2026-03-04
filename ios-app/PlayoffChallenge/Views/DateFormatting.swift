@@ -158,3 +158,20 @@ func formatLockCountdown(_ lockTime: Date?) -> String? {
         return "Locks in \(minutes)m"
     }
 }
+
+/// Formats contest event start time with priority logic (tournament_start_time > start_time > lock_time).
+/// Returns a human-readable string like "Starts Today • 8:00 AM".
+/// - Parameters:
+///   - tournamentStartTime: The tournament start time from the contest (highest priority)
+///   - startTime: The start time from the contest (fallback)
+///   - lockTime: The lock time from the contest (final fallback)
+/// - Returns: Formatted display string, or nil if no time is available
+func formatContestEventStartTime(
+    tournamentStartTime: Date?,
+    startTime: Date?,
+    lockTime: Date?
+) -> String? {
+    // Apply priority logic: tournamentStartTime > startTime > lockTime
+    let displayTime = tournamentStartTime ?? startTime ?? lockTime
+    return formatStartTimeForDisplay(displayTime)
+}
