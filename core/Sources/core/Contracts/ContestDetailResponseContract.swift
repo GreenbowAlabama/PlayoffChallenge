@@ -23,6 +23,11 @@ public struct ContestDetailResponseContract: Decodable {
     public let payout_table: [PayoutTierContract]
     public let roster_config: RosterConfigContract
 
+    // Optional timing and identifiers (per OpenAPI schema lines 1116-1146)
+    public let start_time: Date?
+    public let end_time: Date?
+    public let join_token: String?
+
     enum CodingKeys: String, CodingKey {
         case contest_id
         case type
@@ -30,6 +35,9 @@ public struct ContestDetailResponseContract: Decodable {
         case actions
         case payout_table
         case roster_config
+        case start_time
+        case end_time
+        case join_token
     }
 
     public init(
@@ -38,7 +46,10 @@ public struct ContestDetailResponseContract: Decodable {
         leaderboard_state: LeaderboardStateContract,
         actions: ContestActionsContract,
         payout_table: [PayoutTierContract],
-        roster_config: RosterConfigContract
+        roster_config: RosterConfigContract,
+        start_time: Date? = nil,
+        end_time: Date? = nil,
+        join_token: String? = nil
     ) {
         self.contest_id = contest_id
         self.type = type
@@ -46,6 +57,9 @@ public struct ContestDetailResponseContract: Decodable {
         self.actions = actions
         self.payout_table = payout_table
         self.roster_config = roster_config
+        self.start_time = start_time
+        self.end_time = end_time
+        self.join_token = join_token
     }
 
     public init(from decoder: Decoder) throws {
@@ -57,5 +71,9 @@ public struct ContestDetailResponseContract: Decodable {
         // Required fields — no fallback
         payout_table = try c.decode([PayoutTierContract].self, forKey: .payout_table)
         roster_config = try c.decode(RosterConfigContract.self, forKey: .roster_config)
+        // Optional fields (OpenAPI schema allows nullable)
+        start_time = try c.decodeIfPresent(Date.self, forKey: .start_time)
+        end_time = try c.decodeIfPresent(Date.self, forKey: .end_time)
+        join_token = try c.decodeIfPresent(String.self, forKey: .join_token)
     }
 }

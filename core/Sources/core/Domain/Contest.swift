@@ -140,20 +140,22 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
     }
 
     /// Initialize from a detail contract.
+    /// Maps only the fields present in ContestDetailResponseContract.
+    /// Fields like organizerId, contestName, status come from the list endpoint (ContestListItemDTO).
     public static func from(_ contract: ContestDetailResponseContract) -> Contest {
         return Contest(
             id: UUID(uuidString: contract.contest_id) ?? UUID(),
-            organizerId: "", // Not present in detail contract
-            contestName: "", // Not present in detail contract
+            organizerId: "", // Not present in detail contract; use ContestListItemDTO for populated contests
+            contestName: "", // Not present in detail contract; use ContestListItemDTO for populated contests
             organizerName: nil, // Not present in detail contract
-            status: .scheduled, // Not present in detail contract
-            entryCount: 0,   // Not present in detail contract
-            maxEntries: nil, // Not present in detail contract
+            status: .scheduled, // Not present in detail contract; use ContestListItemDTO for populated contests
+            entryCount: 0,   // Not present in detail contract; use ContestListItemDTO for populated contests
+            maxEntries: nil, // Not present in detail contract; use ContestListItemDTO for populated contests
             entryFeeCents: 0,
             lockTime: nil,
-            startTime: nil, // Not present in detail contract
-            endTime: nil, // Not present in detail contract
-            joinToken: nil,
+            startTime: contract.start_time, // Now mapped from contract (OpenAPI schema line 1116)
+            endTime: contract.end_time,     // Now mapped from contract (OpenAPI schema line 1123)
+            joinToken: contract.join_token, // Now mapped from contract (OpenAPI schema line 1143)
             createdAt: Date(),
             updatedAt: Date(),
             leaderboardState: LeaderboardComputationState.from(contract.leaderboard_state),

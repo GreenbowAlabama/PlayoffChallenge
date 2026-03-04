@@ -6,7 +6,6 @@ import Core
 struct CreateCustomContestView: View {
     @StateObject private var viewModel: CreateCustomContestViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var lockTimeEnabled = false
     var onPublished: ((UUID, Contest?) -> Void)?
 
     init(viewModel: CreateCustomContestViewModel, onPublished: ((UUID, Contest?) -> Void)? = nil) {
@@ -19,7 +18,6 @@ struct CreateCustomContestView: View {
             contestTemplateSection
             contestDetailsSection
             payoutStructureSection
-            lockTimeSection
             actionSection
             statusSection
         }
@@ -96,30 +94,6 @@ struct CreateCustomContestView: View {
                 ? "Free"
                 : viewModel.formatDollars(viewModel.selectedEntryFeeCents)
             Text("Based on \(viewModel.maxEntries) entries × \(feeText)")
-                .font(.caption)
-        }
-    }
-
-    private var lockTimeSection: some View {
-        Section {
-            Toggle("Contest locks", isOn: $lockTimeEnabled)
-                .onChange(of: lockTimeEnabled) { _, enabled in
-                    viewModel.lockTime = enabled ? Date().addingTimeInterval(3600) : nil
-                }
-
-            if lockTimeEnabled {
-                DatePicker(
-                    "Date & Time",
-                    selection: Binding(
-                        get: { viewModel.lockTime ?? Date().addingTimeInterval(3600) },
-                        set: { viewModel.lockTime = $0 }
-                    ),
-                    in: Date()...,
-                    displayedComponents: [.date, .hourAndMinute]
-                )
-            }
-        } footer: {
-            Text("Optional. After this time, the contest locks and new entries are not accepted.")
                 .font(.caption)
         }
     }
