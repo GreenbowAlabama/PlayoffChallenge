@@ -15,6 +15,7 @@ const { validateContestTimeInvariants } = require('./helpers/timeInvariantValida
 const { mapContestToApiResponse, mapContestToApiResponseForList } = require('./helpers/contestApiResponseMapper');
 const LedgerRepository = require('../repositories/LedgerRepository');
 const { getStrategy } = require('./scoringStrategyRegistry');
+const { initializeTournamentField } = require('./ingestionService');
 
 // Function to compare two numbers with a fixed precision (e.g., 2 decimal places)
 const areScoresEqual = (score1, score2, precision = 2) => {
@@ -1079,6 +1080,19 @@ async function publishContestInstance(pool, instanceId, organizerId) {
     // UPDATE succeeded: we set the token (first publish).
     instance = result.rows[0];
     didPublish = true;
+
+    // Fetch instance with template sport for tournament initialization check
+    const instanceWithSportResult = await pool.query(
+      `SELECT ci.*, ct.sport
+       FROM contest_instances ci
+       JOIN contest_templates ct ON ct.id = ci.template_id
+       WHERE ci.id = $1`,
+      [instanceId]
+    );
+
+    if (instanceWithSportResult.rows.length > 0) {
+      instance = instanceWithSportResult.rows[0];
+    }
   }
 
   // Auto-join organizer as first participant (only on first publish)
@@ -1087,6 +1101,18 @@ async function publishContestInstance(pool, instanceId, organizerId) {
       'INSERT INTO contest_participants (contest_instance_id, user_id) VALUES ($1, $2) ON CONFLICT (contest_instance_id, user_id) DO NOTHING',
       [instanceId, organizerId]
     );
+
+    // Initialize tournament field for GOLF contests (non-blocking)
+    if (instance.sport === 'GOLF') {
+      try {
+        await initializeTournamentField(pool, instanceId);
+      } catch (err) {
+        console.warn(
+          `[publishContestInstance] tournament initialization failed for ${instanceId}:`,
+          err.message
+        );
+      }
+    }
   }
 
   return {

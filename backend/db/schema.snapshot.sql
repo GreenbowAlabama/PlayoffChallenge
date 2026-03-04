@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 9yNEd0cLWBRoEVYFM1CHqOuCYVl8BRXWZqgX9BsusseYe6CMPrXdUsJBXbhWsdA
+\restrict 4xmcHzGnxFLU94GPfhzliWeTb8KKldvVgDbK5lTXXrUKg92g9fJrTT5bTfziBhb
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -18,20 +18,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: public; Type: SCHEMA; Schema: -; Owner: -
---
-
--- *not* creating schema, since initdb creates it
-
-
---
--- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON SCHEMA public IS '';
-
 
 --
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
@@ -444,6 +430,8 @@ CREATE TABLE public.contest_instances (
     tournament_end_time timestamp with time zone,
     is_primary_marketing boolean DEFAULT false NOT NULL,
     provider_event_id text,
+    current_entries integer DEFAULT 0 NOT NULL,
+    is_system_generated boolean DEFAULT false NOT NULL,
     CONSTRAINT entry_fee_non_negative CHECK ((entry_fee_cents >= 0)),
     CONSTRAINT max_entries_positive CHECK (((max_entries IS NULL) OR (max_entries > 0))),
     CONSTRAINT status_valid CHECK ((status = ANY (ARRAY['SCHEDULED'::text, 'LOCKED'::text, 'LIVE'::text, 'COMPLETE'::text, 'CANCELLED'::text, 'ERROR'::text])))
@@ -501,6 +489,10 @@ CREATE TABLE public.contest_templates (
     season_year integer,
     is_system_generated boolean DEFAULT false NOT NULL,
     status text DEFAULT 'SCHEDULED'::text NOT NULL,
+    lineup_size integer,
+    scoring_count integer,
+    drop_lowest boolean DEFAULT false,
+    scoring_format text,
     CONSTRAINT template_status_valid CHECK ((status = ANY (ARRAY['SCHEDULED'::text, 'COMPLETE'::text, 'CANCELLED'::text])))
 );
 
@@ -544,6 +536,28 @@ CREATE TABLE public.field_selections (
     tournament_config_id uuid NOT NULL,
     selection_json jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: financial_reconciliations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.financial_reconciliations (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    stripe_balance integer NOT NULL,
+    wallet_balance integer NOT NULL,
+    contest_pool_balance integer NOT NULL,
+    pending_withdrawals integer DEFAULT 0 NOT NULL,
+    platform_float integer NOT NULL,
+    expected_total integer NOT NULL,
+    difference integer NOT NULL,
+    status character varying(20) NOT NULL,
+    alert_sent boolean DEFAULT false NOT NULL,
+    alert_channel character varying(50),
+    notes text,
+    CONSTRAINT financial_reconciliations_status_check CHECK (((status)::text = ANY ((ARRAY['HEALTHY'::character varying, 'WARNING'::character varying, 'CRITICAL'::character varying])::text[])))
 );
 
 
@@ -1018,7 +1032,8 @@ CREATE TABLE public.players (
     number character varying(10),
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     espn_id character varying(50),
-    image_url character varying(255)
+    image_url character varying(255),
+    sport character varying(10) DEFAULT 'NFL'::character varying NOT NULL
 );
 
 
@@ -1787,6 +1802,14 @@ ALTER TABLE ONLY public.field_selections
 
 
 --
+-- Name: financial_reconciliations financial_reconciliations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_reconciliations
+    ADD CONSTRAINT financial_reconciliations_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: game_settings game_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2463,6 +2486,20 @@ CREATE INDEX idx_entry_rosters_contest_instance ON public.entry_rosters USING bt
 
 
 --
+-- Name: idx_financial_reconciliations_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_reconciliations_created_at ON public.financial_reconciliations USING btree (created_at DESC);
+
+
+--
+-- Name: idx_financial_reconciliations_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_reconciliations_status ON public.financial_reconciliations USING btree (status);
+
+
+--
 -- Name: idx_golfer_scores_contest_golfer_round; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2929,6 +2966,13 @@ CREATE UNIQUE INDEX payment_intents_stripe_pi_id_uq ON public.payment_intents US
 --
 
 CREATE UNIQUE INDEX payout_requests_idempotency_key_uq ON public.payout_requests USING btree (idempotency_key);
+
+
+--
+-- Name: players_espn_id_sport_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX players_espn_id_sport_idx ON public.players USING btree (espn_id, sport);
 
 
 --
@@ -3527,5 +3571,5 @@ ALTER TABLE ONLY public.wallet_withdrawals
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 9yNEd0cLWBRoEVYFM1CHqOuCYVl8BRXWZqgX9BsusseYe6CMPrXdUsJBXbhWsdA
+\unrestrict 4xmcHzGnxFLU94GPfhzliWeTb8KKldvVgDbK5lTXXrUKg92g9fJrTT5bTfziBhb
 

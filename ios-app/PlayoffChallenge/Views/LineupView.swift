@@ -577,6 +577,7 @@ struct LineupPlayerPickerSheetV2: View {
             filtered = viewModel.availablePlayers  // Use all available (not filtered by position)
         }
 
+        print("[MYLINEUP][picker] filteredPlayers count=\(filtered.count) position=\(position)")
         print("DEBUG: filteredPlayers count = \(filtered.count) for position '\(position)'")
 
         if searchText.isEmpty {
@@ -657,6 +658,7 @@ struct LineupPlayerPickerSheetV2: View {
             }
         }
         .onAppear {
+            print("[MYLINEUP][picker] appear allPlayers=\(viewModel.allPlayers.count) availablePlayers=\(viewModel.availablePlayers.count) position=\(position)")
             print("PICKER OPENED")
             print("DEBUG: position = '\(position)'")
             print("DEBUG: viewModel.allPlayers = \(viewModel.allPlayers.count)")

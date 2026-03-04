@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Core
 
 enum APIError: Error, LocalizedError {
 case invalidURL
@@ -1027,6 +1028,49 @@ func replacePlayer(userId: UUID, oldPlayerId: String, newPlayerId: String, posit
       }
   }
 
+  /// Get user's current picks and entry context for a contest
+  /// Returns player_ids, available_players, roster_config, and edit capability
+  func getMyEntry(contestId: UUID) async throws -> MyEntryResponseContract {
+      let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)/my-entry")!
+      let request = createV2Request(url: url)
+
+      print("[MYLINEUP][getMyEntry] url=\(url.absoluteString)")
+
+      let (data, response) = try await URLSession.shared.data(for: request)
+      let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+      print("[MYLINEUP][getMyEntry] status=\(code) bytes=\(data.count)")
+
+      guard let httpResponse = response as? HTTPURLResponse else {
+          throw APIError.invalidResponse
+      }
+
+      switch httpResponse.statusCode {
+      case 200...299:
+          let decoder = JSONDecoder.iso8601Decoder
+          do {
+              let decoded = try decoder.decode(MyEntryResponseContract.self, from: data)
+              print("[MYLINEUP][getMyEntry] decode OK player_ids=\(decoded.playerIds.count) avail=\(decoded.availablePlayers?.count ?? 0)")
+              return decoded
+          } catch {
+              let raw = String(data: data, encoding: .utf8) ?? "nil"
+              print("[MYLINEUP][getMyEntry] DECODE FAIL error=\(error)")
+              print("[MYLINEUP][getMyEntry] RAW=\(raw)")
+              throw error
+          }
+
+      case 401:
+          throw APIError.unauthorized
+
+      case 404:
+          throw APIError.notFound
+
+      default:
+          throw APIError.serverError(
+              "GET /api/custom-contests/\(contestId.uuidString)/my-entry failed with \(httpResponse.statusCode)"
+          )
+      }
+  }
+
   // MARK: - Error Response Helper
 
   private struct StructuredErrorResponse: Codable {
@@ -1152,6 +1196,42 @@ struct PickV2Slot: Codable, Identifiable {
         } else {
             finalPoints = try c.decodeIfPresent(Double.self, forKey: .finalPoints)
         }
+    }
+
+    init(
+        pickId: UUID?,
+        playerId: String?,
+        position: String,
+        fullName: String?,
+        team: String?,
+        sleeperId: String?,
+        imageUrl: String?,
+        locked: Bool,
+        multiplier: Double?,
+        consecutiveWeeks: Int?,
+        basePoints: Double?,
+        finalPoints: Double?,
+        isLive: Bool?,
+        gameStatus: String?,
+        opponent: String?,
+        isHome: Bool?
+    ) {
+        self.pickId = pickId
+        self.playerId = playerId
+        self.position = position
+        self.fullName = fullName
+        self.team = team
+        self.sleeperId = sleeperId
+        self.imageUrl = imageUrl
+        self.locked = locked
+        self.multiplier = multiplier
+        self.consecutiveWeeks = consecutiveWeeks
+        self.basePoints = basePoints
+        self.finalPoints = finalPoints
+        self.isLive = isLive
+        self.gameStatus = gameStatus
+        self.opponent = opponent
+        self.isHome = isHome
     }
 }
 

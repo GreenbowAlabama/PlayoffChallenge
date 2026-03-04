@@ -21,6 +21,9 @@ import Core
 @MainActor
 final class LineupViewModel: ObservableObject {
 
+    // MARK: - Constants
+    private let golfPosition = "G"
+
     // MARK: - Published State: Contest
     // GOVERNANCE: Contest state is authoritative from placeholder (passed from ContestDetailView).
     // Contest contains status for lifecycle enforcement (SCHEDULED, LOCKED, LIVE, COMPLETE).
@@ -166,50 +169,162 @@ final class LineupViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Helpers
+
+    /// Create an empty golf slot (no player selected)
+    private func makeEmptySlot() -> PickV2Slot {
+        PickV2Slot(
+            pickId: nil,
+            playerId: nil,
+            position: golfPosition,
+            fullName: nil,
+            team: nil,
+            sleeperId: nil,
+            imageUrl: nil,
+            locked: false,
+            multiplier: nil,
+            consecutiveWeeks: nil,
+            basePoints: nil,
+            finalPoints: nil,
+            isLive: nil,
+            gameStatus: nil,
+            opponent: nil,
+            isHome: nil
+        )
+    }
+
+    // MARK: - Lineup Data Loading
+
     // V2: Load data using /api/picks/v2 as single source of truth
     func loadData(userId: UUID) async {
         self.userId = userId
+        print("[MYLINEUP][vm] loadData start contestId=\(contestId) userId=\(userId)")
         isLoading = true
+        print("[MYLINEUP][vm] isLoading=true")
 
         // GOVERNANCE: PGA contests do not use NFL week logic.
-        // Skip all playoff week calculations and use golf-specific slot loading.
+        // Use /api/custom-contests/{id}/my-entry to load user's picks.
         if contest.templateType == .pgaTournament {
-            print("DEBUG: contest.templateType = pgaTournament")
-            print("WARNING: PGA golfer endpoint not yet implemented in backend")
-            print("INFO: Using temporary dataset (/api/players) for lineup testing")
-
             do {
-                // Only load players once (for player picker)
-                if !hasLoadedPlayersOnce {
-                    do {
-                        // Load temporary dataset using getPlayers() until backend PGA endpoint available
-                        let response = try await APIService.shared.getPlayers(limit: 500)
-                        self.allPlayers = response.players
-                        hasLoadedPlayersOnce = true
-                        print("DEBUG: loaded players count = \(self.allPlayers.count)")
-                        print("DEBUG: player positions = \(Set(self.allPlayers.map { $0.position }))")
-                    } catch {
-                        print("ERROR: Failed to load players: \(error)")
-                        self.allPlayers = []
+                // Load user's entry and contest context from /api/custom-contests/{id}/my-entry
+                print("[MYLINEUP][vm] calling getMyEntry")
+                let entryResponse = try await APIService.shared.getMyEntry(contestId: contestId)
+                print("[MYLINEUP][vm] myEntry OK canEdit=\(entryResponse.canEdit) playerIds=\(entryResponse.playerIds.count) avail=\(entryResponse.availablePlayers?.count ?? 0)")
+
+                // Extract lineup size from rosterConfig dictionary with numeric decoding
+                guard
+                    let lineupSizeValue = entryResponse.rosterConfig["lineup_size"]
+                else {
+                    throw APIError.decodingError
+                }
+
+                let rawValue: Any = lineupSizeValue.value
+
+                let lineupSize: Int
+
+                if let v = rawValue as? Int {
+                    lineupSize = v
+                } else if let v = rawValue as? Double {
+                    lineupSize = Int(v)
+                } else {
+                    throw APIError.decodingError
+                }
+
+                print("[MYLINEUP][vm] lineupSize=\(lineupSize)")
+
+                // DEBUG: Log API response
+                print("MY_ENTRY roster_size:", lineupSize)
+                print("MY_ENTRY player_ids:", entryResponse.playerIds)
+                print("MY_ENTRY available_players_count:", entryResponse.availablePlayers?.count ?? 0)
+
+                // Convert PlayerInfoContract → Player domain model
+                let availablePlayers = entryResponse.availablePlayers ?? []
+                var playersById: [String: Player] = [:]
+
+                for playerInfo in availablePlayers {
+                    let player = Player(
+                        id: playerInfo.playerId,
+                        sleeperId: nil,
+                        fullName: playerInfo.name,
+                        position: golfPosition,
+                        team: nil,
+                        isActive: true,
+                        gameTime: nil,
+                        imageUrl: nil
+                    )
+                    playersById[playerInfo.playerId] = player
+                }
+
+                print("[MYLINEUP][vm] playersById=\(playersById.count)")
+
+                // Preserve backend ordering by mapping availablePlayers
+                self.allPlayers = availablePlayers.compactMap { playersById[$0.playerId] }
+                hasLoadedPlayersOnce = true
+
+                print("[MYLINEUP][vm] allPlayers set count=\(self.allPlayers.count) hasLoadedPlayersOnce=\(hasLoadedPlayersOnce)")
+
+                // DEBUG: Log mapping results
+                print("LINEUP players loaded:", self.allPlayers.count)
+
+                // Pre-allocate slots based on lineup size
+                var loadedSlots: [PickV2Slot] = []
+
+                for index in 0..<lineupSize {
+                    if index < entryResponse.playerIds.count {
+                        let playerId = entryResponse.playerIds[index]
+                        if let player = playersById[playerId] {
+                            let slot = PickV2Slot(
+                                pickId: nil,
+                                playerId: playerId,
+                                position: golfPosition,
+                                fullName: player.fullName,
+                                team: player.team,
+                                sleeperId: player.sleeperId,
+                                imageUrl: player.imageUrl,
+                                locked: false,
+                                multiplier: nil,
+                                consecutiveWeeks: nil,
+                                basePoints: nil,
+                                finalPoints: nil,
+                                isLive: nil,
+                                gameStatus: nil,
+                                opponent: nil,
+                                isHome: nil
+                            )
+                            loadedSlots.append(slot)
+                        } else {
+                            loadedSlots.append(makeEmptySlot())
+                        }
+                    } else {
+                        loadedSlots.append(makeEmptySlot())
                     }
                 }
 
-                // Load PGA lineup state
-                // TODO: Implement PGA picks API endpoint when available
-                // For now, slots remain empty and user can add via player picker
+                self.slots = loadedSlots
+
+                print("[MYLINEUP][vm] slots created=\(loadedSlots.count)")
+                print("[MYLINEUP][vm] slots set count=\(self.slots.count)")
+
+                // DEBUG: Log slot creation
+                print("LINEUP slots created:", loadedSlots.count)
+
+                // Set edit capability from entry response
+                self.isLocked = !entryResponse.canEdit
+                print("[MYLINEUP][vm] done isLocked=\(self.isLocked) isLoading=\(self.isLoading) showError=\(self.showError)")
 
             } catch {
                 if error is CancellationError || (error as? URLError)?.code == .cancelled {
-                    print("DEBUG: Load cancelled (expected during refresh)")
+                    print("[MYLINEUP][vm] CANCELLED")
                     isLoading = false
                     return
                 }
-                print("ERROR loading PGA data: \(error)")
-                errorMessage = "Failed to load data: \(error.localizedDescription)"
+                print("[MYLINEUP][vm] ERROR \(error)")
+                errorMessage = "Failed to load lineup: \(error.localizedDescription)"
                 showError = true
             }
 
             isLoading = false
+            print("[MYLINEUP][vm] isLoading=false")
             return
         }
 
