@@ -18,11 +18,11 @@ struct MainTabView: View {
             // Featured hero section + my active contests + open contests
             NavigationStack {
                 HomeTabView()
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            WalletBalanceButtonView(viewModel: walletVM)
-                        }
-                    }
+            }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    WalletBalanceButtonView(viewModel: walletVM)
+                }
             }
             .tabItem {
                 Label("Home", systemImage: "house.fill")

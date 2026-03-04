@@ -82,28 +82,40 @@ struct FeaturedContestHeroView: View {
                 
                 // Contest Name
                 Text(contest.contestName)
-                    .font(.title2.bold())
+                    .font(.title3)
+                    .fontWeight(.bold)
                     .foregroundColor(.white)
                     .lineLimit(2)
+                    .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                
-                // Fee and Capacity Text
-                VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
-                    HStack(spacing: DesignTokens.Spacing.sm) {
-                        Text(feeDisplay)
-                        Text("•")
-                        if let maxEntries = contest.maxEntries {
-                            Text("\(contest.entryCount)/\(maxEntries) spots")
-                        } else {
-                            Text("\(contest.entryCount) entered")
-                        }
+
+                // Start Date
+                if let start = contest.startTime {
+                    Text("Starts \(start.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.8))
+                }
+
+                // Fee and Capacity Text (stacked for clarity)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("$\(contest.entryFeeCents / 100) entry")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white.opacity(0.9))
+
+                    if let maxEntries = contest.maxEntries {
+                        Text("\(contest.entryCount) / \(maxEntries) spots")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.8))
+                    } else {
+                        Text("\(contest.entryCount) entered")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.8))
                     }
-                    .font(.subheadline.bold())
-                    .foregroundColor(.white.opacity(0.9))
 
                     if let payout = payoutDisplay {
                         Text(payout)
-                            .font(.subheadline.bold())
+                            .font(.caption)
                             .foregroundColor(.orange)
                     }
                 }
@@ -120,8 +132,8 @@ struct FeaturedContestHeroView: View {
                 }
                 
                 // Lock Time
-                if let lockTime = contest.lockTime {
-                    Text(lockTime, style: .relative)
+                if let countdown = formatLockCountdown(contest.lockTime) {
+                    Text(countdown)
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.9))
                 }
@@ -134,7 +146,7 @@ struct FeaturedContestHeroView: View {
                     .padding(.vertical, DesignTokens.Spacing.md)
                     .background(Color.white)
                     .cornerRadius(DesignTokens.Radius.md)
-                    .padding(.top, DesignTokens.Spacing.sm)
+                    .padding(.top, DesignTokens.Spacing.md)
             }
             .padding(DesignTokens.Spacing.xxl)
             .background(

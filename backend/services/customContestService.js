@@ -925,7 +925,7 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
         AND cp.user_id = $1
       )
     ORDER BY ci.created_at DESC`,
-    [organizerId]
+    [organizerId, requestingUserId ?? organizerId]
   );
 
   const currentTimestamp = Date.now();

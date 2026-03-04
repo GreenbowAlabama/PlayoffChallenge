@@ -155,28 +155,35 @@ final class UserWalletViewModel: ObservableObject {
     /// CRITICAL: DTOs unmarshalled → Domain models immediately.
     /// No DTOs in @Published state.
     func fetchWallet() async {
-        print("[UserWalletViewModel] fetchWallet() ENTERED")
-
-        // Guard against duplicate concurrent fetches
+        // Guard against duplicate concurrent fetches (check before starting)
         guard !isLoading else {
             print("[UserWalletViewModel] Fetch already in progress, skipping duplicate")
             return
         }
+
+        // Set loading flag immediately to prevent race conditions
+        await MainActor.run {
+            self.isLoading = true
+            self.errorMessage = nil
+        }
+        defer {
+            Task { @MainActor in
+                self.isLoading = false
+            }
+        }
+
+        print("[UserWalletViewModel] fetchWallet() ENTERED")
 
         // Guard that user is authenticated
         guard let userId = authService.currentUser?.id else {
             print("[UserWalletViewModel] No authenticated user - cannot fetch wallet")
             await MainActor.run {
                 self.errorMessage = "Please sign in to view your wallet"
-                self.isLoading = false
             }
             return
         }
 
         print("[UserWalletViewModel] Fetching wallet for userId: \(userId.uuidString)")
-
-        isLoading = true
-        errorMessage = nil
 
         do {
             let dto = try await walletService.fetchWallet()
@@ -187,7 +194,6 @@ final class UserWalletViewModel: ObservableObject {
             await MainActor.run {
                 print("[UserWalletViewModel] Wallet fetch succeeded: balance=\(domainWallet.balanceCents)¢")
                 self.wallet = domainWallet
-                self.isLoading = false
                 self.errorMessage = nil
             }
         } catch APIError.unauthorized {
@@ -197,7 +203,6 @@ final class UserWalletViewModel: ObservableObject {
             await MainActor.run {
                 print("[UserWalletViewModel] Fetch failed: 401 (treating as no wallet)")
                 self.wallet = Wallet(balanceCents: 0, ledgerEntries: [])
-                self.isLoading = false
                 self.errorMessage = nil
             }
         } catch APIError.notFound {
@@ -205,14 +210,12 @@ final class UserWalletViewModel: ObservableObject {
             await MainActor.run {
                 print("[UserWalletViewModel] Fetch failed: 404 (no wallet)")
                 self.wallet = Wallet(balanceCents: 0, ledgerEntries: [])
-                self.isLoading = false
                 self.errorMessage = nil
             }
         } catch {
             await MainActor.run {
                 print("[UserWalletViewModel] Fetch failed: \(error)")
                 self.errorMessage = error.localizedDescription
-                self.isLoading = false
                 // On error, wallet remains nil → UI shows $0.00
             }
         }

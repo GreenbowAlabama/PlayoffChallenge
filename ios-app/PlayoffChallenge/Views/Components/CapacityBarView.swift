@@ -19,18 +19,17 @@ struct CapacityBarView: View {
     var body: some View {
         HStack(spacing: DesignTokens.Spacing.sm) {
             if let progress = progress {
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(DesignTokens.Color.Surface.elevated)
-                        .frame(height: DesignTokens.Size.capacityBarHeight)
-                    
-                    GeometryReader { geo in
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(DesignTokens.Color.Surface.elevated)
+
                         Capsule()
                             .fill(DesignTokens.Color.Brand.primary)
-                            .frame(width: geo.size.width * CGFloat(min(1.0, max(0.0, progress))), height: DesignTokens.Size.capacityBarHeight)
+                            .frame(width: geo.size.width * CGFloat(min(1.0, max(0.0, progress))))
                     }
-                    .frame(height: DesignTokens.Size.capacityBarHeight)
                 }
+                .frame(maxWidth: .infinity, maxHeight: DesignTokens.Size.capacityBarHeight)
             }
             
             if let maxEntries = maxEntries {

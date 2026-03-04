@@ -136,20 +136,25 @@ func formatStartTimeForDisplay(_ startTime: Date?) -> String? {
 }
 
 /// Formats countdown time until lock in compact format like "Locks in 21h 49m".
+/// Shows only hours if >= 1 hour, or only minutes if < 1 hour.
 /// - Parameter lockTime: The lock time to count down to (optional)
-/// - Returns: Formatted countdown string like "Locks in 5h 30m", or nil if time has passed
+/// - Returns: Formatted countdown string like "Locks in 5h 30m" or "Locks in 30m", or nil if time has passed
 func formatLockCountdown(_ lockTime: Date?) -> String? {
     guard let lockTime = lockTime else { return nil }
 
     let now = Date()
-    let timeInterval = lockTime.timeIntervalSince(now)
+    let interval = lockTime.timeIntervalSince(now)
 
     // If time has passed, return nil
-    guard timeInterval > 0 else { return nil }
+    guard interval > 0 else { return nil }
 
-    let totalSeconds = Int(timeInterval)
-    let hours = totalSeconds / 3600
-    let minutes = (totalSeconds % 3600) / 60
+    let seconds = Int(interval)
+    let hours = seconds / 3600
+    let minutes = (seconds % 3600) / 60
 
-    return "Locks in \(hours)h \(minutes)m"
+    if hours > 0 {
+        return "Locks in \(hours)h \(minutes)m"
+    } else {
+        return "Locks in \(minutes)m"
+    }
 }

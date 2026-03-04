@@ -16,9 +16,9 @@ struct WalletBalanceButtonView: View {
             WalletDetailView(viewModel: viewModel)
         }) {
             HStack(spacing: DesignTokens.Spacing.sm) {
-                Image(systemName: "wallet.pass.fill")
+                Image(systemName: "wallet.bifold.fill")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(DesignTokens.Color.Action.primary)
+                    .foregroundColor(.green)
 
                 Text(viewModel.displayBalance)
                     .font(.caption.bold())

@@ -554,16 +554,30 @@ router.post('/:id/join', extractUserId, async (req, res) => {
 
     const result = await customContestService.joinContest(pool, id, userId, token);
 
-    if (result.joined) {
+    // Validate result is a proper object
+    if (!result || typeof result !== 'object') {
+      console.error('[Custom Contest] joinContest returned invalid result:', result);
+      return res.status(500).json({ error_code: 'INTERNAL_ERROR', reason: 'Service returned invalid response' });
+    }
+
+    // Success case: user joined
+    if (result.joined === true) {
       return res.json(result);
     }
 
-    // Map error codes to HTTP status
-    const httpStatus = result.error_code === 'CONTEST_NOT_FOUND' ? 404 : 409;
-    return res.status(httpStatus).json(result);
+    // Error case: user not joined
+    if (result.joined === false && result.error_code) {
+      // Map error codes to HTTP status
+      const httpStatus = result.error_code === 'CONTEST_NOT_FOUND' ? 404 : 409;
+      return res.status(httpStatus).json(result);
+    }
+
+    // Unexpected result structure
+    console.error('[Custom Contest] joinContest returned unexpected result structure:', result);
+    res.status(500).json({ error_code: 'INTERNAL_ERROR', reason: 'Invalid response from service' });
   } catch (err) {
     console.error('[Custom Contest] Error joining contest:', err);
-    res.status(500).json({ error: 'Failed to join contest' });
+    res.status(500).json({ error_code: 'INTERNAL_ERROR', reason: 'Failed to join contest' });
   }
 });
 
@@ -669,7 +683,7 @@ router.delete('/:id/entry', extractUserId, async (req, res) => {
       return res.status(403).json({ error_code: err.code, reason: err.message });
     }
     console.error('[Custom Contest] Error unjoining contest:', err);
-    res.status(500).json({ error: 'Failed to unjoin contest' });
+    res.status(500).json({ error_code: 'INTERNAL_ERROR', reason: 'Failed to unjoin contest' });
   }
 });
 

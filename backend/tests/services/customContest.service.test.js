@@ -926,6 +926,19 @@ describe('Custom Contest Service Unit Tests', () => {
         const instances = await customContestService.getContestInstancesForOrganizer(mockPool, TEST_USER_ID);
         expect(instances).toEqual([]);
       });
+
+      it('should correctly populate user_has_entered without SQL bind errors', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN users u ON u\.id = ci\.organizer_id[\s\S]*WHERE ci\.organizer_id/,
+          mockQueryResponses.multiple([
+            { ...mockInstance, entry_count: 5, user_has_entered: true, organizer_name: 'Test Organizer' }
+          ])
+        );
+
+        const instances = await customContestService.getContestInstancesForOrganizer(mockPool, TEST_USER_ID, TEST_USER_ID);
+        expect(instances).toHaveLength(1);
+        expect(instances[0].user_has_entered).toBe(true);
+      });
     });
   });
 
