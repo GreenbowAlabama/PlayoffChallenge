@@ -82,8 +82,8 @@ function UserDetailPanel({ user }: { user: User }) {
                           <span className={entry.direction === 'CREDIT' ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
                             {entry.direction === 'CREDIT' ? '+' : '-'}{formatUSD(entry.amount_cents)}
                           </span>
-                          {entry.contest_name && (
-                            <span className="text-gray-500">{entry.contest_name}</span>
+                          {entry.contest_status && (
+                            <span className="text-gray-500">{entry.contest_status}</span>
                           )}
                         </li>
                       ))}
@@ -98,7 +98,7 @@ function UserDetailPanel({ user }: { user: User }) {
                     <ul className="space-y-1 text-xs">
                       {detail.contests.map((contest: UserContest) => (
                         <li key={contest.id} className="flex gap-2 text-gray-600">
-                          <span className="font-medium">{contest.name}</span>
+                          <span className="font-medium">{contest.contest_name || 'Unknown Contest'}</span>
                           <span className={`px-2 py-0.5 rounded text-white text-xs ${
                             contest.status === 'SCHEDULED' ? 'bg-blue-500' :
                             contest.status === 'LOCKED' ? 'bg-yellow-500' :

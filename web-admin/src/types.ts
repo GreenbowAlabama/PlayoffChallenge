@@ -26,19 +26,17 @@ export interface LedgerEntry {
   reference_type: string | null;
   reference_id: string | null;
   created_at: string;
-  contest_name: string | null;
   contest_status: string | null;
 }
 
 export interface UserContest {
   id: string;
-  name: string;
   status: string;
   entry_fee_cents: number;
   created_at: string;
   lock_time: string | null;
   tournament_start_time: string | null;
-  template_name: string | null;
+  contest_name: string | null;
 }
 
 export interface UserDetail extends User {

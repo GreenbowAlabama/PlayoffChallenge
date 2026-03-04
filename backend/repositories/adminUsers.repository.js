@@ -171,7 +171,6 @@ async function getRecentLedgerEntries(pool, userId) {
       l.reference_type,
       l.reference_id,
       l.created_at,
-      ci.name as contest_name,
       ci.status as contest_status
     FROM ledger l
     LEFT JOIN contest_instances ci ON l.contest_instance_id = ci.id
@@ -196,13 +195,12 @@ async function getUserContests(pool, userId) {
   const result = await pool.query(`
     SELECT
       ci.id,
-      ci.name,
       ci.status,
       ci.entry_fee_cents,
       ci.created_at,
       ci.lock_time,
       ci.tournament_start_time,
-      ct.name as template_name
+      ct.name as contest_name
     FROM contest_instances ci
     INNER JOIN contest_participants cp ON ci.id = cp.contest_instance_id
     LEFT JOIN contest_templates ct ON ci.template_id = ct.id
