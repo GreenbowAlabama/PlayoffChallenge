@@ -249,9 +249,6 @@ struct ContestDetailViewInner: View {
                         ) {
                             InfoRowView(label: "Starts", value: eventDisplay)
                         }
-                        if let lockTime = viewModel.contest.lockTime {
-                            InfoRowView(label: "Locks", value: viewModel.formattedLockTime(lockTime))
-                        }
                         InfoRowView(label: "Created", value: formattedCreatedDate(viewModel.contest.createdAt))
                     }
                 }

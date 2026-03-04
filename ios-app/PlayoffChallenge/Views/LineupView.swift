@@ -568,15 +568,26 @@ struct LineupPlayerPickerSheetV2: View {
     @State private var searchText = ""
 
     var filteredPlayers: [Player] {
-        let availablePlayers = viewModel.availablePlayers.filter { $0.position == position }
+        var filtered = viewModel.availablePlayers.filter { $0.position == position }
+
+        // GOVERNANCE: If position filter empties the list but allPlayers has data,
+        // fallback to allPlayers (may happen if API position values differ from expected)
+        if filtered.isEmpty && !viewModel.allPlayers.isEmpty {
+            print("WARNING: No players with position '\(position)' in availablePlayers, using fallback to allPlayers")
+            filtered = viewModel.availablePlayers  // Use all available (not filtered by position)
+        }
+
+        print("DEBUG: filteredPlayers count = \(filtered.count) for position '\(position)'")
 
         if searchText.isEmpty {
-            return availablePlayers
+            return filtered
         } else {
-            return availablePlayers.filter {
+            let searched = filtered.filter {
                 $0.fullName.lowercased().contains(searchText.lowercased()) ||
                 ($0.team?.lowercased().contains(searchText.lowercased()) ?? false)
             }
+            print("DEBUG: After search '\(searchText)': \(searched.count) results")
+            return searched
         }
     }
 
@@ -643,6 +654,16 @@ struct LineupPlayerPickerSheetV2: View {
                         dismiss()
                     }
                 }
+            }
+        }
+        .onAppear {
+            print("PICKER OPENED")
+            print("DEBUG: position = '\(position)'")
+            print("DEBUG: viewModel.allPlayers = \(viewModel.allPlayers.count)")
+            print("DEBUG: viewModel.availablePlayers = \(viewModel.availablePlayers.count)")
+            print("DEBUG: viewModel.slots = \(viewModel.slots.count)")
+            if !viewModel.allPlayers.isEmpty {
+                print("DEBUG: allPlayers positions = \(Set(viewModel.allPlayers.map { $0.position }))")
             }
         }
     }

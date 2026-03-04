@@ -31,13 +31,11 @@ describe('Contract Freeze', () => {
       .digest('hex');
 
     // Expected hash (update this when intentionally changing the contract)
-    // This hash was generated after Client Lock V1 Implementation (2026-03-03):
-    // - Updated GET /api/custom-contests to return both organizer AND joined contests
-    // - Changed operationId from listContestsForOrganizer to listMyContests
-    // - Updated description: endpoint now returns My Contests (organizer OR participant)
-    // - Supports multiple statuses: SCHEDULED, LOCKED, LIVE, COMPLETE
-    // - Architecture decision: single authoritative backend response for iOS home tab
-    const expectedHash = '4f7d76d0f098694337d651447461e85b82a6ac19160baa0e07f1ac9eab556222';
+    // This hash was generated after PGA Contest Lineup Implementation (2026-03-04):
+    // - Added RosterConfig schema with PGA-specific fields (lineup_size, scoring_count, drop_lowest)
+    // - Enhanced roster_config response for PGA tournament contests
+    // - Backward compatible: existing NFL contests unaffected
+    const expectedHash = 'c61757b74e660a90cdf06d8d1ac09678c692acb8ca0232df96edef2c01cc3c31';
 
     // The hashes must match - if they don't, the contract has drifted
     expect(currentHash).toBe(expectedHash);

@@ -171,6 +171,50 @@ final class LineupViewModel: ObservableObject {
         self.userId = userId
         isLoading = true
 
+        // GOVERNANCE: PGA contests do not use NFL week logic.
+        // Skip all playoff week calculations and use golf-specific slot loading.
+        if contest.templateType == .pgaTournament {
+            print("DEBUG: contest.templateType = pgaTournament")
+            print("WARNING: PGA golfer endpoint not yet implemented in backend")
+            print("INFO: Using temporary dataset (/api/players) for lineup testing")
+
+            do {
+                // Only load players once (for player picker)
+                if !hasLoadedPlayersOnce {
+                    do {
+                        // Load temporary dataset using getPlayers() until backend PGA endpoint available
+                        let response = try await APIService.shared.getPlayers(limit: 500)
+                        self.allPlayers = response.players
+                        hasLoadedPlayersOnce = true
+                        print("DEBUG: loaded players count = \(self.allPlayers.count)")
+                        print("DEBUG: player positions = \(Set(self.allPlayers.map { $0.position }))")
+                    } catch {
+                        print("ERROR: Failed to load players: \(error)")
+                        self.allPlayers = []
+                    }
+                }
+
+                // Load PGA lineup state
+                // TODO: Implement PGA picks API endpoint when available
+                // For now, slots remain empty and user can add via player picker
+
+            } catch {
+                if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                    print("DEBUG: Load cancelled (expected during refresh)")
+                    isLoading = false
+                    return
+                }
+                print("ERROR loading PGA data: \(error)")
+                errorMessage = "Failed to load data: \(error.localizedDescription)"
+                showError = true
+            }
+
+            isLoading = false
+            return
+        }
+
+        // NFL: Use existing week-based logic
+        print("DEBUG: contest.templateType = nfl")
         print("DEBUG: Loading v2 data for week \(selectedWeek)")
 
         do {
@@ -180,11 +224,12 @@ final class LineupViewModel: ObservableObject {
             // Only load players once (for player picker)
             if !hasLoadedPlayersOnce {
                 do {
-                    print("Loading players from API...")
+                    print("Loading NFL players from /api/players...")
                     let response = try await APIService.shared.getPlayers(limit: 500)
                     self.allPlayers = response.players
                     hasLoadedPlayersOnce = true
-                    print("Loaded \(self.allPlayers.count) players")
+                    print("DEBUG: loaded players count = \(self.allPlayers.count)")
+                    print("DEBUG: player positions = \(Set(self.allPlayers.map { $0.position }))")
                 } catch {
                     print("Failed to load players: \(error)")
                     self.allPlayers = []

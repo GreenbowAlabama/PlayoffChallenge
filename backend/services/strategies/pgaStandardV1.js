@@ -88,16 +88,25 @@ async function liveStandings(pool, contestInstanceId) {
  * Get roster configuration for PGA contests.
  * Returns the roster size and validation rules.
  *
- * @returns {Object} Roster config with roster_size, entry_fields, validation_rules
+ * Includes both generic fields (roster_size, entry_fields, validation_rules)
+ * and PGA-specific fields (lineup_size, scoring_count, drop_lowest).
+ *
+ * @returns {Object} Roster config with PGA fields
  */
 function rosterConfig() {
   return {
+    // Generic fields (backward compatibility)
     roster_size: 7,
     entry_fields: ['player_ids'],
     validation_rules: {
       no_duplicates: true,
       must_be_in_field: true
-    }
+    },
+
+    // PGA-specific fields (iOS consumption)
+    lineup_size: 7,
+    scoring_count: 6,
+    drop_lowest: true
   };
 }
 

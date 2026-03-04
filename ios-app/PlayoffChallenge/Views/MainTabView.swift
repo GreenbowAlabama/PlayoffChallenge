@@ -18,11 +18,11 @@ struct MainTabView: View {
             // Featured hero section + my active contests + open contests
             NavigationStack {
                 HomeTabView()
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    WalletBalanceButtonView(viewModel: walletVM)
-                }
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            WalletBalanceButtonView(viewModel: walletVM)
+                        }
+                    }
             }
             .tabItem {
                 Label("Home", systemImage: "house.fill")
@@ -72,11 +72,11 @@ struct MainTabView: View {
             // Tab 3: Profile
             NavigationStack {
                 ProfileView()
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    WalletBalanceButtonView(viewModel: walletVM)
-                }
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            WalletBalanceButtonView(viewModel: walletVM)
+                        }
+                    }
             }
             .tabItem {
                 Label("Profile", systemImage: "person.circle.fill")
