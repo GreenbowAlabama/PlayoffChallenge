@@ -310,11 +310,16 @@ paths:
     get:
       tags:
         - Contests
-      summary: List contests for authenticated user
+      summary: List my contests
       description: |
-        Retrieve all contest instances for the requesting user (as organizer).
+        Retrieve all contest instances where the requesting user is either the organizer or a participant.
+        This represents "My Contests" — all contests the user has engagement with.
+        Includes contests in statuses: SCHEDULED, LOCKED, LIVE, COMPLETE.
         Includes metadata for each contest but NOT standings (list endpoint).
-      operationId: listContestsForOrganizer
+
+        Architecture: Client Lock V1 — single authoritative backend response for home tab composition.
+        Client must NOT merge this with other endpoints.
+      operationId: listMyContests
       security:
         - bearerAuth: []
       responses:

@@ -138,11 +138,27 @@ struct ContestCardView: View {
             }
             
             CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
-            
-            if let lockTime = contest.lockTime {
-                Text(lockTime, style: .relative)
-                    .font(.caption2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                if let startTime = contest.startTime {
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .font(.caption2)
+                        Text("Starts \(startTime, style: .relative)")
+                            .font(.caption2)
+                    }
+                    .foregroundColor(DesignTokens.Color.Text.secondary)
+                }
+
+                if let lockTime = contest.lockTime {
+                    HStack(spacing: 4) {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                        Text(lockTime, style: .relative)
+                            .font(.caption2)
+                    }
                     .foregroundColor(lockUrgencyColor)
+                }
             }
         }
         .frame(minHeight: DesignTokens.Size.cardMinHeight)

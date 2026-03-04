@@ -887,6 +887,10 @@ async function resolveJoinToken(pool, token) {
  * @returns {Promise<Array>} Array of contest instances
  */
 async function getContestInstancesForOrganizer(pool, organizerId, requestingUserId = null) {
+  // ARCHITECTURE: Client Lock V1
+  // Returns contests where user is either the organizer OR a participant.
+  // This endpoint represents "My Contests" — all contests user has engagement with.
+  // Supports statuses: SCHEDULED, LOCKED, LIVE, COMPLETE
   const result = await pool.query(
     `SELECT
       ci.id,
@@ -914,8 +918,14 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.organizer_id = $1
+      OR EXISTS (
+        SELECT 1
+        FROM contest_participants cp
+        WHERE cp.contest_instance_id = ci.id
+        AND cp.user_id = $1
+      )
     ORDER BY ci.created_at DESC`,
-    requestingUserId ? [organizerId, requestingUserId] : [organizerId]
+    [organizerId]
   );
 
   const currentTimestamp = Date.now();
@@ -925,7 +935,7 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
   // No lifecycle advancement, no per-row queries (non-mutating).
   // Pass requestingUserId for capability-based authorization (organizer checks).
   const processedContests = result.rows.map(row => {
-    const mapped = mapContestToApiResponseForList(row, { currentTimestamp, authenticatedUserId: requestingUserId });
+    const mapped = mapContestToApiResponseForList(row, { currentTimestamp, authenticatedUserId: organizerId });
     return mapped;
   });
 

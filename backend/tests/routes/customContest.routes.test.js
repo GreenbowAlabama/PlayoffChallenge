@@ -764,6 +764,190 @@ describe('Custom Contest Routes', () => {
       // Full schema validation for each item
       assertMatchesContestListSchema(response.body);
     });
+
+    it('should return contests where user is a joined participant (not organizer)', async () => {
+      // Simulate query that returns both organizer contests AND joined contests
+      mockPool.setQueryResponse(
+        /OR EXISTS[\s\S]*contest_participants/,
+        mockQueryResponses.multiple([
+          {
+            ...mockInstanceWithTemplate,
+            id: CONTEST_1_ID,
+            organizer_id: OTHER_USER_ID, // User is NOT the organizer
+            organizer_name: 'Other User',
+            status: 'SCHEDULED',
+            entry_count: 10,
+            user_has_entered: true, // But user IS a participant
+            lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+          }
+        ])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.length).toBe(1);
+      expect(response.body[0].id).toBe(CONTEST_1_ID);
+      expect(response.body[0].user_has_entered).toBe(true);
+    });
+
+    it('should return contests in multiple statuses (SCHEDULED, LOCKED, LIVE, COMPLETE)', async () => {
+      const now = Date.now();
+      mockPool.setQueryResponse(
+        /OR EXISTS[\s\S]*contest_participants/,
+        mockQueryResponses.multiple([
+          {
+            ...mockInstanceWithTemplate,
+            id: CONTEST_1_ID,
+            status: 'SCHEDULED',
+            entry_count: 5,
+            user_has_entered: false,
+            lock_time: new Date(now + 3600 * 1000).toISOString()
+          },
+          {
+            ...mockInstanceWithTemplate,
+            id: CONTEST_2_ID,
+            status: 'LOCKED',
+            entry_count: 8,
+            user_has_entered: true,
+            lock_time: new Date(now - 1800 * 1000).toISOString()
+          },
+          {
+            ...mockInstanceWithTemplate,
+            id: CONTEST_3_ID,
+            status: 'LIVE',
+            entry_count: 15,
+            user_has_entered: true,
+            lock_time: new Date(now - 3600 * 1000).toISOString()
+          }
+        ])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(3);
+      const statuses = response.body.map(c => c.status);
+      expect(statuses).toContain('SCHEDULED');
+      expect(statuses).toContain('LOCKED');
+      expect(statuses).toContain('LIVE');
+    });
+
+    it('should return both organizer and joined contests without duplicates', async () => {
+      mockPool.setQueryResponse(
+        /OR EXISTS[\s\S]*contest_participants/,
+        mockQueryResponses.multiple([
+          {
+            // User is organizer
+            ...mockInstanceWithTemplate,
+            id: CONTEST_1_ID,
+            organizer_id: TEST_USER_ID,
+            status: 'SCHEDULED',
+            entry_count: 5,
+            user_has_entered: true,
+            lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+          },
+          {
+            // User is participant only
+            ...mockInstanceWithTemplate,
+            id: CONTEST_2_ID,
+            organizer_id: OTHER_USER_ID,
+            organizer_name: 'Other User',
+            status: 'LOCKED',
+            entry_count: 10,
+            user_has_entered: true,
+            lock_time: new Date(Date.now() - 1800 * 1000).toISOString()
+          }
+        ])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(2);
+      // Verify both contests are present
+      const contestIds = response.body.map(c => c.id);
+      expect(contestIds).toContain(CONTEST_1_ID);
+      expect(contestIds).toContain(CONTEST_2_ID);
+      // Verify user_has_entered is correct for each
+      const contest1 = response.body.find(c => c.id === CONTEST_1_ID);
+      const contest2 = response.body.find(c => c.id === CONTEST_2_ID);
+      expect(contest1.user_has_entered).toBe(true);
+      expect(contest2.user_has_entered).toBe(true);
+    });
+
+    it('should include COMPLETE contests in the response', async () => {
+      mockPool.setQueryResponse(
+        /OR EXISTS[\s\S]*contest_participants/,
+        mockQueryResponses.multiple([
+          {
+            ...mockInstanceWithTemplate,
+            id: CONTEST_1_ID,
+            organizer_id: OTHER_USER_ID,
+            organizer_name: 'Other User',
+            status: 'COMPLETE',
+            entry_count: 20,
+            user_has_entered: true,
+            lock_time: new Date(Date.now() - 7200 * 1000).toISOString()
+          }
+        ])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(1);
+      expect(response.body[0].status).toBe('COMPLETE');
+    });
+
+    it('user_has_entered should be true only when user is a participant', async () => {
+      mockPool.setQueryResponse(
+        /OR EXISTS[\s\S]*contest_participants/,
+        mockQueryResponses.multiple([
+          {
+            // User is organizer but not a participant
+            ...mockInstanceWithTemplate,
+            id: CONTEST_1_ID,
+            organizer_id: TEST_USER_ID,
+            status: 'SCHEDULED',
+            entry_count: 5,
+            user_has_entered: false,
+            lock_time: new Date(Date.now() + 3600 * 1000).toISOString()
+          },
+          {
+            // User is participant
+            ...mockInstanceWithTemplate,
+            id: CONTEST_2_ID,
+            organizer_id: OTHER_USER_ID,
+            organizer_name: 'Other User',
+            status: 'SCHEDULED',
+            entry_count: 8,
+            user_has_entered: true,
+            lock_time: new Date(Date.now() + 7200 * 1000).toISOString()
+          }
+        ])
+      );
+
+      const response = await request(app)
+        .get('/api/custom-contests')
+        .set('X-User-Id', TEST_USER_ID);
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(2);
+      const contest1 = response.body.find(c => c.id === CONTEST_1_ID);
+      const contest2 = response.body.find(c => c.id === CONTEST_2_ID);
+      expect(contest1.user_has_entered).toBe(false);
+      expect(contest2.user_has_entered).toBe(true);
+    });
   });
 
   describe('GET /api/custom-contests/available', () => {

@@ -107,28 +107,16 @@ final class MyContestsViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            // Fetch both endpoints in parallel
-            async let createdContests = fetchCreatedContests()
-            async let joinedContests = fetchJoinedContests()
-
-            let created = try await createdContests
-            let joined = try await joinedContests
-
-            // Merge and deduplicate by ID
-            var contestMap: [UUID: Contest] = [:]
-
-            for contest in created {
-                contestMap[contest.id] = contest
-            }
-
-            for contest in joined {
-                if contestMap[contest.id] == nil {
-                    contestMap[contest.id] = contest
-                }
-            }
+            // ARCHITECTURE: Client Lock V1
+            // Backend endpoint GET /api/custom-contests returns all contests where user is:
+            // 1. The organizer, OR
+            // 2. A joined participant
+            // This eliminates the need for multiple endpoints or client-side merging.
+            // Backend is authoritative for all contest data.
+            let myContests = try await service.fetchCreatedContests()
 
             // Single atomic assignment
-            myContests = Array(contestMap.values).sorted { $0.id.uuidString > $1.id.uuidString }
+            self.myContests = myContests.sorted { $0.createdAt > $1.createdAt }
         } catch {
             // CRITICAL: Clear stale contests when error occurs to prevent stale list display.
             // Error state and data state must be mutually exclusive.
@@ -137,16 +125,6 @@ final class MyContestsViewModel: ObservableObject {
         }
 
         isLoading = false
-    }
-
-    private func fetchCreatedContests() async throws -> [Contest] {
-        return try await service.fetchCreatedContests()
-    }
-
-    private func fetchJoinedContests() async throws -> [Contest] {
-        let contests = try await service.fetchAvailableContests()
-        return contests
-            .filter { $0.actions?.canEditEntry == true || $0.actions?.canUnjoin == true }
     }
 
     /// Get a contest by ID

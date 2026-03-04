@@ -26,6 +26,9 @@ final class ContestDetailViewModel: ObservableObject {
     @Published private(set) var isJoining = false
     @Published private(set) var isDeleting = false
     @Published private(set) var errorMessage: String?
+    @Published var showInsufficientFundsModal = false
+    @Published var insufficientFundsEntryFeeCents: Int = 0
+    @Published var insufficientFundsWalletBalanceCents: Int = 0
 
     // MARK: - Dependencies
 
@@ -360,6 +363,11 @@ final class ContestDetailViewModel: ObservableObject {
             errorMessage = "This contest is locked and no longer accepting entries."
         case .notAuthenticated:
             errorMessage = "Please sign in to join this contest."
+        case .insufficientFunds(let entryFeeCents, let walletBalanceCents):
+            insufficientFundsEntryFeeCents = entryFeeCents
+            insufficientFundsWalletBalanceCents = walletBalanceCents
+            showInsufficientFundsModal = true
+            errorMessage = nil
         default:
             errorMessage = error.errorDescription
         }

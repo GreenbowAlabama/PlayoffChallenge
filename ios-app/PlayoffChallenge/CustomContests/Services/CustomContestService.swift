@@ -153,9 +153,14 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         }
     }
 
-    // MARK: - Created Contests
+    // MARK: - My Contests (Created + Joined)
 
-    /// Fetches contests created by the authenticated user.
+    /// Fetches all contests where the authenticated user is either the organizer or a participant.
+    /// ARCHITECTURE: Client Lock V1 — single authoritative backend response.
+    /// Backend endpoint: GET /api/custom-contests
+    /// Returns: Contests in SCHEDULED, LOCKED, LIVE, COMPLETE statuses
+    /// The backend handles all filtering, deduplication, and sorting.
+    /// Client must NOT merge this with other endpoints or implement filtering logic.
     /// Returns Domain [Contest] objects only.
     func fetchCreatedContests() async throws -> [Contest] {
         guard let userIdString = UserDefaults.standard.string(forKey: "userId"),

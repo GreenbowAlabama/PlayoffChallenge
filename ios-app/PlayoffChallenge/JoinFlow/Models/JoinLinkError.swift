@@ -24,6 +24,7 @@ enum JoinLinkError: Error, Equatable, LocalizedError {
     // Join errors
     case alreadyJoined
     case notAuthenticated
+    case insufficientFunds(entryFeeCents: Int, walletBalanceCents: Int)
     case serverError(message: String)
 
     var errorDescription: String? {
@@ -48,6 +49,10 @@ enum JoinLinkError: Error, Equatable, LocalizedError {
             return "You have already joined this contest."
         case .notAuthenticated:
             return "Please sign in to join this contest."
+        case .insufficientFunds(let entryFeeCents, let walletBalanceCents):
+            let fee = String(format: "$%.2f", Double(entryFeeCents) / 100.0)
+            let balance = String(format: "$%.2f", Double(walletBalanceCents) / 100.0)
+            return "Insufficient funds. Entry fee: \(fee), Wallet balance: \(balance)"
         case .serverError(let message):
             return message
         }
@@ -72,6 +77,8 @@ enum JoinLinkError: Error, Equatable, LocalizedError {
             return "Already Joined"
         case .notAuthenticated:
             return "Sign In Required"
+        case .insufficientFunds:
+            return "Insufficient Funds"
         case .serverError:
             return "Error"
         }

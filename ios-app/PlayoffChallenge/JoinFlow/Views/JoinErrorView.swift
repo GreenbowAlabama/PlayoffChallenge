@@ -76,6 +76,8 @@ struct JoinErrorView: View {
             return "checkmark.circle"
         case .notAuthenticated:
             return "person.crop.circle.badge.exclamationmark"
+        case .insufficientFunds:
+            return "wallet.pass.fill"
         case .serverError:
             return "exclamationmark.icloud"
         }
@@ -85,6 +87,8 @@ struct JoinErrorView: View {
         switch error {
         case .alreadyJoined:
             return DesignTokens.Color.Action.primary
+        case .insufficientFunds:
+            return .orange
         case .contestFull, .contestLocked, .contestCancelled, .contestUnavailable, .contestCompleted:
             return DesignTokens.Color.Brand.primary
         default:

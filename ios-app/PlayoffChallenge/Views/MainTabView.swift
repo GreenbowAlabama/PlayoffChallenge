@@ -10,25 +10,43 @@ import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject var authService: AuthService
+    @StateObject private var walletVM = UserWalletViewModel()
 
     var body: some View {
         TabView {
             // Tab 0: Home
             // Featured hero section + my active contests + open contests
-            HomeTabView()
-                .tabItem {
-                    Label("Home", systemImage: "house.fill")
-                }
+            NavigationStack {
+                HomeTabView()
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            WalletBalanceButtonView(viewModel: walletVM)
+                        }
+                    }
+            }
+            .tabItem {
+                Label("Home", systemImage: "house.fill")
+            }
+            .onAppear {
+                Task { await walletVM.refreshBalance() }
+            }
 
             // Tab 1: Contests Hub
             // Factory closure provided to the Hub to create the ViewModel,
             // mirroring the existing dependency boundary in LandingView.
-            ContestsHubView(makeCreateViewModel: {
-                CreateCustomContestViewModel(
-                    service: CustomContestService(apiService: APIService.shared),
-                    userId: authService.currentUser!.id
-                )
-            })
+            NavigationStack {
+                ContestsHubView(makeCreateViewModel: {
+                    CreateCustomContestViewModel(
+                        service: CustomContestService(apiService: APIService.shared),
+                        userId: authService.currentUser!.id
+                    )
+                })
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        WalletBalanceButtonView(viewModel: walletVM)
+                    }
+                }
+            }
             .tabItem {
                 Label("Contests", systemImage: "trophy.fill")
             }
@@ -41,6 +59,11 @@ struct MainTabView: View {
                     Spacer()
                 }
                 .navigationTitle("Leaderboard")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        WalletBalanceButtonView(viewModel: walletVM)
+                    }
+                }
             }
             .tabItem {
                 Label("Leaderboard", systemImage: "chart.bar.fill")

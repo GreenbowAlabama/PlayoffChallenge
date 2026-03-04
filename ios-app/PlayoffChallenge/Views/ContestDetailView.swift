@@ -54,6 +54,7 @@ struct ContestDetailViewInner: View {
     @State private var showCopyConfirmation = false
     @State private var showDeleteConfirmation = false
     @State private var showUnjoinConfirmation = false
+    @State private var showWalletDetail = false
 
     init(
         contestId: UUID,
@@ -457,6 +458,19 @@ struct ContestDetailViewInner: View {
                 Text(error)
             }
         }
+        .sheet(isPresented: $viewModel.showInsufficientFundsModal) {
+            NavigationStack {
+                insufficientFundsModalView
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Close") {
+                                viewModel.showInsufficientFundsModal = false
+                            }
+                        }
+                    }
+            }
+        }
         .onAppear {
             viewModel.configure(currentUserId: authService.currentUser?.id)
             if !viewModel.isFetching {
@@ -467,6 +481,88 @@ struct ContestDetailViewInner: View {
         .refreshable {
             await viewModel.refresh()
         }
+    }
+
+    // MARK: - Insufficient Funds Modal
+
+    @ViewBuilder
+    private var insufficientFundsModalView: some View {
+        VStack(spacing: DesignTokens.Spacing.lg) {
+            // Icon and title
+            VStack(spacing: DesignTokens.Spacing.md) {
+                Image(systemName: "wallet.pass.fill")
+                    .font(.system(size: 44))
+                    .foregroundColor(.orange)
+
+                Text("Insufficient Funds")
+                    .font(.headline)
+                    .foregroundColor(DesignTokens.Color.Text.primary)
+
+                Text("You don't have enough balance to join this contest.")
+                    .font(.subheadline)
+                    .foregroundColor(DesignTokens.Color.Text.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, DesignTokens.Spacing.xl)
+
+            // Fee and balance display
+            VStack(spacing: DesignTokens.Spacing.md) {
+                HStack {
+                    Text("Entry Fee")
+                        .foregroundColor(DesignTokens.Color.Text.secondary)
+                    Spacer()
+                    Text(String(format: "$%.2f", Double(viewModel.insufficientFundsEntryFeeCents) / 100.0))
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .foregroundColor(DesignTokens.Color.Brand.primary)
+                }
+
+                HStack {
+                    Text("Wallet Balance")
+                        .foregroundColor(DesignTokens.Color.Text.secondary)
+                    Spacer()
+                    Text(String(format: "$%.2f", Double(viewModel.insufficientFundsWalletBalanceCents) / 100.0))
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .foregroundColor(.orange)
+                }
+            }
+            .padding(DesignTokens.Spacing.lg)
+            .background(DesignTokens.Color.Surface.card)
+            .cornerRadius(DesignTokens.Radius.md)
+
+            Spacer()
+
+            // Add Funds button
+            NavigationLink(destination: {
+                WalletDetailView(viewModel: UserWalletViewModel())
+            }) {
+                HStack {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Add Funds")
+                }
+                .font(.headline)
+                .foregroundColor(DesignTokens.Color.Text.inverse)
+                .frame(maxWidth: .infinity)
+                .padding(DesignTokens.Spacing.lg)
+                .background(DesignTokens.Color.Action.primary)
+                .cornerRadius(DesignTokens.Radius.lg)
+            }
+
+            // Cancel button
+            Button(action: {
+                viewModel.showInsufficientFundsModal = false
+            }) {
+                Text("Cancel")
+                    .font(.headline)
+                    .foregroundColor(DesignTokens.Color.Action.primary)
+                    .frame(maxWidth: .infinity)
+                    .padding(DesignTokens.Spacing.lg)
+                    .background(DesignTokens.Color.Action.primary.opacity(0.1))
+                    .cornerRadius(DesignTokens.Radius.lg)
+            }
+        }
+        .padding(DesignTokens.Spacing.lg)
     }
 }
 

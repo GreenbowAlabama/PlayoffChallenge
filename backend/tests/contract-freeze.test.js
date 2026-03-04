@@ -31,12 +31,13 @@ describe('Contract Freeze', () => {
       .digest('hex');
 
     // Expected hash (update this when intentionally changing the contract)
-    // This hash was generated after Leaderboard Contract Alignment (2026-03-03):
-    // - Updated Leaderboard schema: added contest_id, contest_type, leaderboard_state, column_schema, rows
-    // - Added LeaderboardColumn schema for column metadata
-    // - Added LeaderboardRow schema for row data structure
-    // - Removed pagination from response (no longer part of contract)
-    const expectedHash = '862a40b665ce832c5a0a430d012f2096de7e75edaa087f8d4394dda0d9f0da88';
+    // This hash was generated after Client Lock V1 Implementation (2026-03-03):
+    // - Updated GET /api/custom-contests to return both organizer AND joined contests
+    // - Changed operationId from listContestsForOrganizer to listMyContests
+    // - Updated description: endpoint now returns My Contests (organizer OR participant)
+    // - Supports multiple statuses: SCHEDULED, LOCKED, LIVE, COMPLETE
+    // - Architecture decision: single authoritative backend response for iOS home tab
+    const expectedHash = '4f7d76d0f098694337d651447461e85b82a6ac19160baa0e07f1ac9eab556222';
 
     // The hashes must match - if they don't, the contract has drifted
     expect(currentHash).toBe(expectedHash);
