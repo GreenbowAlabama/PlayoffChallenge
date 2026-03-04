@@ -405,7 +405,7 @@ struct ContestDetailViewInner: View {
             ContestLeaderboardView(contestId: viewModel.contestId)
         }
         .navigationDestination(isPresented: $navigateToLineup) {
-            LineupView()
+            LineupView(contestId: viewModel.contest.id, placeholder: viewModel.contest)
         }
         .sheet(isPresented: $showRules) {
             NavigationStack {
