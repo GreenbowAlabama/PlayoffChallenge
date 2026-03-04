@@ -26,6 +26,8 @@ public struct ContestDetailResponseContract: Decodable {
     // Optional timing and identifiers (per OpenAPI schema lines 1116-1146)
     public let start_time: Date?
     public let end_time: Date?
+    public let tournament_start_time: Date?
+    public let tournament_end_time: Date?
     public let join_token: String?
 
     enum CodingKeys: String, CodingKey {
@@ -37,6 +39,8 @@ public struct ContestDetailResponseContract: Decodable {
         case roster_config
         case start_time
         case end_time
+        case tournament_start_time
+        case tournament_end_time
         case join_token
     }
 
@@ -49,6 +53,8 @@ public struct ContestDetailResponseContract: Decodable {
         roster_config: RosterConfigContract,
         start_time: Date? = nil,
         end_time: Date? = nil,
+        tournament_start_time: Date? = nil,
+        tournament_end_time: Date? = nil,
         join_token: String? = nil
     ) {
         self.contest_id = contest_id
@@ -59,6 +65,8 @@ public struct ContestDetailResponseContract: Decodable {
         self.roster_config = roster_config
         self.start_time = start_time
         self.end_time = end_time
+        self.tournament_start_time = tournament_start_time
+        self.tournament_end_time = tournament_end_time
         self.join_token = join_token
     }
 
@@ -74,6 +82,8 @@ public struct ContestDetailResponseContract: Decodable {
         // Optional fields (OpenAPI schema allows nullable)
         start_time = try c.decodeIfPresent(Date.self, forKey: .start_time)
         end_time = try c.decodeIfPresent(Date.self, forKey: .end_time)
+        tournament_start_time = try c.decodeIfPresent(Date.self, forKey: .tournament_start_time)
+        tournament_end_time = try c.decodeIfPresent(Date.self, forKey: .tournament_end_time)
         join_token = try c.decodeIfPresent(String.self, forKey: .join_token)
     }
 }

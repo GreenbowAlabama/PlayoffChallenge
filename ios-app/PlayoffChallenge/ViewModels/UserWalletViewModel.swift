@@ -141,6 +141,10 @@ final class UserWalletViewModel: ObservableObject {
     private let walletService: WalletFetching
     private let authService: AuthService
 
+    // MARK: - Load Guard
+
+    private var hasLoaded = false
+
     // MARK: - Initialization
 
     init(walletService: WalletFetching? = nil, authService: AuthService = .shared) {
@@ -155,11 +159,13 @@ final class UserWalletViewModel: ObservableObject {
     /// CRITICAL: DTOs unmarshalled → Domain models immediately.
     /// No DTOs in @Published state.
     func fetchWallet() async {
-        // Guard against duplicate concurrent fetches (check before starting)
-        guard !isLoading else {
-            print("[UserWalletViewModel] Fetch already in progress, skipping duplicate")
+        // Guard against duplicate initial load
+        guard !hasLoaded || isLoading == false else {
+            print("[UserWalletViewModel] Fetch already in progress or already loaded, skipping duplicate")
             return
         }
+
+        hasLoaded = true
 
         // Set loading flag immediately to prevent race conditions
         await MainActor.run {

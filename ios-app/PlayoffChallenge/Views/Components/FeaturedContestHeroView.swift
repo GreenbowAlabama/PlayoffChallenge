@@ -23,6 +23,12 @@ struct FeaturedContestHeroView: View {
         return contest.status == .complete ? "Settled" : nil
     }
 
+    private var isInviteOnly: Bool {
+        guard let actions = contest.actions else { return false }
+        let hasNotJoined = !(contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true)
+        return !actions.canJoin && hasNotJoined
+    }
+
     private var ctaText: String {
         if contest.actions?.isLive == true {
             return "Watch Live"
@@ -31,6 +37,8 @@ struct FeaturedContestHeroView: View {
         } else if contest.actions?.canJoin == true {
             let entryFee = contest.entryFeeCents / 100
             return entryFee == 0 ? "Join Free Contest" : "Enter $\(entryFee) Contest"
+        } else if isInviteOnly {
+            return "Invite Only"
         } else {
             return "View Contest"
         }

@@ -37,7 +37,13 @@ struct ContestCardView: View {
     private var showJoinedBadge: Bool {
         contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true
     }
-    
+
+    private var isInviteOnly: Bool {
+        guard let actions = contest.actions else { return false }
+        let hasNotJoined = !(contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true)
+        return !actions.canJoin && hasNotJoined
+    }
+
     private var lockUrgencyColor: Color {
         guard let lockTime = contest.lockTime else { return DesignTokens.Color.Text.secondary }
         let timeInterval = lockTime.timeIntervalSinceNow
@@ -130,6 +136,13 @@ struct ContestCardView: View {
                             .font(.caption)
                             .foregroundColor(.orange)
                     }
+
+                    if isInviteOnly {
+                        Text("Invite Only")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.orange)
+                    }
                 }
 
                 Spacer()
@@ -211,6 +224,11 @@ struct ContestCardView: View {
                         if let payout = payoutDisplay {
                             Text(payout)
                                 .font(.caption2)
+                                .foregroundColor(.orange)
+                        } else if isInviteOnly {
+                            Text("Invite Only")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
                                 .foregroundColor(.orange)
                         }
                     }

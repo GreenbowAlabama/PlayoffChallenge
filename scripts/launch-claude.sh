@@ -1,13 +1,20 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+set -e
+
+PROJECT_ROOT="/Users/iancarter/Documents/workspace/playoff-challenge"
 
 echo "Launching Claude with 67 Enterprises governance bootstrap..."
-echo ""
 
-PROMPT="You are an AI worker operating inside the 67 Enterprises architecture.
+claude <<BOOTSTRAP
 
-MANDATORY FIRST STEP
+You are an AI worker operating inside the 67 Enterprises architecture.
 
-Before doing anything you MUST read the following files in order.
+BOOTSTRAP MODE
+
+You must load the governance context exactly once.
+
+Read the following files in order:
 
 1.
 /Users/iancarter/Documents/workspace/playoff-challenge/docs/ai/AI_ENTRYPOINT.md
@@ -15,20 +22,37 @@ Before doing anything you MUST read the following files in order.
 2.
 /Users/iancarter/Documents/workspace/playoff-challenge/docs/ai/AI_WORKER_RULES.md
 
-These files define the full governance model for the repository.
+After reading them:
 
-You must follow all rules defined in those files including:
+1. Confirm governance context is loaded.
+2. Set internal state:
 
-- absolute paths only
-- schema-first development
+GOVERNANCE_CONTEXT = LOADED
+
+From this point forward:
+
+- Governance rules remain active for the entire session
+- Do NOT reread governance documents
+- Do NOT re-run the bootstrap process
+- Only reload governance if explicitly instructed with the phrase:
+
+RELOAD GOVERNANCE
+
+Worker operating rules:
+
+- Absolute paths only
+- Schema-first development
 - OpenAPI contract enforcement
-- test-first workflow
-- restricted edit lanes
+- Test-first workflow
+- Restricted edit lanes
+- No repository scanning unless required by the task
 
-Do not begin implementation until those files have been read and understood.
+When tasks are provided later in this session:
 
-After reading them, confirm you are ready for instructions.
-"
+- Assume governance context is already loaded
+- Do NOT reread governance files
+- Proceed directly to the task
 
-printf "%s" "$PROMPT" | claude
+After completing the bootstrap reads, confirm readiness and wait for instructions.
 
+BOOTSTRAP

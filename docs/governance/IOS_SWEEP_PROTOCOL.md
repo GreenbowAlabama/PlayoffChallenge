@@ -309,7 +309,29 @@ Assumption Drift:
 
 ### Sweep 5 — UX & Cosmetic Hardening ✅ OPTIONAL
 
-**Purpose:** Consistency polish and error presentation.
+**Purpose:** Consistency polish, improved UX, and error presentation.
+
+**New Changes Included:**
+
+- **Active / Past Contests Sections**
+  - `MyContestsViewModel` now exposes `activeContests`, `cancelledContests`, `completedContests`, and `pastContests` computed properties.
+  - `MyContestsView` updated to display:
+    - Active contests section (SCHEDULED or LIVE)
+    - Past contests section (COMPLETE or CANCELLED)
+    - Collapsible past contests section with toggle chevron.
+
+- **Invite-Only Indicators**
+  - `ContestCardView` and `FeaturedContestHeroView` display "Invite Only" if `actions.canJoin == false` and user has not joined.
+  - Standard and list layouts updated for consistency.
+  - `ctaText` updated to show "Invite Only" when applicable.
+
+- **Load Guards**
+  - `AvailableContestsViewModel` and `UserWalletViewModel` now include `hasLoaded` guards to prevent duplicate initial fetches.
+
+- **Event Start Time Priority**
+  - DateFormatting helper `formatContestEventStartTime()` used across views.
+  - Priority: `tournamentStartTime > startTime > lockTime`.
+  - Updated in `ContestCardView`, `FeaturedContestHeroView`, `ContestDetailView`.
 
 **Checks:**
 - [ ] Status badges consistent across all views
@@ -317,41 +339,14 @@ Assumption Drift:
 - [ ] Transition clarity (SCHEDULED→LOCKED→LIVE→COMPLETE→SETTLED)
 - [ ] Empty states handled (no entries, no scores)
 - [ ] Error messages user-friendly and informative
+- [ ] Invite-only indicators render correctly
+- [ ] Active vs Past contests sections display properly
 
 **Execution:**
 ```bash
 cd ios-app/PlayoffChallenge
 swift build
 swift test
-```
-
-**Exit Criteria:**
-- ✅ All status states rendered consistently
-- ✅ Capacity bar reflects backend data
-- ✅ Transitions clear and unambiguous
-- ✅ No crashes on empty data
-
-**Documentation Update:**
-- Update design system documentation if tokens changed
-- Document any status→visual-state mapping rules
-
-**Gap Report:**
-```
-Visual Consistency Gaps:
-- [ ] Status badge colors differ across views
-- [ ] Capacity bar misalignment in different screens
-- [ ] Inconsistent date formatting
-
-Empty State Gaps:
-- [ ] No message when standings = []
-- [ ] No message when payout_table = []
-- [ ] No graceful handling of missing organizer_name
-
-Error Presentation Gaps:
-- [ ] Generic "Something went wrong" messages
-- [ ] No error code context for debugging
-- [ ] No retry affordance in error state
-```
 
 ---
 

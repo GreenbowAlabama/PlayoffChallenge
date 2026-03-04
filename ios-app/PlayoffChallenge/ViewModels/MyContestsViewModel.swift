@@ -29,6 +29,26 @@ final class MyContestsViewModel: ObservableObject {
 
     // MARK: - Computed Properties
 
+    /// Active contests (SCHEDULED or LIVE status only)
+    var activeContests: [Contest] {
+        sortedContests.filter { $0.status == .scheduled || $0.status == .live }
+    }
+
+    /// Cancelled contests
+    var cancelledContests: [Contest] {
+        sortedContests.filter { $0.status == .cancelled }
+    }
+
+    /// Completed contests (COMPLETE status)
+    var completedContests: [Contest] {
+        sortedContests.filter { $0.status == .complete }
+    }
+
+    /// All past contests (COMPLETE or CANCELLED)
+    var pastContests: [Contest] {
+        sortedContests.filter { $0.status == .complete || $0.status == .cancelled }
+    }
+
     /// Contests sorted by priority: LIVE → LOCKED → SCHEDULED → COMPLETE → CANCELLED
     /// Within same status, sorted by creation date (descending, newest first).
     var sortedContests: [Contest] {

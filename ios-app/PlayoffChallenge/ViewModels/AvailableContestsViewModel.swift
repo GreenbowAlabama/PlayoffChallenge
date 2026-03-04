@@ -21,6 +21,10 @@ final class AvailableContestsViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
+    // MARK: - Load Guard
+
+    private var hasLoaded = false
+
     // MARK: - Computed Properties
 
     var featuredContests: [Contest] {
@@ -113,6 +117,13 @@ final class AvailableContestsViewModel: ObservableObject {
     // MARK: - Actions
 
     func loadContests() async {
+        // Guard: Prevent duplicate initial load
+        guard !hasLoaded || isLoading == false else {
+            print("[AvailableContestsViewModel] Load already in progress, skipping duplicate")
+            return
+        }
+
+        hasLoaded = true
         isLoading = true
         errorMessage = nil
 

@@ -571,6 +571,8 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
             lockTime: dto.lockTime,
             startTime: nil,  // Not included in CREATE response
             endTime: nil,  // Not included in CREATE response
+            tournamentStartTime: nil,  // Not included in CREATE response
+            tournamentEndTime: nil,  // Not included in CREATE response
             joinToken: dto.joinToken,
             createdAt: dto.createdAt,
             updatedAt: dto.updatedAt,

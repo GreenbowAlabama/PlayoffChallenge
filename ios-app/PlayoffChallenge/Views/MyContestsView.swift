@@ -13,6 +13,7 @@ struct MyContestsView: View {
     @State private var isRefreshing = false
     @State private var pendingDeleteId: UUID?
     @State private var pendingUnjoinId: UUID?
+    @State private var showPastContests = false
 
     private func shareURL(for contest: Contest) -> URL? {
         guard let token = contest.shareURLToken else { return nil }
@@ -28,8 +29,10 @@ struct MyContestsView: View {
                 EmptyContestsView()
             } else {
                 List {
-                    Section {
-                        ForEach(viewModel.sortedContests) { contest in
+                    // MARK: - Active Contests Section
+                    if !viewModel.activeContests.isEmpty {
+                        Section {
+                            ForEach(viewModel.activeContests) { contest in
                             // Payout display: only show "Settled" for complete contests.
                             // Backend-computed payouts available in payout_table at settlement.
                             // Client does not compute pot/payout (no rake/rounding/tie logic).
@@ -70,7 +73,68 @@ struct MyContestsView: View {
                             }
                         }
                     } header: {
-                        Text("My Contests")
+                        Text("Active")
+                    }
+                    }
+
+                    // MARK: - Past Contests Section (Collapsible)
+                    if !viewModel.pastContests.isEmpty {
+                        Section {
+                            if showPastContests {
+                                ForEach(viewModel.pastContests) { contest in
+                            // Payout display: only show "Settled" for complete contests.
+                            // Backend-computed payouts available in payout_table at settlement.
+                            // Client does not compute pot/payout (no rake/rounding/tie logic).
+                            let payoutText: String? = contest.status == .complete ? "Settled" : nil
+
+                            ContestRowView(
+                                contestName: contest.contestName,
+                                isJoined: contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true,
+                                entryCountText: "\(contest.entryCount)/\(contest.maxEntries ?? 0)",
+                                statusText: contest.status.displayName,
+                                lockText: formatLockTimeForDisplay(lockTime: contest.lockTime, status: contest.status)?.text,
+                                entryFeeText: contest.entryFeeCents > 0 ? String(format: "$%.0f Entry", Double(contest.entryFeeCents) / 100.0) : nil,
+                                payoutText: payoutText,
+                                shareURL: shareURL(for: contest)
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedContest = contest
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if contest.actions?.canDelete == true {
+                                    Button(role: .destructive) {
+                                        pendingDeleteId = contest.id
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                    .disabled(viewModel.deletingIds.contains(contest.id))
+                                }
+
+                                if contest.actions?.canUnjoin == true {
+                                    Button(role: .destructive) {
+                                        pendingUnjoinId = contest.id
+                                    } label: {
+                                        Label("Leave", systemImage: "arrow.left.circle")
+                                    }
+                                    .disabled(viewModel.deletingIds.contains(contest.id))
+                                }
+                            }
+                                }
+                            }
+                        } header: {
+                            HStack {
+                                Text("Past Contests")
+                                Spacer()
+                                Image(systemName: showPastContests ? "chevron.up" : "chevron.down")
+                                    .font(.caption)
+                            }
+                        }
+                        .onTapGesture {
+                            withAnimation {
+                                showPastContests.toggle()
+                            }
+                        }
                     }
                 }
             }
