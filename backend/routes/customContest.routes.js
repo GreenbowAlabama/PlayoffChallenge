@@ -327,6 +327,8 @@ function normalizeContestResponse(data) {
     start_time: contest.start_time ? new Date(contest.start_time).toISOString() : null,
     end_time: contest.end_time ? new Date(contest.end_time).toISOString() : null,
     lock_time: contest.lock_time ? new Date(contest.lock_time).toISOString() : null,
+    tournament_start_time: contest.tournament_start_time ? new Date(contest.tournament_start_time).toISOString() : null,
+    tournament_end_time: contest.tournament_end_time ? new Date(contest.tournament_end_time).toISOString() : null,
     created_at: new Date(contest.created_at).toISOString(),
     updated_at: new Date(contest.updated_at).toISOString(),
     // Normalize payout_table: ensure all timestamp and numeric fields are correct types
