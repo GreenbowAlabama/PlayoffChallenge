@@ -1,8 +1,12 @@
 import { apiRequest } from './client';
-import type { User } from '../types';
+import type { User, UserDetail } from '../types';
 
 export async function getUsers(): Promise<User[]> {
   return apiRequest<User[]>('/api/admin/users');
+}
+
+export async function getUserDetail(userId: string): Promise<UserDetail> {
+  return apiRequest<UserDetail>(`/api/admin/users/${userId}`);
 }
 
 export async function updateUserEligibility(

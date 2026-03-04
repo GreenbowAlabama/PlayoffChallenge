@@ -1,30 +1,139 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getUsers, updateUserEligibility, updateUserNotes } from '../api/users';
-import { Switch } from '@headlessui/react';
-import type { User } from '../types';
+import { useState, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { getUsers, getUserDetail } from '../api/users';
+import type { User, UserDetail, LedgerEntry, UserContest } from '../types';
+
+// Helper to format cents as USD
+function formatUSD(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+// Helper to format date
+function formatDate(dateString: string | null): string {
+  if (!dateString) return 'N/A';
+  return new Date(dateString).toLocaleDateString();
+}
+
+// Helper to format datetime
+function formatDateTime(dateString: string | null): string {
+  if (!dateString) return 'N/A';
+  return new Date(dateString).toLocaleString();
+}
+
+// Expandable detail panel for user wallet activity
+function UserDetailPanel({ user }: { user: User }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [detail, setDetail] = useState<UserDetail | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleExpand = async () => {
+    if (isExpanded) {
+      setIsExpanded(false);
+      return;
+    }
+
+    if (!detail) {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const data = await getUserDetail(user.id);
+        setDetail(data);
+      } catch (err) {
+        console.error('Failed to load user detail:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load details');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    setIsExpanded(true);
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={handleExpand}
+        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 focus:outline-none"
+        title="View details"
+      >
+        {isExpanded ? '▼' : '▶'} Details
+      </button>
+
+      {isExpanded && (
+        <tr className="bg-gray-50">
+          <td colSpan={8} className="px-6 py-4">
+            {isLoading ? (
+              <div className="text-sm text-gray-500">Loading...</div>
+            ) : error ? (
+              <div className="text-sm text-red-600">Error: {error}</div>
+            ) : detail ? (
+              <div className="space-y-4">
+                {/* Recent Ledger Entries */}
+                {detail.recent_ledger_entries && detail.recent_ledger_entries.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">Recent Wallet Activity</h4>
+                    <div className="space-y-1 text-xs">
+                      {detail.recent_ledger_entries.map((entry: LedgerEntry) => (
+                        <div key={entry.id} className="flex gap-2 text-gray-600">
+                          <span className="w-12">{formatDate(entry.created_at)}</span>
+                          <span className="w-20">{entry.entry_type}</span>
+                          <span className={entry.direction === 'CREDIT' ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                            {entry.direction === 'CREDIT' ? '+' : '-'}{formatUSD(entry.amount_cents)}
+                          </span>
+                          {entry.contest_name && (
+                            <span className="text-gray-500">{entry.contest_name}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Active Contests */}
+                {detail.contests && detail.contests.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">Contests</h4>
+                    <div className="space-y-1 text-xs">
+                      {detail.contests.map((contest: UserContest) => (
+                        <div key={contest.id} className="flex gap-2 text-gray-600">
+                          <span className="font-medium">{contest.name}</span>
+                          <span className={`px-2 py-0.5 rounded text-white text-xs ${
+                            contest.status === 'SCHEDULED' ? 'bg-blue-500' :
+                            contest.status === 'LOCKED' ? 'bg-yellow-500' :
+                            contest.status === 'LIVE' ? 'bg-green-500' :
+                            contest.status === 'COMPLETE' ? 'bg-gray-500' :
+                            'bg-gray-400'
+                          }`}>
+                            {contest.status}
+                          </span>
+                          <span className="text-gray-500">Entry: {formatUSD(contest.entry_fee_cents)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(!detail.recent_ledger_entries || detail.recent_ledger_entries.length === 0) &&
+                 (!detail.contests || detail.contests.length === 0) && (
+                  <div className="text-sm text-gray-500">No activity</div>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-gray-500">No data available</div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
 
 export function Users() {
-  const queryClient = useQueryClient();
-  const [mutatingUserId, setMutatingUserId] = useState<string | null>(null);
-  const [successUserId, setSuccessUserId] = useState<string | null>(null);
   const [copiedEmailId, setCopiedEmailId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
-  const [editingNotesUserId, setEditingNotesUserId] = useState<string | null>(null);
-  const [editingNotesValue, setEditingNotesValue] = useState('');
-  const [hideUnpaid, setHideUnpaid] = useState(true);
   const [filterText, setFilterText] = useState('');
-
-  const clearSuccess = useCallback(() => {
-    setSuccessUserId(null);
-  }, []);
-
-  useEffect(() => {
-    if (successUserId) {
-      const timer = setTimeout(clearSuccess, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [successUserId, clearSuccess]);
 
   const copyEmailToClipboard = useCallback(async (email: string, userId: string) => {
     try {
@@ -57,98 +166,16 @@ export function Users() {
     queryFn: getUsers,
   });
 
-  const unpaidUsersCount = users?.filter(u => !u.paid).length ?? 0;
   const displayedUsers = users?.filter(u => {
-    if (hideUnpaid && !u.paid) return false;
     if (filterText) {
       const searchTerm = filterText.toLowerCase();
       const matchesUsername = u.username?.toLowerCase().includes(searchTerm);
+      const matchesEmail = u.email?.toLowerCase().includes(searchTerm);
       const matchesName = u.name?.toLowerCase().includes(searchTerm);
-      if (!matchesUsername && !matchesName) return false;
+      if (!matchesUsername && !matchesEmail && !matchesName) return false;
     }
     return true;
   });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ userId, isPaid }: { userId: string; isPaid: boolean }) =>
-      updateUserEligibility(userId, isPaid),
-    onMutate: async ({ userId, isPaid }) => {
-      setMutatingUserId(userId);
-      await queryClient.cancelQueries({ queryKey: ['users'] });
-
-      const previousUsers = queryClient.getQueryData<User[]>(['users']);
-
-      queryClient.setQueryData<User[]>(['users'], (old) =>
-        old?.map((user) =>
-          user.id === userId ? { ...user, paid: isPaid } : user
-        )
-      );
-
-      return { previousUsers };
-    },
-    onSuccess: (updatedUser) => {
-      queryClient.setQueryData<User[]>(['users'], (old) =>
-        old?.map((user) =>
-          user.id === updatedUser.id
-            ? { ...user, ...updatedUser }
-            : user
-        )
-      );
-      setSuccessUserId(updatedUser.id);
-      setMutatingUserId(null);
-    },
-    onError: (_err, _variables, context) => {
-      if (context?.previousUsers) {
-        queryClient.setQueryData(['users'], context.previousUsers);
-      }
-      setMutatingUserId(null);
-    },
-  });
-
-  const notesMutation = useMutation({
-    mutationFn: ({ userId, adminNotes }: { userId: string; adminNotes: string }) =>
-      updateUserNotes(userId, adminNotes),
-    onMutate: async ({ userId, adminNotes }) => {
-      await queryClient.cancelQueries({ queryKey: ['users'] });
-      const previousUsers = queryClient.getQueryData<User[]>(['users']);
-      queryClient.setQueryData<User[]>(['users'], (old) =>
-        old?.map((user) =>
-          user.id === userId ? { ...user, admin_notes: adminNotes || null } : user
-        )
-      );
-      return { previousUsers };
-    },
-    onSuccess: () => {
-      setEditingNotesUserId(null);
-      setEditingNotesValue('');
-    },
-    onError: (_err, _variables, context) => {
-      if (context?.previousUsers) {
-        queryClient.setQueryData(['users'], context.previousUsers);
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-    },
-  });
-
-  const handleNotesClick = (user: User) => {
-    setEditingNotesUserId(user.id);
-    setEditingNotesValue(user.admin_notes || '');
-  };
-
-  const handleNotesSave = (userId: string) => {
-    notesMutation.mutate({ userId, adminNotes: editingNotesValue });
-  };
-
-  const handleNotesCancel = () => {
-    setEditingNotesUserId(null);
-    setEditingNotesValue('');
-  };
-
-  const handleToggleEligibility = (userId: string, currentStatus: boolean) => {
-    updateMutation.mutate({ userId, isPaid: !currentStatus });
-  };
 
   if (isLoading) {
     return (
@@ -172,36 +199,19 @@ export function Users() {
     <div>
       <div className="sm:flex sm:items-center sm:justify-between">
         <div className="sm:flex-auto">
-          <h1 className="text-2xl font-semibold text-gray-900">Users</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Platform Users</h1>
           <p className="mt-2 text-sm text-gray-700">
-            View registered users and manage payment eligibility
+            Operational dashboard for wallet visibility and contest participation
           </p>
         </div>
-        <div className="mt-4 sm:mt-0 flex items-center gap-4">
+        <div className="mt-4 sm:mt-0">
           <input
             type="text"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Filter by username or name..."
-            className="w-64 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            placeholder="Filter by username, email, or name..."
+            className="w-80 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           />
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Hide {unpaidUsersCount} (unpaid)</span>
-            <Switch
-              checked={hideUnpaid}
-              onChange={setHideUnpaid}
-              className={`${
-                hideUnpaid ? 'bg-indigo-600' : 'bg-gray-400'
-              } relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
-            >
-              <span className="sr-only">Hide unpaid users</span>
-              <span
-                className={`${
-                  hideUnpaid ? 'translate-x-5' : 'translate-x-0.5'
-                } inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform`}
-              />
-            </Switch>
-          </div>
         </div>
       </div>
 
@@ -215,7 +225,7 @@ export function Users() {
               <thead>
                 <tr>
                   <th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-0">
-                    Username
+                    User
                   </th>
                   <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
                     <div className="flex items-center gap-2">
@@ -245,36 +255,33 @@ export function Users() {
                     </div>
                   </th>
                   <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Name
+                    Wallet Balance
                   </th>
                   <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Phone
+                    Lifetime Deposits
                   </th>
                   <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Role
+                    Lifetime Withdrawals
                   </th>
                   <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Created
+                    Active Contests
                   </th>
                   <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Payment Status
+                    Last Wallet Activity
                   </th>
                   <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Notes (Admin)
+                    Actions
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {displayedUsers?.map((user) => {
-                  const isMutating = mutatingUserId === user.id;
-                  const showSuccess = successUserId === user.id;
-
-                  return (
+                {displayedUsers?.map((user) => (
+                  <>
                     <tr key={user.id}>
                       <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-0">
                         {user.username || 'N/A'}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                      <td className="px-3 py-4 text-sm text-gray-500">
                         <div className="flex items-center gap-1.5">
                           <span>{user.email || 'N/A'}</span>
                           {user.email && (
@@ -298,114 +305,29 @@ export function Users() {
                           )}
                         </div>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                        {user.name || 'N/A'}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                        {user.phone || 'N/A'}
-                      </td>
                       <td className="whitespace-nowrap px-3 py-4 text-sm">
-                        <span
-                          className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${
-                            user.is_admin
-                              ? 'bg-purple-100 text-purple-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {user.is_admin ? 'Admin' : 'User'}
+                        <span className={user.wallet_balance_cents >= 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                          {formatUSD(user.wallet_balance_cents)}
                         </span>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                        {user.created_at
-                          ? new Date(user.created_at).toLocaleDateString()
-                          : 'N/A'}
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-green-600 font-medium">
+                        {formatUSD(user.lifetime_deposits_cents)}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm">
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className={`text-xs transition-all ${
-                              user.paid
-                                ? 'text-gray-300 font-normal'
-                                : 'text-red-600 font-semibold'
-                            }`}
-                          >
-                            Unpaid
-                          </span>
-                          <Switch
-                            checked={user.paid}
-                            onChange={() => handleToggleEligibility(user.id, user.paid)}
-                            disabled={isMutating}
-                            className={`${
-                              user.paid ? 'bg-green-600' : 'bg-gray-400'
-                            } ${
-                              isMutating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                            } relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                              user.paid ? 'focus:ring-green-500' : 'focus:ring-gray-400'
-                            }`}
-                          >
-                            <span className="sr-only">Toggle payment status</span>
-                            <span
-                              className={`${
-                                user.paid ? 'translate-x-5' : 'translate-x-0.5'
-                              } inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform`}
-                            />
-                          </Switch>
-                          <span
-                            className={`text-xs transition-all ${
-                              user.paid
-                                ? 'text-green-600 font-semibold'
-                                : 'text-gray-300 font-normal'
-                            }`}
-                          >
-                            Paid
-                          </span>
-                          {showSuccess && (
-                            <span className="text-green-600 text-sm">
-                              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                              </svg>
-                            </span>
-                          )}
-                          {isMutating && (
-                            <span className="text-gray-400 text-sm">
-                              <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                              </svg>
-                            </span>
-                          )}
-                        </div>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-red-600 font-medium">
+                        {formatUSD(user.lifetime_withdrawals_cents)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-900 font-medium">
+                        {user.active_contests_count}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        {formatDateTime(user.last_wallet_activity_at)}
                       </td>
                       <td className="px-3 py-4 text-sm text-gray-500">
-                        {editingNotesUserId === user.id ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={editingNotesValue}
-                              onChange={(e) => setEditingNotesValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleNotesSave(user.id);
-                                if (e.key === 'Escape') handleNotesCancel();
-                              }}
-                              onBlur={() => handleNotesSave(user.id)}
-                              maxLength={500}
-                              className="w-48 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                              autoFocus
-                            />
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleNotesClick(user)}
-                            className="text-left hover:text-indigo-600 focus:outline-none"
-                          >
-                            {user.admin_notes || <span className="text-gray-400 italic">Add note</span>}
-                          </button>
-                        )}
+                        <UserDetailPanel user={user} />
                       </td>
                     </tr>
-                  );
-                })}
+                  </>
+                ))}
               </tbody>
             </table>
 

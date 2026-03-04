@@ -309,11 +309,17 @@ async function performSingleStateTransition(
   triggeredBy,
   reason,
   callback = null,
-  extraUpdates = null
+  extraUpdates = null,
+  existingClient = null  // Optional: client already in transaction
 ) {
-  const client = await pool.connect();
+  // If no client provided, open one and manage transaction. Otherwise use provided client.
+  const shouldManageTransaction = !existingClient;
+  const client = existingClient || (await pool.connect());
+
   try {
-    await client.query('BEGIN');
+    if (shouldManageTransaction) {
+      await client.query('BEGIN');
+    }
 
     // Lock and fetch contest
     const lockResult = await client.query(
@@ -322,7 +328,9 @@ async function performSingleStateTransition(
     );
 
     if (!lockResult.rows.length) {
-      await client.query('ROLLBACK');
+      if (shouldManageTransaction) {
+        await client.query('ROLLBACK');
+      }
       const err = new Error(`Contest ${contestInstanceId} not found`);
       err.code = 'CONTEST_NOT_FOUND';
       throw err;
@@ -333,13 +341,17 @@ async function performSingleStateTransition(
 
     // Idempotency: if already in target state, return success noop
     if (fromState === toState) {
-      await client.query('ROLLBACK');
+      if (shouldManageTransaction) {
+        await client.query('ROLLBACK');
+      }
       return { success: true, changed: false };
     }
 
     // Validate state is allowed
     if (!allowedFromStates.includes(fromState)) {
-      await client.query('ROLLBACK');
+      if (shouldManageTransaction) {
+        await client.query('ROLLBACK');
+      }
       const err = new Error(`Cannot transition ${contestInstanceId} from ${fromState} to ${toState}. Allowed from: ${allowedFromStates.join(', ')}`);
       err.code = 'INVALID_STATUS';
       throw err;
@@ -352,7 +364,9 @@ async function performSingleStateTransition(
       callbackResult = await callback(client, contestInstanceId, toState);
       if (callbackResult === null) {
         // Callback determined no state change (e.g., missing snapshot)
-        await client.query('ROLLBACK');
+        if (shouldManageTransaction) {
+          await client.query('ROLLBACK');
+        }
         return { success: true, changed: false };
       }
     }
@@ -378,7 +392,9 @@ async function performSingleStateTransition(
 
     if (!updateResult.rows.length) {
       // Race condition: status changed between lock and update
-      await client.query('ROLLBACK');
+      if (shouldManageTransaction) {
+        await client.query('ROLLBACK');
+      }
       throw new Error(`Lifecycle race: contest ${contestInstanceId} status changed during transition`);
     }
 
@@ -395,18 +411,24 @@ async function performSingleStateTransition(
       [contestInstanceId, fromState, toState, triggeredBy, reason, now]
     );
 
-    await client.query('COMMIT');
+    if (shouldManageTransaction) {
+      await client.query('COMMIT');
+    }
     return { success: true, changed: true };
 
   } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rollbackErr) {
-      // Ignore rollback errors
+    if (shouldManageTransaction) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        // Ignore rollback errors
+      }
     }
     throw err;
   } finally {
-    client.release();
+    if (shouldManageTransaction) {
+      client.release();
+    }
   }
 }
 
@@ -591,7 +613,7 @@ async function resolveContestErrorForAdmin(pool, now, contestInstanceId, toStatu
  * @param {string} contestInstanceId - Contest instance UUID
  * @returns {Promise<{ success: boolean }>}
  */
-async function cancelContestForAdmin(pool, now, contestInstanceId) {
+async function cancelContestForAdmin(pool, now, contestInstanceId, existingClient = null) {
   const result = await performSingleStateTransition(
     pool,
     now,
@@ -599,7 +621,10 @@ async function cancelContestForAdmin(pool, now, contestInstanceId) {
     ['SCHEDULED', 'LOCKED', 'LIVE', 'ERROR'],
     'CANCELLED',
     'ADMIN_CANCEL',
-    'Manual cancellation'
+    'Manual cancellation',
+    null,  // callback
+    null,  // extraUpdates
+    existingClient  // pass through existing client if provided
   );
   return { success: result.success };
 }

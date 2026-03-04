@@ -9,6 +9,41 @@ export interface User {
   apple_id: string | null;
   created_at: string | null;
   admin_notes: string | null;
+  // Wallet visibility fields (operational analytics)
+  wallet_balance_cents: number;
+  lifetime_deposits_cents: number;
+  lifetime_withdrawals_cents: number;
+  active_contests_count: number;
+  last_contest_join_at: string | null;
+  last_wallet_activity_at: string | null;
+}
+
+export interface LedgerEntry {
+  id: string;
+  entry_type: string;
+  direction: 'CREDIT' | 'DEBIT';
+  amount_cents: number;
+  reference_type: string | null;
+  reference_id: string | null;
+  created_at: string;
+  contest_name: string | null;
+  contest_status: string | null;
+}
+
+export interface UserContest {
+  id: string;
+  name: string;
+  status: string;
+  entry_fee_cents: number;
+  created_at: string;
+  lock_time: string | null;
+  tournament_start_time: string | null;
+  template_name: string | null;
+}
+
+export interface UserDetail extends User {
+  recent_ledger_entries: LedgerEntry[];
+  contests: UserContest[];
 }
 
 export interface AuthResponse {

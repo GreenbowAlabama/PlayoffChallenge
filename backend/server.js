@@ -2544,34 +2544,8 @@ app.put('/api/admin/position-requirements/:id', async (req, res) => {
 // ==============================================
 
 // Get all users (admin only)
-app.get('/api/admin/users', async (req, res) => {
-  try {
-    // Admin verification is handled by requireAdmin middleware
-    // req.adminUser is set by the middleware
-
-    // Get all users
-    const result = await pool.query(`
-      SELECT
-        id,
-        username,
-        email,
-        name,
-        phone,
-        paid,
-        is_admin,
-        apple_id,
-        created_at,
-        admin_notes
-      FROM users
-      ORDER BY username
-    `);
-
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Error fetching users:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+// MOVED: /api/admin/users endpoint moved to routes/adminUsers.routes.js
+// Mounted via app.js. This keeps server.js thin and maintains architecture separation.
 
 // Update user payment status (admin only)
 app.put('/api/admin/users/:id/payment', async (req, res) => {

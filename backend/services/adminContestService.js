@@ -536,32 +536,29 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
     throw new Error('reason is required for contest cancellation');
   }
 
-  // Verify contest exists and fetch current status
-  const checkClient = await pool.connect();
-  let contest;
+  const client = await pool.connect();
   try {
-    const checkResult = await checkClient.query(
-      'SELECT * FROM contest_instances WHERE id = $1',
+    await client.query('BEGIN');
+
+    // 1. Lock and fetch contest
+    const lockResult = await client.query(
+      'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestId]
     );
-    if (!checkResult.rows.length) {
+
+    if (!lockResult.rows.length) {
+      await client.query('ROLLBACK');
       const err = new Error('Contest not found');
       err.code = 'CONTEST_NOT_FOUND';
       throw err;
     }
-    contest = checkResult.rows[0];
-  } finally {
-    checkClient.release();
-  }
 
-  const fromStatus = contest.status;
+    const contest = lockResult.rows[0];
+    const fromStatus = contest.status;
 
-  // Idempotency: already cancelled
-  if (fromStatus === 'CANCELLED') {
-    const auditClient = await pool.connect();
-    try {
-      await auditClient.query('BEGIN');
-      await _writeAdminAudit(auditClient, {
+    // 2. Idempotency: already cancelled
+    if (fromStatus === 'CANCELLED') {
+      await _writeAdminAudit(client, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'cancel_contest',
@@ -570,19 +567,13 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
         to_status: fromStatus,
         payload: { noop: true }
       });
-      await auditClient.query('COMMIT');
-    } finally {
-      auditClient.release();
+      await client.query('COMMIT');
+      return { success: true, contest, noop: true };
     }
-    return { success: true, contest, noop: true };
-  }
 
-  // Fail-closed: only SCHEDULED, LOCKED, ERROR allowed
-  if (!['SCHEDULED', 'LOCKED', 'ERROR'].includes(fromStatus)) {
-    const auditClient = await pool.connect();
-    try {
-      await auditClient.query('BEGIN');
-      await _writeAdminAudit(auditClient, {
+    // 3. Fail-closed: only SCHEDULED, LOCKED, ERROR allowed
+    if (!['SCHEDULED', 'LOCKED', 'ERROR'].includes(fromStatus)) {
+      await _writeAdminAudit(client, {
         contest_instance_id: contestId,
         admin_user_id: adminUserId,
         action: 'cancel_contest',
@@ -591,64 +582,74 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
         to_status: fromStatus,
         payload: { rejected: true, error_code: 'INVALID_STATUS' }
       });
-      await auditClient.query('COMMIT');
-    } finally {
-      auditClient.release();
+      await client.query('COMMIT');
+      const err = new Error(`Cannot cancel contest in status '${fromStatus}'. Only SCHEDULED, LOCKED, and ERROR contests can be cancelled.`);
+      err.code = 'INVALID_STATUS';
+      throw err;
     }
-    const err = new Error(`Cannot cancel contest in status '${fromStatus}'. Only SCHEDULED, LOCKED, and ERROR contests can be cancelled.`);
-    err.code = 'INVALID_STATUS';
-    throw err;
-  }
 
-  // Validate transition via actor model
-  assertAllowedDbStatusTransition({
-    fromStatus,
-    toStatus: 'CANCELLED',
-    actor: ACTORS.ADMIN
-  });
+    // 4. Validate transition via actor model
+    assertAllowedDbStatusTransition({
+      fromStatus,
+      toStatus: 'CANCELLED',
+      actor: ACTORS.ADMIN
+    });
 
-  // Call frozen lifecycle primitive
-  const now = new Date();
-  try {
-    await cancelContestForAdmin(pool, now, contestId);
-  } catch (err) {
-    const auditClient = await pool.connect();
-    try {
-      await auditClient.query('BEGIN');
-      await _writeAdminAudit(auditClient, {
-        contest_instance_id: contestId,
-        admin_user_id: adminUserId,
-        action: 'cancel_contest',
-        reason,
-        from_status: fromStatus,
-        to_status: fromStatus,
-        payload: { rejected: true, error_code: 'LIFECYCLE_ERROR', error: err.message }
-      });
-      await auditClient.query('COMMIT');
-    } finally {
-      auditClient.release();
-    }
-    throw err;
-  }
+    // 5. Call frozen lifecycle primitive (using same client to keep transaction atomic)
+    const now = new Date();
+    await cancelContestForAdmin(pool, now, contestId, client);
 
-  // Fetch updated contest
-  const fetchClient = await pool.connect();
-  let updatedContest;
-  try {
-    const fetchResult = await fetchClient.query(
+    // 6. Fetch updated contest (now that it's CANCELLED)
+    const fetchResult = await client.query(
       'SELECT * FROM contest_instances WHERE id = $1',
       [contestId]
     );
-    updatedContest = fetchResult.rows[0];
-  } finally {
-    fetchClient.release();
-  }
+    const updatedContest = fetchResult.rows[0];
 
-  // Write admin audit
-  const auditClient = await pool.connect();
-  try {
-    await auditClient.query('BEGIN');
-    await _writeAdminAudit(auditClient, {
+    // 7. Refund all participants (deterministic, idempotent via idempotency_key)
+    if (contest.entry_fee_cents > 0) {
+      // Get all participants at time of cancellation
+      const participantsResult = await client.query(
+        `SELECT DISTINCT user_id FROM contest_participants WHERE contest_instance_id = $1`,
+        [contestId]
+      );
+
+      // Create refund entry for each participant
+      for (const participant of participantsResult.rows) {
+        const userId = participant.user_id;
+        const refundIdempotencyKey = `cancel_contest_refund:${contestId}:${userId}`;
+
+        await client.query(
+          `INSERT INTO ledger (
+             user_id,
+             entry_type,
+             direction,
+             amount_cents,
+             currency,
+             reference_type,
+             reference_id,
+             contest_instance_id,
+             idempotency_key,
+             created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [
+            userId,
+            'ENTRY_FEE_REFUND',
+            'CREDIT',
+            contest.entry_fee_cents,
+            'USD',
+            'CONTEST',
+            contestId,
+            contestId,
+            refundIdempotencyKey
+          ]
+        );
+      }
+    }
+
+    // 8. Write admin audit
+    await _writeAdminAudit(client, {
       contest_instance_id: contestId,
       admin_user_id: adminUserId,
       action: 'cancel_contest',
@@ -657,16 +658,26 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
       to_status: 'CANCELLED',
       payload: { noop: false }
     });
-    await auditClient.query('COMMIT');
-  } finally {
-    auditClient.release();
-  }
 
-  return {
-    success: true,
-    contest: updatedContest,
-    noop: false
-  };
+    // 9. Commit all changes atomically
+    await client.query('COMMIT');
+
+    return {
+      success: true,
+      contest: updatedContest,
+      noop: false
+    };
+
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      // Swallow rollback errors
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -962,6 +973,153 @@ async function deleteContest(pool, contestId, adminId, reason, hard) {
 }
 
 /**
+ * Admin Remove User From Contest
+ *
+ * Removes a participant from a contest and refunds entry fee (if applicable).
+ * Only allowed for SCHEDULED and LOCKED contests.
+ *
+ * Atomic operation:
+ * - Removes contest_participants row
+ * - Creates refund ledger entry (idempotent via idempotency_key)
+ * - Writes admin audit entry
+ *
+ * Idempotent: If user is not in contest, returns success with noop=true.
+ *
+ * @param {Object} pool - Database pool
+ * @param {string} contestId - Contest instance UUID
+ * @param {string} userId - User to remove UUID
+ * @param {string} adminUserId - Admin performing the action UUID
+ * @param {string} reason - Human-readable reason
+ * @returns {Promise<Object>} { success: true, noop: boolean, refunded: boolean }
+ * @throws {Error} If contest not found, invalid status, or database error
+ */
+async function adminRemoveUserFromContest(pool, contestId, userId, adminUserId, reason) {
+  // Validate inputs
+  if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+    throw new Error('reason is required');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Lock and fetch contest
+    const lockResult = await client.query(
+      'SELECT * FROM contest_instances WHERE id = $1 FOR UPDATE',
+      [contestId]
+    );
+
+    if (!lockResult.rows.length) {
+      await client.query('ROLLBACK');
+      const err = new Error('Contest not found');
+      err.code = 'CONTEST_NOT_FOUND';
+      throw err;
+    }
+
+    const contest = lockResult.rows[0];
+
+    // 2. Only allowed for SCHEDULED or LOCKED contests
+    if (!['SCHEDULED', 'LOCKED'].includes(contest.status)) {
+      await client.query('ROLLBACK');
+      const err = new Error(`Cannot remove user from contest in ${contest.status} status. Only SCHEDULED and LOCKED contests allow user removal.`);
+      err.code = 'INVALID_STATUS';
+      throw err;
+    }
+
+    // 3. Check if participant exists (SELECT FOR UPDATE to lock row)
+    const participantResult = await client.query(
+      `SELECT contest_instance_id, user_id
+       FROM contest_participants
+       WHERE contest_instance_id = $1 AND user_id = $2
+       FOR UPDATE`,
+      [contestId, userId]
+    );
+
+    // 4. If participant doesn't exist, idempotent noop
+    if (participantResult.rows.length === 0) {
+      await _writeAdminAudit(client, {
+        contest_instance_id: contestId,
+        admin_user_id: adminUserId,
+        action: 'remove_user_from_contest',
+        reason,
+        from_status: contest.status,
+        to_status: contest.status,
+        payload: { user_id: userId, refunded: false, noop: true }
+      });
+      await client.query('COMMIT');
+      return { success: true, noop: true, refunded: false };
+    }
+
+    // 5. Delete the participant
+    await client.query(
+      'DELETE FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2',
+      [contestId, userId]
+    );
+
+    // 6. Create refund entry if entry_fee_cents > 0
+    let refunded = false;
+    if (contest.entry_fee_cents > 0) {
+      const refundIdempotencyKey = `remove_user_refund:${contestId}:${userId}`;
+
+      await client.query(
+        `INSERT INTO ledger (
+           user_id,
+           entry_type,
+           direction,
+           amount_cents,
+           currency,
+           reference_type,
+           reference_id,
+           contest_instance_id,
+           idempotency_key,
+           created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+         ON CONFLICT (idempotency_key) DO NOTHING`,
+        [
+          userId,
+          'ENTRY_FEE_REFUND',
+          'CREDIT',
+          contest.entry_fee_cents,
+          'USD',
+          'CONTEST',
+          contestId,
+          contestId,
+          refundIdempotencyKey
+        ]
+      );
+
+      refunded = true;
+    }
+
+    // 7. Write admin audit
+    await _writeAdminAudit(client, {
+      contest_instance_id: contestId,
+      admin_user_id: adminUserId,
+      action: 'remove_user_from_contest',
+      reason,
+      from_status: contest.status,
+      to_status: contest.status,
+      payload: { user_id: userId, refunded, amount_cents: contest.entry_fee_cents }
+    });
+
+    // 8. Commit all changes atomically
+    await client.query('COMMIT');
+
+    return { success: true, noop: false, refunded };
+
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      // Swallow rollback errors
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Compatibility constant: ADMIN_TRANSITIONS
  * Maps legacy transition expectations for test compatibility.
  * Does not affect actual lifecycle logic.
@@ -978,6 +1136,7 @@ module.exports = {
   listContests,
   getContest,
   cancelContestInstance,
+  adminRemoveUserFromContest,
   forceLockContestInstance,
   updateContestTimeFields,
   triggerSettlement,
