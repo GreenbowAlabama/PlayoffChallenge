@@ -25,12 +25,16 @@ const ingestionRegistry = require('./ingestionRegistry');
  * @param {Array} workUnits - (Optional) Pre-built work units from polling orchestrator.
  *                            If provided, skips adapter.getWorkUnits() call.
  *                            Enables Batch 2 polling orchestrator to supply ESPN data.
- * @returns {Promise<Object>} summary - { processed, skipped, errors }
+ * @param {Object} options - (Optional) { phase: 'PLAYER_POOL' | 'SCORING' | 'BOTH' }
+ *                            Controls phase-specific status gating.
+ * @returns {Promise<Object>} summary - { processed, skipped, errors, phase, reason? }
  */
-async function run(contestInstanceId, pool, workUnits = null) {
+async function run(contestInstanceId, pool, workUnits = null, options = null) {
   if (!contestInstanceId) {
     throw new Error('ingestionService.run: contestInstanceId is required');
   }
+
+  const phase = options?.phase || 'BOTH';
 
   const client = await pool.connect();
 
@@ -70,6 +74,25 @@ async function run(contestInstanceId, pool, workUnits = null) {
     // GOLF uses pga_espn, all others default to nfl_espn
     const strategyKey = row.sport === 'GOLF' ? 'pga_espn' : 'nfl_espn';
 
+    // ── Phase-specific status gating ──────────────────────────────────────────
+    if (phase === 'SCORING' && row.status === 'SCHEDULED') {
+      console.log(
+        `[Ingestion] Skipped SCORING phase for SCHEDULED contest ${contestInstanceId}: scoring data unavailable in SCHEDULED status`
+      );
+
+      await client.query('ROLLBACK');
+
+      return {
+        contestInstanceId,
+        status: 'REJECTED',
+        reason: 'SCHEDULED_CONTEST_NO_SCORING',
+        phase: 'SCORING',
+        processed: 0,
+        skipped: 0,
+        errors: 0
+      };
+    }
+
     // ── Post-COMPLETE hard guard ─────────────────────────────────────────────
     if (row.status === 'COMPLETE') {
       const reason = 'POST_COMPLETE_REJECTION';
@@ -84,6 +107,7 @@ async function run(contestInstanceId, pool, workUnits = null) {
         contestInstanceId,
         status: 'REJECTED',
         reason,
+        phase,
         processed: 0,
         skipped: 0,
         errors: 0
@@ -106,7 +130,7 @@ async function run(contestInstanceId, pool, workUnits = null) {
     // Otherwise, call adapter.getWorkUnits() for backward compatibility (Batch 1, other sports).
     const unitsToProcess = workUnits !== null ? workUnits : await adapter.getWorkUnits(ctx);
 
-    const summary = { processed: 0, skipped: 0, errors: [] };
+    const summary = { processed: 0, skipped: 0, errors: [], phase };
 
     // ── Process each work unit ────────────────────────────────────────────────
     for (const unit of unitsToProcess) {
@@ -263,4 +287,33 @@ async function initializeTournamentField(pool, contestInstanceId) {
   );
 }
 
-module.exports = { run, initializeTournamentField };
+/**
+ * Run player pool ingestion for a contest instance.
+ *
+ * Ingests player field and baseline tournament metadata required for lineup selection.
+ * Allowed for contests in status: SCHEDULED, LOCKED, LIVE
+ *
+ * @param {string} contestInstanceId - UUID of contest_instance
+ * @param {Object} pool - pg.Pool
+ * @returns {Promise<Object>} summary with phase='PLAYER_POOL'
+ */
+async function runPlayerPool(contestInstanceId, pool) {
+  return run(contestInstanceId, pool, null, { phase: 'PLAYER_POOL' });
+}
+
+/**
+ * Run scoring ingestion for a contest instance.
+ *
+ * Ingests leaderboard, live stats, and scoring data required for contest progression and settlement.
+ * Only allowed for contests in status: LOCKED, LIVE
+ * Rejects SCHEDULED contests (scoring data unavailable).
+ *
+ * @param {string} contestInstanceId - UUID of contest_instance
+ * @param {Object} pool - pg.Pool
+ * @returns {Promise<Object>} summary with phase='SCORING'
+ */
+async function runScoring(contestInstanceId, pool) {
+  return run(contestInstanceId, pool, null, { phase: 'SCORING' });
+}
+
+module.exports = { run, runPlayerPool, runScoring, initializeTournamentField };
