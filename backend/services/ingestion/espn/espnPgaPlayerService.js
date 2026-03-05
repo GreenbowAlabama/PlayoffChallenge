@@ -108,8 +108,22 @@ async function fetchTournamentField(eventId) {
 
     // Step 2: Use leaderboard if it has competitors
     if (leaderboardCompetitors.length > 0) {
+      // DEBUG: Log raw leaderboard structure
+      console.log('[DEBUG-LEADERBOARD] Total competitors fetched:', leaderboardCompetitors.length);
+      if (leaderboardCompetitors.length > 0) {
+        console.log('[DEBUG-LEADERBOARD] First competitor keys:', Object.keys(leaderboardCompetitors[0]));
+        console.log('[DEBUG-LEADERBOARD] First athlete keys:', Object.keys(leaderboardCompetitors[0].athlete || {}));
+        console.log('[DEBUG-LEADERBOARD] First athlete:', JSON.stringify(leaderboardCompetitors[0].athlete, null, 2).slice(0, 800));
+      }
+
       const normalized = leaderboardCompetitors
-        .map(competitor => normalizeGolfer(competitor.athlete))
+        .map((competitor, idx) => {
+          const result = normalizeGolfer(competitor.athlete);
+          if (!result) {
+            console.log(`[DEBUG-FILTERED] Leaderboard golfer ${idx} rejected. Athlete:`, JSON.stringify(competitor.athlete, null, 2).slice(0, 500));
+          }
+          return result;
+        })
         .filter(golfer => golfer !== null);
       logger.info(`[espnPgaPlayerService] Using leaderboard endpoint: ${normalized.length} valid golfers for event ${eventId}`);
       return normalized;
@@ -149,8 +163,28 @@ async function fetchTournamentField(eventId) {
       competitors.push(...competitorList);
     }
 
+    // DEBUG: Log raw scoreboard structure
+    console.log('[DEBUG-SCOREBOARD] Total competitors fetched:', competitors.length);
+    if (competitors.length > 0) {
+      console.log('[DEBUG-SCOREBOARD] First competitor keys:', Object.keys(competitors[0]));
+      console.log('[DEBUG-SCOREBOARD] First competitor structure:', JSON.stringify(competitors[0], null, 2).slice(0, 800));
+      if (competitors[0].athlete) {
+        console.log('[DEBUG-SCOREBOARD] First athlete keys:', Object.keys(competitors[0].athlete));
+        console.log('[DEBUG-SCOREBOARD] First athlete:', JSON.stringify(competitors[0].athlete, null, 2).slice(0, 800));
+      } else {
+        console.log('[DEBUG-SCOREBOARD] WARNING: competitor.athlete is missing!');
+        console.log('[DEBUG-SCOREBOARD] Competitor object:', JSON.stringify(competitors[0], null, 2).slice(0, 800));
+      }
+    }
+
     const normalized = competitors
-      .map(competitor => normalizeGolfer(competitor.athlete))
+      .map((competitor, idx) => {
+        const result = normalizeGolfer(competitor.athlete);
+        if (!result) {
+          console.log(`[DEBUG-FILTERED] Golfer ${idx} rejected. Athlete:`, JSON.stringify(competitor.athlete, null, 2).slice(0, 500));
+        }
+        return result;
+      })
       .filter(golfer => golfer !== null);
     logger.info(`[espnPgaPlayerService] Using scoreboard fallback: ${normalized.length} valid golfers for event ${eventId}`);
 
@@ -169,12 +203,14 @@ async function fetchTournamentField(eventId) {
  */
 function normalizeGolfer(athlete) {
   if (!athlete) {
+    console.log('[DEBUG-NORMALIZE] athlete is null/undefined');
     return null;
   }
 
   // Guard: require athlete ID
   const athleteId = athlete.id || athlete.athleteId;
   if (!athleteId) {
+    console.log('[DEBUG-NORMALIZE] No ID found. id=', athlete.id, 'athleteId=', athlete.athleteId);
     return null;
   }
 
@@ -190,8 +226,11 @@ function normalizeGolfer(athlete) {
 
   // Guard: require a name
   if (!name) {
+    console.log('[DEBUG-NORMALIZE] No name found. displayName=', athlete.displayName, 'firstName=', athlete.firstName, 'lastName=', athlete.lastName);
     return null;
   }
+
+  console.log('[DEBUG-NORMALIZE] SUCCESS: athleteId=', athleteId, 'name=', name);
 
   return {
     external_id: athleteId,
