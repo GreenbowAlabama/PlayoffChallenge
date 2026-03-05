@@ -51,11 +51,14 @@ function startIngestionWorker(pool, options = {}) {
 
   ingestionInterval = setInterval(async () => {
     try {
-      // Query for all active contest instances that need ingestion
+      // Query for contest instances with tournament configurations
+      // Ingestion is driven by tournament provider events, not contest lifecycle
+      // Player pools must exist while contests are SCHEDULED so users can build lineups
       const result = await pool.query(
-        `SELECT id FROM contest_instances
-         WHERE status IN ('OPEN', 'LOCKED', 'LIVE')
-         ORDER BY created_at DESC`
+        `SELECT tc.contest_instance_id AS id
+         FROM tournament_configs tc
+         WHERE tc.provider_event_id IS NOT NULL
+         ORDER BY tc.created_at DESC`
       );
 
       const contestInstances = result.rows;

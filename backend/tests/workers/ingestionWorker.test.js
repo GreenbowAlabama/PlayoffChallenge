@@ -192,8 +192,8 @@ describe('Ingestion Worker', () => {
     });
   });
 
-  describe('Query for active contest instances', () => {
-    it('should query for OPEN, LOCKED, and LIVE contests', (done) => {
+  describe('Tournament-driven discovery', () => {
+    it('should discover contests via tournament_configs with provider_event_id', (done) => {
       mockPool.query.mockResolvedValue({
         rows: []
       });
@@ -204,13 +204,30 @@ describe('Ingestion Worker', () => {
 
       setTimeout(() => {
         const queryCall = mockPool.query.mock.calls[0];
-        expect(queryCall[0]).toContain("status IN ('OPEN', 'LOCKED', 'LIVE')");
+        expect(queryCall[0]).toContain('tournament_configs');
+        expect(queryCall[0]).toContain('provider_event_id IS NOT NULL');
         stopIngestionWorker();
         done();
       }, 150);
     });
 
-    it('should skip ingestion when no active contests exist', (done) => {
+    it('should run ingestion when provider_event_id exists', (done) => {
+      mockPool.query.mockResolvedValue({
+        rows: [{ id: 'ci-tournament-1' }]
+      });
+
+      startIngestionWorker(mockPool, {
+        intervalMs: 100
+      });
+
+      setTimeout(() => {
+        expect(ingestionService.run).toHaveBeenCalledWith('ci-tournament-1', mockPool);
+        stopIngestionWorker();
+        done();
+      }, 150);
+    });
+
+    it('should skip ingestion when no tournament_configs exist', (done) => {
       mockPool.query.mockResolvedValue({
         rows: []
       });
@@ -221,6 +238,26 @@ describe('Ingestion Worker', () => {
 
       setTimeout(() => {
         expect(ingestionService.run).not.toHaveBeenCalled();
+        stopIngestionWorker();
+        done();
+      }, 150);
+    });
+
+    it('should process multiple contests from tournament_configs', (done) => {
+      mockPool.query.mockResolvedValue({
+        rows: [
+          { id: 'ci-tournament-1' },
+          { id: 'ci-tournament-2' }
+        ]
+      });
+
+      startIngestionWorker(mockPool, {
+        intervalMs: 100
+      });
+
+      setTimeout(() => {
+        expect(ingestionService.run).toHaveBeenCalledWith('ci-tournament-1', mockPool);
+        expect(ingestionService.run).toHaveBeenCalledWith('ci-tournament-2', mockPool);
         stopIngestionWorker();
         done();
       }, 150);
