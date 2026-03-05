@@ -18,6 +18,7 @@ const config = require('./config');
 const { startCleanup, stopCleanup } = require('./auth/appleVerify');
 const { startLifecycleReconciler } = require('./workers/lifecycleReconcilerWorker');
 const { startDiscoveryWorker } = require('./workers/discoveryWorker');
+const { startIngestionWorker } = require('./workers/ingestionWorker');
 const { startWithdrawalProcessor } = require('./workers/withdrawalProcessorWorker');
 
 // Fail fast on misconfigured environment
@@ -3311,6 +3312,7 @@ function startServer() {
     if (process.env.NODE_ENV !== 'test') {
       setTimeout(() => startLifecycleReconciler(pool), 5000); // Start after 5 seconds
       setTimeout(() => startDiscoveryWorker(pool), 5000); // Start after 5 seconds
+      setTimeout(() => startIngestionWorker(pool), 5000); // Start after 5 seconds
       setTimeout(() => startWithdrawalProcessor(pool), 5000); // Start after 5 seconds
     }
   });
