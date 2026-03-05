@@ -25,8 +25,8 @@ describe('ESPN PGA Player Service', () => {
                 {
                   competitors: [
                     {
+                      id: '12345',
                       athlete: {
-                        id: '12345',
                         displayName: 'Rory McIlroy',
                         headshot: {
                           href: 'https://a.espncdn.com/media/golf/players/12345.jpg'
@@ -34,8 +34,8 @@ describe('ESPN PGA Player Service', () => {
                       }
                     },
                     {
+                      id: '67890',
                       athlete: {
-                        id: '67890',
                         displayName: 'Jon Rahm',
                         headshot: {
                           href: 'https://a.espncdn.com/media/golf/players/67890.jpg'
@@ -80,8 +80,8 @@ describe('ESPN PGA Player Service', () => {
                 {
                   competitors: [
                     {
+                      id: '12345',
                       athlete: {
-                        id: '12345',
                         displayName: 'Rory McIlroy',
                         headshot: null
                       }

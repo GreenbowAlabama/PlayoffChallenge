@@ -57,7 +57,7 @@ async function fetchGolfers() {
     logger.info(`[espnPgaPlayerService] Fetched ${competitors.length} golfers`);
 
     const normalized = competitors
-      .map(competitor => normalizeGolfer(competitor.athlete))
+      .map(competitor => normalizeGolfer(competitor))
       .filter(golfer => golfer !== null);
 
     return normalized;
@@ -113,7 +113,7 @@ async function fetchTournamentField(eventId) {
       console.log('[EMERGENCY-DEBUG] Leaderboard first athlete:', JSON.stringify(leaderboardCompetitors[0].athlete, null, 2).substring(0, 500));
 
       const normalized = leaderboardCompetitors
-        .map(competitor => normalizeGolfer(competitor.athlete))
+        .map(competitor => normalizeGolfer(competitor))
         .filter(golfer => golfer !== null);
       logger.info(`[espnPgaPlayerService] Using leaderboard endpoint: ${normalized.length} valid golfers for event ${eventId}`);
       return normalized;
@@ -177,7 +177,7 @@ async function fetchTournamentField(eventId) {
     }
 
     const normalized = competitors
-      .map(competitor => normalizeGolfer(competitor.athlete))
+      .map(competitor => normalizeGolfer(competitor))
       .filter(golfer => golfer !== null);
     logger.info(`[espnPgaPlayerService] Using scoreboard fallback: ${normalized.length} valid golfers for event ${eventId}`);
 
@@ -189,25 +189,48 @@ async function fetchTournamentField(eventId) {
 }
 
 /**
- * Normalize a single ESPN athlete into platform player format.
+ * Normalize a single ESPN competitor (with athlete data) into platform player format.
  *
- * @param {Object} athlete - ESPN athlete object
+ * ESPN scoreboard structure:
+ * {
+ *   id: '12345',           // ← Player ID is here (not on athlete)
+ *   athlete: {
+ *     displayName: 'Name',
+ *     fullName: 'Full Name',
+ *     headshot: { href: '...' }
+ *   }
+ * }
+ *
+ * @param {Object} competitor - ESPN competitor object (has id + nested athlete)
  * @returns {Object|null} Normalized player object, or null if required fields missing
  */
-function normalizeGolfer(athlete) {
-  if (!athlete) {
+function normalizeGolfer(competitor) {
+  if (!competitor) {
     return null;
   }
 
-  // Guard: require athlete ID
-  const athleteId = athlete.id || athlete.athleteId;
+  // STRATEGY 1: Try to extract ID from competitor wrapper level (ESPN scoreboard structure)
+  let athleteId = competitor.id || competitor.athleteId;
+
+  // STRATEGY 2: Fallback - try athlete.id (backward compat if some responses have it there)
+  if (!athleteId && competitor.athlete) {
+    athleteId = competitor.athlete.id || competitor.athlete.athleteId;
+  }
+
+  // Guard: require an ID from somewhere
   if (!athleteId) {
     return null;
   }
 
+  // Extract athlete object (either from competitor or passed directly)
+  const athlete = competitor.athlete || competitor;
+  if (!athlete) {
+    return null;
+  }
+
   // Derive display name from available fields
-  // ESPN API may provide: displayName, or firstName+lastName
-  let name = athlete.displayName;
+  // ESPN API may provide: displayName, fullName, or firstName+lastName
+  let name = athlete.displayName || athlete.fullName;
   if (!name && athlete.firstName && athlete.lastName) {
     name = `${athlete.firstName} ${athlete.lastName}`;
   }
