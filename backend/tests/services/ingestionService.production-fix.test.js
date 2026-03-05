@@ -54,6 +54,7 @@ describe('Ingestion Service — Production Fixes', () => {
               status: 'LIVE',
               sport: 'GOLF',
               template_id: 'template-1',
+              provider_tournament_id: 'espn_pga_401811937',
               provider_event_id: providerEventId,
               scoring_strategy_key: 'pga_standard',
               settlement_strategy_key: 'pga_settlement'
@@ -94,6 +95,7 @@ describe('Ingestion Service — Production Fixes', () => {
               status: 'LIVE',
               sport: 'GOLF',
               template_id: 'template-1',
+              provider_tournament_id: 'espn_pga_401811937',
               provider_event_id: providerEventId,
               scoring_strategy_key: 'pga_standard',
               settlement_strategy_key: 'pga_settlement'
@@ -140,6 +142,7 @@ describe('Ingestion Service — Production Fixes', () => {
               status: 'LIVE',
               sport: 'GOLF',
               template_id: 'template-1',
+              provider_tournament_id: 'espn_pga_401811937',
               provider_event_id: dbEventId,
               scoring_strategy_key: 'pga_standard',
               settlement_strategy_key: 'pga_settlement'
@@ -179,6 +182,7 @@ describe('Ingestion Service — Production Fixes', () => {
               status: 'LIVE',
               sport: 'GOLF',
               template_id: 'template-1',
+              provider_tournament_id: 'espn_pga_401811937',
               provider_event_id: null, // NO provider_event_id in DB
               scoring_strategy_key: 'pga_standard',
               settlement_strategy_key: 'pga_settlement'
@@ -238,6 +242,7 @@ describe('Ingestion Service — Production Fixes', () => {
               status: 'LIVE',
               sport: 'GOLF',
               template_id: 'template-1',
+              provider_tournament_id: 'espn_pga_401811937',
               provider_event_id: providerEventId,
               scoring_strategy_key: 'pga_standard',
               settlement_strategy_key: 'pga_settlement'

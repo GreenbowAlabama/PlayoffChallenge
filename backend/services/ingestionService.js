@@ -16,6 +16,7 @@
 'use strict';
 
 const ingestionRegistry = require('./ingestionRegistry');
+const { resolveStrategyKey } = require('./ingestionStrategyResolver');
 
 /**
  * Run ingestion for a contest instance.
@@ -48,6 +49,7 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
          ct.sport,
          ct.scoring_strategy_key,
          ct.settlement_strategy_key,
+         ct.provider_tournament_id,
          tc.provider_event_id
        FROM contest_instances ci
        JOIN contest_templates ct ON ci.template_id = ct.id
@@ -64,15 +66,29 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
     const row = ciResult.rows[0];
 
+    // Guard: provider_tournament_id is required for strategy resolution
+    if (!row.provider_tournament_id) {
+      await client.query('ROLLBACK');
+      throw new Error(`provider_tournament_id missing for contest ${contestInstanceId}`);
+    }
+
     // Guard: provider_event_id is required for ingestion
     if (!row.provider_event_id) {
       await client.query('ROLLBACK');
       throw new Error(`provider_event_id missing for contest ${contestInstanceId}`);
     }
 
-    // Determine ingestion strategy based on sport
-    // GOLF uses pga_espn, all others default to nfl_espn
-    const strategyKey = row.sport === 'GOLF' ? 'pga_espn' : 'nfl_espn';
+    // Determine ingestion strategy from provider_tournament_id
+    // Derives strategy from prefix: espn_pga_* → pga_espn, espn_nfl_* → nfl_espn
+    let strategyKey;
+    try {
+      strategyKey = resolveStrategyKey(row.provider_tournament_id);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw new Error(
+        `Failed to resolve ingestion strategy for contest ${contestInstanceId}: ${err.message}`
+      );
+    }
 
     // ── Phase-specific status gating ──────────────────────────────────────────
     if (phase === 'SCORING' && row.status === 'SCHEDULED') {
