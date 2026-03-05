@@ -472,7 +472,7 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
 
     // Find all active system-generated templates
     const templatesResult = await client.query(
-      `SELECT id, name, default_entry_fee_cents, allowed_payout_structures
+      `SELECT id, name, default_entry_fee_cents, allowed_payout_structures, is_system_generated
        FROM contest_templates
        WHERE is_system_generated = true
        AND is_active = true`
@@ -485,8 +485,8 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
 
       const contestName = `${template.name} - ${event.name}`;
 
-      // Discovery-discovered contests are system-generated and platform-owned
-      const isPlatformOwned = true;
+      // Contests are platform-owned if the template is system-generated
+      const isPlatformOwned = template.is_system_generated;
 
       const insertResult = await client.query(
         `INSERT INTO contest_instances (
