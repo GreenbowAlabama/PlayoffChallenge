@@ -493,7 +493,6 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
           lock_time, provider_event_id, is_platform_owned
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)
         ON CONFLICT (provider_event_id, template_id)
-        WHERE provider_event_id IS NOT NULL
         DO NOTHING
         RETURNING id`,
         [
