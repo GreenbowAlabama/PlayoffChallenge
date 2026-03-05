@@ -189,6 +189,22 @@ function computeIngestionKey(contestInstanceId, unit) {
     throw new Error('unit is required');
   }
 
+  // PLAYER_POOL phase units may not contain providerData
+  if (!unit.providerData) {
+    // Deterministic fallback for player pool ingestion
+    if (unit.playerId) {
+      return `player_pool:${unit.playerId}`;
+    }
+
+    if (unit.externalPlayerId) {
+      return `player_pool:${unit.externalPlayerId}`;
+    }
+
+    // Defensive guard
+    throw new Error('Cannot compute ingestion key: missing providerData and player identifier');
+  }
+
+  // SCORING phase: validate providerEventId and providerData
   // Validate providerEventId
   if (!unit.providerEventId) {
     throw new Error('unit.providerEventId is required');
@@ -197,9 +213,9 @@ function computeIngestionKey(contestInstanceId, unit) {
     throw new Error('unit.providerEventId is required and must be a non-empty string');
   }
 
-  // Validate providerData
-  if (!unit.providerData || typeof unit.providerData !== 'object') {
-    throw new Error('unit.providerData is required for key computation');
+  // Validate providerData is an object
+  if (typeof unit.providerData !== 'object') {
+    throw new Error('unit.providerData must be an object');
   }
 
   // Normalize payload (validates structure and extracts score-relevant fields)

@@ -291,7 +291,7 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
       };
 
       expect(() => adapter.computeIngestionKey('ci-test', unit)).toThrow(
-        /unit\.providerData is required for key computation/
+        /Cannot compute ingestion key: missing providerData and player identifier/
       );
     });
 
@@ -302,7 +302,7 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
       };
 
       expect(() => adapter.computeIngestionKey('ci-test', unit)).toThrow(
-        /unit\.providerData is required for key computation/
+        /unit\.providerData must be an object/
       );
     });
 

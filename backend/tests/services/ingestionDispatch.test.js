@@ -65,7 +65,7 @@ describe('pgaEspnIngestion stub', () => {
   });
 
   it('computeIngestionKey validates required inputs', () => {
-    expect(() => adapter.computeIngestionKey('cid', {})).toThrow(/unit\.providerEventId is required/);
+    expect(() => adapter.computeIngestionKey('cid', {})).toThrow(/Cannot compute ingestion key: missing providerData and player identifier/);
   });
 
   it('ingestWorkUnit requires providerData (snapshot binding implementation)', async () => {
