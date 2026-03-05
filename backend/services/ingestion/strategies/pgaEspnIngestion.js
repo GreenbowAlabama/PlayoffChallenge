@@ -266,9 +266,14 @@ async function getWorkUnits(ctx) {
     return [];
   }
 
-  // Return empty array if providerEventId is missing
-  if (!ctx.providerEventId) {
-    console.warn('[pgaEspnIngestion] No providerEventId in context, skipping PLAYER_POOL units');
+  // Resolve provider_event_id from multiple possible sources (camelCase or snake_case)
+  const providerEventId =
+    ctx.providerEventId ||
+    ctx.provider_event_id ||
+    ctx.contest?.provider_event_id;
+
+  if (!providerEventId) {
+    console.warn('[pgaEspnIngestion] No provider_event_id in context, skipping PLAYER_POOL units');
     return [];
   }
 
@@ -282,7 +287,7 @@ async function getWorkUnits(ctx) {
   try {
     // Fetch tournament field from ESPN leaderboard (optimized for player pool)
     // Returns complete field with tee times and positions
-    golfers = await espnPgaPlayerService.fetchTournamentField(ctx.providerEventId);
+    golfers = await espnPgaPlayerService.fetchTournamentField(providerEventId);
   } catch (err) {
     console.warn('[pgaEspnIngestion] Failed to fetch tournament field for PLAYER_POOL units:', err.message);
     // Don't throw - allow graceful degradation
@@ -295,7 +300,7 @@ async function getWorkUnits(ctx) {
     return [];
   }
 
-  console.log(`[pgaEspnIngestion] Fetched ${golfers.length} golfers from leaderboard for event ${ctx.providerEventId}`);
+  console.log(`[pgaEspnIngestion] Fetched ${golfers.length} golfers from leaderboard for event ${providerEventId}`);
 
   // Emit one unit per golfer
   // Idempotency: each unit with unique externalPlayerId is processed only once
@@ -303,7 +308,7 @@ async function getWorkUnits(ctx) {
   // Attach golfer data to unit so ingestWorkUnit doesn't need to call ESPN again
   const units = golfers.map(golfer => ({
     externalPlayerId: golfer.external_id,
-    providerEventId: ctx.providerEventId,
+    providerEventId: providerEventId,
     providerData: null,
     golfer: golfer  // Attach golfer data to avoid re-fetching
   }));
