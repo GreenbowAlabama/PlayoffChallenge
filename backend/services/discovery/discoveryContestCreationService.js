@@ -29,6 +29,7 @@
 const { getNextUpcomingEvent } = require('./calendarProvider');
 const { fetchEspnSummary, extractEspnEventId } = require('./espnDataFetcher');
 const pgaEspnIngestion = require('../ingestion/strategies/pgaEspnIngestion');
+const { initializeTournamentField } = require('../ingestionService');
 
 /**
  * Derive lock_time for a PGA contest during creation.
@@ -336,6 +337,15 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
         );
       }
 
+      // Initialize tournament field for GOLF contests (non-blocking)
+      try {
+        await initializeTournamentField(pool, contestInstanceId);
+      } catch (err) {
+        console.warn(
+          `[Discovery] Tournament field initialization failed for ${contestInstanceId}: ${err.message}`
+        );
+      }
+
       // Audit logging (non-blocking: failures do not fail transaction)
       try {
         await client.query(
@@ -475,6 +485,17 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
 
       if (insertResult.rows.length > 0) {
         created++;
+        const contestInstanceId = insertResult.rows[0].id;
+
+        // Initialize tournament field for GOLF contests (non-blocking)
+        try {
+          await initializeTournamentField(pool, contestInstanceId);
+        } catch (err) {
+          console.warn(
+            `[Discovery] Tournament field initialization failed for ${contestInstanceId}: ${err.message}`
+          );
+        }
+
         // Audit logging (non-blocking)
         try {
           await client.query(
@@ -483,7 +504,7 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
               from_status, to_status, payload
             ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [
-              insertResult.rows[0].id,
+              contestInstanceId,
               organizerId,
               'AUTO_CREATE',
               'Auto-created by discovery service for upcoming PGA event',
