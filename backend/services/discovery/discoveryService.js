@@ -14,6 +14,7 @@
  */
 
 const { validateDiscoveryInput, getErrorDetails } = require('./discoveryValidator');
+const { initializeTournamentField } = require('../ingestionService');
 
 /**
  * Discover tournament and create/update system template
@@ -299,7 +300,28 @@ async function discoverTournament(input, pool, now, organizerId) {
       ]
     );
 
+    // Capture the created marketing contest instance for field initialization (outside transaction)
+    const instanceResult = await client.query(
+      `SELECT id FROM contest_instances
+       WHERE template_id = $1 AND is_primary_marketing = true
+       LIMIT 1`,
+      [templateId]
+    );
+
     await client.query('COMMIT');
+    const marketingInstanceId = instanceResult.rows.length > 0 ? instanceResult.rows[0].id : null;
+
+    // Initialize tournament field for marketing contest (non-blocking, after transaction)
+    if (marketingInstanceId) {
+      try {
+        await initializeTournamentField(pool, marketingInstanceId);
+      } catch (err) {
+        console.warn(
+          `[discoverTournament] Field initialization failed for ${marketingInstanceId}: ${err.message}`
+        );
+      }
+    }
+
     return {
       success: true,
       templateId,
