@@ -19,7 +19,11 @@ const axios = require('axios');
 const logger = console; // TODO: Replace with structured logger
 
 /**
- * Fetch golfers from ESPN PGA athletes endpoint.
+ * Fetch golfers from ESPN PGA scoreboard endpoint.
+ *
+ * The scoreboard endpoint is preferred because it returns all tournaments and
+ * their competitors, which is reliable even before a tournament begins.
+ * The legacy athletes endpoint returns 404 in pre-tournament states.
  *
  * @returns {Promise<Array>} Array of normalized golfer objects
  * @throws {Error} If ESPN API call fails
@@ -29,7 +33,7 @@ async function fetchGolfers() {
 
   try {
     const response = await axios.get(
-      'https://site.web.api.espn.com/apis/v2/sports/golf/pga/athletes',
+      'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard',
       {
         timeout: 10000,
         headers: {
@@ -38,10 +42,21 @@ async function fetchGolfers() {
       }
     );
 
-    const athletes = response.data.athletes || [];
-    logger.info(`[espnPgaPlayerService] Fetched ${athletes.length} golfers`);
+    // Extract all competitors from all events and competitions
+    const competitors = [];
+    const events = response.data.events || [];
 
-    return athletes.map(normalizeGolfer);
+    for (const event of events) {
+      const competitions = event.competitions || [];
+      for (const competition of competitions) {
+        const competitorList = competition.competitors || [];
+        competitors.push(...competitorList);
+      }
+    }
+
+    logger.info(`[espnPgaPlayerService] Fetched ${competitors.length} golfers`);
+
+    return competitors.map(competitor => normalizeGolfer(competitor.athlete));
   } catch (err) {
     logger.error('[espnPgaPlayerService] Error fetching golfers:', err.message);
     throw err;

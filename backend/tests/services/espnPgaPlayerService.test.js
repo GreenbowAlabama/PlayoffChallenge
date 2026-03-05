@@ -16,25 +16,35 @@ describe('ESPN PGA Player Service', () => {
   });
 
   describe('fetchGolfers', () => {
-    it('should fetch golfers from ESPN and normalize them', async () => {
+    it('should fetch golfers from ESPN scoreboard and normalize them', async () => {
       const mockEspnResponse = {
         data: {
-          athletes: [
+          events: [
             {
-              id: '12345',
-              displayName: 'Rory McIlroy',
-              shortName: 'R. McIlroy',
-              headshot: {
-                href: 'https://a.espncdn.com/media/golf/players/12345.jpg'
-              }
-            },
-            {
-              id: '67890',
-              displayName: 'Jon Rahm',
-              shortName: 'J. Rahm',
-              headshot: {
-                href: 'https://a.espncdn.com/media/golf/players/67890.jpg'
-              }
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: '12345',
+                        displayName: 'Rory McIlroy',
+                        headshot: {
+                          href: 'https://a.espncdn.com/media/golf/players/12345.jpg'
+                        }
+                      }
+                    },
+                    {
+                      athlete: {
+                        id: '67890',
+                        displayName: 'Jon Rahm',
+                        headshot: {
+                          href: 'https://a.espncdn.com/media/golf/players/67890.jpg'
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }
@@ -64,12 +74,21 @@ describe('ESPN PGA Player Service', () => {
     it('should handle missing headshot gracefully', async () => {
       const mockEspnResponse = {
         data: {
-          athletes: [
+          events: [
             {
-              id: '12345',
-              displayName: 'Rory McIlroy',
-              shortName: 'R. McIlroy',
-              headshot: null
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: '12345',
+                        displayName: 'Rory McIlroy',
+                        headshot: null
+                      }
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }
@@ -86,7 +105,7 @@ describe('ESPN PGA Player Service', () => {
     it('should call ESPN API with correct endpoint', async () => {
       const mockEspnResponse = {
         data: {
-          athletes: []
+          events: []
         }
       };
 
@@ -95,7 +114,7 @@ describe('ESPN PGA Player Service', () => {
       await espnPgaPlayerService.fetchGolfers();
 
       expect(axios.get).toHaveBeenCalledWith(
-        'https://site.web.api.espn.com/apis/v2/sports/golf/pga/athletes',
+        'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard',
         expect.any(Object)
       );
     });
@@ -108,10 +127,10 @@ describe('ESPN PGA Player Service', () => {
       );
     });
 
-    it('should return empty array when no athletes in response', async () => {
+    it('should return empty array when no competitors in response', async () => {
       const mockEspnResponse = {
         data: {
-          athletes: []
+          events: []
         }
       };
 
@@ -121,14 +140,64 @@ describe('ESPN PGA Player Service', () => {
 
       expect(result).toEqual([]);
     });
+
+    it('should extract competitors from multiple competitions', async () => {
+      const mockEspnResponse = {
+        data: {
+          events: [
+            {
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: '12345',
+                        displayName: 'Rory McIlroy',
+                        headshot: {
+                          href: 'https://a.espncdn.com/media/golf/players/12345.jpg'
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: '67890',
+                        displayName: 'Jon Rahm',
+                        headshot: {
+                          href: 'https://a.espncdn.com/media/golf/players/67890.jpg'
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      };
+
+      axios.get.mockResolvedValue(mockEspnResponse);
+
+      const result = await espnPgaPlayerService.fetchGolfers();
+
+      expect(result).toHaveLength(2);
+      expect(result[0].external_id).toBe('12345');
+      expect(result[1].external_id).toBe('67890');
+    });
   });
 
   describe('normalizeGolfer', () => {
-    it('should normalize a single golfer object', () => {
+    it('should normalize a single golfer athlete object', () => {
       const espnAthlete = {
         id: '12345',
         displayName: 'Tiger Woods',
-        shortName: 'T. Woods',
         headshot: {
           href: 'https://example.com/tiger.jpg'
         }
@@ -149,7 +218,6 @@ describe('ESPN PGA Player Service', () => {
       const espnAthlete = {
         id: '99999',
         displayName: 'Unknown Golfer',
-        shortName: 'U. Golfer',
         headshot: null
       };
 
@@ -157,6 +225,18 @@ describe('ESPN PGA Player Service', () => {
 
       expect(normalized.image_url).toBeNull();
       expect(normalized.external_id).toBe('99999');
+    });
+
+    it('should handle missing headshot field', () => {
+      const espnAthlete = {
+        id: '88888',
+        displayName: 'Another Golfer'
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized.image_url).toBeNull();
+      expect(normalized.external_id).toBe('88888');
     });
   });
 });
