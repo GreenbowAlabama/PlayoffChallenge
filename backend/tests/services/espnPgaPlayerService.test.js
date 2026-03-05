@@ -381,6 +381,83 @@ describe('ESPN PGA Player Service', () => {
 
       expect(normalized).toBeNull();
     });
+
+    it('should construct displayName from firstName and lastName if displayName missing', () => {
+      const espnAthlete = {
+        id: '12345',
+        firstName: 'Rory',
+        lastName: 'McIlroy',
+        headshot: { href: 'https://example.com/rory.jpg' }
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized).toEqual({
+        external_id: '12345',
+        name: 'Rory McIlroy',
+        image_url: 'https://example.com/rory.jpg',
+        sport: 'GOLF',
+        position: 'G'
+      });
+    });
+
+    it('should use firstName alone if lastName missing', () => {
+      const espnAthlete = {
+        id: '12345',
+        firstName: 'Tiger',
+        headshot: { href: 'https://example.com/tiger.jpg' }
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized).toEqual({
+        external_id: '12345',
+        name: 'Tiger',
+        image_url: 'https://example.com/tiger.jpg',
+        sport: 'GOLF',
+        position: 'G'
+      });
+    });
+
+    it('should accept athleteId as alternative to id', () => {
+      const espnAthlete = {
+        athleteId: '99999',
+        displayName: 'Test Golfer',
+        headshot: { href: 'https://example.com/test.jpg' }
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized).toEqual({
+        external_id: '99999',
+        name: 'Test Golfer',
+        image_url: 'https://example.com/test.jpg',
+        sport: 'GOLF',
+        position: 'G'
+      });
+    });
+
+    it('should require either id or athleteId', () => {
+      const espnAthlete = {
+        displayName: 'No ID Golfer',
+        headshot: { href: 'https://example.com/noid.jpg' }
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized).toBeNull();
+    });
+
+    it('should require some form of name (displayName or firstName)', () => {
+      const espnAthlete = {
+        id: '12345',
+        headshot: { href: 'https://example.com/noname.jpg' }
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized).toBeNull();
+    });
   });
 
   describe('fetchTournamentField', () => {

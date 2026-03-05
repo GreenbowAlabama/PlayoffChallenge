@@ -168,14 +168,34 @@ async function fetchTournamentField(eventId) {
  * @returns {Object|null} Normalized player object, or null if required fields missing
  */
 function normalizeGolfer(athlete) {
-  // Require id and displayName (minimal viability check)
-  if (!athlete?.id || !athlete?.displayName) {
+  if (!athlete) {
+    return null;
+  }
+
+  // Guard: require athlete ID
+  const athleteId = athlete.id || athlete.athleteId;
+  if (!athleteId) {
+    return null;
+  }
+
+  // Derive display name from available fields
+  // ESPN API may provide: displayName, or firstName+lastName
+  let name = athlete.displayName;
+  if (!name && athlete.firstName && athlete.lastName) {
+    name = `${athlete.firstName} ${athlete.lastName}`;
+  }
+  if (!name && athlete.firstName) {
+    name = athlete.firstName;
+  }
+
+  // Guard: require a name
+  if (!name) {
     return null;
   }
 
   return {
-    external_id: athlete.id,
-    name: athlete.displayName,
+    external_id: athleteId,
+    name: name,
     image_url: athlete.headshot?.href || null,
     sport: 'GOLF',
     position: 'G'
