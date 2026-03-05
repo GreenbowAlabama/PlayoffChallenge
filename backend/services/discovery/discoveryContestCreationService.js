@@ -485,12 +485,15 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
 
       const contestName = `${template.name} - ${event.name}`;
 
+      // Discovery-discovered contests are system-generated and platform-owned
+      const isPlatformOwned = true;
+
       const insertResult = await client.query(
         `INSERT INTO contest_instances (
           template_id, organizer_id, entry_fee_cents, payout_structure,
           status, contest_name, tournament_start_time, tournament_end_time,
           lock_time, provider_event_id, is_platform_owned
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         ON CONFLICT (provider_event_id, template_id)
         DO NOTHING
         RETURNING id`,
@@ -504,7 +507,8 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
           event.start_time,
           event.end_time,
           derivedLockTime, // lock_time derived from ESPN data (with fallback)
-          event.provider_event_id
+          event.provider_event_id,
+          isPlatformOwned
         ]
       );
 
