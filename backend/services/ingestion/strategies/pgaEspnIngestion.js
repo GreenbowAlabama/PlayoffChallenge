@@ -285,9 +285,15 @@ async function getWorkUnits(ctx) {
   let golfers = [];
 
   try {
+    // Extract numeric ESPN event ID from full provider_event_id (format: espn_pga_401811935)
+    // ESPN API endpoints expect just the numeric ID (401811935)
+    const espnEventId = providerEventId.includes('espn_pga_')
+      ? providerEventId.replace(/^espn_pga_/, '')
+      : providerEventId;
+
     // Fetch tournament field from ESPN leaderboard (optimized for player pool)
     // Returns complete field with tee times and positions
-    golfers = await espnPgaPlayerService.fetchTournamentField(providerEventId);
+    golfers = await espnPgaPlayerService.fetchTournamentField(espnEventId);
   } catch (err) {
     console.warn('[pgaEspnIngestion] Failed to fetch tournament field for PLAYER_POOL units:', err.message);
     // Don't throw - allow graceful degradation
