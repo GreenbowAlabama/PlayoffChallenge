@@ -3311,7 +3311,7 @@ function startServer() {
     // Start lifecycle reconciler if not in test environment
     if (process.env.NODE_ENV !== 'test') {
       setTimeout(() => startLifecycleReconciler(pool), 5000); // Start after 5 seconds
-      setTimeout(() => startDiscoveryWorker(pool), 5000); // Start after 5 seconds
+      setTimeout(async () => { await startDiscoveryWorker(pool); }, 5000); // Start after 5 seconds
       setTimeout(() => startIngestionWorker(pool), 5000); // Start after 5 seconds
       setTimeout(() => startWithdrawalProcessor(pool), 5000); // Start after 5 seconds
     }
