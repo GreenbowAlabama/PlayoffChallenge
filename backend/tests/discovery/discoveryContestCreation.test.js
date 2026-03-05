@@ -8,6 +8,12 @@
 const { Pool } = require('pg');
 const { runDiscoveryCycle, createContestsForEvent } = require('../../services/discovery/discoveryContestCreationService');
 
+// Mock ESPN fetcher to prevent network calls in tests
+jest.mock('../../services/discovery/espnDataFetcher', () => ({
+  fetchEspnSummary: jest.fn().mockResolvedValue(null), // Always return null (ESPN unavailable)
+  extractEspnEventId: jest.requireActual('../../services/discovery/espnDataFetcher').extractEspnEventId
+}));
+
 describe('discoveryContestCreationService', () => {
   let pool;
   const now = new Date('2026-04-01T12:00:00Z');
@@ -39,47 +45,77 @@ describe('discoveryContestCreationService', () => {
     await pool.end();
   });
 
-  afterEach(async () => {
-    // Clean up test data in FK-safe order: audit → instances → templates
+  beforeEach(async () => {
+    // Clean up before each test to ensure isolation
+    // Use real production template_type (daily) - tests must validate real system behavior
 
-    // 1. Audit records for instances we are about to delete
+    // Step 1: Deactivate all test templates to avoid unique constraint violations
+    await pool.query(
+      `UPDATE contest_templates SET is_active = false
+       WHERE name LIKE 'PGA Discovery Test%'`
+    );
+
+    // Step 2: Delete audit records for test instances
     await pool.query(
       `DELETE FROM admin_contest_audit
        WHERE contest_instance_id IN (
          SELECT id FROM contest_instances
-         WHERE provider_event_id LIKE 'espn_pga_discovery_test_%'
-            OR provider_event_id = 'espn_pga_401811941'
+         WHERE provider_event_id = 'espn_pga_401811941'
             OR template_id IN (
               SELECT id FROM contest_templates
-              WHERE provider_tournament_id IS NULL
-              AND lock_strategy_key = 'auto_discovery'
-              AND is_system_generated = true
+              WHERE name LIKE 'PGA Discovery Test%'
             )
        )`
     );
-    // 2. Contest instances
+
+    // Step 3: Delete test contest instances
     await pool.query(
       `DELETE FROM contest_instances
-       WHERE provider_event_id LIKE 'espn_pga_discovery_test_%'
-          OR provider_event_id = 'espn_pga_401811941'
+       WHERE provider_event_id = 'espn_pga_401811941'
           OR template_id IN (
             SELECT id FROM contest_templates
-            WHERE provider_tournament_id IS NULL
-            AND lock_strategy_key = 'auto_discovery'
-            AND is_system_generated = true
+            WHERE name LIKE 'PGA Discovery Test%'
           )`
     );
-    // 3. Templates by provider_tournament_id pattern (processEventDiscovery-created)
+
+    // Step 4: Delete test templates
     await pool.query(
       `DELETE FROM contest_templates
-       WHERE provider_tournament_id LIKE 'pga_discovery_test_%'`
+       WHERE name LIKE 'PGA Discovery Test%'`
     );
-    // 4. Directly-inserted test templates (no provider_tournament_id, lock_strategy_key='auto_discovery')
+  });
+
+  afterEach(async () => {
+    // Clean up test data in FK-safe order: audit → instances → templates
+    // Only delete test-created data, identified by test-specific names
+
+    // Step 1: Delete audit records for test instances
+    await pool.query(
+      `DELETE FROM admin_contest_audit
+       WHERE contest_instance_id IN (
+         SELECT id FROM contest_instances
+         WHERE provider_event_id = 'espn_pga_401811941'
+            OR template_id IN (
+              SELECT id FROM contest_templates
+              WHERE name LIKE 'PGA Discovery Test%'
+            )
+       )`
+    );
+
+    // Step 2: Delete test contest instances
+    await pool.query(
+      `DELETE FROM contest_instances
+       WHERE provider_event_id = 'espn_pga_401811941'
+          OR template_id IN (
+            SELECT id FROM contest_templates
+            WHERE name LIKE 'PGA Discovery Test%'
+          )`
+    );
+
+    // Step 3: Delete test templates (identified by name prefix)
     await pool.query(
       `DELETE FROM contest_templates
-       WHERE provider_tournament_id IS NULL
-       AND lock_strategy_key = 'auto_discovery'
-       AND is_system_generated = true`
+       WHERE name LIKE 'PGA Discovery Test%'`
     );
   });
 

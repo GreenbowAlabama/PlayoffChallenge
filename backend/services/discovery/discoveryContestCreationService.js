@@ -7,15 +7,18 @@
  * 1. Resolve base PGA_BASE template (non-system-generated)
  * 2. For each upcoming event:
  *    a. Clone tournament-level template (system-generated, PGA_TOURNAMENT type)
- *    b. Insert exactly one contest instance per tournament
+ *    b. Fetch ESPN summary data to derive accurate lock_time
+ *    c. Insert exactly one contest instance per tournament with derived lock_time
  *
  * Core rules:
  * - Insert-only semantics (never update existing rows)
  * - Tournament template idempotent: ON CONFLICT (provider_tournament_id, season_year)
  * - Contest instance idempotent: ON CONFLICT (provider_event_id)
+ * - lock_time derived during creation (immutable thereafter)
  * - Never transitions status
  * - Never modifies lifecycle or settlement logic
  * - Audit logging is non-blocking (failures do not fail transaction)
+ * - ESPN data fetch is non-blocking (falls back to fixture startDate)
  *
  * Determinism:
  * - Injected `now` parameter for all time comparisons
@@ -24,6 +27,62 @@
  */
 
 const { getNextUpcomingEvent } = require('./calendarProvider');
+const { fetchEspnSummary, extractEspnEventId } = require('./espnDataFetcher');
+const pgaEspnIngestion = require('../ingestion/strategies/pgaEspnIngestion');
+
+/**
+ * Derive lock_time for a PGA contest during creation.
+ *
+ * Fallback order:
+ * 1. Earliest competitor teeTime from ESPN scoreboard (if available)
+ * 2. Fixture startDate (broadcast/tournament boundary)
+ *
+ * ESPN fetch is non-blocking: failures gracefully fall back to fixture time.
+ * All timestamps preserved in UTC.
+ *
+ * @param {string} providerEventId - Full provider event ID (e.g., "espn_pga_401811941")
+ * @param {Date} fixtureStartDate - Fallback time from calendar fixture
+ * @returns {Promise<Object>} { lockTime: Date, source: string }
+ */
+async function deriveLockTimeForCreation(providerEventId, fixtureStartDate) {
+  // Extract ESPN event ID
+  const espnEventId = extractEspnEventId(providerEventId);
+
+  if (!espnEventId) {
+    console.log(
+      `[Discovery] Could not extract ESPN event ID from ${providerEventId}, using fixture time`
+    );
+    return {
+      lockTime: fixtureStartDate,
+      source: 'fixture_fallback (invalid_provider_id)'
+    };
+  }
+
+  // Fetch ESPN data (non-blocking)
+  const espnData = await fetchEspnSummary(espnEventId);
+
+  if (!espnData) {
+    console.log(
+      `[Discovery] ESPN data unavailable for event ${espnEventId}, using fixture time`
+    );
+    return {
+      lockTime: fixtureStartDate,
+      source: 'fixture_fallback (fetch_failed)'
+    };
+  }
+
+  // Derive lock_time from ESPN data
+  const derivation = pgaEspnIngestion.deriveLockTimeFromProviderData(
+    espnData,
+    fixtureStartDate
+  );
+
+  console.log(
+    `[Discovery] Derived lock_time for event ${espnEventId}: ${derivation.source} = ${derivation.lockTime.toISOString()}`
+  );
+
+  return derivation;
+}
 
 /**
  * Run discovery cycle:
@@ -215,7 +274,15 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       };
     }
 
-    // Step 3: Insert contest instance (idempotent)
+    // Step 3: Derive lock_time from ESPN data (immutable after creation)
+    // Uses earliest competitor tee time if available, falls back to fixture startDate
+    const lockTimeDerivation = await deriveLockTimeForCreation(
+      event.provider_event_id,
+      event.start_time
+    );
+    const derivedLockTime = lockTimeDerivation.lockTime;
+
+    // Step 4: Insert contest instance (idempotent)
     const payoutStructure = Array.isArray(baseTemplate.allowed_payout_structures)
       ? baseTemplate.allowed_payout_structures[0]
       : baseTemplate.allowed_payout_structures;
@@ -249,7 +316,7 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
         `${tournamentName} Contest`,
         event.start_time,
         event.end_time,
-        event.start_time, // lock_time = tournament_start_time
+        derivedLockTime, // lock_time derived from ESPN data (with fallback)
         event.provider_event_id
       ]
     );
@@ -360,6 +427,13 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
   try {
     await client.query('BEGIN');
 
+    // Derive lock_time once for all contests from this event (immutable after creation)
+    const lockTimeDerivation = await deriveLockTimeForCreation(
+      event.provider_event_id,
+      event.start_time
+    );
+    const derivedLockTime = lockTimeDerivation.lockTime;
+
     // Find all active system-generated templates
     const templatesResult = await client.query(
       `SELECT id, name, default_entry_fee_cents, allowed_payout_structures
@@ -394,7 +468,7 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
           contestName,
           event.start_time,
           event.end_time,
-          event.start_time,
+          derivedLockTime, // lock_time derived from ESPN data (with fallback)
           event.provider_event_id
         ]
       );

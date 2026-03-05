@@ -36,6 +36,106 @@ function canonicalizeJson(obj) {
 }
 
 /**
+ * Extract the earliest competitor tee time from ESPN API payload.
+ *
+ * Searches all competitors in the first event/competition and finds the earliest
+ * valid startTime. Returns null if no valid tee times are found.
+ *
+ * All timestamps preserved in UTC (no timezone conversion).
+ *
+ * @param {Object} providerData - ESPN API response
+ * @returns {Date|null} Earliest tee time in UTC, or null if not found
+ */
+function extractEarliestTeeTime(providerData) {
+  // Guard: missing or invalid structure
+  if (!providerData || !Array.isArray(providerData.events) || providerData.events.length === 0) {
+    return null;
+  }
+
+  const event = providerData.events[0];
+  if (!event || !Array.isArray(event.competitions) || event.competitions.length === 0) {
+    return null;
+  }
+
+  const competition = event.competitions[0];
+  if (!competition || !Array.isArray(competition.competitors) || competition.competitors.length === 0) {
+    return null;
+  }
+
+  let earliestTime = null;
+
+  for (const competitor of competition.competitors) {
+    if (!competitor || !competitor.startTime) {
+      continue;
+    }
+
+    // Attempt to parse startTime
+    let teeTimeDate;
+    try {
+      teeTimeDate = new Date(competitor.startTime);
+      // Validate that it's a valid date
+      if (isNaN(teeTimeDate.getTime())) {
+        continue;
+      }
+    } catch (err) {
+      continue;
+    }
+
+    // Update earliest if this is the first valid time or earlier than current earliest
+    if (!earliestTime || teeTimeDate < earliestTime) {
+      earliestTime = teeTimeDate;
+    }
+  }
+
+  return earliestTime;
+}
+
+/**
+ * Derive lock_time from provider data with fallback chain.
+ *
+ * Fallback order:
+ * 1. Earliest competitor teeTime (first tee time)
+ *    only if >= fixture.start_time (prevents practice round/pro-am locking)
+ * 2. Fallback event date (broadcast/tournament boundary)
+ *
+ * Returns object with lockTime and source for auditability.
+ *
+ * All timestamps preserved in UTC.
+ *
+ * @param {Object} providerData - ESPN API response
+ * @param {Date} fallbackEventDate - Tournament broadcast date (fallback)
+ * @returns {Object} { lockTime: Date, source: string }
+ */
+function deriveLockTimeFromProviderData(providerData, fallbackEventDate) {
+  const earliestTeeTime = extractEarliestTeeTime(providerData);
+
+  // Guard: Only use ESPN tee time if it's not before fixture start
+  // Prevents contests locking early due to practice rounds or pro-am times
+  if (earliestTeeTime && earliestTeeTime >= fallbackEventDate) {
+    return {
+      lockTime: earliestTeeTime,
+      source: 'competitor_tee_time'
+    };
+  }
+
+  // Log when rejecting early ESPN data
+  if (earliestTeeTime && earliestTeeTime < fallbackEventDate) {
+    console.warn(
+      '[DISCOVERY] ESPN tee time earlier than fixture start, ignoring',
+      {
+        earliestTeeTime: earliestTeeTime.toISOString(),
+        fallbackEventDate: fallbackEventDate.toISOString()
+      }
+    );
+  }
+
+  return {
+    lockTime: fallbackEventDate,
+    source: 'fallback_event_date'
+  };
+}
+
+/**
  * Validate PGA template configuration
  * Called by contestTemplateService before template persistence.
  * @param {Object} input - Template input
@@ -383,5 +483,7 @@ module.exports = {
   getWorkUnits,
   computeIngestionKey,
   ingestWorkUnit,
-  upsertScores
+  upsertScores,
+  extractEarliestTeeTime,
+  deriveLockTimeFromProviderData
 };

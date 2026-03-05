@@ -8,6 +8,12 @@
 const { Pool } = require('pg');
 const { discoverTournament } = require('../../services/discovery/discoveryService');
 
+// Mock ESPN fetcher to prevent network calls in tests
+jest.mock('../../services/discovery/espnDataFetcher', () => ({
+  fetchEspnSummary: jest.fn().mockResolvedValue(null), // Always return null (ESPN unavailable)
+  extractEspnEventId: jest.requireActual('../../services/discovery/espnDataFetcher').extractEspnEventId
+}));
+
 describe('discoveryService', () => {
   let pool;
   const now = new Date('2026-03-01T12:00:00Z');
