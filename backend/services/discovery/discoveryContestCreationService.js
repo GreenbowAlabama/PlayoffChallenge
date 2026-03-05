@@ -332,7 +332,6 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
       )
       ON CONFLICT (provider_event_id, template_id)
-      WHERE provider_event_id IS NOT NULL
       DO NOTHING
       RETURNING id, is_platform_owned`,
       [
