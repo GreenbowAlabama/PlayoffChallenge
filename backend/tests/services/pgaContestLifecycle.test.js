@@ -71,7 +71,7 @@ describe('PGA Contest Lifecycle — Tournament Field Initialization', () => {
           'settlement_pga_v1',
           5000, 1000, 50000,
           '[{"type":"winner_only"}]',
-          'pga-masters-2024',
+          'test_pga_provider_' || gen_random_uuid()::text,
           2024,
           NOW()
         )
@@ -120,10 +120,10 @@ describe('PGA Contest Lifecycle — Tournament Field Initialization', () => {
     const contestResult = await pool.query(
       `INSERT INTO contest_instances (
         id, template_id, organizer_id, entry_fee_cents, payout_structure,
-        status, contest_name, created_at
+        status, contest_name, provider_event_id, created_at
       )
       VALUES (
-        gen_random_uuid(), $1, $2, 5000, '{}', 'SCHEDULED', 'Test PGA Contest', NOW()
+        gen_random_uuid(), $1, $2, 5000, '{}', 'SCHEDULED', 'Test PGA Contest', 'espn_pga_test_' || gen_random_uuid()::text, NOW()
       )
       RETURNING id`,
       [pgaTemplateId, organizerId]
@@ -180,10 +180,10 @@ describe('PGA Contest Lifecycle — Tournament Field Initialization', () => {
     const contestResult = await pool.query(
       `INSERT INTO contest_instances (
         id, template_id, organizer_id, entry_fee_cents, payout_structure,
-        status, contest_name, created_at
+        status, contest_name, provider_event_id, created_at
       )
       VALUES (
-        gen_random_uuid(), $1, $2, 5000, '{}', 'SCHEDULED', 'Test PGA Contest', NOW()
+        gen_random_uuid(), $1, $2, 5000, '{}', 'SCHEDULED', 'Test PGA Contest', 'espn_pga_test_' || gen_random_uuid()::text, NOW()
       )
       RETURNING id`,
       [pgaTemplateId, organizerId]

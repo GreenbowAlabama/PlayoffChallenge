@@ -18,6 +18,7 @@ describe('discoveryContestCreationService', () => {
   let pool;
   const now = new Date('2026-04-01T12:00:00Z');
   const organizerId = '00000000-0000-0000-0000-000000000043';
+  let testRunId; // Unique ID for this test run to avoid data collisions
 
   // Test event (within 7-day window from now)
   const upcomingEvent = {
@@ -39,6 +40,9 @@ describe('discoveryContestCreationService', () => {
        ON CONFLICT (id) DO NOTHING`,
       [organizerId, 'discovery-organizer@platform.local', 'platform-discovery']
     );
+
+    // Generate unique test run ID to isolate data
+    testRunId = Date.now().toString() + '_' + Math.random().toString(36).slice(2, 9);
   });
 
   afterAll(async () => {
@@ -46,80 +50,57 @@ describe('discoveryContestCreationService', () => {
   });
 
   beforeEach(async () => {
-    // Clean up before each test to ensure isolation
-    // Use real production template_type (daily) - tests must validate real system behavior
+    // Clean up all test data related to discovery tests
+    // Delete in FK-safe order: audit → instances → templates
 
-    // Step 1: Delete audit records for previous test instances
+    // Step 1: Delete audit records for discovery test events
     await pool.query(
       `DELETE FROM admin_contest_audit
        WHERE contest_instance_id IN (
          SELECT id FROM contest_instances
-         WHERE provider_event_id = 'espn_pga_401811941'
-            OR template_id IN (
-              SELECT id FROM contest_templates
-              WHERE name LIKE 'PGA Discovery Test%'
-                 OR (sport = 'pga' AND template_type = 'daily' AND is_system_generated = true)
-            )
+         WHERE provider_event_id LIKE 'espn_pga_discovery_test_%'
        )`
     );
 
-    // Step 2: Delete previous test contest instances
+    // Step 2: Delete contest instances for discovery test events
     await pool.query(
       `DELETE FROM contest_instances
-       WHERE provider_event_id = 'espn_pga_401811941'
-          OR template_id IN (
-            SELECT id FROM contest_templates
-            WHERE name LIKE 'PGA Discovery Test%'
-               OR (sport = 'pga' AND template_type = 'daily' AND is_system_generated = true)
-          )`
+       WHERE provider_event_id LIKE 'espn_pga_discovery_test_%'`
     );
 
-    // Step 3: Delete previous test templates
+    // Step 3: Identify all PGA daily system-generated templates
+    const templatesToDelete = await pool.query(
+      `SELECT id FROM contest_templates
+       WHERE sport = 'pga' AND template_type = 'daily' AND is_system_generated = true`
+    );
+    const templateIds = templatesToDelete.rows.map(r => r.id);
+
+    // Step 4: Delete contest instances for ANY PGA daily template (catch stragglers)
+    if (templateIds.length > 0) {
+      await pool.query(
+        `DELETE FROM admin_contest_audit
+         WHERE contest_instance_id IN (
+           SELECT id FROM contest_instances WHERE template_id = ANY($1::uuid[])
+         )`,
+        [templateIds]
+      );
+
+      await pool.query(
+        `DELETE FROM contest_instances WHERE template_id = ANY($1::uuid[])`,
+        [templateIds]
+      );
+    }
+
+    // Step 5: Delete the templates themselves
     await pool.query(
       `DELETE FROM contest_templates
-       WHERE name LIKE 'PGA Discovery Test%'
-          OR (sport = 'pga' AND template_type = 'daily' AND is_system_generated = true)`
-    );
-
-    // Step 4: Deactivate any remaining active PGA daily templates to avoid unique constraint violations
-    await pool.query(
-      `UPDATE contest_templates SET is_active = false
-       WHERE sport = 'pga' AND template_type = 'daily' AND is_active = true`
+       WHERE sport = 'pga' AND template_type = 'daily' AND is_system_generated = true`
     );
   });
 
   afterEach(async () => {
-    // Clean up test data in FK-safe order: audit → instances → templates
-    // Only delete test-created data, identified by test-specific names
-
-    // Step 1: Delete audit records for test instances
-    await pool.query(
-      `DELETE FROM admin_contest_audit
-       WHERE contest_instance_id IN (
-         SELECT id FROM contest_instances
-         WHERE provider_event_id = 'espn_pga_401811941'
-            OR template_id IN (
-              SELECT id FROM contest_templates
-              WHERE name LIKE 'PGA Discovery Test%'
-            )
-       )`
-    );
-
-    // Step 2: Delete test contest instances
-    await pool.query(
-      `DELETE FROM contest_instances
-       WHERE provider_event_id = 'espn_pga_401811941'
-          OR template_id IN (
-            SELECT id FROM contest_templates
-            WHERE name LIKE 'PGA Discovery Test%'
-          )`
-    );
-
-    // Step 3: Delete test templates (identified by name prefix)
-    await pool.query(
-      `DELETE FROM contest_templates
-       WHERE name LIKE 'PGA Discovery Test%'`
-    );
+    // Cleanup is handled in beforeEach, which deletes all PGA daily templates before each test
+    // This ensures no cross-test contamination
   });
 
   describe('createContestsForEvent', () => {
@@ -133,18 +114,29 @@ describe('discoveryContestCreationService', () => {
     });
 
     it('should create contest instances for each system-generated template', async () => {
+      // Deactivate any existing active PGA daily templates to avoid constraint collision
+      await pool.query(
+        `UPDATE contest_templates SET is_active = false
+         WHERE sport = 'pga' AND template_type = 'daily' AND is_active = true`
+      );
+
       // Create a system-generated template
+      const testEvent = {
+        ...upcomingEvent,
+        provider_event_id: 'espn_pga_discovery_test_001'
+      };
+
       const templateResult = await pool.query(
         `INSERT INTO contest_templates (
           name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
           default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
-          allowed_payout_structures, is_active, is_system_generated
+          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
         )
         RETURNING id`,
         [
-          'PGA Discovery Test Template',
+          `PGA Discovery Test Template ${testRunId}`,
           'pga',
           'daily',
           'stroke_play',
@@ -155,16 +147,12 @@ describe('discoveryContestCreationService', () => {
           50000,
           JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
           true,
-          true
+          true,
+          'provider_discovery_test_001'
         ]
       );
 
       const templateId = templateResult.rows[0].id;
-
-      const testEvent = {
-        ...upcomingEvent,
-        provider_event_id: 'espn_pga_discovery_test_001'
-      };
 
       const result = await createContestsForEvent(pool, testEvent, now, organizerId);
 
@@ -192,18 +180,23 @@ describe('discoveryContestCreationService', () => {
     });
 
     it('should be idempotent: replaying does not create duplicates', async () => {
+      const testEvent = {
+        ...upcomingEvent,
+        provider_event_id: 'espn_pga_discovery_test_idempotent'
+      };
+
       // Create a system-generated template
       const templateResult = await pool.query(
         `INSERT INTO contest_templates (
           name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
           default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
-          allowed_payout_structures, is_active, is_system_generated
+          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
         )
         RETURNING id`,
         [
-          'PGA Idempotency Test',
+          `PGA Idempotency Test ${testRunId}`,
           'pga',
           'daily',
           'stroke_play',
@@ -214,14 +207,10 @@ describe('discoveryContestCreationService', () => {
           50000,
           JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
           true,
-          true
+          true,
+          'provider_discovery_test_idempotent'
         ]
       );
-
-      const testEvent = {
-        ...upcomingEvent,
-        provider_event_id: 'espn_pga_discovery_test_idempotent'
-      };
 
       // First cycle
       const result1 = await createContestsForEvent(pool, testEvent, now, organizerId);
@@ -242,19 +231,30 @@ describe('discoveryContestCreationService', () => {
     });
 
     it('should use payout_structure from template.allowed_payout_structures[0]', async () => {
+      // Deactivate any existing active PGA daily templates to avoid constraint collision
+      await pool.query(
+        `UPDATE contest_templates SET is_active = false
+         WHERE sport = 'pga' AND template_type = 'daily' AND is_active = true`
+      );
+
       const customPayout = { payout_percentages: [0.6, 0.25, 0.15], min_entries: 3 };
+
+      const testEvent = {
+        ...upcomingEvent,
+        provider_event_id: 'espn_pga_discovery_test_payout'
+      };
 
       const templateResult = await pool.query(
         `INSERT INTO contest_templates (
           name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
           default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
-          allowed_payout_structures, is_active, is_system_generated
+          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
         )
         RETURNING id`,
         [
-          'Custom Payout Template',
+          `Custom Payout Template ${testRunId}`,
           'pga',
           'daily',
           'stroke_play',
@@ -265,14 +265,10 @@ describe('discoveryContestCreationService', () => {
           50000,
           JSON.stringify([customPayout]),
           true,
-          true
+          true,
+          'provider_discovery_test_payout'
         ]
       );
-
-      const testEvent = {
-        ...upcomingEvent,
-        provider_event_id: 'espn_pga_discovery_test_payout'
-      };
 
       await createContestsForEvent(pool, testEvent, now, organizerId);
 
@@ -286,17 +282,22 @@ describe('discoveryContestCreationService', () => {
     });
 
     it('should log successful creations in admin_contest_audit', async () => {
+      const testEvent = {
+        ...upcomingEvent,
+        provider_event_id: 'espn_pga_discovery_test_audit'
+      };
+
       const templateResult = await pool.query(
         `INSERT INTO contest_templates (
           name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
           default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
-          allowed_payout_structures, is_active, is_system_generated
+          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
         )
         RETURNING id`,
         [
-          'Audit Test Template',
+          `Audit Test Template ${testRunId}`,
           'pga',
           'daily',
           'stroke_play',
@@ -307,14 +308,10 @@ describe('discoveryContestCreationService', () => {
           50000,
           JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
           true,
-          true
+          true,
+          'provider_discovery_test_audit'
         ]
       );
-
-      const testEvent = {
-        ...upcomingEvent,
-        provider_event_id: 'espn_pga_discovery_test_audit'
-      };
 
       await createContestsForEvent(pool, testEvent, now, organizerId);
 
@@ -364,12 +361,12 @@ describe('discoveryContestCreationService', () => {
         `INSERT INTO contest_templates (
           name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
           default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
-          allowed_payout_structures, is_active, is_system_generated
+          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
         )`,
         [
-          'Cycle Test Template',
+          `Cycle Test Template ${testRunId}`,
           'pga',
           'daily',
           'stroke_play',
@@ -380,7 +377,8 @@ describe('discoveryContestCreationService', () => {
           50000,
           JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
           true,
-          true
+          true,
+          'provider_discovery_test_cycle'
         ]
       );
 

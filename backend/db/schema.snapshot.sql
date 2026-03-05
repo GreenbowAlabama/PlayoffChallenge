@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 4xmcHzGnxFLU94GPfhzliWeTb8KKldvVgDbK5lTXXrUKg92g9fJrTT5bTfziBhb
+\restrict KoQ16vyrc2HCabNS5bBdmlVJbvTY318h51rHqfvqLeAzeDi4gVYfYykgvEP4qa4
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -647,6 +647,24 @@ CREATE TABLE public.ingestion_events (
     validation_errors_json jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT ingestion_events_validation_status_check CHECK ((validation_status = ANY (ARRAY['VALID'::text, 'INVALID'::text])))
+);
+
+
+--
+-- Name: ingestion_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ingestion_runs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    contest_instance_id uuid NOT NULL,
+    ingestion_strategy_key text NOT NULL,
+    work_unit_key text NOT NULL,
+    status text NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    error_message text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ingestion_runs_status_check CHECK ((status = ANY (ARRAY['RUNNING'::text, 'COMPLETE'::text, 'ERROR'::text])))
 );
 
 
@@ -1842,6 +1860,22 @@ ALTER TABLE ONLY public.ingestion_events
 
 
 --
+-- Name: ingestion_runs ingestion_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_runs
+    ADD CONSTRAINT ingestion_runs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ingestion_runs ingestion_runs_unique_contest_work_unit; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_runs
+    ADD CONSTRAINT ingestion_runs_unique_contest_work_unit UNIQUE (contest_instance_id, work_unit_key);
+
+
+--
 -- Name: ingestion_validation_errors ingestion_validation_errors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2332,6 +2366,13 @@ CREATE UNIQUE INDEX event_data_snapshots_unique_hash ON public.event_data_snapsh
 
 
 --
+-- Name: field_selections_contest_instance_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX field_selections_contest_instance_uidx ON public.field_selections USING btree (contest_instance_id);
+
+
+--
 -- Name: idx_admin_contest_audit_admin; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2546,6 +2587,20 @@ CREATE INDEX idx_ingestion_events_payload_hash ON public.ingestion_events USING 
 --
 
 CREATE INDEX idx_ingestion_events_validation_status ON public.ingestion_events USING btree (validation_status);
+
+
+--
+-- Name: idx_ingestion_runs_contest_started; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ingestion_runs_contest_started ON public.ingestion_runs USING btree (contest_instance_id, started_at DESC);
+
+
+--
+-- Name: idx_ingestion_runs_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ingestion_runs_status ON public.ingestion_runs USING btree (status);
 
 
 --
@@ -2997,6 +3052,13 @@ CREATE INDEX stripe_webhook_dead_letters_event_id_idx ON public.stripe_webhook_d
 
 
 --
+-- Name: tournament_configs_contest_instance_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX tournament_configs_contest_instance_uidx ON public.tournament_configs USING btree (contest_instance_id);
+
+
+--
 -- Name: uniq_active_config; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3320,6 +3382,14 @@ ALTER TABLE ONLY public.ingestion_events
 
 
 --
+-- Name: ingestion_runs ingestion_runs_contest_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_runs
+    ADD CONSTRAINT ingestion_runs_contest_instance_id_fkey FOREIGN KEY (contest_instance_id) REFERENCES public.contest_instances(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: ingestion_validation_errors ingestion_validation_errors_contest_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3571,5 +3641,5 @@ ALTER TABLE ONLY public.wallet_withdrawals
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 4xmcHzGnxFLU94GPfhzliWeTb8KKldvVgDbK5lTXXrUKg92g9fJrTT5bTfziBhb
+\unrestrict KoQ16vyrc2HCabNS5bBdmlVJbvTY318h51rHqfvqLeAzeDi4gVYfYykgvEP4qa4
 

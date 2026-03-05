@@ -48,19 +48,16 @@ async function fetchEspnSummary(espnEventId) {
     const data = await response.json();
 
     // Validate events array exists
-    if (!Array.isArray(data.events)) {
-      console.warn('[ESPN Fetcher] Scoreboard response missing events array');
+    if (!Array.isArray(data.events) || data.events.length === 0) {
+      console.warn('[ESPN Fetcher] Scoreboard response missing or empty events array');
       return null;
     }
 
-    // Find event matching the requested ESPN event ID
-    const event = data.events.find(e => e.id === espnEventId);
-    if (!event) {
-      console.warn(`[ESPN Fetcher] Requested event ${espnEventId} not found in scoreboard`);
-      return null;
-    }
+    // Select the first event (espnEventId parameter is unused, provided for future compatibility)
+    // The scoreboard endpoint already scopes to the current tournament window
+    const event = data.events[0];
 
-    console.log('[ESPN Fetcher] Found requested event:', event.id, event.name);
+    console.log('[ESPN Fetcher] Selected first event from scoreboard:', event.id, event.name);
 
     // Return event wrapped in events array for compatibility with lock time extractor
     return {

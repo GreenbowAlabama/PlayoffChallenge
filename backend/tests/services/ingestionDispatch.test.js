@@ -75,7 +75,9 @@ describe('pgaEspnIngestion stub', () => {
   });
 
   it('upsertScores throws not-implemented', async () => {
-    await expect(adapter.upsertScores({}, [])).rejects.toThrow(/pga_espn.*not yet implemented/i);
+    // Pass non-empty scores to trigger SCORING phase (which is not yet implemented)
+    const mockScores = [{ user_id: 'u1', player_id: 'p1', final_points: 10 }];
+    await expect(adapter.upsertScores({}, mockScores)).rejects.toThrow(/pga_espn.*not yet implemented/i);
   });
 });
 
@@ -121,7 +123,8 @@ describe('ingestionService.run — adapter dispatch', () => {
         scoring_strategy_key: 'ppr',
         settlement_strategy_key: 'final_standings',
         sport: 'NFL',
-        provider_event_id: 'espn_nfl_test_event'
+        provider_event_id: 'espn_nfl_test_event',
+        provider_tournament_id: 'espn_nfl_2026'
       }]
     });
     queryQueue.push({ rows: [{ id: 'ir-1' }] }); // INSERT ingestion_run → RUNNING
@@ -188,7 +191,8 @@ describe('ingestionService.run — idempotency', () => {
         scoring_strategy_key: 'ppr',
         settlement_strategy_key: 'final_standings',
         sport: 'NFL',
-        provider_event_id: 'espn_nfl_test_event'
+        provider_event_id: 'espn_nfl_test_event',
+        provider_tournament_id: 'espn_nfl_2026'
       }]
     });
     // ON CONFLICT DO NOTHING → returns 0 rows (record already existed)

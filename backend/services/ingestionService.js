@@ -286,8 +286,8 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
           [contestInstanceId, workUnitKey]
         );
 
-        // Track PLAYER_POOL phase ingested players for field population
-        if (phase === 'PLAYER_POOL' && enrichedUnit.externalPlayerId) {
+        // Track ingested players for field population (all phases)
+        if (enrichedUnit.externalPlayerId) {
           ingestedPlayerIds.push(enrichedUnit.externalPlayerId);
         }
 
@@ -306,8 +306,8 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       }
     }
 
-    // ── Populate field_selections for PLAYER_POOL phase ─────────────────────
-    if (phase === 'PLAYER_POOL' && ingestedPlayerIds.length > 0) {
+    // ── Populate field_selections whenever players are ingested (all phases) ────
+    if (ingestedPlayerIds.length > 0) {
       try {
         await populateFieldSelections(client, contestInstanceId, ingestedPlayerIds);
       } catch (err) {

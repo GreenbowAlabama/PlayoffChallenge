@@ -84,7 +84,7 @@ describe('PGA Provider Event ID Invariants', () => {
           'pga_settlement',
           5000, 1000, 50000,
           JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
-          true, true, 'SCHEDULED', 'espn_pga_invariant', 2026
+          false, true, 'SCHEDULED', 'espn_pga_invariant', 2026
         ]
       );
 
