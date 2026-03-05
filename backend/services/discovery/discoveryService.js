@@ -21,6 +21,7 @@ const { validateDiscoveryInput, getErrorDetails } = require('./discoveryValidato
  * @param {Object} input - Discovery input
  * @param {Object} pool - Database pool
  * @param {Date} now - Current time (for determinism)
+ * @param {string} organizerId - UUID of platform organizer user (required for FK constraint)
  *
  * @returns {Promise<Object>} {
  *   success: boolean,
@@ -32,7 +33,7 @@ const { validateDiscoveryInput, getErrorDetails } = require('./discoveryValidato
  *   statusCode: number
  * }
  */
-async function discoverTournament(input, pool, now) {
+async function discoverTournament(input, pool, now, organizerId) {
   // ===== VALIDATE INPUT =====
   const validation = validateDiscoveryInput(input, now);
   if (!validation.valid) {
@@ -286,7 +287,7 @@ async function discoverTournament(input, pool, now) {
       ON CONFLICT DO NOTHING`,
       [
         templateId,
-        '00000000-0000-0000-0000-000000000043', // organizer_id: platform user (UUID)
+        organizerId, // organizer_id: platform user (UUID)
         5000, // entry_fee_cents: $50
         JSON.stringify({ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }), // payout_structure
         normalized.status, // status: inherit from template (SCHEDULED or CANCELLED)

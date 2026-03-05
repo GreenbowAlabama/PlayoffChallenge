@@ -147,7 +147,8 @@ async function runDiscoveryCycle(pool, now = new Date(), organizerId) {
         status: 'SCHEDULED'
       },
       pool,
-      now
+      now,
+      organizerId
     );
 
     if (!discoverResult.success) {

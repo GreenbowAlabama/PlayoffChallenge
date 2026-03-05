@@ -17,6 +17,7 @@ jest.mock('../../services/discovery/espnDataFetcher', () => ({
 describe('discoveryService', () => {
   let pool;
   const now = new Date('2026-03-01T12:00:00Z');
+  const testOrganizerId = '00000000-0000-0000-0000-000000000001';
 
   const validInput = {
     provider_tournament_id: 'pga_test_2026',
@@ -117,7 +118,7 @@ describe('discoveryService', () => {
         provider_tournament_id: 'pga_test_masters_2026'
       };
 
-      const result = await discoverTournament(testInput, pool, now);
+      const result = await discoverTournament(testInput, pool, now, testOrganizerId);
 
       expect(result.success).toBe(true);
       expect(result.templateId).toBeTruthy();
@@ -137,7 +138,7 @@ describe('discoveryService', () => {
     });
 
     it('should set template properties correctly', async () => {
-      const result = await discoverTournament(validInput, pool, now);
+      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
       const template = await pool.query(
         `SELECT * FROM contest_templates WHERE id = $1`,
         [result.templateId]
@@ -155,7 +156,7 @@ describe('discoveryService', () => {
     });
 
     it('should create template with correct payout structure', async () => {
-      const result = await discoverTournament(validInput, pool, now);
+      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
       const template = await pool.query(
         `SELECT * FROM contest_templates WHERE id = $1`,
         [result.templateId]
@@ -176,11 +177,11 @@ describe('discoveryService', () => {
         provider_tournament_id: 'pga_test_idempotent_2026'
       };
 
-      const result1 = await discoverTournament(testInput, pool, now);
+      const result1 = await discoverTournament(testInput, pool, now, testOrganizerId);
       expect(result1.success).toBe(true);
       expect(result1.created).toBe(true);
 
-      const result2 = await discoverTournament(testInput, pool, now);
+      const result2 = await discoverTournament(testInput, pool, now, testOrganizerId);
 
       expect(result2.success).toBe(true);
       expect(result2.templateId).toBe(result1.templateId);
@@ -196,7 +197,7 @@ describe('discoveryService', () => {
       };
 
       // First discovery
-      const result1 = await discoverTournament(testInput, pool, now);
+      const result1 = await discoverTournament(testInput, pool, now, testOrganizerId);
       expect(result1.success).toBe(true);
       expect(result1.created).toBe(true);
 
@@ -205,7 +206,7 @@ describe('discoveryService', () => {
         ...testInput,
         name: 'PGA Test Tournament 2026 (Updated)'
       };
-      const result2 = await discoverTournament(updatedInput, pool, now);
+      const result2 = await discoverTournament(updatedInput, pool, now, testOrganizerId);
 
       expect(result2.success).toBe(true);
       expect(result2.templateId).toBe(result1.templateId);
@@ -227,7 +228,7 @@ describe('discoveryService', () => {
       };
 
       // Create template
-      const result = await discoverTournament(testInput, pool, now);
+      const result = await discoverTournament(testInput, pool, now, testOrganizerId);
       const templateId = result.templateId;
 
       // Create a LOCKED instance with real user
@@ -255,7 +256,7 @@ describe('discoveryService', () => {
         ...testInput,
         name: 'PGA Test Tournament 2026 (Frozen)'
       };
-      const result2 = await discoverTournament(updatedInput, pool, now);
+      const result2 = await discoverTournament(updatedInput, pool, now, testOrganizerId);
 
       expect(result2.success).toBe(true);
       expect(result2.updated).toBe(false); // Should NOT update
@@ -275,7 +276,7 @@ describe('discoveryService', () => {
       };
 
       // Create template
-      const result = await discoverTournament(testInput, pool, now);
+      const result = await discoverTournament(testInput, pool, now, testOrganizerId);
       const templateId = result.templateId;
 
       // Create a LIVE instance with real user
@@ -302,7 +303,7 @@ describe('discoveryService', () => {
         ...testInput,
         name: 'PGA Test Tournament 2026 (Frozen)'
       };
-      const result2 = await discoverTournament(updatedInput, pool, now);
+      const result2 = await discoverTournament(updatedInput, pool, now, testOrganizerId);
 
       expect(result2.success).toBe(true);
       expect(result2.updated).toBe(false); // Should NOT update
@@ -315,7 +316,7 @@ describe('discoveryService', () => {
       };
 
       // Create template
-      const result = await discoverTournament(testInput, pool, now);
+      const result = await discoverTournament(testInput, pool, now, testOrganizerId);
       const templateId = result.templateId;
 
       // Create a COMPLETE instance with real user
@@ -342,7 +343,7 @@ describe('discoveryService', () => {
         ...testInput,
         name: 'PGA Test Tournament 2026 (Frozen)'
       };
-      const result2 = await discoverTournament(updatedInput, pool, now);
+      const result2 = await discoverTournament(updatedInput, pool, now, testOrganizerId);
 
       expect(result2.success).toBe(true);
       expect(result2.updated).toBe(false); // Should NOT update
@@ -355,7 +356,7 @@ describe('discoveryService', () => {
       };
 
       // Create template
-      const result = await discoverTournament(testInput, pool, now);
+      const result = await discoverTournament(testInput, pool, now, testOrganizerId);
       const templateId = result.templateId;
 
       // Create a SCHEDULED instance (not terminal) with real user
@@ -382,7 +383,7 @@ describe('discoveryService', () => {
         ...testInput,
         name: 'PGA Test Tournament 2026 (Updated)'
       };
-      const result2 = await discoverTournament(updatedInput, pool, now);
+      const result2 = await discoverTournament(updatedInput, pool, now, testOrganizerId);
 
       expect(result2.success).toBe(true);
       expect(result2.updated).toBe(true); // SHOULD update
@@ -392,7 +393,7 @@ describe('discoveryService', () => {
   describe('unique constraint enforcement', () => {
     it('should enforce partial unique index on (provider_tournament_id, season_year)', async () => {
       // Create first template
-      const result1 = await discoverTournament(validInput, pool, now);
+      const result1 = await discoverTournament(validInput, pool, now, testOrganizerId);
       expect(result1.success).toBe(true);
 
       // Try to manually insert duplicate system template
@@ -430,7 +431,7 @@ describe('discoveryService', () => {
 
     it('should enforce unique constraint on system templates', async () => {
       // Create system template
-      const result1 = await discoverTournament(validInput, pool, now);
+      const result1 = await discoverTournament(validInput, pool, now, testOrganizerId);
       expect(result1.success).toBe(true);
 
       // Try to manually create another system template with same (provider_tournament_id, season_year)
@@ -472,7 +473,8 @@ describe('discoveryService', () => {
       const result = await discoverTournament(
         { ...validInput, season_year: 1999 },
         pool,
-        now
+        now,
+        testOrganizerId
       );
 
       expect(result.success).toBe(false);
@@ -485,7 +487,8 @@ describe('discoveryService', () => {
       const result = await discoverTournament(
         { ...validInput, name: '' },
         pool,
-        now
+        now,
+        testOrganizerId
       );
 
       expect(result.success).toBe(false);
@@ -501,7 +504,8 @@ describe('discoveryService', () => {
           end_time: new Date('2026-03-15T08:00:00Z')
         },
         pool,
-        now
+        now,
+        testOrganizerId
       );
 
       expect(result.success).toBe(false);
@@ -517,7 +521,8 @@ describe('discoveryService', () => {
           end_time: new Date('2026-06-05T20:00:00Z')
         },
         pool,
-        now
+        now,
+        testOrganizerId
       );
 
       expect(result.success).toBe(false);
@@ -534,11 +539,11 @@ describe('discoveryService', () => {
       };
 
       // First call: creates template
-      const result1 = await discoverTournament(testInput, pool, now);
+      const result1 = await discoverTournament(testInput, pool, now, testOrganizerId);
       expect(result1.created).toBe(true);
 
       // Second call: returns existing template
-      const result2 = await discoverTournament(testInput, pool, now);
+      const result2 = await discoverTournament(testInput, pool, now, testOrganizerId);
       expect(result2.created).toBe(false);
 
       // Both should return the same template ID
@@ -549,8 +554,8 @@ describe('discoveryService', () => {
     it('should be replay-safe (injected now)', async () => {
       const fixedNow = new Date('2026-03-01T12:00:00Z');
 
-      const result1 = await discoverTournament(validInput, pool, fixedNow);
-      const result2 = await discoverTournament(validInput, pool, fixedNow);
+      const result1 = await discoverTournament(validInput, pool, fixedNow, testOrganizerId);
+      const result2 = await discoverTournament(validInput, pool, fixedNow, testOrganizerId);
 
       expect(result1.templateId).toBe(result2.templateId);
     });
