@@ -335,6 +335,31 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
         /competitors array is missing/
       );
     });
+
+    it('should compute key for PLAYER_POOL unit with externalPlayerId', () => {
+      const unit = {
+        externalPlayerId: '3470', // ESPN player ID
+        providerEventId: null,
+        providerData: null
+      };
+
+      const key = adapter.computeIngestionKey('ci-master-2026', unit);
+
+      expect(key).toMatch(/^player_pool:3470$/);
+      expect(key).toBe('player_pool:3470');
+    });
+
+    it('should throw for PLAYER_POOL unit without player identifier', () => {
+      const unit = {
+        providerEventId: null,
+        providerData: null
+        // missing playerId and externalPlayerId
+      };
+
+      expect(() => adapter.computeIngestionKey('ci-test', unit)).toThrow(
+        /Cannot compute ingestion key: missing providerData and player identifier/
+      );
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -352,30 +377,79 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
       expect(units).toEqual([]);
     });
 
-    it('should return placeholder work unit if ctx.contestInstanceId is present', async () => {
+    it('should return empty array if no competitors available', async () => {
       const ctx = {
         contestInstanceId: 'ci-master-2026'
       };
 
       const units = await adapter.getWorkUnits(ctx);
 
-      expect(units).toEqual([
-        {
-          providerEventId: null,
-          providerData: null
-        }
-      ]);
+      expect(units).toEqual([]);
     });
 
-    it('should return single unit (not multiple)', async () => {
+    it('should generate PLAYER_POOL units with externalPlayerId from competitors', async () => {
       const ctx = {
-        contestInstanceId: 'ci-test'
+        contestInstanceId: 'ci-master-2026',
+        competitors: [
+          { id: '3470' }, // Rory McIlroy
+          { id: '2506' }  // Tiger Woods
+        ]
       };
 
       const units = await adapter.getWorkUnits(ctx);
 
       expect(Array.isArray(units)).toBe(true);
-      expect(units).toHaveLength(1);
+      expect(units).toHaveLength(2);
+      expect(units[0]).toEqual({
+        externalPlayerId: '3470',
+        providerEventId: null,
+        providerData: null
+      });
+      expect(units[1]).toEqual({
+        externalPlayerId: '2506',
+        providerEventId: null,
+        providerData: null
+      });
+    });
+
+    it('should skip competitors without player identifier', async () => {
+      const ctx = {
+        contestInstanceId: 'ci-master-2026',
+        competitors: [
+          { id: '3470' },
+          { id: null },    // Missing ID
+          { id: '2506' },
+          { }              // No ID field
+        ]
+      };
+
+      const units = await adapter.getWorkUnits(ctx);
+
+      expect(Array.isArray(units)).toBe(true);
+      expect(units).toHaveLength(2);
+      expect(units[0].externalPlayerId).toBe('3470');
+      expect(units[1].externalPlayerId).toBe('2506');
+    });
+
+    it('should ensure each PLAYER_POOL unit includes externalPlayerId', async () => {
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        competitors: [
+          { id: '100' },
+          { id: '200' },
+          { id: '300' }
+        ]
+      };
+
+      const units = await adapter.getWorkUnits(ctx);
+
+      // Verify all units have externalPlayerId
+      for (const unit of units) {
+        expect(unit).toHaveProperty('externalPlayerId');
+        expect(unit.externalPlayerId).toBeTruthy();
+        expect(unit.externalPlayerId).not.toBe(null);
+        expect(unit.externalPlayerId).not.toBe(undefined);
+      }
     });
   });
 

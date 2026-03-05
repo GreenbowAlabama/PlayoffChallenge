@@ -166,13 +166,30 @@ async function getWorkUnits(ctx) {
     return [];
   }
 
-  // Return single placeholder work unit
-  return [
-    {
-      providerEventId: null,
-      providerData: null
+  // PLAYER_POOL Phase: If competitors available, generate units with player identifiers
+  if (Array.isArray(ctx.competitors) && ctx.competitors.length > 0) {
+    const units = [];
+
+    for (const competitor of ctx.competitors) {
+      // Skip competitors without ESPN identifier
+      if (!competitor.id) {
+        console.log('[Ingestion] Skipping player pool unit: missing player identifier');
+        continue;
+      }
+
+      units.push({
+        externalPlayerId: competitor.id,
+        providerEventId: null,
+        providerData: null
+      });
     }
-  ];
+
+    return units;
+  }
+
+  // If no competitors available yet, do not emit units
+  // Ingestion will retry on the next cycle
+  return [];
 }
 
 function computeIngestionKey(contestInstanceId, unit) {
