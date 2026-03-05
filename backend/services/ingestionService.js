@@ -49,7 +49,7 @@ async function run(contestInstanceId, pool, workUnits = null) {
        JOIN contest_templates ct ON ci.template_id = ct.id
        LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
        WHERE ci.id = $1
-       FOR UPDATE`,
+       FOR UPDATE OF ci`,
       [contestInstanceId]
     );
 
@@ -110,7 +110,12 @@ async function run(contestInstanceId, pool, workUnits = null) {
 
     // ── Process each work unit ────────────────────────────────────────────────
     for (const unit of unitsToProcess) {
-      const workUnitKey = adapter.computeIngestionKey(contestInstanceId, unit);
+      // Ensure every work unit has providerEventId (inject from context if missing)
+      const enrichedUnit = {
+        ...unit,
+        providerEventId: unit.providerEventId || ctx.providerEventId
+      };
+      const workUnitKey = adapter.computeIngestionKey(contestInstanceId, enrichedUnit);
 
       // Idempotency: try to claim this work unit as RUNNING.
       // ON CONFLICT DO NOTHING — if a record already exists (RUNNING or COMPLETE) skip.
@@ -133,7 +138,7 @@ async function run(contestInstanceId, pool, workUnits = null) {
 
       // ── Run adapter pipeline ────────────────────────────────────────────────
       try {
-        const normalizedScores = await adapter.ingestWorkUnit(ctx, unit);
+        const normalizedScores = await adapter.ingestWorkUnit(ctx, enrichedUnit);
         await adapter.upsertScores(ctx, normalizedScores);
 
         await client.query(
