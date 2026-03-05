@@ -28,6 +28,7 @@
 
 const { getNextUpcomingEvent } = require('./calendarProvider');
 const { fetchEspnSummary, extractEspnEventId } = require('./espnDataFetcher');
+const { discoverTournament } = require('./discoveryService');
 const pgaEspnIngestion = require('../ingestion/strategies/pgaEspnIngestion');
 const { initializeTournamentField } = require('../ingestionService');
 
@@ -134,18 +135,44 @@ async function runDiscoveryCycle(pool, now = new Date(), organizerId) {
       };
     }
 
-    // Step 2: Create contest instances for all system-generated templates
+    // Step 2: Auto-create system template for this tournament via discoveryService
+    // This ensures the template exists before createContestsForEvent attempts to use it
+    const discoverResult = await discoverTournament(
+      {
+        provider_tournament_id: event.provider_event_id,
+        season_year: event.start_time.getFullYear(),
+        name: event.name,
+        start_time: event.start_time,
+        end_time: event.end_time,
+        status: 'SCHEDULED'
+      },
+      pool,
+      now
+    );
+
+    if (!discoverResult.success) {
+      return {
+        success: false,
+        event_id: event.provider_event_id,
+        template_created: false,
+        instance_created: false,
+        errors: [discoverResult.error],
+        message: `Discovery cycle failed: template creation error: ${discoverResult.error}`
+      };
+    }
+
+    // Step 3: Create contest instances for all system-generated templates
     const result = await createContestsForEvent(pool, event, now, organizerId);
 
     return {
       success: result.success,
       event_id: event.provider_event_id,
       created: result.created,
-      // legacy fields kept for worker compatibility
-      template_created: false,
+      // template_created: whether we created a new template or it was already idempotent
+      template_created: discoverResult.created,
       instance_created: result.created > 0,
       errors: result.errors,
-      message: `Event: ${event.provider_event_id}, created=${result.created}, skipped=${result.skipped}`
+      message: `Template: created=${discoverResult.created}, Instances: created=${result.created}`
     };
   } catch (err) {
     return {
