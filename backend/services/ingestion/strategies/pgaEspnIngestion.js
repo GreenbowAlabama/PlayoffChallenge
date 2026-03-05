@@ -583,8 +583,24 @@ async function ingestWorkUnit(ctx, unit) {
   return [];
 }
 
+/**
+ * Upsert normalized scores to the database.
+ *
+ * For PLAYER_POOL phase: normalizedScores is empty, so this is a no-op.
+ * For SCORING phase: not yet implemented (out of scope for Batch 2).
+ *
+ * @param {Object} _ctx - Ingestion context
+ * @param {Array} _normalizedScores - Array of normalized score objects
+ * @returns {Promise<void>}
+ */
 async function upsertScores(_ctx, _normalizedScores) {
-  throw new Error("Ingestion adapter 'pga_espn' is not yet implemented");
+  // PLAYER_POOL phase returns empty scores array - nothing to upsert
+  if (!_normalizedScores || _normalizedScores.length === 0) {
+    return;
+  }
+
+  // SCORING phase: not yet implemented
+  throw new Error("Ingestion adapter 'pga_espn' SCORING phase is not yet implemented");
 }
 
 module.exports = {

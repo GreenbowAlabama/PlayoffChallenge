@@ -17,6 +17,101 @@
 
 const ingestionRegistry = require('./ingestionRegistry');
 const { resolveStrategyKey } = require('./ingestionStrategyResolver');
+const { selectField } = require('./golfEngine/selectField');
+
+/**
+ * Populate field_selections with ingested players.
+ *
+ * Called after PLAYER_POOL ingestion completes. Fetches the ingested players
+ * from the players table, builds a field selection, and updates field_selections.
+ *
+ * @param {Object} dbClient - Database client (from transaction)
+ * @param {string} contestInstanceId - UUID of contest_instance
+ * @param {Array<string>} espnPlayerIds - Array of ESPN player IDs that were ingested
+ * @returns {Promise<void>}
+ * @throws {Error} If field population fails (but caller may suppress)
+ */
+async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerIds) {
+  if (!espnPlayerIds || espnPlayerIds.length === 0) {
+    console.log(`[ingestionService] No players ingested for ${contestInstanceId}, skipping field population`);
+    return;
+  }
+
+  // Fetch tournament config for selectField validation
+  const configResult = await dbClient.query(
+    `SELECT provider_event_id, ingestion_endpoint, event_start_date, event_end_date, round_count,
+            cut_after_round, leaderboard_schema_version, field_source
+     FROM tournament_configs
+     WHERE contest_instance_id = $1`,
+    [contestInstanceId]
+  );
+
+  if (configResult.rows.length === 0) {
+    console.warn(`[ingestionService] tournament_configs not found for ${contestInstanceId}, skipping field population`);
+    return;
+  }
+
+  const tourConfig = configResult.rows[0];
+
+  // Fetch all players that were ingested (by espn_id)
+  const playersResult = await dbClient.query(
+    `SELECT id, full_name, espn_id FROM players WHERE espn_id = ANY($1) AND sport = 'GOLF' ORDER BY id`,
+    [espnPlayerIds]
+  );
+
+  const players = playersResult.rows;
+
+  if (players.length === 0) {
+    console.warn(`[ingestionService] No golf players found for ingested ESPN IDs, field_selections not updated`);
+    return;
+  }
+
+  // Build participant list for selectField()
+  const participants = players.map(p => ({
+    player_id: p.id,
+    name: p.full_name,
+    espn_id: p.espn_id
+  }));
+
+  // Call selectField to build field selection
+  let fieldSelection;
+  try {
+    fieldSelection = selectField(tourConfig, participants);
+  } catch (err) {
+    console.error(`[ingestionService] selectField failed for ${contestInstanceId}:`, err.message);
+    throw err;
+  }
+
+  // Enhance field selection with player details
+  const enhancedField = {
+    primary: fieldSelection.primary.map(p => ({
+      player_id: p.player_id,
+      name: p.name,
+      espn_id: p.espn_id
+    })),
+    alternates: fieldSelection.alternates.map(p => ({
+      player_id: p.player_id,
+      name: p.name,
+      espn_id: p.espn_id
+    }))
+  };
+
+  // Update field_selections with new selection_json
+  const updateResult = await dbClient.query(
+    `UPDATE field_selections
+     SET selection_json = $1
+     WHERE contest_instance_id = $2
+     RETURNING id`,
+    [JSON.stringify(enhancedField), contestInstanceId]
+  );
+
+  if (updateResult.rows.length === 0) {
+    console.warn(`[ingestionService] field_selections not found for ${contestInstanceId}, skipping update`);
+    return;
+  }
+
+  console.log(`[ingestionService] Updated field_selections for ${contestInstanceId}: ${players.length} players (${fieldSelection.primary.length} primary, ${fieldSelection.alternates.length} alternates)`);
+}
 
 /**
  * Run ingestion for a contest instance.
@@ -148,6 +243,9 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
     const summary = { processed: 0, skipped: 0, errors: [], phase };
 
+    // ── Track ingested players for PLAYER_POOL phase ──────────────────────────
+    const ingestedPlayerIds = [];
+
     // ── Process each work unit ────────────────────────────────────────────────
     for (const unit of unitsToProcess) {
       // Ensure every work unit has providerEventId (inject from context if missing)
@@ -188,6 +286,11 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
           [contestInstanceId, workUnitKey]
         );
 
+        // Track PLAYER_POOL phase ingested players for field population
+        if (phase === 'PLAYER_POOL' && enrichedUnit.externalPlayerId) {
+          ingestedPlayerIds.push(enrichedUnit.externalPlayerId);
+        }
+
         summary.processed++;
       } catch (unitErr) {
         console.error(`[ingestionService] Work unit failed: ${workUnitKey}`, unitErr.message);
@@ -200,6 +303,16 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
         );
 
         summary.errors.push({ workUnitKey, error: unitErr.message });
+      }
+    }
+
+    // ── Populate field_selections for PLAYER_POOL phase ─────────────────────
+    if (phase === 'PLAYER_POOL' && ingestedPlayerIds.length > 0) {
+      try {
+        await populateFieldSelections(client, contestInstanceId, ingestedPlayerIds);
+      } catch (err) {
+        console.error(`[ingestionService] Failed to populate field_selections for ${contestInstanceId}:`, err.message);
+        // Don't fail the entire ingestion; field population is important but not blocking
       }
     }
 
