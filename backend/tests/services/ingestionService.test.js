@@ -40,7 +40,8 @@ describe('Ingestion Service Post-COMPLETE Guard', () => {
           {
             id: 'ci-complete',
             status: 'COMPLETE',
-            sport: 'GOLF'
+            sport: 'GOLF',
+            provider_event_id: 'espn_pga_401811935'
           }
         ]
       }) // SELECT ... FOR UPDATE
@@ -61,7 +62,8 @@ describe('Ingestion Service Post-COMPLETE Guard', () => {
           {
             id: 'ci-complete',
             status: 'COMPLETE',
-            sport: 'GOLF'
+            sport: 'GOLF',
+            provider_event_id: 'espn_pga_401811935'
           }
         ]
       }) // SELECT ... FOR UPDATE
@@ -80,7 +82,8 @@ describe('Ingestion Service Post-COMPLETE Guard', () => {
           {
             id: 'ci-complete',
             status: 'COMPLETE',
-            sport: 'GOLF'
+            sport: 'GOLF',
+            provider_event_id: 'espn_pga_401811935'
           }
         ]
       }) // SELECT ... FOR UPDATE

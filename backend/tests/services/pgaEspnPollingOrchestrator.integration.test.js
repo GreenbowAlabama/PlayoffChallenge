@@ -52,6 +52,7 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
         id: contestId,
         template_id: 'template-1',
         sport: 'GOLF',
+        provider_event_id: '401811941',
         template_config: {
           provider_league_id: 1106,
           season_year: 2026,

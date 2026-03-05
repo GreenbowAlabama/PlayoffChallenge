@@ -39,9 +39,15 @@ async function run(contestInstanceId, pool, workUnits = null) {
 
     // ── Load and lock contest instance ────────────────────────────────────────
     const ciResult = await client.query(
-      `SELECT ci.*, ct.sport, ct.scoring_strategy_key, ct.settlement_strategy_key
+      `SELECT
+         ci.*,
+         ct.sport,
+         ct.scoring_strategy_key,
+         ct.settlement_strategy_key,
+         tc.provider_event_id
        FROM contest_instances ci
        JOIN contest_templates ct ON ci.template_id = ct.id
+       LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
        WHERE ci.id = $1
        FOR UPDATE`,
       [contestInstanceId]
@@ -53,6 +59,13 @@ async function run(contestInstanceId, pool, workUnits = null) {
     }
 
     const row = ciResult.rows[0];
+
+    // Guard: provider_event_id is required for ingestion
+    if (!row.provider_event_id) {
+      await client.query('ROLLBACK');
+      throw new Error(`provider_event_id missing for contest ${contestInstanceId}`);
+    }
+
     // Determine ingestion strategy based on sport
     // GOLF uses pga_espn, all others default to nfl_espn
     const strategyKey = row.sport === 'GOLF' ? 'pga_espn' : 'nfl_espn';
@@ -82,6 +95,7 @@ async function run(contestInstanceId, pool, workUnits = null) {
 
     const ctx = {
       contestInstanceId,
+      providerEventId: row.provider_event_id,
       template: row,
       dbClient: client,
       now: new Date()
