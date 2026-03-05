@@ -13,13 +13,16 @@
 'use strict';
 
 /**
- * Fetch ESPN scoreboard summary for a PGA event.
+ * Fetch ESPN scoreboard for PGA event.
  *
  * Uses ESPN public API endpoint:
- * https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/summary?event={eventId}
+ * https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard
+ *
+ * Searches the events array for matching event ID and returns that event
+ * wrapped in an events array for compatibility with lock time extractor.
  *
  * @param {string} espnEventId - ESPN event ID (numeric string, e.g., "401811941")
- * @returns {Promise<Object|null>} ESPN API response or null if fetch fails
+ * @returns {Promise<Object|null>} Event wrapped as { events: [event] } or null if not found or fetch fails
  */
 async function fetchEspnSummary(espnEventId) {
   if (!espnEventId || typeof espnEventId !== 'string') {
@@ -27,10 +30,10 @@ async function fetchEspnSummary(espnEventId) {
     return null;
   }
 
-  const url = `https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/summary?event=${espnEventId}`;
+  const url = 'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard';
 
   try {
-    console.log(`[ESPN Fetcher] Fetching summary for event ${espnEventId}`);
+    console.log(`[ESPN Fetcher] Fetching scoreboard to locate event ${espnEventId}`);
 
     const response = await fetch(url, {
       timeout: 10000, // 10 second timeout
@@ -41,18 +44,37 @@ async function fetchEspnSummary(espnEventId) {
 
     if (!response.ok) {
       console.warn(
-        `[ESPN Fetcher] HTTP ${response.status} for event ${espnEventId}: ${response.statusText}`
+        `[ESPN Fetcher] HTTP ${response.status} for scoreboard: ${response.statusText}`
       );
       return null;
     }
 
     const data = await response.json();
-    console.log(`[ESPN Fetcher] Successfully fetched summary for event ${espnEventId}`);
-    return data;
+
+    // Locate event by ID in the events array
+    if (!Array.isArray(data.events)) {
+      console.warn('[ESPN Fetcher] Scoreboard response missing events array');
+      return null;
+    }
+
+    const event = data.events.find(e => e.id === espnEventId);
+    if (!event) {
+      console.warn(
+        `[ESPN Fetcher] Event ${espnEventId} not found in scoreboard (${data.events.length} events available)`
+      );
+      return null;
+    }
+
+    console.log(`[ESPN Fetcher] Successfully located event ${espnEventId} in scoreboard`);
+
+    // Return event wrapped in events array for compatibility with lock time extractor
+    return {
+      events: [event]
+    };
   } catch (err) {
     // Non-blocking: log and return null
     console.warn(
-      `[ESPN Fetcher] Failed to fetch event ${espnEventId}: ${err.message}`
+      `[ESPN Fetcher] Failed to fetch scoreboard: ${err.message}`
     );
     return null;
   }
