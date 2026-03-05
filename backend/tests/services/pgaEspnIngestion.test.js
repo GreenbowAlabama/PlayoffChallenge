@@ -367,6 +367,17 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('getWorkUnits', () => {
+    const espnPgaPlayerService = require('../../services/ingestion/espn/espnPgaPlayerService');
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      jest.spyOn(espnPgaPlayerService, 'fetchTournamentField').mockResolvedValue([]);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('should return empty array if ctx is missing', async () => {
       const units = await adapter.getWorkUnits(null);
       expect(units).toEqual([]);
@@ -377,9 +388,10 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
       expect(units).toEqual([]);
     });
 
-    it('should return empty array if no competitors available', async () => {
+    it('should return empty array if providerEventId is missing', async () => {
       const ctx = {
         contestInstanceId: 'ci-master-2026'
+        // Missing providerEventId
       };
 
       const units = await adapter.getWorkUnits(ctx);
@@ -387,68 +399,92 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
       expect(units).toEqual([]);
     });
 
-    it('should generate PLAYER_POOL units with externalPlayerId from competitors', async () => {
+    it('should return empty array if no golfers fetched from leaderboard', async () => {
+      espnPgaPlayerService.fetchTournamentField.mockResolvedValue([]);
+
       const ctx = {
         contestInstanceId: 'ci-master-2026',
-        competitors: [
-          { id: '3470' }, // Rory McIlroy
-          { id: '2506' }  // Tiger Woods
-        ]
+        providerEventId: '401811937'
+      };
+
+      const units = await adapter.getWorkUnits(ctx);
+
+      expect(units).toEqual([]);
+    });
+
+    it('should generate PLAYER_POOL units with golfer data attached', async () => {
+      const mockGolfers = [
+        { external_id: '3470', name: 'Rory McIlroy', image_url: 'https://...', sport: 'GOLF', position: 'G' },
+        { external_id: '2506', name: 'Tiger Woods', image_url: 'https://...', sport: 'GOLF', position: 'G' }
+      ];
+
+      espnPgaPlayerService.fetchTournamentField.mockResolvedValue(mockGolfers);
+
+      const ctx = {
+        contestInstanceId: 'ci-master-2026',
+        providerEventId: '401811937'
       };
 
       const units = await adapter.getWorkUnits(ctx);
 
       expect(Array.isArray(units)).toBe(true);
       expect(units).toHaveLength(2);
+
+      // Verify golfer data is attached to unit
       expect(units[0]).toEqual({
         externalPlayerId: '3470',
-        providerEventId: null,
-        providerData: null
+        providerEventId: '401811937',
+        providerData: null,
+        golfer: mockGolfers[0]
       });
       expect(units[1]).toEqual({
         externalPlayerId: '2506',
-        providerEventId: null,
-        providerData: null
+        providerEventId: '401811937',
+        providerData: null,
+        golfer: mockGolfers[1]
       });
     });
 
-    it('should skip competitors without player identifier', async () => {
-      const ctx = {
-        contestInstanceId: 'ci-master-2026',
-        competitors: [
-          { id: '3470' },
-          { id: null },    // Missing ID
-          { id: '2506' },
-          { }              // No ID field
-        ]
-      };
+    it('should call fetchTournamentField with correct eventId', async () => {
+      const mockGolfers = [
+        { external_id: '12345', name: 'Golfer', image_url: null, sport: 'GOLF', position: 'G' }
+      ];
 
-      const units = await adapter.getWorkUnits(ctx);
+      espnPgaPlayerService.fetchTournamentField.mockResolvedValue(mockGolfers);
 
-      expect(Array.isArray(units)).toBe(true);
-      expect(units).toHaveLength(2);
-      expect(units[0].externalPlayerId).toBe('3470');
-      expect(units[1].externalPlayerId).toBe('2506');
-    });
-
-    it('should ensure each PLAYER_POOL unit includes externalPlayerId', async () => {
       const ctx = {
         contestInstanceId: 'ci-test',
-        competitors: [
-          { id: '100' },
-          { id: '200' },
-          { id: '300' }
-        ]
+        providerEventId: '401811937'
+      };
+
+      await adapter.getWorkUnits(ctx);
+
+      expect(espnPgaPlayerService.fetchTournamentField).toHaveBeenCalledWith('401811937');
+    });
+
+    it('should ensure each PLAYER_POOL unit includes externalPlayerId and golfer data', async () => {
+      const mockGolfers = [
+        { external_id: '100', name: 'G1', image_url: null, sport: 'GOLF', position: 'G' },
+        { external_id: '200', name: 'G2', image_url: null, sport: 'GOLF', position: 'G' },
+        { external_id: '300', name: 'G3', image_url: null, sport: 'GOLF', position: 'G' }
+      ];
+
+      espnPgaPlayerService.fetchTournamentField.mockResolvedValue(mockGolfers);
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        providerEventId: '401811937'
       };
 
       const units = await adapter.getWorkUnits(ctx);
 
-      // Verify all units have externalPlayerId
+      // Verify all units have required properties
       for (const unit of units) {
         expect(unit).toHaveProperty('externalPlayerId');
+        expect(unit).toHaveProperty('golfer');
         expect(unit.externalPlayerId).toBeTruthy();
-        expect(unit.externalPlayerId).not.toBe(null);
-        expect(unit.externalPlayerId).not.toBe(undefined);
+        expect(unit.golfer).toBeTruthy();
+        expect(unit.golfer.external_id).toBe(unit.externalPlayerId);
       }
     });
   });
@@ -981,6 +1017,240 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
       expect(secondCallParams[1]).toBe('pga_espn');
       expect(secondCallParams[2]).toBe('tournament_data');
       expect(secondCallParams[5]).toBe('VALID');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ingestWorkUnit PLAYER_POOL phase tests
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('ingestWorkUnit PLAYER_POOL phase', () => {
+    let mockDbClient;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockDbClient = {
+        query: jest.fn()
+      };
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('should detect PLAYER_POOL unit (no providerData, has externalPlayerId)', async () => {
+      const golfer = {
+        external_id: '12345',
+        name: 'Rory McIlroy',
+        image_url: 'https://a.espncdn.com/media/golf/players/12345.jpg',
+        sport: 'GOLF',
+        position: 'G'
+      };
+
+      mockDbClient.query.mockResolvedValue({ rows: [] });
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unit = {
+        externalPlayerId: '12345',
+        providerEventId: '401811937',
+        providerData: null,
+        golfer: golfer
+      };
+
+      // Should not throw
+      const result = await adapter.ingestWorkUnit(ctx, unit);
+      expect(result).toBeDefined();
+    });
+
+    it('should use golfer data from unit (not call ESPN again)', async () => {
+      const golfer = {
+        external_id: '12345',
+        name: 'Rory McIlroy',
+        image_url: 'https://a.espncdn.com/media/golf/players/12345.jpg',
+        sport: 'GOLF',
+        position: 'G'
+      };
+
+      mockDbClient.query.mockResolvedValue({ rows: [] });
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unit = {
+        externalPlayerId: '12345',
+        providerEventId: '401811937',
+        providerData: null,
+        golfer: golfer
+      };
+
+      await adapter.ingestWorkUnit(ctx, unit);
+
+      // Should have called query for upserting (and only that)
+      expect(mockDbClient.query).toHaveBeenCalledTimes(1);
+      const callSql = mockDbClient.query.mock.calls[0][0];
+      expect(callSql).toContain('INSERT INTO players');
+    });
+
+    it('should upsert golfer into players table with ON CONFLICT DO UPDATE', async () => {
+      const golfer = {
+        external_id: '12345',
+        name: 'Rory McIlroy',
+        image_url: 'https://a.espncdn.com/media/golf/players/12345.jpg',
+        sport: 'GOLF',
+        position: 'G'
+      };
+
+      mockDbClient.query.mockResolvedValue({ rows: [] });
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unit = {
+        externalPlayerId: '12345',
+        providerEventId: '401811937',
+        providerData: null,
+        golfer: golfer
+      };
+
+      await adapter.ingestWorkUnit(ctx, unit);
+
+      const callSql = mockDbClient.query.mock.calls[0][0];
+      expect(callSql).toContain('INSERT INTO players');
+      expect(callSql).toContain('ON CONFLICT (espn_id)');
+      expect(callSql).toContain('DO UPDATE');
+
+      // Verify parameters
+      const callParams = mockDbClient.query.mock.calls[0][1];
+      expect(callParams[0]).toBe('espn_12345'); // id
+      expect(callParams[1]).toBe('12345');       // espn_id
+      expect(callParams[2]).toBe('Rory McIlroy'); // full_name
+      expect(callParams[3]).toBe('https://a.espncdn.com/media/golf/players/12345.jpg'); // image_url
+      expect(callParams[4]).toBe('GOLF');        // sport
+      expect(callParams[5]).toBe('G');           // position
+    });
+
+    it('should return empty scores array for PLAYER_POOL phase', async () => {
+      const golfer = {
+        external_id: '12345',
+        name: 'Rory McIlroy',
+        image_url: 'https://a.espncdn.com/media/golf/players/12345.jpg',
+        sport: 'GOLF',
+        position: 'G'
+      };
+
+      mockDbClient.query.mockResolvedValue({ rows: [] });
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unit = {
+        externalPlayerId: '12345',
+        providerEventId: '401811937',
+        providerData: null,
+        golfer: golfer
+      };
+
+      const result = await adapter.ingestWorkUnit(ctx, unit);
+
+      expect(Array.isArray(result)).toBe(true);
+      expect(result.length).toBe(0);
+    });
+
+    it('should handle missing headshots safely (null image_url)', async () => {
+      const golfer = {
+        external_id: '12345',
+        name: 'Unknown Golfer',
+        image_url: null,
+        sport: 'GOLF',
+        position: 'G'
+      };
+
+      mockDbClient.query.mockResolvedValue({ rows: [] });
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unit = {
+        externalPlayerId: '12345',
+        providerEventId: '401811937',
+        providerData: null,
+        golfer: golfer
+      };
+
+      const result = await adapter.ingestWorkUnit(ctx, unit);
+
+      expect(result).toBeDefined();
+      expect(result.length).toBe(0);
+
+      // Verify null image_url is handled correctly
+      const callParams = mockDbClient.query.mock.calls[0][1];
+      expect(callParams[3]).toBeNull();
+    });
+
+    it('should throw if golfer data is missing from unit', async () => {
+      mockDbClient.query.mockResolvedValue({ rows: [] });
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unit = {
+        externalPlayerId: '12345',
+        providerEventId: '401811937',
+        providerData: null
+        // Missing golfer data
+      };
+
+      await expect(adapter.ingestWorkUnit(ctx, unit)).rejects.toThrow(
+        'unit.golfer is required'
+      );
+    });
+
+    it('should log successful golfer upsert', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      const golfer = {
+        external_id: '12345',
+        name: 'Rory McIlroy',
+        image_url: 'https://a.espncdn.com/media/golf/players/12345.jpg',
+        sport: 'GOLF',
+        position: 'G'
+      };
+
+      mockDbClient.query.mockResolvedValue({ rows: [] });
+
+      const ctx = {
+        contestInstanceId: 'ci-test',
+        dbClient: mockDbClient
+      };
+
+      const unit = {
+        externalPlayerId: '12345',
+        providerEventId: '401811937',
+        providerData: null,
+        golfer: golfer
+      };
+
+      await adapter.ingestWorkUnit(ctx, unit);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[pgaEspnIngestion] Upserted golfer')
+      );
+
+      consoleSpy.mockRestore();
     });
   });
 });

@@ -64,6 +64,89 @@ async function fetchGolfers() {
 }
 
 /**
+ * Fetch tournament field from ESPN PGA endpoints with smart fallback.
+ *
+ * Strategy:
+ * 1. Try leaderboard endpoint (has tee times, starting positions)
+ * 2. If leaderboard is empty or fails → fallback to scoreboard (always has field)
+ * 3. Both endpoints return competitors in same structure (athlete object)
+ *
+ * This handles pre-tournament scenarios where leaderboard is empty.
+ *
+ * @param {string} eventId - ESPN event ID (e.g., '401811937')
+ * @returns {Promise<Array>} Array of normalized golfer objects
+ * @throws {Error} If eventId is missing or both endpoints fail
+ */
+async function fetchTournamentField(eventId) {
+  if (!eventId) {
+    throw new Error('fetchTournamentField: eventId is required');
+  }
+
+  logger.info(`[espnPgaPlayerService] Fetching tournament field for event ${eventId}...`);
+
+  let leaderboardCompetitors = [];
+  let leaderboardAvailable = false;
+
+  // Step 1: Try leaderboard first (returns field for a specific tournament)
+  try {
+    const leaderboardResponse = await axios.get(
+      `https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/leaderboard?event=${eventId}`,
+      {
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'playoff-challenge/2.0'
+        }
+      }
+    );
+
+    leaderboardCompetitors = leaderboardResponse.data.events?.[0]?.competitions?.[0]?.competitors || [];
+    leaderboardAvailable = true;
+
+    // Step 2: Use leaderboard if it has competitors
+    if (leaderboardCompetitors.length > 0) {
+      logger.info(`[espnPgaPlayerService] Using leaderboard endpoint: ${leaderboardCompetitors.length} golfers for event ${eventId}`);
+      return leaderboardCompetitors.map(competitor => normalizeGolfer(competitor.athlete));
+    }
+  } catch (err) {
+    logger.warn(`[espnPgaPlayerService] Leaderboard fetch failed for event ${eventId}, will try scoreboard: ${err.message}`);
+  }
+
+  // Step 3: Fallback to scoreboard if leaderboard is empty or failed (pre-tournament)
+  logger.info(`[espnPgaPlayerService] Leaderboard empty or unavailable, falling back to scoreboard for event ${eventId}`);
+
+  try {
+    const scoreboardResponse = await axios.get(
+      'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard',
+      {
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'playoff-challenge/2.0'
+        }
+      }
+    );
+
+    // Extract competitors from all events/competitions in scoreboard
+    const competitors = [];
+    const scoreboardEvents = scoreboardResponse.data.events || [];
+
+    for (const event of scoreboardEvents) {
+      const competitions = event.competitions || [];
+      for (const competition of competitions) {
+        const competitorList = competition.competitors || [];
+        competitors.push(...competitorList);
+      }
+    }
+
+    logger.info(`[espnPgaPlayerService] Using scoreboard fallback: ${competitors.length} golfers for event ${eventId}`);
+
+    return competitors.map(competitor => normalizeGolfer(competitor.athlete));
+  } catch (err) {
+    logger.error(`[espnPgaPlayerService] Error fetching tournament field (both leaderboard and scoreboard failed) for event ${eventId}:`, err.message);
+    throw err;
+  }
+}
+
+/**
  * Normalize a single ESPN athlete into platform player format.
  *
  * @param {Object} athlete - ESPN athlete object
@@ -81,5 +164,6 @@ function normalizeGolfer(athlete) {
 
 module.exports = {
   fetchGolfers,
+  fetchTournamentField,
   normalizeGolfer
 };

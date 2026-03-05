@@ -266,30 +266,50 @@ async function getWorkUnits(ctx) {
     return [];
   }
 
-  // PLAYER_POOL Phase: If competitors available, generate units with player identifiers
-  if (Array.isArray(ctx.competitors) && ctx.competitors.length > 0) {
-    const units = [];
-
-    for (const competitor of ctx.competitors) {
-      // Skip competitors without ESPN identifier
-      if (!competitor.id) {
-        console.log('[Ingestion] Skipping player pool unit: missing player identifier');
-        continue;
-      }
-
-      units.push({
-        externalPlayerId: competitor.id,
-        providerEventId: null,
-        providerData: null
-      });
-    }
-
-    return units;
+  // Return empty array if providerEventId is missing
+  if (!ctx.providerEventId) {
+    console.warn('[pgaEspnIngestion] No providerEventId in context, skipping PLAYER_POOL units');
+    return [];
   }
 
-  // If no competitors available yet, do not emit units
-  // Ingestion will retry on the next cycle
-  return [];
+  // PLAYER_POOL Phase: Emit one unit per golfer from ESPN leaderboard
+  // Idempotency is handled by ingestionService via ingestion_runs table
+  // Each unit with a unique externalPlayerId will only be processed once
+
+  const espnPgaPlayerService = require('../espn/espnPgaPlayerService');
+  let golfers = [];
+
+  try {
+    // Fetch tournament field from ESPN leaderboard (optimized for player pool)
+    // Returns complete field with tee times and positions
+    golfers = await espnPgaPlayerService.fetchTournamentField(ctx.providerEventId);
+  } catch (err) {
+    console.warn('[pgaEspnIngestion] Failed to fetch tournament field for PLAYER_POOL units:', err.message);
+    // Don't throw - allow graceful degradation
+    // Ingestion will retry on the next cycle
+    return [];
+  }
+
+  if (!Array.isArray(golfers) || golfers.length === 0) {
+    console.log('[pgaEspnIngestion] No golfers fetched from leaderboard, skipping PLAYER_POOL unit generation');
+    return [];
+  }
+
+  console.log(`[pgaEspnIngestion] Fetched ${golfers.length} golfers from leaderboard for event ${ctx.providerEventId}`);
+
+  // Emit one unit per golfer
+  // Idempotency: each unit with unique externalPlayerId is processed only once
+  // (tracked in ingestion_runs table by ingestionService)
+  // Attach golfer data to unit so ingestWorkUnit doesn't need to call ESPN again
+  const units = golfers.map(golfer => ({
+    externalPlayerId: golfer.external_id,
+    providerEventId: ctx.providerEventId,
+    providerData: null,
+    golfer: golfer  // Attach golfer data to avoid re-fetching
+  }));
+
+  console.log(`[pgaEspnIngestion] Generated ${units.length} PLAYER_POOL units from leaderboard`);
+  return units;
 }
 
 function computeIngestionKey(contestInstanceId, unit) {
@@ -355,6 +375,75 @@ function computeIngestionKey(contestInstanceId, unit) {
 }
 
 /**
+ * Handle PLAYER_POOL phase ingestion: upsert one golfer to players table.
+ *
+ * The golfer data is already fetched and attached to the unit by getWorkUnits(),
+ * so we avoid redundant ESPN API calls. This method only performs the database upsert.
+ *
+ * @param {Object} ctx - Ingestion context { contestInstanceId, dbClient, ... }
+ * @param {Object} unit - PLAYER_POOL unit { externalPlayerId, providerEventId, golfer }
+ * @returns {Promise<Array>} Empty array (no scores for PLAYER_POOL phase)
+ * @throws {Error} If database upsert fails
+ */
+async function handlePlayerPoolIngestion(ctx, unit) {
+  const { contestInstanceId, dbClient } = ctx;
+
+  // Extract golfer data from unit (pre-fetched by getWorkUnits)
+  const golfer = unit.golfer;
+
+  if (!golfer) {
+    throw new Error('handlePlayerPoolIngestion: unit.golfer is required (must be populated by getWorkUnits)');
+  }
+
+  // Upsert single golfer into players table
+  // Use ON CONFLICT DO UPDATE to handle re-ingestion gracefully
+  const upsertQuery = `
+    INSERT INTO players (
+      id,
+      espn_id,
+      full_name,
+      image_url,
+      sport,
+      position,
+      is_active,
+      available,
+      created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, true, true, NOW())
+    ON CONFLICT (espn_id) DO UPDATE
+    SET
+      full_name = EXCLUDED.full_name,
+      image_url = EXCLUDED.image_url,
+      sport = EXCLUDED.sport,
+      position = EXCLUDED.position,
+      is_active = true,
+      available = true,
+      updated_at = NOW()
+  `;
+
+  const playerId = `espn_${golfer.external_id}`;
+
+  try {
+    await dbClient.query(upsertQuery, [
+      playerId,                    // id (synthetic, based on external_id)
+      golfer.external_id,          // espn_id (authoritative external ID)
+      golfer.name,                 // full_name
+      golfer.image_url || null,    // image_url (safe null handling)
+      golfer.sport,                // sport (GOLF)
+      golfer.position,             // position (G for golfer)
+    ]);
+
+    console.log(`[pgaEspnIngestion] Upserted golfer ${golfer.name} (${golfer.external_id}) to players table`);
+  } catch (err) {
+    console.error(`[pgaEspnIngestion] Failed to upsert golfer ${golfer.external_id}:`, err.message);
+    throw err;
+  }
+
+  // Return empty scores array (PLAYER_POOL phase has no scores)
+  return [];
+}
+
+/**
  * Ingest one work unit: create immutable snapshot of provider data for settlement binding.
  *
  * Per PGA v1 Section 4.1:
@@ -364,15 +453,31 @@ function computeIngestionKey(contestInstanceId, unit) {
  * - Insert into ingestion_events (metadata)
  * - Return normalized scores for upsertScores
  *
+ * Also handles PLAYER_POOL phase:
+ * - Fetch golfers from ESPN scoreboard
+ * - Upsert into players table
+ * - Return empty scores array
+ *
  * @param {Object} ctx - Ingestion context { contestInstanceId, dbClient, ... }
- * @param {Object} unit - Work unit { providerEventId, providerData, ... }
- * @returns {Promise<Array>} Normalized score objects for upsertScores
+ * @param {Object} unit - Work unit { providerEventId, providerData, ... } or PLAYER_POOL unit { externalPlayerId }
+ * @returns {Promise<Array>} Normalized score objects for upsertScores (empty for PLAYER_POOL)
  */
 async function ingestWorkUnit(ctx, unit) {
   const { contestInstanceId, dbClient } = ctx;
 
-  if (!unit || !unit.providerData) {
-    throw new Error('ingestWorkUnit: unit.providerData is required (ESPN tournament data)');
+  if (!unit) {
+    throw new Error('ingestWorkUnit: unit is required');
+  }
+
+  // ── PLAYER_POOL Phase: Detect and handle ────────────────────────────────────
+  if (!unit.providerData && unit.externalPlayerId) {
+    // This is a PLAYER_POOL unit: fetch golfers and upsert to players table
+    return await handlePlayerPoolIngestion(ctx, unit);
+  }
+
+  // ── SCORING Phase: Standard snapshot persistence ────────────────────────────
+  if (!unit.providerData) {
+    throw new Error('ingestWorkUnit: unit.providerData is required for SCORING phase (ESPN tournament data)');
   }
 
   const providerData = unit.providerData;
