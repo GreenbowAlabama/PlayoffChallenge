@@ -48,7 +48,6 @@ describe('ESPN PGA Player Service', () => {
       expect(result[0]).toEqual({
         external_id: '12345',
         name: 'Rory McIlroy',
-        short_name: 'R. McIlroy',
         image_url: 'https://a.espncdn.com/media/golf/players/12345.jpg',
         sport: 'GOLF',
         position: 'G'
@@ -56,7 +55,6 @@ describe('ESPN PGA Player Service', () => {
       expect(result[1]).toEqual({
         external_id: '67890',
         name: 'Jon Rahm',
-        short_name: 'J. Rahm',
         image_url: 'https://a.espncdn.com/media/golf/players/67890.jpg',
         sport: 'GOLF',
         position: 'G'
@@ -141,7 +139,6 @@ describe('ESPN PGA Player Service', () => {
       expect(normalized).toEqual({
         external_id: '12345',
         name: 'Tiger Woods',
-        short_name: 'T. Woods',
         image_url: 'https://example.com/tiger.jpg',
         sport: 'GOLF',
         position: 'G'

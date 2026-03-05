@@ -58,7 +58,6 @@ function normalizeGolfer(athlete) {
   return {
     external_id: athlete.id,
     name: athlete.displayName,
-    short_name: athlete.shortName,
     image_url: athlete.headshot?.href || null,
     sport: 'GOLF',
     position: 'G'
