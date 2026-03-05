@@ -51,7 +51,7 @@ describe('pgaEspnPollingOrchestrator.pollAndIngest', () => {
       const contestRow = {
         id: contestId,
         template_id: 'template-1',
-        ingestion_strategy_key: 'pga_espn',
+        sport: 'GOLF',
         template_config: {
           provider_league_id: 1106,
           season_year: 2026,

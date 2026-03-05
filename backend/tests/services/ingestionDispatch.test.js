@@ -120,7 +120,7 @@ describe('ingestionService.run — adapter dispatch', () => {
         status: 'LIVE',
         scoring_strategy_key: 'ppr',
         settlement_strategy_key: 'final_standings',
-        ingestion_strategy_key: 'nfl_espn'
+        sport: 'NFL'
       }]
     });
     queryQueue.push({ rows: [{ id: 'ir-1' }] }); // INSERT ingestion_run → RUNNING
@@ -182,7 +182,7 @@ describe('ingestionService.run — idempotency', () => {
         status: 'LIVE',
         scoring_strategy_key: 'ppr',
         settlement_strategy_key: 'final_standings',
-        ingestion_strategy_key: 'nfl_espn'
+        sport: 'NFL'
       }]
     });
     // ON CONFLICT DO NOTHING → returns 0 rows (record already existed)

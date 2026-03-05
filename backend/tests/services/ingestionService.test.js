@@ -40,7 +40,7 @@ describe('Ingestion Service Post-COMPLETE Guard', () => {
           {
             id: 'ci-complete',
             status: 'COMPLETE',
-            ingestion_strategy_key: 'pga_espn'
+            sport: 'GOLF'
           }
         ]
       }) // SELECT ... FOR UPDATE
@@ -61,7 +61,7 @@ describe('Ingestion Service Post-COMPLETE Guard', () => {
           {
             id: 'ci-complete',
             status: 'COMPLETE',
-            ingestion_strategy_key: 'pga_espn'
+            sport: 'GOLF'
           }
         ]
       }) // SELECT ... FOR UPDATE
@@ -80,7 +80,7 @@ describe('Ingestion Service Post-COMPLETE Guard', () => {
           {
             id: 'ci-complete',
             status: 'COMPLETE',
-            ingestion_strategy_key: 'pga_espn'
+            sport: 'GOLF'
           }
         ]
       }) // SELECT ... FOR UPDATE

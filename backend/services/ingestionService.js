@@ -39,8 +39,7 @@ async function run(contestInstanceId, pool, workUnits = null) {
 
     // ── Load and lock contest instance ────────────────────────────────────────
     const ciResult = await client.query(
-      `SELECT ci.*, ct.scoring_strategy_key, ct.settlement_strategy_key,
-              COALESCE(ct.ingestion_strategy_key, 'nfl_espn') AS ingestion_strategy_key
+      `SELECT ci.*, ct.sport, ct.scoring_strategy_key, ct.settlement_strategy_key
        FROM contest_instances ci
        JOIN contest_templates ct ON ci.template_id = ct.id
        WHERE ci.id = $1
@@ -54,7 +53,9 @@ async function run(contestInstanceId, pool, workUnits = null) {
     }
 
     const row = ciResult.rows[0];
-    const strategyKey = row.ingestion_strategy_key;
+    // Determine ingestion strategy based on sport
+    // GOLF uses pga_espn, all others default to nfl_espn
+    const strategyKey = row.sport === 'GOLF' ? 'pga_espn' : 'nfl_espn';
 
     // ── Post-COMPLETE hard guard ─────────────────────────────────────────────
     if (row.status === 'COMPLETE') {

@@ -50,7 +50,7 @@ async function pollAndIngest(contestInstanceId, pool, workUnits) {
   let contestInstance;
   try {
     const result = await pool.query(
-      `SELECT ci.*, ct.ingestion_strategy_key, ct.config as template_config
+      `SELECT ci.*, ct.sport, ct.config as template_config
        FROM contest_instances ci
        JOIN contest_templates ct ON ci.template_id = ct.id
        WHERE ci.id = $1`,
