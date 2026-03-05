@@ -228,8 +228,8 @@ async function discoverTournament(input, pool, now, organizerId) {
       RETURNING id`,
       [
         normalized.name,
-        'pga', // sport: hardcoded for now, from discovery service
-        'daily', // template_type: hardcoded for PGA
+        'GOLF', // sport: must match existing GOLF templates
+        'PGA_DAILY', // template_type: unique for discovered daily tournaments (not PGA_TOURNAMENT)
         'stroke_play', // scoring_strategy_key: hardcoded for PGA
         'auto_discovery', // lock_strategy_key: indicates auto-discovered
         'pga_settlement', // settlement_strategy_key: hardcoded for PGA
@@ -382,7 +382,7 @@ async function discoverTournament(input, pool, now, organizerId) {
           )
           RETURNING id`,
           [
-            normalized.name, 'pga', 'daily', 'stroke_play',
+            normalized.name, 'GOLF', 'PGA_DAILY', 'stroke_play',
             'auto_discovery', 'pga_settlement',
             5000, 1000, 50000,
             JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),

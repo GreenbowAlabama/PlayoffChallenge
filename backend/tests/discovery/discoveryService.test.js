@@ -146,8 +146,8 @@ describe('discoveryService', () => {
       const row = template.rows[0];
 
       expect(row.name).toBe(validInput.name);
-      expect(row.sport).toBe('pga');
-      expect(row.template_type).toBe('daily');
+      expect(row.sport).toBe('GOLF');
+      expect(row.template_type).toBe('PGA_DAILY');
       expect(row.scoring_strategy_key).toBe('stroke_play');
       expect(row.lock_strategy_key).toBe('auto_discovery');
       expect(row.settlement_strategy_key).toBe('pga_settlement');
