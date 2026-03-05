@@ -29,7 +29,7 @@
  * - Always starts unless already running
  */
 
-const { runPlayerPool, runScoring } = require('../services/ingestionService');
+const ingestionService = require('../services/ingestionService');
 
 let ingestionInterval = null;
 
@@ -70,7 +70,7 @@ async function runCycle(pool) {
     for (const instance of contestInstances) {
       try {
         // ── Phase A: PLAYER_POOL (always runs for SCHEDULED+)
-        const playerPoolSummary = await runPlayerPool(instance.id, pool);
+        const playerPoolSummary = await ingestionService.runPlayerPool(instance.id, pool);
 
         if (playerPoolSummary && playerPoolSummary.status === 'REJECTED') {
           console.log(
@@ -86,7 +86,7 @@ async function runCycle(pool) {
 
         // ── Phase B: SCORING (runs only for LOCKED/LIVE)
         if (instance.status === 'LOCKED' || instance.status === 'LIVE') {
-          const scoringSummary = await runScoring(instance.id, pool);
+          const scoringSummary = await ingestionService.runScoring(instance.id, pool);
 
           if (scoringSummary && scoringSummary.status === 'REJECTED') {
             console.log(
@@ -153,6 +153,10 @@ function startIngestionWorker(pool, options = {}) {
     `[Ingestion Worker] Starting (interval: ${intervalMs}ms)`
   );
 
+  // Run immediately on start
+  runCycle(pool);
+
+  // Then repeat on interval
   ingestionInterval = setInterval(() => {
     runCycle(pool);
   }, intervalMs);

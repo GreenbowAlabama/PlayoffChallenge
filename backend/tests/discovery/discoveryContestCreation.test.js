@@ -49,13 +49,7 @@ describe('discoveryContestCreationService', () => {
     // Clean up before each test to ensure isolation
     // Use real production template_type (daily) - tests must validate real system behavior
 
-    // Step 1: Deactivate all test templates to avoid unique constraint violations
-    await pool.query(
-      `UPDATE contest_templates SET is_active = false
-       WHERE name LIKE 'PGA Discovery Test%'`
-    );
-
-    // Step 2: Delete audit records for test instances
+    // Step 1: Delete audit records for previous test instances
     await pool.query(
       `DELETE FROM admin_contest_audit
        WHERE contest_instance_id IN (
@@ -64,24 +58,33 @@ describe('discoveryContestCreationService', () => {
             OR template_id IN (
               SELECT id FROM contest_templates
               WHERE name LIKE 'PGA Discovery Test%'
+                 OR (sport = 'pga' AND template_type = 'daily' AND is_system_generated = true)
             )
        )`
     );
 
-    // Step 3: Delete test contest instances
+    // Step 2: Delete previous test contest instances
     await pool.query(
       `DELETE FROM contest_instances
        WHERE provider_event_id = 'espn_pga_401811941'
           OR template_id IN (
             SELECT id FROM contest_templates
             WHERE name LIKE 'PGA Discovery Test%'
+               OR (sport = 'pga' AND template_type = 'daily' AND is_system_generated = true)
           )`
     );
 
-    // Step 4: Delete test templates
+    // Step 3: Delete previous test templates
     await pool.query(
       `DELETE FROM contest_templates
-       WHERE name LIKE 'PGA Discovery Test%'`
+       WHERE name LIKE 'PGA Discovery Test%'
+          OR (sport = 'pga' AND template_type = 'daily' AND is_system_generated = true)`
+    );
+
+    // Step 4: Deactivate any remaining active PGA daily templates to avoid unique constraint violations
+    await pool.query(
+      `UPDATE contest_templates SET is_active = false
+       WHERE sport = 'pga' AND template_type = 'daily' AND is_active = true`
     );
   });
 

@@ -16,24 +16,48 @@
 async function getAllUserDiagnostics(pool) {
   const result = await pool.query(`
     SELECT
-      id AS user_id,
-      username,
-      email,
-      paid,
-      is_admin,
+      u.id AS user_id,
+      u.username,
+      u.email,
+      u.paid,
+      u.is_admin,
       CASE
-        WHEN apple_id IS NOT NULL THEN 'apple'
-        WHEN email IS NOT NULL THEN 'email'
+        WHEN u.apple_id IS NOT NULL THEN 'apple'
+        WHEN u.email IS NOT NULL THEN 'email'
         ELSE 'unknown'
       END AS auth_provider,
-      created_at AS account_created_at,
-      updated_at AS last_activity_at,
-      state,
-      age_verified,
-      tos_version,
-      tos_accepted_at
-    FROM users
-    ORDER BY created_at DESC
+      u.created_at AS account_created_at,
+      u.updated_at AS last_activity_at,
+      u.state,
+      u.age_verified,
+      u.tos_version,
+      u.tos_accepted_at,
+      CAST(COALESCE(
+        SUM(CASE WHEN l.direction = 'CREDIT' THEN l.amount_cents ELSE 0 END) -
+        SUM(CASE WHEN l.direction = 'DEBIT' THEN l.amount_cents ELSE 0 END),
+        0
+      ) AS INTEGER) AS wallet_balance_cents,
+      CAST(COALESCE(
+        SUM(CASE WHEN l.entry_type = 'WALLET_DEPOSIT' THEN l.amount_cents ELSE 0 END),
+        0
+      ) AS INTEGER) AS total_deposits_cents,
+      CAST(COALESCE(
+        SUM(CASE WHEN l.entry_type = 'ENTRY_FEE' THEN l.amount_cents ELSE 0 END),
+        0
+      ) AS INTEGER) AS total_entry_fees_cents,
+      CAST(COALESCE(
+        SUM(CASE WHEN l.entry_type = 'PRIZE_PAYOUT' THEN l.amount_cents ELSE 0 END),
+        0
+      ) AS INTEGER) AS total_payouts_cents,
+      CAST(COALESCE(
+        SUM(CASE WHEN l.entry_type = 'ENTRY_FEE_REFUND' THEN l.amount_cents ELSE 0 END),
+        0
+      ) AS INTEGER) AS total_refunds_cents,
+      CAST(COALESCE(COUNT(l.id), 0) AS INTEGER) AS ledger_entry_count
+    FROM users u
+    LEFT JOIN ledger l ON u.id = l.user_id
+    GROUP BY u.id
+    ORDER BY u.created_at DESC
   `);
 
   return result.rows;

@@ -23,8 +23,16 @@ describe('Ingestion Worker', () => {
     // Clear any existing intervals
     stopIngestionWorker();
 
-    // Mock ingestionService.run
-    jest.spyOn(ingestionService, 'run').mockResolvedValue({
+    // Mock phase functions
+    jest.spyOn(ingestionService, 'runPlayerPool').mockResolvedValue({
+      status: 'OK',
+      processed: 1,
+      skipped: 0,
+      errors: []
+    });
+
+    jest.spyOn(ingestionService, 'runScoring').mockResolvedValue({
+      status: 'OK',
       processed: 1,
       skipped: 0,
       errors: []
@@ -39,7 +47,7 @@ describe('Ingestion Worker', () => {
   describe('startIngestionWorker', () => {
     it('should start when called from non-test environment without explicit options', (done) => {
       mockPool.query.mockResolvedValue({
-        rows: [{ id: 'ci-1' }]
+        rows: [{ id: 'ci-1', status: 'LOCKED' }]
       });
 
       // Set short interval for testing, simulating server.js call with minimal options
@@ -48,7 +56,7 @@ describe('Ingestion Worker', () => {
       // Wait for at least one cycle
       setTimeout(() => {
         expect(mockPool.query).toHaveBeenCalled();
-        expect(ingestionService.run).toHaveBeenCalledWith('ci-1', mockPool);
+        expect(ingestionService.runPlayerPool).toHaveBeenCalledWith('ci-1', mockPool);
         stopIngestionWorker();
         done();
       }, 150);
@@ -56,7 +64,7 @@ describe('Ingestion Worker', () => {
 
     it('should start with default settings', (done) => {
       mockPool.query.mockResolvedValue({
-        rows: [{ id: 'ci-1' }]
+        rows: [{ id: 'ci-1', status: 'LOCKED' }]
       });
 
       startIngestionWorker(mockPool, {
@@ -66,7 +74,7 @@ describe('Ingestion Worker', () => {
       // Wait for at least one cycle
       setTimeout(() => {
         expect(mockPool.query).toHaveBeenCalled();
-        expect(ingestionService.run).toHaveBeenCalledWith('ci-1', mockPool);
+        expect(ingestionService.runPlayerPool).toHaveBeenCalledWith('ci-1', mockPool);
         stopIngestionWorker();
         done();
       }, 150);
@@ -74,7 +82,7 @@ describe('Ingestion Worker', () => {
 
     it('should process multiple active contest instances', (done) => {
       mockPool.query.mockResolvedValue({
-        rows: [{ id: 'ci-1' }, { id: 'ci-2' }]
+        rows: [{ id: 'ci-1', status: 'LOCKED' }, { id: 'ci-2', status: 'LIVE' }]
       });
 
       startIngestionWorker(mockPool, {
@@ -82,8 +90,8 @@ describe('Ingestion Worker', () => {
       });
 
       setTimeout(() => {
-        expect(ingestionService.run).toHaveBeenCalledWith('ci-1', mockPool);
-        expect(ingestionService.run).toHaveBeenCalledWith('ci-2', mockPool);
+        expect(ingestionService.runPlayerPool).toHaveBeenCalledWith('ci-1', mockPool);
+        expect(ingestionService.runPlayerPool).toHaveBeenCalledWith('ci-2', mockPool);
         stopIngestionWorker();
         done();
       }, 150);
@@ -102,7 +110,8 @@ describe('Ingestion Worker', () => {
         expect(consoleSpy).toHaveBeenCalledWith(
           expect.stringContaining('[Ingestion Worker]')
         );
-        expect(ingestionService.run).not.toHaveBeenCalled();
+        expect(ingestionService.runPlayerPool).not.toHaveBeenCalled();
+        expect(ingestionService.runScoring).not.toHaveBeenCalled();
         stopIngestionWorker();
         consoleSpy.mockRestore();
         done();
@@ -111,10 +120,10 @@ describe('Ingestion Worker', () => {
 
     it('should handle ingestion errors gracefully', (done) => {
       mockPool.query.mockResolvedValue({
-        rows: [{ id: 'ci-1' }]
+        rows: [{ id: 'ci-1', status: 'LOCKED' }]
       });
 
-      ingestionService.run.mockRejectedValue(new Error('Ingestion failed'));
+      ingestionService.runPlayerPool.mockRejectedValue(new Error('Ingestion failed'));
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
       startIngestionWorker(mockPool, {
@@ -151,7 +160,7 @@ describe('Ingestion Worker', () => {
 
     it('should accept custom interval', (done) => {
       mockPool.query.mockResolvedValue({
-        rows: [{ id: 'ci-1' }]
+        rows: [{ id: 'ci-1', status: 'LOCKED' }]
       });
 
       const customInterval = 50;
@@ -161,7 +170,7 @@ describe('Ingestion Worker', () => {
 
       // Wait for 2 cycles
       setTimeout(() => {
-        expect(ingestionService.run.mock.calls.length).toBeGreaterThanOrEqual(2);
+        expect(ingestionService.runPlayerPool.mock.calls.length).toBeGreaterThanOrEqual(2);
         stopIngestionWorker();
         done();
       }, 150);
@@ -171,7 +180,7 @@ describe('Ingestion Worker', () => {
   describe('stopIngestionWorker', () => {
     it('should stop the worker', (done) => {
       mockPool.query.mockResolvedValue({
-        rows: [{ id: 'ci-1' }]
+        rows: [{ id: 'ci-1', status: 'LOCKED' }]
       });
 
       startIngestionWorker(mockPool, {
@@ -179,11 +188,11 @@ describe('Ingestion Worker', () => {
       });
 
       setTimeout(() => {
-        const callCountBefore = ingestionService.run.mock.calls.length;
+        const callCountBefore = ingestionService.runPlayerPool.mock.calls.length;
         stopIngestionWorker();
 
         setTimeout(() => {
-          const callCountAfter = ingestionService.run.mock.calls.length;
+          const callCountAfter = ingestionService.runPlayerPool.mock.calls.length;
           // Should not have additional calls after stop
           expect(callCountAfter).toBe(callCountBefore);
           done();
@@ -193,7 +202,7 @@ describe('Ingestion Worker', () => {
   });
 
   describe('Status filtering', () => {
-    it('should filter contests by status (LOCKED, LIVE) in query', (done) => {
+    it('should filter contests by status (SCHEDULED, LOCKED, LIVE) in query', (done) => {
       mockPool.query.mockResolvedValue({
         rows: []
       });
@@ -207,7 +216,7 @@ describe('Ingestion Worker', () => {
         const query = queryCall[0];
         expect(query).toContain('contest_instances ci');
         expect(query).toContain('JOIN tournament_configs tc');
-        expect(query).toContain("ci.status IN ('LOCKED','LIVE')");
+        expect(query).toContain("ci.status IN ('SCHEDULED','LOCKED','LIVE')");
         expect(query).toContain('provider_event_id IS NOT NULL');
         stopIngestionWorker();
         done();
@@ -217,8 +226,8 @@ describe('Ingestion Worker', () => {
     it('should only process LOCKED or LIVE contests', (done) => {
       mockPool.query.mockResolvedValue({
         rows: [
-          { id: 'ci-locked' },
-          { id: 'ci-live' }
+          { id: 'ci-locked', status: 'LOCKED' },
+          { id: 'ci-live', status: 'LIVE' }
         ]
       });
 
@@ -227,15 +236,16 @@ describe('Ingestion Worker', () => {
       });
 
       setTimeout(() => {
-        expect(ingestionService.run).toHaveBeenCalledWith('ci-locked', mockPool);
-        expect(ingestionService.run).toHaveBeenCalledWith('ci-live', mockPool);
-        expect(ingestionService.run).toHaveBeenCalledTimes(2);
+        expect(ingestionService.runPlayerPool).toHaveBeenCalledWith('ci-locked', mockPool);
+        expect(ingestionService.runPlayerPool).toHaveBeenCalledWith('ci-live', mockPool);
+        expect(ingestionService.runScoring).toHaveBeenCalledWith('ci-locked', mockPool);
+        expect(ingestionService.runScoring).toHaveBeenCalledWith('ci-live', mockPool);
         stopIngestionWorker();
         done();
       }, 150);
     });
 
-    it('should not query SCHEDULED contests', (done) => {
+    it('should query SCHEDULED, LOCKED, and LIVE contests', (done) => {
       mockPool.query.mockResolvedValue({
         rows: []
       });
@@ -247,8 +257,8 @@ describe('Ingestion Worker', () => {
       setTimeout(() => {
         const queryCall = mockPool.query.mock.calls[0];
         const query = queryCall[0];
-        // Verify SCHEDULED is not in the status filter
-        expect(query).not.toContain("'SCHEDULED'");
+        // Verify all three statuses are in the filter
+        expect(query).toContain("ci.status IN ('SCHEDULED','LOCKED','LIVE')");
         stopIngestionWorker();
         done();
       }, 150);
@@ -276,7 +286,7 @@ describe('Ingestion Worker', () => {
 
     it('should run ingestion when provider_event_id exists', (done) => {
       mockPool.query.mockResolvedValue({
-        rows: [{ id: 'ci-tournament-1' }]
+        rows: [{ id: 'ci-tournament-1', status: 'LOCKED' }]
       });
 
       startIngestionWorker(mockPool, {
@@ -284,7 +294,7 @@ describe('Ingestion Worker', () => {
       });
 
       setTimeout(() => {
-        expect(ingestionService.run).toHaveBeenCalledWith('ci-tournament-1', mockPool);
+        expect(ingestionService.runPlayerPool).toHaveBeenCalledWith('ci-tournament-1', mockPool);
         stopIngestionWorker();
         done();
       }, 150);
@@ -300,7 +310,7 @@ describe('Ingestion Worker', () => {
       });
 
       setTimeout(() => {
-        expect(ingestionService.run).not.toHaveBeenCalled();
+        expect(ingestionService.runPlayerPool).not.toHaveBeenCalled();
         stopIngestionWorker();
         done();
       }, 150);
@@ -309,8 +319,8 @@ describe('Ingestion Worker', () => {
     it('should process multiple contests from tournament_configs', (done) => {
       mockPool.query.mockResolvedValue({
         rows: [
-          { id: 'ci-tournament-1' },
-          { id: 'ci-tournament-2' }
+          { id: 'ci-tournament-1', status: 'LOCKED' },
+          { id: 'ci-tournament-2', status: 'LIVE' }
         ]
       });
 
@@ -319,8 +329,8 @@ describe('Ingestion Worker', () => {
       });
 
       setTimeout(() => {
-        expect(ingestionService.run).toHaveBeenCalledWith('ci-tournament-1', mockPool);
-        expect(ingestionService.run).toHaveBeenCalledWith('ci-tournament-2', mockPool);
+        expect(ingestionService.runPlayerPool).toHaveBeenCalledWith('ci-tournament-1', mockPool);
+        expect(ingestionService.runPlayerPool).toHaveBeenCalledWith('ci-tournament-2', mockPool);
         stopIngestionWorker();
         done();
       }, 150);

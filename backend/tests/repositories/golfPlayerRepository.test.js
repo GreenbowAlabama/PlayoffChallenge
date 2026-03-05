@@ -5,13 +5,13 @@
  */
 
 const golfPlayerRepository = require('../../repositories/golfPlayerRepository');
-const { getPoolForTest } = require('../mocks/testAppFactory');
+const { getIntegrationApp } = require('../mocks/testAppFactory');
 
 describe('Golf Player Repository', () => {
   let pool;
 
   beforeAll(async () => {
-    pool = getPoolForTest();
+    pool = getIntegrationApp().pool;
   });
 
   beforeEach(async () => {
@@ -29,7 +29,6 @@ describe('Golf Player Repository', () => {
         {
           external_id: 'espn_12345',
           name: 'Rory McIlroy',
-          short_name: 'R. McIlroy',
           image_url: 'https://example.com/rory.jpg',
           sport: 'GOLF',
           position: 'G'
@@ -37,7 +36,6 @@ describe('Golf Player Repository', () => {
         {
           external_id: 'espn_67890',
           name: 'Jon Rahm',
-          short_name: 'J. Rahm',
           image_url: 'https://example.com/jon.jpg',
           sport: 'GOLF',
           position: 'G'
@@ -66,12 +64,11 @@ describe('Golf Player Repository', () => {
     it('should update existing golf players by external_id', async () => {
       // Insert initial player
       await pool.query(
-        `INSERT INTO players (id, full_name, short_name, espn_id, position, sport, image_url, available, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO players (id, full_name, espn_id, position, sport, image_url, available, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           'golf_player_1',
           'Rory McIlroy',
-          'R. McIlroy',
           'espn_12345',
           'G',
           'GOLF',
@@ -86,7 +83,6 @@ describe('Golf Player Repository', () => {
         {
           external_id: 'espn_12345',
           name: 'Rory McIlroy',
-          short_name: 'R. McIlroy',
           image_url: 'https://example.com/rory_new.jpg',
           sport: 'GOLF',
           position: 'G'
@@ -112,12 +108,11 @@ describe('Golf Player Repository', () => {
     it('should handle mixed insert and update', async () => {
       // Insert one existing player
       await pool.query(
-        `INSERT INTO players (id, full_name, short_name, espn_id, position, sport, image_url, available, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO players (id, full_name, espn_id, position, sport, image_url, available, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           'golf_player_1',
           'Rory McIlroy',
-          'R. McIlroy',
           'espn_12345',
           'G',
           'GOLF',
@@ -132,7 +127,6 @@ describe('Golf Player Repository', () => {
         {
           external_id: 'espn_12345',
           name: 'Rory McIlroy',
-          short_name: 'R. McIlroy',
           image_url: 'https://example.com/rory_updated.jpg',
           sport: 'GOLF',
           position: 'G'
@@ -140,7 +134,6 @@ describe('Golf Player Repository', () => {
         {
           external_id: 'espn_99999',
           name: 'Tiger Woods',
-          short_name: 'T. Woods',
           image_url: 'https://example.com/tiger.jpg',
           sport: 'GOLF',
           position: 'G'
@@ -168,7 +161,6 @@ describe('Golf Player Repository', () => {
         {
           external_id: 'espn_12345',
           name: 'Rory McIlroy',
-          short_name: 'R. McIlroy',
           image_url: 'https://example.com/rory.jpg',
           sport: 'GOLF',
           position: 'G'
@@ -200,14 +192,13 @@ describe('Golf Player Repository', () => {
     beforeEach(async () => {
       // Insert test golf players
       await pool.query(
-        `INSERT INTO players (id, full_name, short_name, espn_id, position, sport, image_url, available, is_active)
+        `INSERT INTO players (id, full_name, espn_id, position, sport, image_url, available, is_active)
          VALUES
-           ($1, $2, $3, $4, $5, $6, $7, $8, $9),
-           ($10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+           ($1, $2, $3, $4, $5, $6, $7, $8),
+           ($9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           'golf_1',
           'Rory McIlroy',
-          'R. McIlroy',
           'espn_12345',
           'G',
           'GOLF',
@@ -216,7 +207,6 @@ describe('Golf Player Repository', () => {
           true,
           'golf_2',
           'Jon Rahm',
-          'J. Rahm',
           'espn_67890',
           'G',
           'GOLF',

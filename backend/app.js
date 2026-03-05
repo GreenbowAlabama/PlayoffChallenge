@@ -18,6 +18,7 @@ const contestsRoutes = require('./routes/contests.routes');
 const walletRoutes = require('./routes/wallet.routes');
 const webhooksRoutes = require('./routes/webhooks');
 const paymentsRoutes = require('./routes/payments');
+const playersRoutes = require('./routes/players.routes');
 const requireAdmin = require('./middleware/adminAuth');
 
 // Configure PostgreSQL decimal parsing
@@ -52,6 +53,7 @@ app.use('/api/', apiLimiter);
 // Mount route modules
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/wallet', walletRoutes);
+app.use('/api/players', playersRoutes);
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin', requireAdmin);
 app.use('/api/admin/users', adminUsersRoutes);

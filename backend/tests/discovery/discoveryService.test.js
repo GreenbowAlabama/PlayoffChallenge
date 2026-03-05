@@ -47,6 +47,13 @@ describe('discoveryService', () => {
       [userId, 'test-organizer@example.com', 'test-organizer']
     );
 
+    // Deactivate any existing active PGA daily templates to avoid unique constraint violation
+    await pool.query(
+      `UPDATE contest_templates
+       SET is_active = false
+       WHERE sport = 'pga' AND template_type = 'daily' AND is_active = true`
+    );
+
     // Remove any stray system templates (and their instances) left by discoveryContestCreation.test.js.
     // Must delete instances first to avoid FK violation.
     await pool.query(
@@ -80,6 +87,16 @@ describe('discoveryService', () => {
 
   afterEach(async () => {
     // Clean up test data
+    await pool.query(
+      `DELETE FROM admin_contest_audit
+       WHERE contest_instance_id IN (
+         SELECT id FROM contest_instances
+         WHERE template_id IN (
+           SELECT id FROM contest_templates
+           WHERE provider_tournament_id LIKE 'pga_test_%'
+         )
+       )`
+    );
     await pool.query(
       `DELETE FROM contest_instances
        WHERE template_id IN (

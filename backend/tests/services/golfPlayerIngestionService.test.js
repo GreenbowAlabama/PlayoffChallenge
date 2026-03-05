@@ -7,7 +7,7 @@
 const golfPlayerIngestionService = require('../../services/ingestion/golfPlayerIngestionService');
 const espnPgaPlayerService = require('../../services/ingestion/espn/espnPgaPlayerService');
 const golfPlayerRepository = require('../../repositories/golfPlayerRepository');
-const { getPoolForTest } = require('../mocks/testAppFactory');
+const { getIntegrationApp } = require('../mocks/testAppFactory');
 
 jest.mock('../../services/ingestion/espn/espnPgaPlayerService');
 jest.mock('../../repositories/golfPlayerRepository');
@@ -16,7 +16,7 @@ describe('Golf Player Ingestion Service', () => {
   let pool;
 
   beforeAll(async () => {
-    pool = getPoolForTest();
+    pool = getIntegrationApp().pool;
   });
 
   beforeEach(() => {

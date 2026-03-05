@@ -33,15 +33,14 @@ describe('GET /api/players - Sport Filtering', () => {
     beforeEach(async () => {
       // Insert test golf players
       await pool.query(
-        `INSERT INTO players (id, full_name, short_name, espn_id, position, sport, image_url, available, is_active)
+        `INSERT INTO players (id, full_name, espn_id, position, sport, image_url, available, is_active)
          VALUES
-           ($1, $2, $3, $4, $5, $6, $7, $8, $9),
-           ($10, $11, $12, $13, $14, $15, $16, $17, $18),
-           ($19, $20, $21, $22, $23, $24, $25, $26, $27)`,
+           ($1, $2, $3, $4, $5, $6, $7, $8),
+           ($9, $10, $11, $12, $13, $14, $15, $16),
+           ($17, $18, $19, $20, $21, $22, $23, $24)`,
         [
           'golf_1',
           'Rory McIlroy',
-          'R. McIlroy',
           'espn_12345',
           'G',
           'GOLF',
@@ -50,7 +49,6 @@ describe('GET /api/players - Sport Filtering', () => {
           true,
           'golf_2',
           'Jon Rahm',
-          'J. Rahm',
           'espn_67890',
           'G',
           'GOLF',
@@ -59,7 +57,6 @@ describe('GET /api/players - Sport Filtering', () => {
           true,
           'golf_3',
           'Tiger Woods',
-          'T. Woods',
           'espn_99999',
           'G',
           'GOLF',
@@ -183,12 +180,11 @@ describe('GET /api/players - Sport Filtering', () => {
     it('should not return golf players by default', async () => {
       // Insert a golf player
       await pool.query(
-        `INSERT INTO players (id, full_name, short_name, espn_id, position, sport, image_url, available, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO players (id, full_name, espn_id, position, sport, image_url, available, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           'golf_test',
           'Rory McIlroy',
-          'R. McIlroy',
           'espn_12345',
           'G',
           'GOLF',
@@ -231,7 +227,7 @@ describe('GET /api/players - Sport Filtering', () => {
       const response = await request(app).get('/api/players?sport=GOLF');
 
       // Should still return valid response even if DB has issues
-      expect(response.status).toMatch(/^(200|500)$/);
+      expect([200, 500]).toContain(response.status);
     });
   });
 });
