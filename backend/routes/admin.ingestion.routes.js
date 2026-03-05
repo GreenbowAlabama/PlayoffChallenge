@@ -39,7 +39,7 @@ router.post('/run', async (req, res) => {
     // Find all active contest instances that need ingestion
     const result = await pool.query(
       `SELECT id FROM contest_instances
-       WHERE status IN ('OPEN', 'LOCKED', 'LIVE')
+       WHERE status IN ('SCHEDULED', 'LOCKED', 'LIVE')
        ORDER BY created_at DESC`
     );
 

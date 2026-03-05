@@ -53,13 +53,14 @@ async function fetchEspnSummary(espnEventId) {
       return null;
     }
 
-    // Select first event from scoreboard
-    const event = data.events?.[0];
+    // Find event matching the requested ESPN event ID
+    const event = data.events.find(e => e.id === espnEventId);
     if (!event) {
-      throw new Error('No events returned from ESPN PGA scoreboard');
+      console.warn(`[ESPN Fetcher] Requested event ${espnEventId} not found in scoreboard`);
+      return null;
     }
 
-    console.log('[ESPN Fetcher] Using scoreboard event:', event.id, event.name);
+    console.log('[ESPN Fetcher] Found requested event:', event.id, event.name);
 
     // Return event wrapped in events array for compatibility with lock time extractor
     return {

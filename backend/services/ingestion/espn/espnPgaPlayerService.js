@@ -125,16 +125,21 @@ async function fetchTournamentField(eventId) {
       }
     );
 
-    // Extract competitors from all events/competitions in scoreboard
-    const competitors = [];
+    // Find the specific event matching eventId in scoreboard
     const scoreboardEvents = scoreboardResponse.data.events || [];
+    const targetEvent = scoreboardEvents.find(e => e.id === eventId);
 
-    for (const event of scoreboardEvents) {
-      const competitions = event.competitions || [];
-      for (const competition of competitions) {
-        const competitorList = competition.competitors || [];
-        competitors.push(...competitorList);
-      }
+    if (!targetEvent) {
+      logger.warn(`[espnPgaPlayerService] Event ${eventId} not found in scoreboard`);
+      return [];
+    }
+
+    // Extract competitors from the specific requested event only
+    const competitors = [];
+    const competitions = targetEvent.competitions || [];
+    for (const competition of competitions) {
+      const competitorList = competition.competitors || [];
+      competitors.push(...competitorList);
     }
 
     logger.info(`[espnPgaPlayerService] Using scoreboard fallback: ${competitors.length} golfers for event ${eventId}`);

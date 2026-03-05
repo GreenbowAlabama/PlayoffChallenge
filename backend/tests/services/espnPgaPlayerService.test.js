@@ -451,11 +451,12 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      // Scoreboard returns full field
+      // Scoreboard returns full field with matching event ID
       const scoreboardResponse = {
         data: {
           events: [
             {
+              id: '401811937',  // Must match requested event ID
               competitions: [
                 {
                   competitors: [
@@ -554,7 +555,7 @@ describe('ESPN PGA Player Service', () => {
       ).rejects.toThrow('Scoreboard API Error');
     });
 
-    it('should deduplicate competitors across events when using scoreboard fallback', async () => {
+    it('should extract competitors only from requested event in scoreboard', async () => {
       // Leaderboard empty
       const emptyLeaderboard = {
         data: {
@@ -570,11 +571,28 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      // Scoreboard with same golfer in multiple events (shouldn't happen, but test it)
+      // Scoreboard with multiple events - request only one
       const scoreboardResponse = {
         data: {
           events: [
             {
+              id: '401811935',  // Different event
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: '11111',
+                        displayName: 'Other Golfer',
+                        headshot: { href: 'https://a.espncdn.com/media/golf/players/11111.jpg' }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              id: '401811937',  // Requested event
               competitions: [
                 {
                   competitors: [
@@ -584,15 +602,7 @@ describe('ESPN PGA Player Service', () => {
                         displayName: 'Rory McIlroy',
                         headshot: { href: 'https://a.espncdn.com/media/golf/players/12345.jpg' }
                       }
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              competitions: [
-                {
-                  competitors: [
+                    },
                     {
                       athlete: {
                         id: '67890',
@@ -614,9 +624,10 @@ describe('ESPN PGA Player Service', () => {
 
       const result = await espnPgaPlayerService.fetchTournamentField('401811937');
 
-      // Should have 2 unique golfers from 2 events
+      // Should return only golfers from event 401811937, not from 401811935
       expect(result).toHaveLength(2);
       expect(result.map(g => g.external_id)).toEqual(['12345', '67890']);
+      expect(result.map(g => g.name)).toEqual(['Rory McIlroy', 'Jon Rahm']);
     });
 
     it('should log when falling back to scoreboard', async () => {
@@ -663,6 +674,125 @@ describe('ESPN PGA Player Service', () => {
       expect(fallbackCalls.length).toBeGreaterThan(0);
 
       consoleInfoSpy.mockRestore();
+    });
+
+    it('BLOCKER #2: should filter scoreboard by eventId (not return all events)', async () => {
+      const requestedEventId = '401811937';
+
+      // Leaderboard is empty (forces fallback to scoreboard)
+      const emptyLeaderboard = {
+        data: {
+          events: [
+            {
+              competitions: [
+                {
+                  competitors: []  // Empty - forces fallback
+                }
+              ]
+            }
+          ]
+        }
+      };
+
+      // Scoreboard contains 3 events with different golfers
+      const scoreboardResponse = {
+        data: {
+          events: [
+            {
+              id: '401811935',
+              name: 'Arnold Palmer Invitational',
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: 'player1',
+                        displayName: 'Player One',
+                        headshot: { href: 'https://example.com/p1.jpg' }
+                      }
+                    },
+                    {
+                      athlete: {
+                        id: 'player2',
+                        displayName: 'Player Two',
+                        headshot: { href: 'https://example.com/p2.jpg' }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              id: '401811937',
+              name: 'The Masters',
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: 'player3',
+                        displayName: 'Player Three',
+                        headshot: { href: 'https://example.com/p3.jpg' }
+                      }
+                    },
+                    {
+                      athlete: {
+                        id: 'player4',
+                        displayName: 'Player Four',
+                        headshot: { href: 'https://example.com/p4.jpg' }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              id: '401811939',
+              name: 'PGA Championship',
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: 'player5',
+                        displayName: 'Player Five',
+                        headshot: { href: 'https://example.com/p5.jpg' }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      };
+
+      axios.get
+        .mockResolvedValueOnce(emptyLeaderboard)
+        .mockResolvedValueOnce(scoreboardResponse);
+
+      // Request only event 401811937
+      const result = await espnPgaPlayerService.fetchTournamentField(requestedEventId);
+
+      const playerIds = result.map(g => g.external_id);
+      const playerNames = result.map(g => g.name);
+
+      // CRITICAL ASSERTION: Should return ONLY golfers from requested event
+      // If BLOCKER #2 bug exists, would return all 5 golfers from all 3 events
+      expect(playerIds).toContain('player3');  // From event 401811937
+      expect(playerIds).toContain('player4');  // From event 401811937
+
+      // Should NOT include golfers from other events
+      expect(playerIds).not.toContain('player1');  // From event 401811935
+      expect(playerIds).not.toContain('player2');  // From event 401811935
+      expect(playerIds).not.toContain('player5');  // From event 401811939
+
+      // Verify exact count: only 2 golfers from requested event
+      expect(result).toHaveLength(2);
+
+      // Verify player names
+      expect(playerNames).toContain('Player Three');
+      expect(playerNames).toContain('Player Four');
     });
   });
 });

@@ -344,7 +344,7 @@ async function initializeTournamentField(pool, contestInstanceId) {
 
   // Load contest instance + template
   const ciResult = await pool.query(
-    `SELECT ci.id, ct.sport, ct.provider_tournament_id
+    `SELECT ci.id, ci.provider_event_id, ct.sport
      FROM contest_instances ci
      JOIN contest_templates ct ON ci.template_id = ct.id
      WHERE ci.id = $1`,
@@ -355,18 +355,16 @@ async function initializeTournamentField(pool, contestInstanceId) {
     throw new Error(`Contest instance not found: ${contestInstanceId}`);
   }
 
-  const { sport, provider_tournament_id } = ciResult.rows[0];
+  const { sport, provider_event_id } = ciResult.rows[0];
 
   // Verify sport is GOLF
   if (sport !== 'GOLF') {
     throw new Error(`initializeTournamentField: sport must be GOLF, got ${sport}`);
   }
 
-  // Resolve provider_event_id from provider_tournament_id
-  const provider_event_id = provider_tournament_id;
-
+  // Verify provider_event_id is present (required for ingestion)
   if (!provider_event_id) {
-    throw new Error(`Contest template missing provider_tournament_id`);
+    throw new Error(`Contest instance missing provider_event_id`);
   }
 
   // Insert tournament_configs (idempotent: ON CONFLICT DO NOTHING)
