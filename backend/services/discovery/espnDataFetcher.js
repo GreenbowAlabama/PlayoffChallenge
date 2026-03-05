@@ -18,22 +18,18 @@
  * Uses ESPN public API endpoint:
  * https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard
  *
- * Searches the events array for matching event ID and returns that event
- * wrapped in an events array for compatibility with lock time extractor.
+ * The scoreboard endpoint already scopes events to the current tournament window.
+ * Selects the first event returned (event IDs do not reliably match provider_event_id).
+ * Returns the event wrapped in an events array for compatibility with lock time extractor.
  *
- * @param {string} espnEventId - ESPN event ID (numeric string, e.g., "401811941")
+ * @param {string} espnEventId - ESPN event ID (unused, provided for compatibility)
  * @returns {Promise<Object|null>} Event wrapped as { events: [event] } or null if not found or fetch fails
  */
 async function fetchEspnSummary(espnEventId) {
-  if (!espnEventId || typeof espnEventId !== 'string') {
-    console.warn('[ESPN Fetcher] Invalid espnEventId, skipping fetch');
-    return null;
-  }
-
   const url = 'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard';
 
   try {
-    console.log(`[ESPN Fetcher] Fetching scoreboard to locate event ${espnEventId}`);
+    console.log('[ESPN Fetcher] Fetching PGA scoreboard');
 
     const response = await fetch(url, {
       timeout: 10000, // 10 second timeout
@@ -51,21 +47,19 @@ async function fetchEspnSummary(espnEventId) {
 
     const data = await response.json();
 
-    // Locate event by ID in the events array
+    // Validate events array exists
     if (!Array.isArray(data.events)) {
       console.warn('[ESPN Fetcher] Scoreboard response missing events array');
       return null;
     }
 
-    const event = data.events.find(e => e.id === espnEventId);
+    // Select first event from scoreboard
+    const event = data.events?.[0];
     if (!event) {
-      console.warn(
-        `[ESPN Fetcher] Event ${espnEventId} not found in scoreboard (${data.events.length} events available)`
-      );
-      return null;
+      throw new Error('No events returned from ESPN PGA scoreboard');
     }
 
-    console.log(`[ESPN Fetcher] Successfully located event ${espnEventId} in scoreboard`);
+    console.log('[ESPN Fetcher] Using scoreboard event:', event.id, event.name);
 
     // Return event wrapped in events array for compatibility with lock time extractor
     return {

@@ -21,7 +21,6 @@ describe('ESPN Data Fetcher', () => {
 
   describe('fetchEspnSummary', () => {
     it('should fetch from scoreboard endpoint (not summary endpoint)', async () => {
-      const eventId = '401811937';
       const mockScoreboardResponse = {
         events: [
           {
@@ -52,7 +51,7 @@ describe('ESPN Data Fetcher', () => {
         json: jest.fn().mockResolvedValueOnce(mockScoreboardResponse)
       });
 
-      const result = await fetchEspnSummary(eventId);
+      const result = await fetchEspnSummary('401811937');
 
       // Verify it called the scoreboard endpoint
       expect(global.fetch).toHaveBeenCalledWith(
@@ -66,7 +65,7 @@ describe('ESPN Data Fetcher', () => {
         expect.any(Object)
       );
 
-      // Verify the returned event matches the requested ID
+      // Verify the returned event is the first event (ignores parameter)
       expect(result).toBeDefined();
       expect(result.events).toBeDefined();
       expect(result.events[0].id).toBe('401811937');
@@ -74,8 +73,7 @@ describe('ESPN Data Fetcher', () => {
       expect(result.events[0].competitions).toBeDefined();
     });
 
-    it('should locate event by ID in scoreboard events array', async () => {
-      const eventId = '401811938';
+    it('should select the first event regardless of eventId parameter', async () => {
       const mockScoreboardResponse = {
         events: [
           {
@@ -101,24 +99,18 @@ describe('ESPN Data Fetcher', () => {
         json: jest.fn().mockResolvedValueOnce(mockScoreboardResponse)
       });
 
-      const result = await fetchEspnSummary(eventId);
+      // Pass a different eventId that is not the first event
+      const result = await fetchEspnSummary('401811938');
 
-      // Should return the matched event
+      // Should return the first event in scoreboard, not the requested ID
       expect(result).toBeDefined();
-      expect(result.events[0].id).toBe('401811938');
-      expect(result.events[0].name).toBe('Event 2');
+      expect(result.events[0].id).toBe('401811937');
+      expect(result.events[0].name).toBe('Event 1');
     });
 
-    it('should return null if event not found in scoreboard', async () => {
-      const eventId = '999999999';
+    it('should return null if no events in scoreboard', async () => {
       const mockScoreboardResponse = {
-        events: [
-          {
-            id: '401811937',
-            name: 'Event 1',
-            competitions: [{ competitors: [] }]
-          }
-        ]
+        events: []
       };
 
       global.fetch.mockResolvedValueOnce({
@@ -126,46 +118,36 @@ describe('ESPN Data Fetcher', () => {
         json: jest.fn().mockResolvedValueOnce(mockScoreboardResponse)
       });
 
-      const result = await fetchEspnSummary(eventId);
+      const result = await fetchEspnSummary('401811937');
 
-      // Should return null when event not found
+      // Should return null when no events available
       expect(result).toBeNull();
     });
 
     it('should return null if fetch fails', async () => {
-      const eventId = '401811937';
-
       global.fetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
         statusText: 'Not Found'
       });
 
-      const result = await fetchEspnSummary(eventId);
+      const result = await fetchEspnSummary('401811937');
 
       expect(result).toBeNull();
     });
 
     it('should return null if response is invalid JSON', async () => {
-      const eventId = '401811937';
-
       global.fetch.mockResolvedValueOnce({
         ok: true,
         json: jest.fn().mockRejectedValueOnce(new Error('Invalid JSON'))
       });
 
-      const result = await fetchEspnSummary(eventId);
+      const result = await fetchEspnSummary('401811937');
 
-      expect(result).toBeNull();
-    });
-
-    it('should return null if eventId is invalid', async () => {
-      const result = await fetchEspnSummary(null);
       expect(result).toBeNull();
     });
 
     it('should return event payload with structure for lock time extraction', async () => {
-      const eventId = '401811941';
       const mockScoreboardResponse = {
         events: [
           {
@@ -188,7 +170,7 @@ describe('ESPN Data Fetcher', () => {
         json: jest.fn().mockResolvedValueOnce(mockScoreboardResponse)
       });
 
-      const result = await fetchEspnSummary(eventId);
+      const result = await fetchEspnSummary('401811941');
 
       // Verify structure is correct for extractEarliestTeeTime
       expect(result.events).toBeDefined();
