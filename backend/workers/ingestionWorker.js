@@ -9,7 +9,7 @@
  * - Started only in non-test environments (guarded by server.js NODE_ENV check)
  *
  * Behavior:
- * - On each tick, queries for active contest instances (status IN OPEN, LOCKED, LIVE)
+ * - On each tick, queries for ingestible contest instances (status IN LOCKED, LIVE)
  * - For each instance, calls ingestionService.run()
  * - Logs cycle summary (contests processed, errors)
  * - No error throwing (logs and continues)
@@ -51,14 +51,19 @@ function startIngestionWorker(pool, options = {}) {
 
   ingestionInterval = setInterval(async () => {
     try {
-      // Query for contest instances with tournament configurations
-      // Ingestion is driven by tournament provider events, not contest lifecycle
-      // Player pools must exist while contests are SCHEDULED so users can build lineups
+      // Query for ingestible contest instances with tournament configurations
+      // Only ingest contests in LOCKED or LIVE status
+      // Ingestion is driven by tournament provider events with matching contest status
       const result = await pool.query(
-        `SELECT tc.contest_instance_id AS id
-         FROM tournament_configs tc
-         WHERE tc.provider_event_id IS NOT NULL
-         ORDER BY tc.created_at DESC`
+        `SELECT
+           ci.id
+         FROM contest_instances ci
+         JOIN tournament_configs tc
+           ON tc.contest_instance_id = ci.id
+         WHERE
+           tc.provider_event_id IS NOT NULL
+           AND ci.status IN ('LOCKED','LIVE')
+         ORDER BY ci.created_at DESC`
       );
 
       const contestInstances = result.rows;
@@ -70,7 +75,7 @@ function startIngestionWorker(pool, options = {}) {
           const summary = await ingestionService.run(instance.id, pool);
 
           if (summary && summary.status === 'REJECTED') {
-            // This is expected for COMPLETE contests, don't count as failure
+            // Rejection may occur for contests already completed or locked from further ingestion
             console.log(
               `[Ingestion] Skipped ${instance.id}: ${summary.reason}`
             );
@@ -82,9 +87,8 @@ function startIngestionWorker(pool, options = {}) {
           }
         } catch (err) {
           failed++;
-          console.error(
-            `[Ingestion Worker] Failed to ingest ${instance.id}: ${err.message}`
-          );
+          console.error(`[Ingestion Worker] Failed to ingest ${instance.id}`);
+          console.error(err);
         }
       }
 
@@ -94,9 +98,8 @@ function startIngestionWorker(pool, options = {}) {
         );
       }
     } catch (err) {
-      console.error(
-        `[Ingestion Worker] Cycle error: ${err.message}`
-      );
+      console.error(`[Ingestion Worker] Cycle error`);
+      console.error(err);
       // Continue on error, do not crash worker
     }
   }, intervalMs);

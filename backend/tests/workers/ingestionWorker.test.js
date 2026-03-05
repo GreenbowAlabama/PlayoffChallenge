@@ -192,6 +192,69 @@ describe('Ingestion Worker', () => {
     });
   });
 
+  describe('Status filtering', () => {
+    it('should filter contests by status (LOCKED, LIVE) in query', (done) => {
+      mockPool.query.mockResolvedValue({
+        rows: []
+      });
+
+      startIngestionWorker(mockPool, {
+        intervalMs: 100
+      });
+
+      setTimeout(() => {
+        const queryCall = mockPool.query.mock.calls[0];
+        const query = queryCall[0];
+        expect(query).toContain('contest_instances ci');
+        expect(query).toContain('JOIN tournament_configs tc');
+        expect(query).toContain("ci.status IN ('LOCKED','LIVE')");
+        expect(query).toContain('provider_event_id IS NOT NULL');
+        stopIngestionWorker();
+        done();
+      }, 150);
+    });
+
+    it('should only process LOCKED or LIVE contests', (done) => {
+      mockPool.query.mockResolvedValue({
+        rows: [
+          { id: 'ci-locked' },
+          { id: 'ci-live' }
+        ]
+      });
+
+      startIngestionWorker(mockPool, {
+        intervalMs: 100
+      });
+
+      setTimeout(() => {
+        expect(ingestionService.run).toHaveBeenCalledWith('ci-locked', mockPool);
+        expect(ingestionService.run).toHaveBeenCalledWith('ci-live', mockPool);
+        expect(ingestionService.run).toHaveBeenCalledTimes(2);
+        stopIngestionWorker();
+        done();
+      }, 150);
+    });
+
+    it('should not query SCHEDULED contests', (done) => {
+      mockPool.query.mockResolvedValue({
+        rows: []
+      });
+
+      startIngestionWorker(mockPool, {
+        intervalMs: 100
+      });
+
+      setTimeout(() => {
+        const queryCall = mockPool.query.mock.calls[0];
+        const query = queryCall[0];
+        // Verify SCHEDULED is not in the status filter
+        expect(query).not.toContain("'SCHEDULED'");
+        stopIngestionWorker();
+        done();
+      }, 150);
+    });
+  });
+
   describe('Tournament-driven discovery', () => {
     it('should discover contests via tournament_configs with provider_event_id', (done) => {
       mockPool.query.mockResolvedValue({
