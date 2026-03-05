@@ -63,26 +63,27 @@ function getAllEvents() {
 }
 
 /**
- * Get next upcoming event within 7-day window
+ * Get next upcoming event within 14-day window
  *
  * @param {Date} now - Current time (for determinism)
  * @returns {Object|null} Event object or null if no event in window
  */
 function getNextUpcomingEvent(now = new Date()) {
   const events = getAllEvents();
-  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  // TEMPORARY: Expanded to 14 days for testing My Lineup flow. Revert to 7 days after feature validation.
+  const fourteenDaysFromNow = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
   console.log(
-    `[Discovery Calendar] Checking window: ${now.toISOString()} to ${sevenDaysFromNow.toISOString()} (${events.length} total events)`
+    `[Discovery Calendar] Checking window: ${now.toISOString()} to ${fourteenDaysFromNow.toISOString()} (${events.length} total events)`
   );
 
-  // Filter: start_time > now AND start_time <= now + 7 days
+  // Filter: start_time > now AND start_time <= now + 14 days
   const upcomingEvents = events.filter(
-    event => event.start_time > now && event.start_time <= sevenDaysFromNow
+    event => event.start_time > now && event.start_time <= fourteenDaysFromNow
   );
 
   if (upcomingEvents.length === 0) {
-    console.log('[Discovery Calendar] No upcoming events in 7-day window');
+    console.log('[Discovery Calendar] No upcoming events in 14-day window');
     return null;
   }
 
