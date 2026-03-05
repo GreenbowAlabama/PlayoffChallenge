@@ -312,12 +312,21 @@ async function getWorkUnits(ctx) {
   // Idempotency: each unit with unique externalPlayerId is processed only once
   // (tracked in ingestion_runs table by ingestionService)
   // Attach golfer data to unit so ingestWorkUnit doesn't need to call ESPN again
-  const units = golfers.map(golfer => ({
-    externalPlayerId: golfer.external_id,
-    providerEventId: providerEventId,
-    providerData: null,
-    golfer: golfer  // Attach golfer data to avoid re-fetching
-  }));
+  const units = golfers
+    .filter(golfer => {
+      // Guard: ensure external_id is present before creating unit
+      if (!golfer.external_id) {
+        console.warn(`[pgaEspnIngestion] Skipping golfer with missing external_id: ${golfer.name}`);
+        return false;
+      }
+      return true;
+    })
+    .map(golfer => ({
+      externalPlayerId: golfer.external_id,
+      providerEventId: providerEventId,
+      providerData: null,
+      golfer: golfer  // Attach golfer data to avoid re-fetching
+    }));
 
   console.log(`[pgaEspnIngestion] Generated ${units.length} PLAYER_POOL units from leaderboard`);
   return units;

@@ -56,7 +56,11 @@ async function fetchGolfers() {
 
     logger.info(`[espnPgaPlayerService] Fetched ${competitors.length} golfers`);
 
-    return competitors.map(competitor => normalizeGolfer(competitor.athlete));
+    const normalized = competitors
+      .map(competitor => normalizeGolfer(competitor.athlete))
+      .filter(golfer => golfer !== null);
+
+    return normalized;
   } catch (err) {
     logger.error('[espnPgaPlayerService] Error fetching golfers:', err.message);
     throw err;
@@ -104,8 +108,11 @@ async function fetchTournamentField(eventId) {
 
     // Step 2: Use leaderboard if it has competitors
     if (leaderboardCompetitors.length > 0) {
-      logger.info(`[espnPgaPlayerService] Using leaderboard endpoint: ${leaderboardCompetitors.length} golfers for event ${eventId}`);
-      return leaderboardCompetitors.map(competitor => normalizeGolfer(competitor.athlete));
+      const normalized = leaderboardCompetitors
+        .map(competitor => normalizeGolfer(competitor.athlete))
+        .filter(golfer => golfer !== null);
+      logger.info(`[espnPgaPlayerService] Using leaderboard endpoint: ${normalized.length} valid golfers for event ${eventId}`);
+      return normalized;
     }
   } catch (err) {
     logger.warn(`[espnPgaPlayerService] Leaderboard fetch failed for event ${eventId}, will try scoreboard: ${err.message}`);
@@ -142,9 +149,12 @@ async function fetchTournamentField(eventId) {
       competitors.push(...competitorList);
     }
 
-    logger.info(`[espnPgaPlayerService] Using scoreboard fallback: ${competitors.length} golfers for event ${eventId}`);
+    const normalized = competitors
+      .map(competitor => normalizeGolfer(competitor.athlete))
+      .filter(golfer => golfer !== null);
+    logger.info(`[espnPgaPlayerService] Using scoreboard fallback: ${normalized.length} valid golfers for event ${eventId}`);
 
-    return competitors.map(competitor => normalizeGolfer(competitor.athlete));
+    return normalized;
   } catch (err) {
     logger.error(`[espnPgaPlayerService] Error fetching tournament field (both leaderboard and scoreboard failed) for event ${eventId}:`, err.message);
     throw err;
@@ -155,9 +165,14 @@ async function fetchTournamentField(eventId) {
  * Normalize a single ESPN athlete into platform player format.
  *
  * @param {Object} athlete - ESPN athlete object
- * @returns {Object} Normalized player object
+ * @returns {Object|null} Normalized player object, or null if required fields missing
  */
 function normalizeGolfer(athlete) {
+  // Require id and displayName (minimal viability check)
+  if (!athlete?.id || !athlete?.displayName) {
+    return null;
+  }
+
   return {
     external_id: athlete.id,
     name: athlete.displayName,

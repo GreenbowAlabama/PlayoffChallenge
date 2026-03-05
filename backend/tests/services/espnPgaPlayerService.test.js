@@ -141,6 +141,91 @@ describe('ESPN PGA Player Service', () => {
       expect(result).toEqual([]);
     });
 
+    it('should filter out golfers with missing athlete.id', async () => {
+      const mockEspnResponse = {
+        data: {
+          events: [
+            {
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: '12345',
+                        displayName: 'Valid Golfer',
+                        headshot: { href: 'https://example.com/valid.jpg' }
+                      }
+                    },
+                    {
+                      athlete: {
+                        // Missing id
+                        displayName: 'Missing ID Golfer',
+                        headshot: { href: 'https://example.com/invalid.jpg' }
+                      }
+                    },
+                    {
+                      athlete: {
+                        id: '67890',
+                        displayName: 'Another Valid',
+                        headshot: null
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      };
+
+      axios.get.mockResolvedValue(mockEspnResponse);
+
+      const result = await espnPgaPlayerService.fetchGolfers();
+
+      // Should only include golfers with valid id
+      expect(result).toHaveLength(2);
+      expect(result.map(g => g.external_id)).toEqual(['12345', '67890']);
+    });
+
+    it('should filter out golfers with missing athlete.displayName', async () => {
+      const mockEspnResponse = {
+        data: {
+          events: [
+            {
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: '12345',
+                        displayName: 'Valid Golfer',
+                        headshot: { href: 'https://example.com/valid.jpg' }
+                      }
+                    },
+                    {
+                      athlete: {
+                        id: '99999',
+                        // Missing displayName
+                        headshot: { href: 'https://example.com/invalid.jpg' }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      };
+
+      axios.get.mockResolvedValue(mockEspnResponse);
+
+      const result = await espnPgaPlayerService.fetchGolfers();
+
+      // Should only include golfers with valid displayName
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('Valid Golfer');
+    });
+
     it('should extract competitors from multiple competitions', async () => {
       const mockEspnResponse = {
         data: {
@@ -237,6 +322,64 @@ describe('ESPN PGA Player Service', () => {
 
       expect(normalized.image_url).toBeNull();
       expect(normalized.external_id).toBe('88888');
+    });
+
+    it('should return null if athlete.id is missing', () => {
+      const espnAthlete = {
+        displayName: 'Missing ID Golfer',
+        headshot: { href: 'https://example.com/golfer.jpg' }
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized).toBeNull();
+    });
+
+    it('should return null if athlete.id is null', () => {
+      const espnAthlete = {
+        id: null,
+        displayName: 'Null ID Golfer',
+        headshot: { href: 'https://example.com/golfer.jpg' }
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized).toBeNull();
+    });
+
+    it('should return null if athlete.displayName is missing', () => {
+      const espnAthlete = {
+        id: '12345',
+        headshot: { href: 'https://example.com/golfer.jpg' }
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized).toBeNull();
+    });
+
+    it('should return null if athlete.displayName is null', () => {
+      const espnAthlete = {
+        id: '12345',
+        displayName: null,
+        headshot: { href: 'https://example.com/golfer.jpg' }
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized).toBeNull();
+    });
+
+    it('should return null if athlete.displayName is empty string', () => {
+      const espnAthlete = {
+        id: '12345',
+        displayName: '',
+        headshot: { href: 'https://example.com/golfer.jpg' }
+      };
+
+      const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
+
+      expect(normalized).toBeNull();
     });
   });
 
@@ -674,6 +817,109 @@ describe('ESPN PGA Player Service', () => {
       expect(fallbackCalls.length).toBeGreaterThan(0);
 
       consoleInfoSpy.mockRestore();
+    });
+
+    it('should filter out competitors with missing athlete.id in leaderboard', async () => {
+      const mockLeaderboardResponse = {
+        data: {
+          events: [
+            {
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: '12345',
+                        displayName: 'Valid Golfer',
+                        headshot: { href: 'https://example.com/valid.jpg' }
+                      }
+                    },
+                    {
+                      athlete: {
+                        // Missing id
+                        displayName: 'Missing ID Golfer',
+                        headshot: { href: 'https://example.com/invalid.jpg' }
+                      }
+                    },
+                    {
+                      athlete: {
+                        id: '67890',
+                        displayName: 'Another Valid',
+                        headshot: null
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      };
+
+      axios.get.mockResolvedValue(mockLeaderboardResponse);
+
+      const result = await espnPgaPlayerService.fetchTournamentField('401811937');
+
+      // Should only include golfers with valid id and displayName
+      expect(result).toHaveLength(2);
+      expect(result.map(g => g.external_id)).toEqual(['12345', '67890']);
+    });
+
+    it('should filter out competitors with missing athlete.displayName in scoreboard fallback', async () => {
+      // Leaderboard is empty (forces fallback)
+      const emptyLeaderboard = {
+        data: {
+          events: [{ competitions: [{ competitors: [] }] }]
+        }
+      };
+
+      // Scoreboard with some invalid competitors
+      const scoreboardResponse = {
+        data: {
+          events: [
+            {
+              id: '401811937',
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: '12345',
+                        displayName: 'Valid Golfer',
+                        headshot: { href: 'https://example.com/valid.jpg' }
+                      }
+                    },
+                    {
+                      athlete: {
+                        id: '99999',
+                        // Missing displayName
+                        headshot: { href: 'https://example.com/invalid.jpg' }
+                      }
+                    },
+                    {
+                      athlete: {
+                        id: '67890',
+                        displayName: 'Another Valid',
+                        headshot: null
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      };
+
+      axios.get
+        .mockResolvedValueOnce(emptyLeaderboard)
+        .mockResolvedValueOnce(scoreboardResponse);
+
+      const result = await espnPgaPlayerService.fetchTournamentField('401811937');
+
+      // Should only include golfers with both id and displayName
+      expect(result).toHaveLength(2);
+      expect(result.map(g => g.name)).toEqual(['Valid Golfer', 'Another Valid']);
     });
 
     it('BLOCKER #2: should filter scoreboard by eventId (not return all events)', async () => {
