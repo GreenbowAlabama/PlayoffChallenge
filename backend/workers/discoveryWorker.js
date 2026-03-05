@@ -33,7 +33,7 @@ let discoveryInterval = null;
  * @param {number} options.intervalMs - Interval in milliseconds (default: 300000 = 5 min)
  * @param {string} options.organizerId - Platform organizer user ID (default: env var)
  */
-function startDiscoveryWorker(pool, options = {}) {
+async function startDiscoveryWorker(pool, options = {}) {
   const enabled = options.enabled ?? process.env.ENABLE_DISCOVERY_WORKER === 'true';
   const intervalMs =
     options.intervalMs ??
@@ -57,6 +57,32 @@ function startDiscoveryWorker(pool, options = {}) {
   if (discoveryInterval) {
     console.warn(
       'Discovery worker already running, ignoring start request'
+    );
+    return;
+  }
+
+  // Pre-create platform organizer user if it doesn't exist
+  try {
+    const userResult = await pool.query(
+      `INSERT INTO users (id, username, email)
+       VALUES ($1, 'platform-discovery', 'discovery@system.local')
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id`,
+      [organizerId]
+    );
+
+    if (userResult.rows.length > 0) {
+      console.log(
+        `[Discovery Worker] Created platform organizer user: ${organizerId}`
+      );
+    } else {
+      console.log(
+        `[Discovery Worker] Platform organizer user already exists: ${organizerId}`
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[Discovery Worker] Failed to pre-create platform organizer user: ${err.message}`
     );
     return;
   }

@@ -246,6 +246,9 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
     // ── Track ingested players for PLAYER_POOL phase ──────────────────────────
     const ingestedPlayerIds = [];
 
+    // ── Track skipped work units for batch logging ────────────────────────────
+    const skippedWorkUnits = [];
+
     // ── Process each work unit ────────────────────────────────────────────────
     for (const unit of unitsToProcess) {
       // Ensure every work unit has providerEventId (inject from context if missing)
@@ -269,7 +272,7 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
       if (insertResult.rows.length === 0) {
         // Record already existed — skip (idempotency guard)
-        console.log(`[ingestionService] Skipping duplicate work unit: ${workUnitKey}`);
+        skippedWorkUnits.push(workUnitKey);
         summary.skipped++;
         continue;
       }
@@ -304,6 +307,11 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
         summary.errors.push({ workUnitKey, error: unitErr.message });
       }
+    }
+
+    // ── Log batch summary of skipped work units ──────────────────────────────
+    if (skippedWorkUnits.length > 0) {
+      console.log(`[ingestionService] Skipped ${skippedWorkUnits.length} duplicate work units (${phase})`);
     }
 
     // ── Populate field_selections whenever players are ingested (all phases) ────
