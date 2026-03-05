@@ -405,7 +405,7 @@ async function discoverTournament(input, pool, now, organizerId) {
           )
           ON CONFLICT DO NOTHING`,
           [
-            newTemplateId, '00000000-0000-0000-0000-000000000043',
+            newTemplateId, organizerId,
             5000, JSON.stringify({ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }),
             normalized.status, now,
             `${normalized.name} - Marketing`, 100,

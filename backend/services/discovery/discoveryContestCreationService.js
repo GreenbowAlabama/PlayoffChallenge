@@ -259,7 +259,6 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       FROM contest_templates
       WHERE id = $4
       ON CONFLICT (provider_tournament_id, season_year)
-      WHERE is_system_generated = true
       DO NOTHING
       RETURNING id`,
       [tournamentName, providerTournamentId, seasonYear, baseTemplate.id]
