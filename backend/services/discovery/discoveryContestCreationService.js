@@ -243,7 +243,6 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
     const tournamentName = `PGA — ${event.name} ${seasonYear}`;
 
     console.log(`[Discovery] Processing: ${providerTournamentId} (${event.name}) season=${seasonYear}`);
-    console.log(`[Discovery] Base template: id=${baseTemplate.id}, fee=${baseTemplate.default_entry_fee_cents}¢`);
 
     // Step 2: Insert tournament template (clone from base, idempotent)
     const templateInsertResult = await client.query(
@@ -271,10 +270,8 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       // New template created
       tournamentTemplateId = templateInsertResult.rows[0].id;
       template_created = true;
-      console.log(`[Discovery] Tournament template CREATED: id=${tournamentTemplateId}`);
     } else {
       // Template already exists, resolve its ID
-      console.log(`[Discovery] Tournament template exists, resolving ID...`);
       const existingResult = await client.query(
         `SELECT id FROM contest_templates
          WHERE provider_tournament_id = $1
@@ -286,10 +283,13 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
 
       if (existingResult.rows.length > 0) {
         tournamentTemplateId = existingResult.rows[0].id;
-        console.log(`[Discovery] Tournament template resolved: id=${tournamentTemplateId}`);
       } else {
-        console.warn(`[Discovery] ⚠️  Could not resolve tournament template: ${providerTournamentId}/${seasonYear}`);
+        console.warn(`[Discovery] Failed to resolve tournament template: ${providerTournamentId}/${seasonYear}`);
       }
+    }
+
+    if (tournamentTemplateId) {
+      console.log(`[Discovery] Tournament template ${template_created ? 'created' : 'resolved'}: id=${tournamentTemplateId}`);
     }
 
     if (!tournamentTemplateId) {

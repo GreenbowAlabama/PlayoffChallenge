@@ -125,12 +125,6 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
 
     // 5. Derive roster config
     const rosterConfig = deriveRosterConfigFromStrategy(contestRow.scoring_strategy_key);
-    console.log('[submitPicks] TRACE', {
-      contestInstanceId,
-      userId,
-      playerIds,
-      rosterConfigSize: rosterConfig.roster_size
-    });
 
     // 6. Fetch field_selections if available
     const fieldResult = await client.query(
@@ -151,10 +145,6 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
 
     // 7. Validate roster (size, duplicates, field membership)
     const validationResult = validateRoster(playerIds, rosterConfig, validatedField);
-    console.log('[submitPicks] VALIDATION', {
-      valid: validationResult.valid,
-      errors: validationResult.errors
-    });
     if (!validationResult.valid) {
       throw Object.assign(
         new Error(`Roster validation failed: ${validationResult.errors.join('; ')}`),
