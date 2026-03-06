@@ -29,7 +29,7 @@ const { selectField } = require('./golfEngine/selectField');
  */
 async function fetchExistingGolfPlayerIds(pool) {
   const result = await pool.query(
-    `SELECT id FROM players WHERE sport = 'GOLF' AND is_active = true ORDER BY id`
+    `SELECT id FROM players WHERE sport = 'GOLF' AND is_active = true AND id LIKE 'espn_%' ORDER BY id`
   );
   return result.rows.map(r => r.id);
 }
@@ -74,9 +74,9 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
 
   const tourConfig = configResult.rows[0];
 
-  // Fetch all players that were ingested (by espn_id)
+  // Fetch all players that were ingested (by id, which includes espn_ prefix)
   const playersResult = await dbClient.query(
-    `SELECT id, full_name, espn_id FROM players WHERE espn_id = ANY($1) AND sport = 'GOLF' ORDER BY id`,
+    `SELECT id, full_name, espn_id FROM players WHERE id = ANY($1) AND sport = 'GOLF' ORDER BY id`,
     [espnPlayerIds]
   );
 
@@ -335,7 +335,7 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
         // Track ingested players for field population (all phases)
         if (enrichedUnit.externalPlayerId) {
-          ingestedPlayerIds.push(enrichedUnit.externalPlayerId);
+          ingestedPlayerIds.push('espn_' + enrichedUnit.externalPlayerId);
         }
 
         summary.processed++;
