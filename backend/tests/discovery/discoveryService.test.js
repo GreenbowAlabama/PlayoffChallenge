@@ -148,7 +148,7 @@ describe('discoveryService', () => {
       expect(row.name).toBe(validInput.name);
       expect(row.sport).toBe('GOLF');
       expect(row.template_type).toBe('PGA_DAILY');
-      expect(row.scoring_strategy_key).toBe('stroke_play');
+      expect(row.scoring_strategy_key).toBe('pga_standard_v1');
       expect(row.lock_strategy_key).toBe('auto_discovery');
       expect(row.settlement_strategy_key).toBe('pga_settlement');
       expect(row.default_entry_fee_cents).toBe(5000);
