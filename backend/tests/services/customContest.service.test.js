@@ -2673,4 +2673,223 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(refundInserts).toHaveLength(0);
     });
   });
+
+  describe('getContestLeaderboard', () => {
+    const contestId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+    const user1Id = '11111111-1111-1111-1111-111111111111';
+    const user2Id = '22222222-2222-2222-2222-222222222222';
+    const user3Id = '33333333-3333-3333-3333-333333333333';
+
+    const mockContestInstanceScheduled = {
+      id: contestId,
+      status: 'SCHEDULED',
+      template_type: 'playoff_challenge',
+      scoring_strategy_key: 'nfl_standard_v1',
+      entry_fee_cents: 2500,
+      max_entries: 20,
+      current_entries: 3,
+      organizer_id: TEST_USER_ID
+    };
+
+    const mockContestInstanceLocked = {
+      ...mockContestInstanceScheduled,
+      status: 'LOCKED'
+    };
+
+    const mockContestInstanceLive = {
+      ...mockContestInstanceScheduled,
+      status: 'LIVE'
+    };
+
+    describe('SCHEDULED and LOCKED contests', () => {
+      it('should return leaderboard with all joined users sorted alphabetically by username for SCHEDULED contest', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN contest_templates[\s\S]*WHERE ci.id/,
+          mockQueryResponses.single(mockContestInstanceScheduled)
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT 1 FROM settlement_records/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_participants[\s\S]*LEFT JOIN users/,
+          mockQueryResponses.multiple([
+            // Mock data returned in order from database (ORDER BY user_display_name ASC)
+            { user_id: user3Id, user_display_name: 'AliceJones' },
+            { user_id: user2Id, user_display_name: 'BobSmith' },
+            { user_id: user1Id, user_display_name: 'CharlieBrown' }
+          ])
+        );
+
+        const result = await customContestService.getContestLeaderboard(mockPool, contestId);
+
+        expect(result).toBeDefined();
+        expect(result.contest_id).toBe(contestId);
+        expect(result.rows).toHaveLength(3);
+
+        // Verify sorted by username alphabetically
+        expect(result.rows[0].username).toBe('AliceJones');
+        expect(result.rows[1].username).toBe('BobSmith');
+        expect(result.rows[2].username).toBe('CharlieBrown');
+
+        // Verify format
+        expect(result.rows[0]).toHaveProperty('id');
+        expect(result.rows[0]).toHaveProperty('user_id');
+        expect(result.rows[0]).toHaveProperty('username');
+        expect(result.rows[0]).toHaveProperty('rank');
+        expect(result.rows[0]).toHaveProperty('values');
+      });
+
+      it('should return leaderboard with all joined users sorted alphabetically by username for LOCKED contest', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN contest_templates[\s\S]*WHERE ci.id/,
+          mockQueryResponses.single(mockContestInstanceLocked)
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT 1 FROM settlement_records/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_participants[\s\S]*LEFT JOIN users/,
+          mockQueryResponses.multiple([
+            // Mock data returned in order from database (ORDER BY user_display_name ASC)
+            { user_id: user2Id, user_display_name: 'YvonneRyan' },
+            { user_id: user1Id, user_display_name: 'ZoeWilson' }
+          ])
+        );
+
+        const result = await customContestService.getContestLeaderboard(mockPool, contestId);
+
+        expect(result).toBeDefined();
+        expect(result.rows).toHaveLength(2);
+
+        // Verify sorted by username alphabetically
+        expect(result.rows[0].username).toBe('YvonneRyan');
+        expect(result.rows[1].username).toBe('ZoeWilson');
+      });
+
+      it('should return empty leaderboard for SCHEDULED contest with no participants', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN contest_templates[\s\S]*WHERE ci.id/,
+          mockQueryResponses.single(mockContestInstanceScheduled)
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT 1 FROM settlement_records/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_participants[\s\S]*LEFT JOIN users/,
+          mockQueryResponses.empty()
+        );
+
+        const result = await customContestService.getContestLeaderboard(mockPool, contestId);
+
+        expect(result).toBeDefined();
+        expect(result.rows).toHaveLength(0);
+      });
+
+      it('should use user.name as fallback when username is null', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN contest_templates[\s\S]*WHERE ci.id/,
+          mockQueryResponses.single(mockContestInstanceScheduled)
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT 1 FROM settlement_records/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_participants[\s\S]*LEFT JOIN users/,
+          mockQueryResponses.multiple([
+            { user_id: user1Id, user_display_name: 'FallbackName' }
+          ])
+        );
+
+        const result = await customContestService.getContestLeaderboard(mockPool, contestId);
+
+        expect(result.rows[0].username).toBe('FallbackName');
+      });
+    });
+
+    describe('LIVE contests (unchanged)', () => {
+      it('should fetch standings from strategy.liveStandings for LIVE contests', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN contest_templates[\s\S]*WHERE ci.id/,
+          mockQueryResponses.single(mockContestInstanceLive)
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT 1 FROM settlement_records/,
+          mockQueryResponses.empty()
+        );
+
+        // For LIVE contests, the strategy.liveStandings is called which queries the pool
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_participants[\s\S]*LEFT JOIN/,
+          mockQueryResponses.multiple([
+            { user_id: user1Id, user_display_name: 'CharlieBrown', total_score: '150' }
+          ])
+        );
+
+        const result = await customContestService.getContestLeaderboard(mockPool, contestId);
+
+        expect(result).toBeDefined();
+        expect(result.rows).toHaveLength(1);
+        expect(result.rows[0].rank).toBe(1);
+      });
+    });
+
+    describe('COMPLETE contests (unchanged)', () => {
+      it('should fetch standings from settlement_records for COMPLETE contests', async () => {
+        const mockContestInstanceComplete = {
+          ...mockContestInstanceScheduled,
+          status: 'COMPLETE'
+        };
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN contest_templates[\s\S]*WHERE ci.id/,
+          mockQueryResponses.single(mockContestInstanceComplete)
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT 1 FROM settlement_records/,
+          mockQueryResponses.single({ rows: [1] })
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT results FROM settlement_records/,
+          mockQueryResponses.single({
+            results: {
+              rankings: [
+                { user_id: user1Id, rank: 1, score: '200' },
+                { user_id: user2Id, rank: 2, score: '150' }
+              ]
+            }
+          })
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT id,.*FROM users/,
+          mockQueryResponses.multiple([
+            { id: user1Id, user_display_name: 'Winner' },
+            { id: user2Id, user_display_name: 'RunnerUp' }
+          ])
+        );
+
+        const result = await customContestService.getContestLeaderboard(mockPool, contestId);
+
+        expect(result).toBeDefined();
+        expect(result.rows).toHaveLength(2);
+        expect(result.rows[0].rank).toBe(1);
+        expect(result.rows[0].values.total_score).toBe(200);
+      });
+    });
+  });
 });

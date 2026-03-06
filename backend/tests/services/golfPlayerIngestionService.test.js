@@ -30,7 +30,7 @@ describe('Golf Player Ingestion Service', () => {
           external_id: 'espn_12345',
           name: 'Rory McIlroy',
           short_name: 'R. McIlroy',
-          image_url: 'https://example.com/rory.jpg',
+          image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/espn_12345.png',
           sport: 'GOLF',
           position: 'G'
         },
@@ -38,7 +38,7 @@ describe('Golf Player Ingestion Service', () => {
           external_id: 'espn_67890',
           name: 'Jon Rahm',
           short_name: 'J. Rahm',
-          image_url: 'https://example.com/jon.jpg',
+          image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/espn_67890.png',
           sport: 'GOLF',
           position: 'G'
         }
@@ -72,7 +72,7 @@ describe('Golf Player Ingestion Service', () => {
           external_id: 'espn_12345',
           name: 'Rory McIlroy',
           short_name: 'R. McIlroy',
-          image_url: 'https://example.com/rory.jpg',
+          image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/espn_12345.png',
           sport: 'GOLF',
           position: 'G'
         },
@@ -80,7 +80,7 @@ describe('Golf Player Ingestion Service', () => {
           external_id: 'espn_67890',
           name: 'Jon Rahm',
           short_name: 'J. Rahm',
-          image_url: 'https://example.com/jon.jpg',
+          image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/espn_67890.png',
           sport: 'GOLF',
           position: 'G'
         },
@@ -88,7 +88,7 @@ describe('Golf Player Ingestion Service', () => {
           external_id: 'espn_99999',
           name: 'Tiger Woods',
           short_name: 'T. Woods',
-          image_url: 'https://example.com/tiger.jpg',
+          image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/espn_99999.png',
           sport: 'GOLF',
           position: 'G'
         }
@@ -132,7 +132,7 @@ describe('Golf Player Ingestion Service', () => {
           external_id: 'espn_12345',
           name: 'Rory McIlroy',
           short_name: 'R. McIlroy',
-          image_url: 'https://example.com/rory.jpg',
+          image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/espn_12345.png',
           sport: 'GOLF',
           position: 'G'
         }
@@ -158,7 +158,7 @@ describe('Golf Player Ingestion Service', () => {
           external_id: 'espn_12345',
           name: 'Rory McIlroy',
           short_name: 'R. McIlroy',
-          image_url: 'https://example.com/rory.jpg',
+          image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/espn_12345.png',
           sport: 'GOLF',
           position: 'G'
         }

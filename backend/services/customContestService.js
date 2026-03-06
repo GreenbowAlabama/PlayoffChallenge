@@ -123,6 +123,34 @@ async function _getCompleteStandings(pool, contestInstanceId) {
   return mappedRows;
 }
 
+// Helper to get standings for SCHEDULED/LOCKED contests (all participants sorted by username)
+async function _getScheduledStandings(pool, contestInstanceId) {
+  const result = await pool.query(
+    `
+    SELECT
+        cp.user_id,
+        COALESCE(u.username, u.name, 'Unknown') AS user_display_name
+    FROM contest_participants cp
+    LEFT JOIN users u ON cp.user_id = u.id
+    WHERE cp.contest_instance_id = $1
+    ORDER BY user_display_name ASC
+    `,
+    [contestInstanceId]
+  );
+
+  // Map to LeaderboardRowContract format required by Core (no scores, no ranks for SCHEDULED/LOCKED)
+  const mappedRows = result.rows.map((row, index) => ({
+    id: row.user_id,
+    user_id: row.user_id,
+    username: row.user_display_name,
+    rank: index + 1, // Sequential rank based on alphabetical order
+    values: {},
+    tier: null
+  }));
+
+  return mappedRows;
+}
+
 const VALID_ENV_PREFIXES = ['dev', 'test', 'stg', 'prd'];
 
 // Valid contest lifecycle statuses
@@ -1918,7 +1946,9 @@ async function getContestLeaderboard(pool, instanceId) {
 
   // Fetch standings based on contest status and scoring strategy
   let standings = [];
-  if (contestRow.status === 'LIVE') {
+  if (contestRow.status === 'SCHEDULED' || contestRow.status === 'LOCKED') {
+    standings = await _getScheduledStandings(pool, instanceId);
+  } else if (contestRow.status === 'LIVE') {
     // Dispatch to strategy-specific standings fetcher
     const strategy = getStrategy(contestRow.scoring_strategy_key);
     standings = await strategy.liveStandings(pool, instanceId);

@@ -235,7 +235,7 @@ function normalizeGolfer(competitor) {
   return {
     external_id: athleteId,
     name: name,
-    image_url: athlete.headshot?.href || null,
+    image_url: `https://a.espncdn.com/i/headshots/golf/players/full/${athleteId}.png`,
     sport: 'GOLF',
     position: 'G'
   };
