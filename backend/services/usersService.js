@@ -390,6 +390,74 @@ async function acceptTos(pool, userId, tosVersion) {
 }
 
 /**
+ * Validate that a user is safe to delete (no active obligations).
+ *
+ * Checks (in order):
+ * 1. User does not organize any contests
+ * 2. User has zero wallet balance
+ * 3. User has no pending payout requests
+ * 4. User has no pending payment intents
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} userId - User ID
+ * @returns {Promise<{canDelete: boolean, reason?: string}>}
+ */
+async function validateUserDeletable(pool, userId) {
+  // Check 1: User must not organize any contests
+  const contestCheck = await pool.query(
+    'SELECT COUNT(*) as count FROM contest_instances WHERE organizer_id = $1',
+    [userId]
+  );
+  if (parseInt(contestCheck.rows[0].count, 10) > 0) {
+    return {
+      canDelete: false,
+      reason: 'You organize active contests. Transfer or cancel them first.'
+    };
+  }
+
+  // Check 2: User must have zero wallet balance
+  const balanceResult = await pool.query(
+    'SELECT COALESCE(SUM(CASE WHEN direction = \'CREDIT\' THEN amount_cents ELSE -amount_cents END), 0) as balance_cents FROM ledger WHERE reference_id = $1',
+    [userId]
+  );
+  const balanceCents = parseInt(balanceResult.rows[0].balance_cents, 10);
+  if (balanceCents !== 0) {
+    const balanceDollars = (Math.abs(balanceCents) / 100).toFixed(2);
+    return {
+      canDelete: false,
+      reason: `Your wallet contains $${balanceDollars}. Withdraw your funds first.`
+    };
+  }
+
+  // Check 3: User must have no pending payout requests
+  const payoutCheck = await pool.query(
+    'SELECT COUNT(*) as count FROM payout_requests WHERE user_id = $1 AND status NOT IN (\'COMPLETED\', \'FAILED\')',
+    [userId]
+  );
+  if (parseInt(payoutCheck.rows[0].count, 10) > 0) {
+    return {
+      canDelete: false,
+      reason: 'You have pending withdrawal requests. Wait for them to complete first.'
+    };
+  }
+
+  // Check 4: User must have no pending payment intents
+  const paymentCheck = await pool.query(
+    'SELECT COUNT(*) as count FROM payment_intents WHERE user_id = $1 AND status IN (\'REQUIRES_PAYMENT_METHOD\', \'PROCESSING\')',
+    [userId]
+  );
+  if (parseInt(paymentCheck.rows[0].count, 10) > 0) {
+    return {
+      canDelete: false,
+      reason: 'You have pending deposit transactions. Please wait for them to complete.'
+    };
+  }
+
+  // All checks passed
+  return { canDelete: true };
+}
+
+/**
  * Delete a user and all related data.
  * Caller is responsible for transaction management (BEGIN/COMMIT/ROLLBACK).
  *
@@ -489,6 +557,7 @@ module.exports = {
   validateUsername,
   isUsernameAvailable,
   isEmailRegistered,
+  validateUserDeletable,
 
   // User updates
   updateUserEmailName,

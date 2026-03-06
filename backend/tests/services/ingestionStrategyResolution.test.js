@@ -118,6 +118,7 @@ describe('Ingestion Strategy Resolution from provider_tournament_id', () => {
           }
         ]
       }) // SELECT ... FOR UPDATE
+      .mockResolvedValueOnce({ rows: [] }) // fetchExistingGolfPlayerIds
       .mockResolvedValueOnce({}); // COMMIT
 
     jest.spyOn(ingestionRegistry, 'getIngestionStrategy').mockReturnValue(mockAdapter);

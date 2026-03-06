@@ -22,6 +22,7 @@ class AuthService: ObservableObject {
     @Published var needsToAcceptTOS = false
     @Published var needsUsernameSetup = false
     @Published var pendingAppleCredential: (appleId: String, email: String?, name: String?)? = nil
+    @Published var hasAuthStateChanged = UUID()
 
     init() {
         print("AuthService: Initializing...")
@@ -89,6 +90,9 @@ class AuthService: ObservableObject {
 
                 // V2: Check TOS requirement via flags endpoint (capability-based)
                 await checkTOSFlags(userId: user.id)
+
+                // Emit auth state change to notify ViewModels to invalidate caches
+                self.hasAuthStateChanged = UUID()
 
                 print("AuthService: isAuthenticated = \(self.isAuthenticated)")
                 print("AuthService: Authentication complete!")
@@ -173,6 +177,9 @@ class AuthService: ObservableObject {
             // V2: Check TOS requirement via flags endpoint (capability-based)
             await checkTOSFlags(userId: user.id)
 
+            // Emit auth state change to notify ViewModels to invalidate caches
+            self.hasAuthStateChanged = UUID()
+
             print("AuthService: isAuthenticated = \(self.isAuthenticated)")
             print("AuthService: Login complete!")
 
@@ -212,6 +219,9 @@ class AuthService: ObservableObject {
             // V2: Check TOS requirement via flags endpoint (capability-based)
             await checkTOSFlags(userId: user.id)
 
+            // Emit auth state change to notify ViewModels to invalidate caches
+            self.hasAuthStateChanged = UUID()
+
             print("AuthService: isAuthenticated = \(self.isAuthenticated)")
             print("AuthService: Registration complete!")
 
@@ -231,6 +241,9 @@ class AuthService: ObservableObject {
         isAuthenticated = false
         needsToAcceptTOS = false
         UserDefaults.standard.removeObject(forKey: "userId")
+
+        // Emit auth state change to notify ViewModels to invalidate caches
+        hasAuthStateChanged = UUID()
     }
 
     var isAdmin: Bool {

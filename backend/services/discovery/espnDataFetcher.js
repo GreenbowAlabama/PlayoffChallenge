@@ -18,11 +18,11 @@
  * Uses ESPN public API endpoint:
  * https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard
  *
- * The scoreboard endpoint already scopes events to the current tournament window.
- * Selects the first event returned (event IDs do not reliably match provider_event_id).
+ * The scoreboard endpoint scopes events to the current tournament window.
+ * Filters events by requested espnEventId to return the correct event.
  * Returns the event wrapped in an events array for compatibility with lock time extractor.
  *
- * @param {string} espnEventId - ESPN event ID (unused, provided for compatibility)
+ * @param {string} espnEventId - ESPN event ID to filter by (required)
  * @returns {Promise<Object|null>} Event wrapped as { events: [event] } or null if not found or fetch fails
  */
 async function fetchEspnSummary(espnEventId) {
@@ -53,15 +53,17 @@ async function fetchEspnSummary(espnEventId) {
       return null;
     }
 
-    // Select the first event (espnEventId parameter is unused, provided for future compatibility)
-    // The scoreboard endpoint already scopes to the current tournament window
-    const event = data.events[0];
+    // Find and return the event matching the requested ID
+    const requestedEvent = data.events.find(e => e.id === espnEventId);
+    if (!requestedEvent) {
+      throw new Error(`Event ${espnEventId} not found in scoreboard`);
+    }
 
-    console.log('[ESPN Fetcher] Selected first event from scoreboard:', event.id, event.name);
+    console.log('[ESPN Fetcher] Selected event from scoreboard:', requestedEvent.id, requestedEvent.name);
 
     // Return event wrapped in events array for compatibility with lock time extractor
     return {
-      events: [event]
+      events: [requestedEvent]
     };
   } catch (err) {
     // Non-blocking: log and return null

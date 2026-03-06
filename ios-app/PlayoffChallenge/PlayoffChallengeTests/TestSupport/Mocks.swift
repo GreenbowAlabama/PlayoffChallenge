@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 @testable import PlayoffChallenge
 
 // MARK: - Test Error
@@ -7,19 +8,52 @@ enum TestError: Error, Equatable {
     case boom
 }
 
+// MARK: - Mock Auth Service
+
+@MainActor
+final class MockAuthService: ObservableObject {
+    @Published var currentUser: User?
+    @Published var isAuthenticated = false
+    @Published var hasAuthStateChanged = UUID()
+
+    var signOutCallCount = 0
+
+    func signOut() {
+        signOutCallCount += 1
+        currentUser = nil
+        isAuthenticated = false
+        hasAuthStateChanged = UUID()
+    }
+
+    func simulateAuthStateChange() {
+        hasAuthStateChanged = UUID()
+    }
+}
+
 // MARK: - Mock Contest Service
 
 final class MockContestService: ContestServiceing, @unchecked Sendable {
     var fetchCallCount = 0
+    var fetchCreatedCallCount = 0
     var result: Result<[AvailableContestDTO], Error>
+    var createdResult: Result<[CreatedContestDTO], Error>
 
-    init(result: Result<[AvailableContestDTO], Error>) {
+    init(
+        result: Result<[AvailableContestDTO], Error> = .success([]),
+        createdResult: Result<[CreatedContestDTO], Error> = .success([])
+    ) {
         self.result = result
+        self.createdResult = createdResult
     }
 
     func fetchAvailableContests() async throws -> [AvailableContestDTO] {
         fetchCallCount += 1
         return try result.get()
+    }
+
+    func fetchCreatedContests() async throws -> [CreatedContestDTO] {
+        fetchCreatedCallCount += 1
+        return try createdResult.get()
     }
 }
 
@@ -112,6 +146,34 @@ extension AvailableContestDTO {
             end_time: end_time,
             entry_fee_cents: entry_fee_cents,
             organizer_name: organizer_name
+        )
+    }
+}
+
+extension CreatedContestDTO {
+    static func fixture(
+        id: UUID = UUID(),
+        contest_name: String = "Test Contest",
+        status: String = "SCHEDULED",
+        entry_count: Int = 5,
+        max_entries: Int? = 20,
+        lock_time: Date? = nil,
+        created_at: Date? = nil,
+        start_time: Date? = nil,
+        end_time: Date? = nil,
+        entry_fee_cents: Int? = 2500
+    ) -> CreatedContestDTO {
+        CreatedContestDTO(
+            id: id,
+            contest_name: contest_name,
+            status: status,
+            entry_count: entry_count,
+            max_entries: max_entries,
+            lock_time: lock_time,
+            created_at: created_at,
+            start_time: start_time,
+            end_time: end_time,
+            entry_fee_cents: entry_fee_cents
         )
     }
 }

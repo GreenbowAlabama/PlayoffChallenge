@@ -44,6 +44,14 @@ describe('PGA Contest Lifecycle — Tournament Field Initialization', () => {
       [organizerId, 'organizer-' + organizerId.slice(0, 8)]
     );
 
+    // Fund organizer wallet with 10,000 cents for contest publishing
+    await pool.query(
+      `INSERT INTO ledger (id, user_id, entry_type, direction, amount_cents, currency, idempotency_key, created_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, gen_random_uuid(), NOW())
+       ON CONFLICT (id) DO NOTHING`,
+      [organizerId, 'WALLET_DEPOSIT', 'CREDIT', 10000, 'USD']
+    );
+
     // Get or create GOLF template
     const templateResult = await pool.query(
       `SELECT id FROM contest_templates WHERE sport = 'GOLF' AND provider_tournament_id IS NOT NULL LIMIT 1`
@@ -83,36 +91,9 @@ describe('PGA Contest Lifecycle — Tournament Field Initialization', () => {
   });
 
   afterEach(async () => {
-    // Clean up: delete instances and related data
-    const instances = await pool.query(
-      `SELECT id FROM contest_instances WHERE organizer_id = $1`,
-      [organizerId]
-    );
-
-    for (const instance of instances.rows) {
-      const instanceId = instance.id;
-      await pool.query(
-        'DELETE FROM field_selections WHERE contest_instance_id = $1',
-        [instanceId]
-      );
-      await pool.query(
-        'DELETE FROM entry_rosters WHERE contest_instance_id = $1',
-        [instanceId]
-      );
-      await pool.query(
-        'DELETE FROM contest_participants WHERE contest_instance_id = $1',
-        [instanceId]
-      );
-      await pool.query(
-        'DELETE FROM tournament_configs WHERE contest_instance_id = $1',
-        [instanceId]
-      );
-    }
-
-    await pool.query(
-      'DELETE FROM contest_instances WHERE organizer_id = $1',
-      [organizerId]
-    );
+    // Clean up: each test uses a unique organizerId (UUID), so no cleanup needed
+    // ledger is append-only and has FK constraints that prevent deletion
+    // The test data is isolated by organizerId and won't conflict with other tests
   });
 
   it('SHOULD initialize tournament_configs and field_selections when contest is published', async () => {

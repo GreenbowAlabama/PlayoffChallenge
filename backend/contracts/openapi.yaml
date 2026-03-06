@@ -874,8 +874,21 @@ paths:
       tags:
         - Auth
       summary: Delete user account
-      description: Delete the authenticated user's account. Irreversible.
+      description: |
+        Delete the authenticated user's account. Irreversible.
+
+        User can only delete their own account. Account deletion is prevented if:
+        - User organizes one or more contests (organizer_id in contest_instances)
+        - User has wallet ledger entries (ledger.user_id)
       operationId: deleteUser
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          description: User ID to delete (must match authenticated user)
+          schema:
+            type: string
+            format: uuid
       security:
         - bearerAuth: []
       responses:
@@ -889,18 +902,62 @@ paths:
                   success:
                     type: boolean
                     enum: [true]
-        '401':
-          description: Unauthorized - authentication required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
         '400':
-          description: Cannot delete account (has active contests, pending payments, etc.)
+          description: Invalid request or cannot delete account due to active obligations
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - type: object
+                    properties:
+                      reason:
+                        type: string
+                        description: Detailed reason for the error
+              examples:
+                invalid_uuid:
+                  value:
+                    error: 'Invalid user ID format'
+                invalid_token:
+                  value:
+                    error: 'Invalid authentication token format'
+                has_contests:
+                  value:
+                    error: 'Cannot delete account'
+                    reason: 'You organize active contests. Transfer or cancel them first.'
+                has_wallet_balance:
+                  value:
+                    error: 'Cannot delete account'
+                    reason: 'Your wallet contains $50.00. Withdraw your funds first.'
+                has_pending_payouts:
+                  value:
+                    error: 'Cannot delete account'
+                    reason: 'You have pending withdrawal requests. Wait for them to complete first.'
+                has_pending_deposits:
+                  value:
+                    error: 'Cannot delete account'
+                    reason: 'You have pending deposit transactions. Please wait for them to complete.'
+        '401':
+          description: Unauthorized - authentication required or invalid
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_auth:
+                  value:
+                    error: 'Unauthorized - authentication required'
+                user_not_found:
+                  value:
+                    error: 'Unauthorized - user not found'
+        '403':
+          description: Forbidden - user can only delete their own account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: 'Forbidden - you can only delete your own account'
 
   /api/wallet:
     get:

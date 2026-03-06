@@ -56,6 +56,15 @@ router.post('/discover', async (req, res) => {
   const pool = req.app.locals.pool;
   const now = new Date();
 
+  // ===== VERIFY PLATFORM ORGANIZER =====
+  // Must match discovery worker pattern (discoveryWorker.js:43-54)
+  const organizerId = process.env.PLATFORM_ORGANIZER_ID;
+  if (!organizerId) {
+    return res.status(500).json({
+      error: 'PLATFORM_ORGANIZER_ID environment variable not configured'
+    });
+  }
+
   // ===== CALL SERVICE =====
   // Service handles all business logic:
   // - Input validation
@@ -63,7 +72,7 @@ router.post('/discover', async (req, res) => {
   // - Idempotency via unique constraint
   // - Metadata freeze check
   // - Transaction management
-  const result = await discoverTournament(req.body, pool, now);
+  const result = await discoverTournament(req.body, pool, now, organizerId);
 
   // ===== RETURN EXACT SERVICE CONTRACT =====
   // Status code from service is authoritative

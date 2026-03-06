@@ -16,7 +16,8 @@ final class MyContestsViewModelTests: XCTestCase {
     @MainActor
     override func setUp() {
         super.setUp()
-        sut = MyContestsViewModel(userId: UUID().uuidString)
+        let service = MockContestService()
+        sut = MyContestsViewModel(service: service)
     }
 
     override func tearDown() {

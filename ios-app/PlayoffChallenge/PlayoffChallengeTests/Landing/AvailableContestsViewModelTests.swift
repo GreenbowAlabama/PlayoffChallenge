@@ -15,10 +15,11 @@ final class AvailableContestsViewModelTests: XCTestCase {
 
     private func makeSUT(
         result: Result<[AvailableContestDTO], Error>
-    ) -> (vm: AvailableContestsViewModel, service: MockContestService) {
+    ) -> (vm: AvailableContestsViewModel, service: MockContestService, authService: MockAuthService) {
         let service = MockContestService(result: result)
-        let vm = AvailableContestsViewModel(service: service)
-        return (vm, service)
+        let authService = MockAuthService()
+        let vm = AvailableContestsViewModel(service: service, authService: authService)
+        return (vm, service, authService)
     }
 
     // MARK: - Initial State Tests

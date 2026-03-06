@@ -35,7 +35,7 @@ describe('Contract Freeze', () => {
     // - Added RosterConfig schema with PGA-specific fields (lineup_size, scoring_count, drop_lowest)
     // - Enhanced roster_config response for PGA tournament contests
     // - Backward compatible: existing NFL contests unaffected
-    const expectedHash = 'c61757b74e660a90cdf06d8d1ac09678c692acb8ca0232df96edef2c01cc3c31';
+    const expectedHash = '5305b9aeb17d761fe2f43a3e6e199ab3d06886139fd6088455435a9a06ea4600';
 
     // The hashes must match - if they don't, the contract has drifted
     expect(currentHash).toBe(expectedHash);

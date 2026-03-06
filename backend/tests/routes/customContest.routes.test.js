@@ -2352,11 +2352,24 @@ describe('Custom Contest Routes', () => {
 
       mockPool.setQueryResponse(
         /UPDATE contest_instances SET status/,
-        mockQueryResponses.empty()
+        mockQueryResponses.inserted({ id: contestId })
       );
 
       mockPool.setQueryResponse(
         /COMMIT/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /ROLLBACK/,
+        mockQueryResponses.empty()
+      );
+
+      // Mock second transaction (cancelContestForAdmin calls performSingleStateTransition)
+      // This transaction: BEGIN, SELECT, UPDATE, INSERT, COMMIT
+      // SELECT and UPDATE already covered by patterns above
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_state_transitions/,
         mockQueryResponses.empty()
       );
 
@@ -2394,11 +2407,24 @@ describe('Custom Contest Routes', () => {
 
       mockPool.setQueryResponse(
         /UPDATE contest_instances SET status/,
-        mockQueryResponses.empty()
+        mockQueryResponses.inserted({ id: contestId })
       );
 
       mockPool.setQueryResponse(
         /COMMIT/,
+        mockQueryResponses.empty()
+      );
+
+      mockPool.setQueryResponse(
+        /ROLLBACK/,
+        mockQueryResponses.empty()
+      );
+
+      // Mock second transaction (cancelContestForAdmin calls performSingleStateTransition)
+      // This transaction: BEGIN, SELECT, UPDATE, INSERT, COMMIT
+      // SELECT and UPDATE already covered by patterns above
+      mockPool.setQueryResponse(
+        /INSERT INTO contest_state_transitions/,
         mockQueryResponses.empty()
       );
 
@@ -2644,11 +2670,24 @@ describe('Custom Contest Routes', () => {
 
         mockPool.setQueryResponse(
           /UPDATE contest_instances SET status/,
-          mockQueryResponses.empty()
+          mockQueryResponses.inserted({ id: contestId })
         );
 
         mockPool.setQueryResponse(
           /COMMIT/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /ROLLBACK/,
+          mockQueryResponses.empty()
+        );
+
+        // Mock second transaction (cancelContestForAdmin calls performSingleStateTransition)
+        // This transaction: BEGIN, SELECT, UPDATE, INSERT, COMMIT
+        // SELECT and UPDATE already covered by patterns above
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_state_transitions/,
           mockQueryResponses.empty()
         );
 
@@ -2685,11 +2724,24 @@ describe('Custom Contest Routes', () => {
 
         mockPool.setQueryResponse(
           /UPDATE contest_instances SET status/,
-          mockQueryResponses.empty()
+          mockQueryResponses.inserted({ id: contestId })
         );
 
         mockPool.setQueryResponse(
           /COMMIT/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /ROLLBACK/,
+          mockQueryResponses.empty()
+        );
+
+        // Mock second transaction (cancelContestForAdmin calls performSingleStateTransition)
+        // This transaction: BEGIN, SELECT, UPDATE, INSERT, COMMIT
+        // SELECT and UPDATE already covered by patterns above
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_state_transitions/,
           mockQueryResponses.empty()
         );
 

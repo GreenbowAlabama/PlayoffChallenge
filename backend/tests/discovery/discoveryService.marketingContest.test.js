@@ -11,6 +11,7 @@ const { discoverTournament } = require('../../services/discovery/discoveryServic
 describe('discoverTournament — Marketing Contest Creation', () => {
   let pool;
   const now = new Date('2026-03-01T12:00:00Z');
+  const testOrganizerId = '00000000-0000-0000-0000-000000000001';
 
   const validInput = {
     provider_tournament_id: 'pga_marketing_test_2026',
@@ -41,6 +42,15 @@ describe('discoverTournament — Marketing Contest Creation', () => {
     await pool.end();
   });
 
+  beforeEach(async () => {
+    // Create test organizer user for discoverTournament calls
+    await pool.query(
+      `INSERT INTO users (id, email, username) VALUES ($1, $2, $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [testOrganizerId, 'test-organizer@example.com', 'test-organizer']
+    );
+  });
+
   afterEach(async () => {
     // Clean up test data
     await pool.query(
@@ -58,7 +68,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
 
   describe('marketing contest creation on discovery', () => {
     it('should create exactly one primary marketing contest when template created', async () => {
-      const result = await discoverTournament(validInput, pool, now);
+      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
 
       expect(result.success).toBe(true);
       expect(result.created).toBe(true);
@@ -79,7 +89,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
     });
 
     it('should set marketing contest defaults correctly', async () => {
-      const result = await discoverTournament(validInput, pool, now);
+      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
       const contests = await pool.query(
         `SELECT * FROM contest_instances
          WHERE template_id = $1 AND is_primary_marketing = true`,
@@ -102,7 +112,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
     });
 
     it('should name contest with tournament name + Marketing', async () => {
-      const result = await discoverTournament(validInput, pool, now);
+      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
       const contests = await pool.query(
         `SELECT * FROM contest_instances
          WHERE template_id = $1 AND is_primary_marketing = true`,
@@ -114,7 +124,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
 
     it('should NOT create marketing contest on template update (no new contest)', async () => {
       // First discovery: creates template + marketing contest
-      const result1 = await discoverTournament(validInput, pool, now);
+      const result1 = await discoverTournament(validInput, pool, now, testOrganizerId);
       expect(result1.created).toBe(true);
 
       const contests1 = await pool.query(
@@ -144,7 +154,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
 
     it('should be idempotent: rediscovery does not create duplicate contests', async () => {
       // First discovery
-      const result1 = await discoverTournament(validInput, pool, now);
+      const result1 = await discoverTournament(validInput, pool, now, testOrganizerId);
       expect(result1.created).toBe(true);
 
       const contests1 = await pool.query(
@@ -155,7 +165,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
       expect(parseInt(contests1.rows[0].count, 10)).toBe(1);
 
       // Rediscovery: template already exists, contest already exists
-      const result2 = await discoverTournament(validInput, pool, now);
+      const result2 = await discoverTournament(validInput, pool, now, testOrganizerId);
       expect(result2.created).toBe(false);
       expect(result2.templateId).toBe(result1.templateId);
 
@@ -170,7 +180,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
 
     it('should enforce unique constraint via partial index', async () => {
       // Create template + marketing contest
-      const result = await discoverTournament(validInput, pool, now);
+      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
       expect(result.created).toBe(true);
 
       // Try to manually insert another primary marketing contest for same template
@@ -202,7 +212,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
 
     it('should allow multiple non-primary contests per template', async () => {
       // Create template + primary marketing contest
-      const result = await discoverTournament(validInput, pool, now);
+      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
 
       // Manually create a non-primary contest for same template
       await pool.query(
@@ -247,7 +257,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
       // In practice, the organizer_id should always exist, so this test
       // documents the guarantee rather than triggering it
 
-      const result = await discoverTournament(validInput, pool, now);
+      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
       expect(result.success).toBe(true);
 
       // Verify both template and contest exist
@@ -270,7 +280,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
     it('should use injected now, not current time', async () => {
       const fixedNow = new Date('2026-03-01T12:00:00Z');
 
-      const result = await discoverTournament(validInput, pool, fixedNow);
+      const result = await discoverTournament(validInput, pool, fixedNow, testOrganizerId);
 
       const contests = await pool.query(
         `SELECT start_time FROM contest_instances
@@ -283,8 +293,8 @@ describe('discoverTournament — Marketing Contest Creation', () => {
     });
 
     it('should be deterministic: same input → same template + contest', async () => {
-      const result1 = await discoverTournament(validInput, pool, now);
-      const result2 = await discoverTournament(validInput, pool, now);
+      const result1 = await discoverTournament(validInput, pool, now, testOrganizerId);
+      const result2 = await discoverTournament(validInput, pool, now, testOrganizerId);
 
       expect(result1.templateId).toBe(result2.templateId);
 

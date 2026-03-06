@@ -107,18 +107,38 @@ final class AvailableContestsViewModel: ObservableObject {
     // MARK: - Dependencies
 
     private let service: ContestServiceing
+    private var authService: AuthService
+    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Initialization
 
-    init(service: ContestServiceing = CustomContestService()) {
+    init(service: ContestServiceing = CustomContestService(), authService: AuthService = .shared) {
         self.service = service
+        self.authService = authService
+
+        // Observe auth state changes and invalidate cache
+        self.authService.$hasAuthStateChanged
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.resetCacheForNewAuth()
+                    // Reload after cache reset
+                    await self?.loadContests()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func resetCacheForNewAuth() {
+        hasLoaded = false
+        contests = []
+        errorMessage = nil
     }
 
     // MARK: - Actions
 
-    func loadContests() async {
-        // Guard: Prevent duplicate initial load
-        guard !hasLoaded || isLoading == false else {
+    func loadContests(forceRefresh: Bool = false) async {
+        // Guard: Prevent duplicate initial load, unless forceRefresh is true
+        guard (forceRefresh || !hasLoaded) && !isLoading else {
             print("[AvailableContestsViewModel] Load already in progress, skipping duplicate")
             return
         }
@@ -162,6 +182,6 @@ final class AvailableContestsViewModel: ObservableObject {
     }
 
     func refresh() async {
-        await loadContests()
+        await loadContests(forceRefresh: true)
     }
 }

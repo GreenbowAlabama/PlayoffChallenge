@@ -1,80 +1,85 @@
 /**
- * Contest Rules Validator
+ * Contest Rules Validator Service
  *
- * Validates contest-specific roster and player constraints.
- * Pure validation service with no side effects.
- *
- * Iteration 01 scope: roster_size, duplicates, player existence only.
+ * Validates roster entries against contest configuration and available players.
+ * Enforces:
+ * - Exact roster size matching
+ * - No duplicate players
+ * - All players exist in validated field
  */
 
 /**
- * Validate a player roster against tournament constraints.
+ * Validate a roster against contest rules.
  *
- * @param {Array} roster - Array of player_ids submitted by user
- * @param {Object} config - Tournament configuration
- * @param {Array} validatedField - Array of validated field participants
- * @returns {{ valid: boolean, errors: string[] }} Validation result
+ * @param {Array<string>} roster - Array of player IDs
+ * @param {Object} config - Contest configuration with roster_size
+ * @param {Array<Object>} validField - Array of valid players with player_id property
+ * @returns {Object} { valid: boolean, errors: [string] }
  */
-function validateRoster(roster, config, validatedField) {
+function validateRoster(roster, config, validField) {
   const errors = [];
 
+  // Input validation: roster must be an array
   if (!Array.isArray(roster)) {
     errors.push('Roster must be an array');
-    return { valid: false, errors };
   }
 
+  // Input validation: config must exist
   if (!config) {
     errors.push('Config is required');
     return { valid: false, errors };
   }
 
-  if (validatedField !== null && !Array.isArray(validatedField)) {
-    errors.push('ValidatedField must be an array');
+  // Input validation: validField must be an array
+  if (!Array.isArray(validField)) {
+    errors.push('validField must be an array');
+  }
+
+  // Config validation: roster_size must exist
+  if (!config.hasOwnProperty('roster_size')) {
+    errors.push('Config must have roster_size property');
+  }
+
+  // Config validation: roster_size must be a positive number
+  if (typeof config.roster_size !== 'number' || config.roster_size <= 0) {
+    errors.push('roster_size must be a positive number');
+  }
+
+  // If we have config validation errors, return early
+  if (errors.length > 0) {
     return { valid: false, errors };
   }
 
-  // Constraint 1: Roster size must not exceed config (allows partial submissions)
-  if (config.roster_size === undefined || config.roster_size === null) {
-    errors.push('Config.roster_size is required');
-  } else if (typeof config.roster_size !== 'number' || config.roster_size <= 0) {
-    errors.push('Config.roster_size must be a positive number');
-  } else if (roster.length > config.roster_size) {
-    errors.push(
-      `Too many players: maximum ${config.roster_size}, got ${roster.length}`
-    );
+  // Roster size validation: must match exactly
+  if (roster.length !== config.roster_size) {
+    errors.push(`Roster size must be exactly ${config.roster_size}, got ${roster.length}`);
   }
 
-  // Constraint 2: No duplicates
-  const seen = new Set();
+  // Duplicate detection
+  const playerCounts = {};
   const duplicates = [];
-  for (const player_id of roster) {
-    if (seen.has(player_id)) {
-      duplicates.push(player_id);
+  for (const playerId of roster) {
+    playerCounts[playerId] = (playerCounts[playerId] || 0) + 1;
+  }
+  for (const [playerId, count] of Object.entries(playerCounts)) {
+    if (count > 1) {
+      duplicates.push(playerId);
     }
-    seen.add(player_id);
   }
   if (duplicates.length > 0) {
-    errors.push(
-      `Duplicate player_ids in roster: ${[...new Set(duplicates)].join(', ')}`
-    );
+    errors.push(`Duplicate players: ${duplicates.join(', ')}`);
   }
 
-  // Constraint 3: Each player must exist in validated field
-  // Only enforced when a field exists (validatedField non-null).
-  // If no field_selections row exists, validatedField is null and this check is skipped.
-  if (validatedField !== null) {
-    const validatedFieldIds = new Set(validatedField.map(p => p.player_id));
-    const unknownPlayers = [];
-    for (const player_id of roster) {
-      if (!validatedFieldIds.has(player_id)) {
-        unknownPlayers.push(player_id);
-      }
+  // Player existence validation: all players must be in validField
+  const validPlayerIds = new Set(validField.map(p => p.player_id));
+  const notFound = [];
+  for (const playerId of roster) {
+    if (!validPlayerIds.has(playerId)) {
+      notFound.push(playerId);
     }
-    if (unknownPlayers.length > 0) {
-      errors.push(
-        `Players not in validated field: ${unknownPlayers.join(', ')}`
-      );
-    }
+  }
+  if (notFound.length > 0) {
+    errors.push(`Players not in validated field: ${notFound.join(', ')}`);
   }
 
   return {

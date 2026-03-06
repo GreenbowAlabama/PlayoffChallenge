@@ -1636,31 +1636,66 @@ app.put('/api/users/:userId/accept-tos', async (req, res) => {
 
 // DELETE /api/user - Permanently delete the authenticated user's account
 // This endpoint satisfies Apple App Review requirements for account deletion
+// PART 2: Bearer token verification + cross-user check
 app.delete('/api/user', async (req, res) => {
   const client = await pool.connect();
   let inTransaction = false;
   try {
     const { userId } = req.query;
+    const authHeader = req.headers['authorization'];
 
+    // Step 1: Validate userId is present and valid UUID format
     if (!userId) {
       client.release();
       return res.status(401).json({ error: 'Unauthorized - userId is required' });
     }
 
-    await client.query('BEGIN');
-    inTransaction = true;
+    if (!isValidUUID(userId)) {
+      client.release();
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
 
-    // Verify user exists
+    // Step 2: Extract and validate Bearer token
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      client.release();
+      return res.status(401).json({ error: 'Unauthorized - authentication required' });
+    }
+
+    const token = authHeader.substring(7);
+    if (!isValidUUID(token)) {
+      client.release();
+      return res.status(400).json({ error: 'Invalid authentication token format' });
+    }
+
+    // Step 3: Verify user is deleting themselves (not cross-user deletion)
+    if (token !== userId) {
+      client.release();
+      return res.status(403).json({ error: 'Forbidden - you can only delete your own account' });
+    }
+
+    // Step 4: Verify user exists
     const userCheck = await client.query(
       'SELECT id FROM users WHERE id = $1',
       [userId]
     );
 
     if (userCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
       client.release();
       return res.status(401).json({ error: 'Unauthorized - user not found' });
     }
+
+    // Step 5: Pre-deletion validation (check for active obligations)
+    const validation = await usersService.validateUserDeletable(pool, userId);
+    if (!validation.canDelete) {
+      client.release();
+      return res.status(400).json({
+        error: 'Cannot delete account',
+        reason: validation.reason
+      });
+    }
+
+    await client.query('BEGIN');
+    inTransaction = true;
 
     console.log(`[ACCOUNT DELETION] Deleting user: ${userId}`);
 

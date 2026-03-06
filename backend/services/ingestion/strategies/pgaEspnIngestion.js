@@ -446,6 +446,7 @@ async function handlePlayerPoolIngestion(ctx, unit) {
       golfer.sport,                // sport (GOLF)
       golfer.position,             // position (G for golfer)
     ]);
+    console.log(`[pgaEspnIngestion] Upserted golfer ${golfer.external_id}`);
   } catch (err) {
     console.error(`[pgaEspnIngestion] Failed to upsert golfer ${golfer.external_id}:`, err.message);
     throw err;

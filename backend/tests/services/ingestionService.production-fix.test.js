@@ -104,6 +104,7 @@ describe('Ingestion Service — Production Fixes', () => {
         }) // SELECT ... FOR UPDATE OF ci
         .mockResolvedValueOnce({ rows: [{ id: 'run-1' }] }) // INSERT ingestion_runs
         .mockResolvedValueOnce({}) // UPDATE ingestion_runs status
+        .mockResolvedValueOnce({ rows: [] }) // fetchExistingGolfPlayerIds
         .mockResolvedValueOnce({}) // COMMIT
         .mockResolvedValueOnce({}); // Additional queries
 
@@ -151,6 +152,7 @@ describe('Ingestion Service — Production Fixes', () => {
         }) // SELECT ... FOR UPDATE OF ci
         .mockResolvedValueOnce({ rows: [{ id: 'run-2' }] }) // INSERT ingestion_runs
         .mockResolvedValueOnce({}) // UPDATE ingestion_runs status
+        .mockResolvedValueOnce({ rows: [] }) // fetchExistingGolfPlayerIds
         .mockResolvedValueOnce({}) // COMMIT
         .mockResolvedValueOnce({}); // Additional queries
 
@@ -251,6 +253,7 @@ describe('Ingestion Service — Production Fixes', () => {
         }) // SELECT ... FOR UPDATE OF ci
         .mockResolvedValueOnce({ rows: [{ id: 'run-3' }] }) // INSERT ingestion_runs
         .mockResolvedValueOnce({}) // UPDATE ingestion_runs status
+        .mockResolvedValueOnce({ rows: [] }) // fetchExistingGolfPlayerIds
         .mockResolvedValueOnce({}) // COMMIT
         .mockResolvedValueOnce({}); // Additional queries
 

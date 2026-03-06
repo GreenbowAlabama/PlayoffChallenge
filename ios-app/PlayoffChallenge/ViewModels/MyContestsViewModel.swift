@@ -15,10 +15,31 @@ final class MyContestsViewModel: ObservableObject {
 
     // MARK: - Dependencies
     private let service: ContestServiceing
+    private var authService: AuthService
     private var refreshTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
 
-    init(service: ContestServiceing = CustomContestService()) {
+    init(service: ContestServiceing = CustomContestService(), authService: AuthService = .shared) {
         self.service = service
+        self.authService = authService
+
+        // Observe auth state changes and invalidate cache
+        self.authService.$hasAuthStateChanged
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.resetCacheForNewAuth()
+                    // Reload after cache reset
+                    await self?.loadMyContests()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func resetCacheForNewAuth() {
+        myContests = []
+        errorMessage = nil
+        // Cancel any in-flight refresh
+        refreshTask?.cancel()
     }
 
     // MARK: - Published State
@@ -150,6 +171,11 @@ final class MyContestsViewModel: ObservableObject {
     /// Get a contest by ID
     func getContest(by id: UUID) -> Contest? {
         myContests.first { $0.id == id }
+    }
+
+    /// Refresh my contests list
+    func refresh() async {
+        await loadMyContests()
     }
 
     // MARK: - Mutation Actions

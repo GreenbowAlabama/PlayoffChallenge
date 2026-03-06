@@ -89,6 +89,7 @@ async function runCycle(pool) {
           }
         } else {
           // SCHEDULED contest: SCORING phase not run (explicit skip, no API call)
+          console.log(`[Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: ${instance.id}`);
           phasesSkipped++;
         }
       } catch (err) {

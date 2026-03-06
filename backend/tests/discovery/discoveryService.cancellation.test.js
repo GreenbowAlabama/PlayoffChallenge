@@ -11,6 +11,7 @@ const { discoverTournament } = require('../../services/discovery/discoveryServic
 describe('discoveryService - cancellation cascade', () => {
   let pool;
   const now = new Date('2026-03-01T12:00:00Z');
+  const testOrganizerId = '00000000-0000-0000-0000-000000000001';
   let testProviderId;
 
   const getValidScheduledInput = (providerId) => ({
@@ -86,7 +87,7 @@ describe('discoveryService - cancellation cascade', () => {
   describe('new template discovery with CANCELLED status', () => {
     it('should create template with status=CANCELLED', async () => {
       const validCancelledInput = getValidCancelledInput(testProviderId);
-      const result = await discoverTournament(validCancelledInput, pool, now);
+      const result = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
 
       expect(result.success).toBe(true);
       expect(result.templateId).toBeTruthy();
@@ -103,7 +104,7 @@ describe('discoveryService - cancellation cascade', () => {
 
     it('should create primary marketing contest with status=CANCELLED', async () => {
       const validCancelledInput = getValidCancelledInput(testProviderId);
-      const result = await discoverTournament(validCancelledInput, pool, now);
+      const result = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
       const templateId = result.templateId;
 
       // Verify marketing contest exists and has CANCELLED status
@@ -122,7 +123,7 @@ describe('discoveryService - cancellation cascade', () => {
       // 1. Create template with SCHEDULED status
       const validScheduledInput = getValidScheduledInput(testProviderId);
       const validCancelledInput = getValidCancelledInput(testProviderId);
-      const schedResult = await discoverTournament(validScheduledInput, pool, now);
+      const schedResult = await discoverTournament(validScheduledInput, pool, now, testOrganizerId);
       const templateId = schedResult.templateId;
 
       // 2. Create some user-defined contest instances
@@ -166,7 +167,7 @@ describe('discoveryService - cancellation cascade', () => {
       const contest2Id = contest2.rows[0].id;
 
       // 3. Discover as CANCELLED
-      const cancelResult = await discoverTournament(validCancelledInput, pool, now);
+      const cancelResult = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
 
       expect(cancelResult.success).toBe(true);
       expect(cancelResult.created).toBe(false);
@@ -219,7 +220,7 @@ describe('discoveryService - cancellation cascade', () => {
       // 1. Create template with SCHEDULED status
       const validScheduledInput = getValidScheduledInput(testProviderId);
       const validCancelledInput = getValidCancelledInput(testProviderId);
-      const schedResult = await discoverTournament(validScheduledInput, pool, now);
+      const schedResult = await discoverTournament(validScheduledInput, pool, now, testOrganizerId);
       const templateId = schedResult.templateId;
 
       // 2. Create a COMPLETE instance (immutable)
@@ -244,7 +245,7 @@ describe('discoveryService - cancellation cascade', () => {
       const completeContestId = completeContest.rows[0].id;
 
       // 3. Discover as CANCELLED
-      const cancelResult = await discoverTournament(validCancelledInput, pool, now);
+      const cancelResult = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
       expect(cancelResult.success).toBe(true);
 
       // 4. Verify COMPLETE instance was NOT changed
@@ -267,15 +268,15 @@ describe('discoveryService - cancellation cascade', () => {
       // 1. Create template and cascade it to CANCELLED
       const validScheduledInput = getValidScheduledInput(testProviderId);
       const validCancelledInput = getValidCancelledInput(testProviderId);
-      const schedResult = await discoverTournament(validScheduledInput, pool, now);
+      const schedResult = await discoverTournament(validScheduledInput, pool, now, testOrganizerId);
       const templateId = schedResult.templateId;
 
-      const cancelResult1 = await discoverTournament(validCancelledInput, pool, now);
+      const cancelResult1 = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
       expect(cancelResult1.success).toBe(true);
       expect(cancelResult1.updated).toBe(true); // First cascade
 
       // 2. Rediscover as CANCELLED again
-      const cancelResult2 = await discoverTournament(validCancelledInput, pool, now);
+      const cancelResult2 = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
 
       expect(cancelResult2.success).toBe(true);
       expect(cancelResult2.updated).toBe(false); // No cascade (already CANCELLED)
@@ -293,7 +294,7 @@ describe('discoveryService - cancellation cascade', () => {
       // 1. Create template and user instance
       const validScheduledInput = getValidScheduledInput(testProviderId);
       const validCancelledInput = getValidCancelledInput(testProviderId);
-      const schedResult = await discoverTournament(validScheduledInput, pool, now);
+      const schedResult = await discoverTournament(validScheduledInput, pool, now, testOrganizerId);
       const templateId = schedResult.templateId;
 
       const userId = '00000000-0000-0000-0000-000000000001';
@@ -317,7 +318,7 @@ describe('discoveryService - cancellation cascade', () => {
       const contestId = contest.rows[0].id;
 
       // 2. First cancellation
-      const cancel1 = await discoverTournament(validCancelledInput, pool, now);
+      const cancel1 = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
       expect(cancel1.success).toBe(true);
       expect(cancel1.updated).toBe(true);
 
@@ -331,7 +332,7 @@ describe('discoveryService - cancellation cascade', () => {
       expect(count1).toBe(1);
 
       // 4. Second cancellation (should be no-op)
-      const cancel2 = await discoverTournament(validCancelledInput, pool, now);
+      const cancel2 = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
       expect(cancel2.success).toBe(true);
       expect(cancel2.updated).toBe(false); // No change
 
@@ -349,7 +350,7 @@ describe('discoveryService - cancellation cascade', () => {
       // 1. Create template
       const validScheduledInput = getValidScheduledInput(testProviderId);
       const validCancelledInput = getValidCancelledInput(testProviderId);
-      const schedResult = await discoverTournament(validScheduledInput, pool, now);
+      const schedResult = await discoverTournament(validScheduledInput, pool, now, testOrganizerId);
       const templateId = schedResult.templateId;
 
       const userId = '00000000-0000-0000-0000-000000000001';
@@ -392,7 +393,7 @@ describe('discoveryService - cancellation cascade', () => {
       );
 
       // 3. Cascade
-      const result = await discoverTournament(validCancelledInput, pool, now);
+      const result = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
       expect(result.success).toBe(true);
       expect(result.updated).toBe(true); // Some instances changed
 
@@ -422,14 +423,14 @@ describe('discoveryService - cancellation cascade', () => {
       // Scheduled discovery
       const validScheduledInput = getValidScheduledInput(testProviderId);
       const validCancelledInput = getValidCancelledInput(testProviderId);
-      const schedResult = await discoverTournament(validScheduledInput, pool, now);
+      const schedResult = await discoverTournament(validScheduledInput, pool, now, testOrganizerId);
       expect(schedResult.statusCode).toBe(201);
       expect(schedResult.success).toBe(true);
       expect(schedResult.created).toBe(true);
       expect(schedResult.templateId).toBeTruthy();
 
       // Cancelled rediscovery
-      const cancelResult = await discoverTournament(validCancelledInput, pool, now);
+      const cancelResult = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
       expect(cancelResult.statusCode).toBe(200);
       expect(cancelResult.success).toBe(true);
       expect(cancelResult.created).toBe(false);
