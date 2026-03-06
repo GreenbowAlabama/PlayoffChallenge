@@ -54,11 +54,26 @@ async function fetchGolfers() {
       }
     }
 
-    logger.info(`[espnPgaPlayerService] Fetched ${competitors.length} golfers`);
+    logger.info(`[espnPgaPlayerService] Fetched ${competitors.length} golfers from scoreboard`);
+
+    // EMERGENCY DEBUG: Show first competitor structure from scoreboard
+    if (competitors.length > 0) {
+      const firstCompetitor = competitors[0];
+      console.log('[EMERGENCY-SCOREBOARD] First competitor from scoreboard:', JSON.stringify(firstCompetitor, null, 2).substring(0, 2000));
+      console.log('[EMERGENCY-SCOREBOARD-IDS] ID fields in first competitor:', {
+        'competitor.id': firstCompetitor.id,
+        'competitor.athleteId': firstCompetitor.athleteId,
+        'competitor.athlete?.id': firstCompetitor.athlete?.id,
+        'competitor.athlete?.person?.id': firstCompetitor.athlete?.person?.id,
+        'all_competitor_keys': Object.keys(firstCompetitor).sort()
+      });
+    }
 
     const normalized = competitors
       .map(competitor => normalizeGolfer(competitor))
       .filter(golfer => golfer !== null);
+
+    logger.info(`[espnPgaPlayerService] Normalized ${normalized.length} of ${competitors.length} fetched golfers (${competitors.length - normalized.length} skipped due to missing IDs)`);
 
     return normalized;
   } catch (err) {
@@ -168,10 +183,20 @@ async function fetchTournamentField(eventId) {
       }
     }
 
-    // EMERGENCY DEBUG: Show raw ESPN athlete structure
+    // EMERGENCY DEBUG: Show full ESPN competitor structure including ID fields
     if (competitors.length > 0) {
-      console.log('[EMERGENCY-DEBUG] First athlete object keys:', Object.keys(competitors[0].athlete || {}));
-      console.log('[EMERGENCY-DEBUG] First athlete raw:', JSON.stringify(competitors[0].athlete, null, 2).substring(0, 500));
+      const competitor = competitors[0];
+      console.log('[EMERGENCY-DEBUG-FULL] First competitor COMPLETE structure:', JSON.stringify(competitor, null, 2).substring(0, 2000));
+      console.log('[EMERGENCY-DEBUG-IDS] Competitor ID extraction:',{
+        'competitor.id': competitor.id,
+        'competitor.athleteId': competitor.athleteId,
+        'competitor.athlete?.id': competitor.athlete?.id,
+        'competitor.athlete?.athleteId': competitor.athlete?.athleteId,
+        'competitor.athlete?.person?.id': competitor.athlete?.person?.id,
+        'competitor.status?.id': competitor.status?.id,
+        'all_competitor_keys': Object.keys(competitor).sort(),
+        'all_athlete_keys': competitor.athlete ? Object.keys(competitor.athlete).sort() : 'no athlete object'
+      });
     } else {
       console.log('[EMERGENCY-DEBUG] NO COMPETITORS FOUND - returning empty array');
     }
@@ -217,10 +242,43 @@ function normalizeGolfer(competitor) {
     athleteId = competitor.athlete.id || competitor.athlete.athleteId;
   }
 
+  // STRATEGY 3: Fallback - try athlete.person.id (if athlete has nested person object)
+  if (!athleteId && competitor.athlete?.person) {
+    athleteId = competitor.athlete.person.id;
+  }
+
+  // EMERGENCY DEBUG: Log extraction details
+  const athleteName = competitor.athlete?.displayName || competitor.athlete?.fullName || 'UNKNOWN';
+  if (!athleteId) {
+    console.log('[EMERGENCY-NORMALIZE] Failed to extract ID for athlete:', {
+      name: athleteName,
+      competitor_keys: Object.keys(competitor).sort(),
+      athlete_keys: competitor.athlete ? Object.keys(competitor.athlete).sort() : 'N/A',
+      attempted_paths: {
+        'competitor.id': competitor.id,
+        'competitor.athleteId': competitor.athleteId,
+        'competitor.athlete?.id': competitor.athlete?.id,
+        'competitor.athlete?.athleteId': competitor.athlete?.athleteId,
+        'competitor.athlete?.person?.id': competitor.athlete?.person?.id
+      }
+    });
+    return null;
+  }
+
   // Guard: require an ID from somewhere
   if (!athleteId) {
     return null;
   }
+
+  console.log('[EMERGENCY-NORMALIZE] Successfully extracted ID:', {
+    athleteName,
+    athleteId,
+    from: athleteId === competitor.id ? 'competitor.id' :
+          athleteId === competitor.athleteId ? 'competitor.athleteId' :
+          athleteId === competitor.athlete?.id ? 'competitor.athlete.id' :
+          athleteId === competitor.athlete?.athleteId ? 'competitor.athlete.athleteId' :
+          athleteId === competitor.athlete?.person?.id ? 'competitor.athlete.person.id' : 'UNKNOWN'
+  });
 
   // Extract athlete object (either from competitor or passed directly)
   const athlete = competitor.athlete || competitor;

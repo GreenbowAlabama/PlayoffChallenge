@@ -52,6 +52,12 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
     return;
   }
 
+  console.log(`[ingestionService] Attempting to populate field_selections for ${contestInstanceId}`, {
+    player_ids_count: espnPlayerIds.length,
+    first_5_ids: espnPlayerIds.slice(0, 5),
+    sample_id_types: espnPlayerIds.slice(0, 3).map(id => typeof id)
+  });
+
   // Fetch tournament config for selectField validation
   const configResult = await dbClient.query(
     `SELECT provider_event_id, ingestion_endpoint, event_start_date, event_end_date, round_count,
@@ -77,7 +83,30 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   const players = playersResult.rows;
 
   if (players.length === 0) {
-    console.warn(`[ingestionService] No golf players found for ingested ESPN IDs, field_selections not updated`);
+    console.warn(`[ingestionService] No golf players found for ingested ESPN IDs, field_selections not updated`, {
+      contest_instance_id: contestInstanceId,
+      requested_espn_ids_count: espnPlayerIds.length,
+      requested_first_5_ids: espnPlayerIds.slice(0, 5),
+      query_condition: `WHERE espn_id = ANY($1) AND sport = 'GOLF'`,
+      diagnostic: 'Check if espnPlayerIds values actually exist in the players table'
+    });
+
+    // EMERGENCY DIAGNOSTIC: Check what's actually in the database
+    const allGolfPlayers = await dbClient.query(
+      `SELECT COUNT(*) as count, COUNT(DISTINCT espn_id) as unique_espn_ids FROM players WHERE sport = 'GOLF'`
+    );
+    const allGolfRows = allGolfPlayers.rows[0];
+    console.log(`[ingestionService] Database diagnostic: ${allGolfRows.count} total GOLF players, ${allGolfRows.unique_espn_ids} unique espn_ids`);
+
+    // Check if ANY of the requested IDs exist
+    const existingIds = await dbClient.query(
+      `SELECT DISTINCT espn_id FROM players WHERE espn_id = ANY($1) AND sport = 'GOLF'`,
+      [espnPlayerIds]
+    );
+    console.log(`[ingestionService] Existing player IDs from requested list: ${existingIds.rows.length} found`, {
+      found_ids: existingIds.rows.map(r => r.espn_id).slice(0, 5)
+    });
+
     return;
   }
 
