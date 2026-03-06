@@ -18,7 +18,6 @@ function validateConfig(config) {
   // Required string fields
   const requiredStringFields = [
     'provider_event_id',
-    'ingestion_endpoint',
     'field_source'
   ];
 

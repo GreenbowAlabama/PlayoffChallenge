@@ -1071,12 +1071,75 @@ func replacePlayer(userId: UUID, oldPlayerId: String, newPlayerId: String, posit
       }
   }
 
+  /// Submit PGA picks for a contest.
+  /// Called when all golfers are selected to save the lineup atomically.
+  func submitPicks(contestId: UUID, playerIds: [String]) async throws -> PicksSubmissionResponseContract {
+      let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)/picks")!
+
+      var request = createV2Request(url: url)
+      request.httpMethod = "POST"
+
+      let body: [String: Any] = [
+          "player_ids": playerIds
+      ]
+
+      request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+      print("[MYLINEUP][submitPicks] url=\(url.absoluteString) playerIds=\(playerIds.count)")
+
+      let (data, response) = try await URLSession.shared.data(for: request)
+      let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+      print("[MYLINEUP][submitPicks] status=\(code)")
+
+      guard let httpResponse = response as? HTTPURLResponse else {
+          throw APIError.invalidResponse
+      }
+
+      switch httpResponse.statusCode {
+      case 200...299:
+          let decoder = JSONDecoder.iso8601Decoder
+          do {
+              let decoded = try decoder.decode(PicksSubmissionResponseContract.self, from: data)
+              print("[MYLINEUP][submitPicks] success")
+              return decoded
+          } catch {
+              print("[MYLINEUP][submitPicks] decode error: \(error)")
+              throw APIError.decodingError
+          }
+
+      case 401:
+          throw APIError.unauthorized
+
+      case 404:
+          throw APIError.notFound
+
+      default:
+          throw APIError.serverError(
+              "POST /api/custom-contests/\(contestId.uuidString)/picks failed with \(httpResponse.statusCode)"
+          )
+      }
+  }
+
   // MARK: - Error Response Helper
 
   private struct StructuredErrorResponse: Codable {
       let error_code: String
       let reason: String
   }
+}
+
+// MARK: - PicksSubmissionResponseContract
+
+struct PicksSubmissionResponseContract: Decodable {
+    let success: Bool
+    let playerIds: [String]
+    let updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case playerIds = "player_ids"
+        case updatedAt = "updated_at"
+    }
 }
 
 // MARK: - APIClient Conformance

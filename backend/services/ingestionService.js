@@ -20,6 +20,21 @@ const { resolveStrategyKey } = require('./ingestionStrategyResolver');
 const { selectField } = require('./golfEngine/selectField');
 
 /**
+ * Fetch all active GOLF players from the database.
+ *
+ * Used as fallback when re-runs have no newly ingested players (idempotency guard skipped them).
+ *
+ * @param {Object} pool - Database connection pool
+ * @returns {Promise<Array<string>>} Array of player UUIDs
+ */
+async function fetchExistingGolfPlayerIds(pool) {
+  const result = await pool.query(
+    `SELECT id FROM players WHERE sport = 'GOLF' AND is_active = true ORDER BY id`
+  );
+  return result.rows.map(r => r.id);
+}
+
+/**
  * Populate field_selections with ingested players.
  *
  * Called after PLAYER_POOL ingestion completes. Fetches the ingested players
@@ -314,13 +329,23 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       console.log(`[ingestionService] Skipped ${skippedWorkUnits.length} duplicate work units (${phase})`);
     }
 
-    // ── Populate field_selections whenever players are ingested (all phases) ────
-    if (ingestedPlayerIds.length > 0) {
-      try {
-        await populateFieldSelections(client, contestInstanceId, ingestedPlayerIds);
-      } catch (err) {
-        console.error(`[ingestionService] Failed to populate field_selections for ${contestInstanceId}:`, err.message);
-        // Don't fail the entire ingestion; field population is important but not blocking
+    // ── Populate field_selections for GOLF contests ────────────────────────────
+    // On first run: ingestedPlayerIds contains newly ingested players.
+    // On re-runs: ingestedPlayerIds is empty (idempotency skipped them).
+    // Fallback for GOLF re-runs: query existing players from database.
+    if (row.sport === 'GOLF') {
+      let playerIdsToUse = ingestedPlayerIds;
+      if (playerIdsToUse.length === 0) {
+        playerIdsToUse = await fetchExistingGolfPlayerIds(client);
+      }
+
+      if (playerIdsToUse.length > 0) {
+        try {
+          await populateFieldSelections(client, contestInstanceId, playerIdsToUse);
+        } catch (err) {
+          console.error(`[ingestionService] Failed to populate field_selections for ${contestInstanceId}:`, err.message);
+          // Don't fail the entire ingestion; field population is important but not blocking
+        }
       }
     }
 

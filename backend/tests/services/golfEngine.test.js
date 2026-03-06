@@ -33,11 +33,11 @@ describe('Golf Engine - validateConfig', () => {
       expect(result.errors.some(e => e.includes('provider_event_id'))).toBe(true);
     });
 
-    it('rejects missing ingestion_endpoint', () => {
+    it('accepts missing ingestion_endpoint (data-fetching concern, not field-selection)', () => {
       const config = { ...validBaseConfig, ingestion_endpoint: undefined };
       const result = validateConfig(config);
-      expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('ingestion_endpoint'))).toBe(true);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
     it('rejects missing event_start_date', () => {

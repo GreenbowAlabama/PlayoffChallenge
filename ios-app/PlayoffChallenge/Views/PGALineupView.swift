@@ -235,8 +235,8 @@ struct PGAEmptySlotButton: View {
 
     var body: some View {
         Button(action: {
-            // Open player picker (reuses existing NFL picker)
-            viewModel.openPlayerPicker(for: "Golfer")
+            // Open player picker with correct position ("G" for golfer)
+            viewModel.openPlayerPicker(for: "G")
         }) {
             HStack(spacing: DesignTokens.Spacing.md) {
                 // Slot number placeholder

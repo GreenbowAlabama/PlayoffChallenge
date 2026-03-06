@@ -52,6 +52,11 @@ final class LineupViewModel: ObservableObject {
     @Published var showingPlayerPicker = false
     @Published var selectedPosition: String?
 
+    // PGA: Lineup size from contest rosterConfig
+    var lineupSize: Int {
+        contest.rosterConfig?.lineupSize ?? 7
+    }
+
     // MARK: - Dependencies
 
     let contestId: UUID
@@ -135,12 +140,17 @@ final class LineupViewModel: ObservableObject {
     }
 
     var isLineupComplete: Bool {
-        filledCountForPosition("QB") == positionLimits.qb &&
-        filledCountForPosition("RB") == positionLimits.rb &&
-        filledCountForPosition("WR") == positionLimits.wr &&
-        filledCountForPosition("TE") == positionLimits.te &&
-        filledCountForPosition("K") == positionLimits.k &&
-        filledCountForPosition("DEF") == positionLimits.def
+        if contest.templateType == .pgaTournament {
+            // PGA: Complete when all golfer slots are filled
+            return slots.filter { !$0.isEmpty }.count == lineupSize
+        }
+        // NFL: Complete when all positions have required count
+        return filledCountForPosition("QB") == positionLimits.qb &&
+            filledCountForPosition("RB") == positionLimits.rb &&
+            filledCountForPosition("WR") == positionLimits.wr &&
+            filledCountForPosition("TE") == positionLimits.te &&
+            filledCountForPosition("K") == positionLimits.k &&
+            filledCountForPosition("DEF") == positionLimits.def
     }
 
     var totalPoints: Double {
@@ -425,7 +435,7 @@ final class LineupViewModel: ObservableObject {
         showingPlayerPicker = true
     }
 
-    // V2: Add player via operation-based API
+    // V2: Add player via operation-based API (NFL) or local state (PGA)
     func addPlayer(_ player: Player) async {
         guard let userId = userId else { return }
 
@@ -434,6 +444,39 @@ final class LineupViewModel: ObservableObject {
 
         guard positionCount < limit else { return }
 
+        // PGA: Add player to local state only (auto-submit when all golfers filled)
+        if contest.templateType == .pgaTournament {
+            // Find first empty slot and fill it with new player
+            if let emptyIndex = slots.firstIndex(where: { $0.isEmpty }) {
+                let filledSlot = PickV2Slot(
+                    pickId: nil,
+                    playerId: player.id,
+                    position: golfPosition,
+                    fullName: player.fullName,
+                    team: player.team,
+                    sleeperId: player.sleeperId,
+                    imageUrl: player.imageUrl,
+                    locked: false,
+                    multiplier: nil,
+                    consecutiveWeeks: nil,
+                    basePoints: nil,
+                    finalPoints: nil,
+                    isLive: nil,
+                    gameStatus: nil,
+                    opponent: nil,
+                    isHome: nil
+                )
+                slots[emptyIndex] = filledSlot
+            }
+
+            // Check if lineup is now complete (all golfers selected)
+            if isLineupComplete {
+                await submitPGAPicks()
+            }
+            return
+        }
+
+        // NFL: Add player via API
         isSaving = true
 
         do {
@@ -460,9 +503,38 @@ final class LineupViewModel: ObservableObject {
         isSaving = false
     }
 
-    // V2: Remove player via operation-based API
+    // V2: Remove player via operation-based API (NFL) or local state (PGA)
     func removeSlot(_ slot: PickV2Slot) async {
-        guard let userId = userId, let pickId = slot.pickId else { return }
+        guard let userId = userId else { return }
+
+        // PGA: Remove player from local state only
+        if contest.templateType == .pgaTournament {
+            if let slotIndex = slots.firstIndex(where: { $0.id == slot.id }) {
+                let clearedSlot = PickV2Slot(
+                    pickId: slots[slotIndex].pickId,
+                    playerId: nil,
+                    position: slots[slotIndex].position,
+                    fullName: nil,
+                    team: nil,
+                    sleeperId: nil,
+                    imageUrl: nil,
+                    locked: slots[slotIndex].locked,
+                    multiplier: slots[slotIndex].multiplier,
+                    consecutiveWeeks: slots[slotIndex].consecutiveWeeks,
+                    basePoints: slots[slotIndex].basePoints,
+                    finalPoints: slots[slotIndex].finalPoints,
+                    isLive: slots[slotIndex].isLive,
+                    gameStatus: slots[slotIndex].gameStatus,
+                    opponent: slots[slotIndex].opponent,
+                    isHome: slots[slotIndex].isHome
+                )
+                slots[slotIndex] = clearedSlot
+            }
+            return
+        }
+
+        // NFL: Remove player via API
+        guard let pickId = slot.pickId else { return }
 
         isSaving = true
 
@@ -484,6 +556,39 @@ final class LineupViewModel: ObservableObject {
         } catch {
             errorMessage = "Failed to remove player: \(error.localizedDescription)"
             showError = true
+        }
+
+        isSaving = false
+    }
+
+    /// Submit all PGA picks to the backend.
+    /// Called automatically when lineup becomes complete (all golfers selected).
+    private func submitPGAPicks() async {
+        isSaving = true
+
+        do {
+            // Collect all player IDs from filled slots
+            let playerIds = slots
+                .filter { !$0.isEmpty }
+                .compactMap { $0.playerId }
+
+            print("[MYLINEUP][submitPGAPicks] submitting \(playerIds.count) picks")
+
+            let response = try await APIService.shared.submitPicks(
+                contestId: contestId,
+                playerIds: playerIds
+            )
+
+            print("[MYLINEUP][submitPGAPicks] success, updated_at=\(response.updatedAt)")
+
+            // Show success feedback briefly
+            errorMessage = "Lineup saved!"
+            showError = false
+
+        } catch {
+            errorMessage = "Failed to save lineup: \(error.localizedDescription)"
+            showError = true
+            print("[MYLINEUP][submitPGAPicks] error: \(error)")
         }
 
         isSaving = false
