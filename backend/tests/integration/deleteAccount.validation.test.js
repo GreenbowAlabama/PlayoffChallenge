@@ -293,4 +293,38 @@ describe('DELETE /api/user — Delete Account Validation', () => {
       expect(userCheck.rows.length).toBe(1);
     });
   });
+
+  describe('Test 9: User organizing COMPLETE/CANCELLED contests → allows deletion', () => {
+    it('should allow deletion when user only organizes terminal state contests', async () => {
+      const completeContestId = crypto.randomUUID();
+      const cancelledContestId = crypto.randomUUID();
+
+      // Create a COMPLETE contest
+      await pool.query(
+        'INSERT INTO contest_instances (id, template_id, organizer_id, status, entry_fee_cents, payout_structure, contest_name, max_entries) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        [completeContestId, templateId, testUserId, 'COMPLETE', 0, JSON.stringify({}), 'Complete Contest', 20]
+      );
+
+      // Create a CANCELLED contest
+      await pool.query(
+        'INSERT INTO contest_instances (id, template_id, organizer_id, status, entry_fee_cents, payout_structure, contest_name, max_entries) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        [cancelledContestId, templateId, testUserId, 'CANCELLED', 0, JSON.stringify({}), 'Cancelled Contest', 20]
+      );
+
+      // User should be able to delete despite organizing terminal state contests
+      const response = await request(app)
+        .delete(`/api/user?userId=${testUserId}`)
+        .set('Authorization', `Bearer ${testUserId}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty('success', true);
+
+      // Verify user is deleted
+      const userCheck = await pool.query(
+        'SELECT id FROM users WHERE id = $1',
+        [testUserId]
+      );
+      expect(userCheck.rows.length).toBe(0);
+    });
+  });
 });

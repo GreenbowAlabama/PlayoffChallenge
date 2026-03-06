@@ -403,15 +403,16 @@ async function acceptTos(pool, userId, tosVersion) {
  * @returns {Promise<{canDelete: boolean, reason?: string}>}
  */
 async function validateUserDeletable(pool, userId) {
-  // Check 1: User must not organize any contests
+  // Check 1: User must not organize any ACTIVE contests (SCHEDULED, LOCKED, or LIVE)
+  // Terminal states (COMPLETE, CANCELLED) do not block deletion
   const contestCheck = await pool.query(
-    'SELECT COUNT(*) as count FROM contest_instances WHERE organizer_id = $1',
+    'SELECT COUNT(*) as count FROM contest_instances WHERE organizer_id = $1 AND status IN (\'SCHEDULED\', \'LOCKED\', \'LIVE\')',
     [userId]
   );
   if (parseInt(contestCheck.rows[0].count, 10) > 0) {
     return {
       canDelete: false,
-      reason: 'You organize active contests. Transfer or cancel them first.'
+      reason: 'You organize active contests (scheduled, locked, or live). Please wait for tournaments to complete before deleting your account.'
     };
   }
 
@@ -466,10 +467,14 @@ async function validateUserDeletable(pool, userId) {
  * @returns {Promise<Object>} - Deleted user
  */
 async function deleteUserById(client, userId) {
-  // Delete in order: picks, player_swaps, scores, then user
+  // Delete in order: picks, player_swaps, scores, contest_instances (only terminal ones allowed), then user
   await client.query('DELETE FROM picks WHERE user_id = $1', [userId]);
   await client.query('DELETE FROM player_swaps WHERE user_id = $1', [userId]);
   await client.query('DELETE FROM scores WHERE user_id = $1', [userId]);
+  // Delete contest_instances organized by this user (validation ensures only terminal states)
+  await client.query('DELETE FROM contest_state_transitions WHERE contest_instance_id IN (SELECT id FROM contest_instances WHERE organizer_id = $1)', [userId]);
+  await client.query('DELETE FROM contest_participants WHERE contest_instance_id IN (SELECT id FROM contest_instances WHERE organizer_id = $1)', [userId]);
+  await client.query('DELETE FROM contest_instances WHERE organizer_id = $1', [userId]);
   const result = await client.query('DELETE FROM users WHERE id = $1 RETURNING *', [userId]);
   return result;
 }
