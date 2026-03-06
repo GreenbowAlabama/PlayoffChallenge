@@ -31,6 +31,7 @@ const { fetchEspnSummary, extractEspnEventId } = require('./espnDataFetcher');
 const { discoverTournament } = require('./discoveryService');
 const pgaEspnIngestion = require('../ingestion/strategies/pgaEspnIngestion');
 const { initializeTournamentField } = require('../ingestionService');
+const customContestService = require('../customContestService');
 
 /**
  * Derive lock_time for a PGA contest during creation.
@@ -488,12 +489,15 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
       // Contests are platform-owned if the template is system-generated
       const isPlatformOwned = template.is_system_generated;
 
+      // System-generated discovery contests are published immediately with a generated join_token
+      const joinToken = customContestService.generateJoinToken();
+
       const insertResult = await client.query(
         `INSERT INTO contest_instances (
           template_id, organizer_id, entry_fee_cents, payout_structure,
           status, contest_name, tournament_start_time, tournament_end_time,
-          lock_time, provider_event_id, is_platform_owned
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          lock_time, provider_event_id, is_platform_owned, join_token
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT (provider_event_id, template_id)
         DO NOTHING
         RETURNING id`,
@@ -508,7 +512,8 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
           event.end_time,
           derivedLockTime, // lock_time derived from ESPN data (with fallback)
           event.provider_event_id,
-          isPlatformOwned
+          isPlatformOwned,
+          joinToken
         ]
       );
 
