@@ -705,11 +705,12 @@
 				CODE_SIGN_ENTITLEMENTS = PlayoffChallenge.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution: Patrick Carter (24Z6R7U38A)";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 50;
 				DEVELOPMENT_TEAM = 24Z6R7U38A;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "PlayoffChallenge-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "'67 Games";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports-games";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -721,7 +722,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.44;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallenge;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "PlayoffChallenge App Store Profile";
@@ -747,11 +748,12 @@
 				CODE_SIGN_ENTITLEMENTS = PlayoffChallenge.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution: Patrick Carter (24Z6R7U38A)";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 50;
 				DEVELOPMENT_TEAM = 24Z6R7U38A;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "PlayoffChallenge-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "'67 Games";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports-games";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -762,7 +764,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.44;
+				MARKETING_VERSION = 2.0.0;
 				OTHER_SWIFT_FLAGS = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallenge;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -916,11 +918,12 @@
 				CODE_SIGN_ENTITLEMENTS = PlayoffChallenge.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution: Patrick Carter (24Z6R7U38A)";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 50;
 				DEVELOPMENT_TEAM = 24Z6R7U38A;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "PlayoffChallenge-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "'67 Games";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports-games";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -931,7 +934,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.44;
+				MARKETING_VERSION = 2.0.0;
 				OTHER_SWIFT_FLAGS = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.iancarter.PlayoffChallenge;
 				PRODUCT_NAME = "$(TARGET_NAME)";
