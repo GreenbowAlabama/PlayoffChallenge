@@ -72,17 +72,13 @@ async function resolveActualWeekNumber(inputWeek, dbClient, logPrefix = 'WeekRem
 
   if (weekNum >= 1 && weekNum <= 4) {
     const resolved = playoffStartWeek + (weekNum - 1);
-    console.log(`[${logPrefix}] Week remap: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${resolved}`);
     return resolved;
   } else if (weekNum >= 19) {
-    console.log(`[${logPrefix}] Week passthrough: received=${weekNum}, resolved=${weekNum} (literal NFL week)`);
     return weekNum;
   } else if (weekNum >= 16 && weekNum <= 18) {
     const resolved = weekNum + 3;
-    console.log(`[${logPrefix}] Week remap (iOS picker): received=${weekNum}, resolved=${resolved}`);
     return resolved;
   } else {
-    console.log(`[${logPrefix}] Week WARNING: received=${weekNum}, playoff_start_week=${playoffStartWeek}, resolved=${weekNum} (unexpected range)`);
     return weekNum;
   }
 }
@@ -100,7 +96,6 @@ async function fetchValidPostseasonWeek(startingNflWeek, playoffStartWeek, maxWe
 
   while (currentNflWeek <= maxNflWeek) {
     const url = getESPNScoreboardUrl(currentNflWeek);
-    console.log(`[admin] Fetching ESPN postseason data for NFL week ${currentNflWeek}: ${url}`);
 
     let scoreboardResponse;
     try {
@@ -111,7 +106,6 @@ async function fetchValidPostseasonWeek(startingNflWeek, playoffStartWeek, maxWe
 
     const events = scoreboardResponse.data?.events || [];
     if (events.length === 0) {
-      console.log(`[admin] NFL week ${currentNflWeek} has no events, advancing...`);
       currentNflWeek++;
       continue;
     }
@@ -127,7 +121,6 @@ async function fetchValidPostseasonWeek(startingNflWeek, playoffStartWeek, maxWe
 
       if (isProBowlEvent) {
         proBowlEventCount++;
-        console.log(`[admin] NFL week ${currentNflWeek}: Detected Pro Bowl event (AFC vs NFC)`);
       } else {
         realEventCount++;
         for (const abbr of teamAbbrs) {
@@ -137,13 +130,11 @@ async function fetchValidPostseasonWeek(startingNflWeek, playoffStartWeek, maxWe
     }
 
     if (realEventCount === 0 && proBowlEventCount > 0) {
-      console.log(`[admin] NFL week ${currentNflWeek} is entirely Pro Bowl (${proBowlEventCount} events). Skipping entire week.`);
       currentNflWeek++;
       continue;
     }
 
     const effectivePlayoffWeek = currentNflWeek - playoffStartWeek + 1;
-    console.log(`[admin] Found valid playoff week: NFL week ${currentNflWeek} (playoff week ${effectivePlayoffWeek}) with ${realTeams.size} teams`);
 
     return {
       nflWeek: currentNflWeek,
@@ -347,12 +338,10 @@ async function fetchScoreboard(weekNumber) {
       liveStatsCache.currentCachedWeek === weekNumber &&
       (now - liveStatsCache.lastScoreboardUpdate) < SCOREBOARD_CACHE_MS
     ) {
-      console.log('Scoreboard cache hit', { cachedGames: liveStatsCache.activeGameIds.size, cacheAgeMs: now - liveStatsCache.lastScoreboardUpdate });
       return Array.from(liveStatsCache.activeGameIds);
     }
 
     const url = getESPNScoreboardUrl(weekNumber);
-    console.log('Fetching fresh scoreboard', { url });
     const response = await axios.get(url);
 
     if (liveStatsCache.currentCachedWeek !== weekNumber) {
@@ -396,7 +385,6 @@ async function fetchScoreboard(weekNumber) {
       liveStatsCache.lastScoreboardUpdate = now;
     }
 
-    console.log('Fresh scoreboard fetched', { activeGames: activeGames.length, totalEvents: response.data?.events?.length || 0 });
     return activeGames;
   } catch (err) {
     console.error('Error fetching scoreboard:', err.message);
@@ -881,7 +869,6 @@ async function ingestWorkUnit(ctx, unit) {
                 [athleteId, pick.player_id]
               );
               resolvedEspnId = athleteId;
-              console.log(`[lazy-hydration] Assigned ESPN ID ${athleteId} to player ${playerName} (${dbTeam})`);
             }
             playerStats = convertESPNStatsToScoring(cached.stats);
             playerTeam = cached.team;
@@ -935,7 +922,6 @@ async function ingestWorkUnit(ctx, unit) {
     });
   }
 
-  console.log(`Scores computed`, { week: weekNumber, score_count: normalizedScores.length });
   return normalizedScores;
 }
 
@@ -977,7 +963,6 @@ async function upsertScores(ctx, normalizedScores) {
     savedCount++;
   }
 
-  console.log('Scores persisted', { week: normalizedScores[0]?.week_number, score_count: savedCount });
   return savedCount;
 }
 

@@ -273,7 +273,6 @@ async function getWorkUnits(ctx) {
     ctx.contest?.provider_event_id;
 
   if (!providerEventId) {
-    console.warn('[pgaEspnIngestion] No provider_event_id in context, skipping PLAYER_POOL units');
     return [];
   }
 
@@ -302,11 +301,8 @@ async function getWorkUnits(ctx) {
   }
 
   if (!Array.isArray(golfers) || golfers.length === 0) {
-    console.log('[pgaEspnIngestion] No golfers fetched from leaderboard, skipping PLAYER_POOL unit generation');
     return [];
   }
-
-  console.log(`[pgaEspnIngestion] Fetched ${golfers.length} golfers from leaderboard for event ${providerEventId}`);
 
   // Emit one unit per golfer
   // Idempotency: each unit with unique externalPlayerId is processed only once
@@ -316,7 +312,6 @@ async function getWorkUnits(ctx) {
     .filter(golfer => {
       // Guard: ensure external_id is present before creating unit
       if (!golfer.external_id) {
-        console.warn(`[pgaEspnIngestion] Skipping golfer with missing external_id: ${golfer.name}`);
         return false;
       }
       return true;
@@ -328,7 +323,6 @@ async function getWorkUnits(ctx) {
       golfer: golfer  // Attach golfer data to avoid re-fetching
     }));
 
-  console.log(`[pgaEspnIngestion] Generated ${units.length} PLAYER_POOL units from leaderboard`);
   return units;
 }
 
@@ -452,8 +446,6 @@ async function handlePlayerPoolIngestion(ctx, unit) {
       golfer.sport,                // sport (GOLF)
       golfer.position,             // position (G for golfer)
     ]);
-
-    console.log(`[pgaEspnIngestion] Upserted golfer ${golfer.name} (${golfer.external_id}) to players table`);
   } catch (err) {
     console.error(`[pgaEspnIngestion] Failed to upsert golfer ${golfer.external_id}:`, err.message);
     throw err;
@@ -548,8 +540,6 @@ async function ingestWorkUnit(ctx, unit) {
     JSON.stringify(normalizedPayload) // payload stores normalized JSON (not canonical string)
   ]);
 
-  console.log(`[pgaEspnIngestion] Created event_data_snapshot ${snapshotHash} for contest ${contestInstanceId}`);
-
   // ── Step 6: Canonicalize full provider data for ingestion_events hash ──
   // (kept separate from snapshot_hash for backward compatibility)
   const canonicalizedFull = canonicalizeJson(providerData);
@@ -589,9 +579,6 @@ async function ingestWorkUnit(ctx, unit) {
     payloadHash,
     'VALID'
   ]);
-
-  const ingestionEvent = result.rows[0];
-  console.log(`[pgaEspnIngestion] Created ingestion_events ${ingestionEvent.id} with hash ${ingestionEvent.payload_hash}`);
 
   // Return placeholder scores (actual scoring implementation out of scope for Batch 2)
   // In production, this would parse providerData and normalize to { user_id, player_id, points, ... }

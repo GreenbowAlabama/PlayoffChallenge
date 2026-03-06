@@ -63,23 +63,12 @@ async function startDiscoveryWorker(pool, options = {}) {
 
   // Pre-create platform organizer user if it doesn't exist
   try {
-    const userResult = await pool.query(
+    await pool.query(
       `INSERT INTO users (id, username, email)
        VALUES ($1, 'platform-discovery', 'discovery@system.local')
-       ON CONFLICT (id) DO NOTHING
-       RETURNING id`,
+       ON CONFLICT (id) DO NOTHING`,
       [organizerId]
     );
-
-    if (userResult.rows.length > 0) {
-      console.log(
-        `[Discovery Worker] Created platform organizer user: ${organizerId}`
-      );
-    } else {
-      console.log(
-        `[Discovery Worker] Platform organizer user already exists: ${organizerId}`
-      );
-    }
   } catch (err) {
     console.error(
       `[Discovery Worker] Failed to pre-create platform organizer user: ${err.message}`

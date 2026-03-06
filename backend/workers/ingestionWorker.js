@@ -73,14 +73,8 @@ async function runCycle(pool) {
         const playerPoolSummary = await ingestionService.runPlayerPool(instance.id, pool);
 
         if (playerPoolSummary && playerPoolSummary.status === 'REJECTED') {
-          console.log(
-            `[Ingestion] ${instance.id} PLAYER_POOL skipped: ${playerPoolSummary.reason}`
-          );
           phasesSkipped++;
         } else {
-          console.log(
-            `[Ingestion] ${instance.id} PLAYER_POOL complete: processed=${playerPoolSummary.processed}, skipped=${playerPoolSummary.skipped}, errors=${playerPoolSummary.errors?.length || 0}`
-          );
           phasesRun++;
         }
 
@@ -89,21 +83,12 @@ async function runCycle(pool) {
           const scoringSummary = await ingestionService.runScoring(instance.id, pool);
 
           if (scoringSummary && scoringSummary.status === 'REJECTED') {
-            console.log(
-              `[Ingestion] ${instance.id} SCORING skipped: ${scoringSummary.reason}`
-            );
             phasesSkipped++;
           } else {
-            console.log(
-              `[Ingestion] ${instance.id} SCORING complete: processed=${scoringSummary.processed}, skipped=${scoringSummary.skipped}, errors=${scoringSummary.errors?.length || 0}`
-            );
             phasesRun++;
           }
         } else {
           // SCHEDULED contest: SCORING phase not run (explicit skip, no API call)
-          console.log(
-            `[Ingestion] ${instance.id} SCORING skipped: SCHEDULED_STATUS_NO_SCORING`
-          );
           phasesSkipped++;
         }
       } catch (err) {
