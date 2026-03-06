@@ -4,9 +4,20 @@ import Foundation
 /// Single source of truth for date format, strategy, and other decoder settings.
 extension JSONDecoder {
     /// Standard ISO8601 decoder used for all API response decoding.
+    /// Uses custom ISO8601DateFormatter with fractional seconds support.
+    /// Ensures compatibility with iOS 11.2+ when backend sends timestamps with milliseconds.
     static let iso8601Decoder: JSONDecoder = {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let dateString = try container.decode(String.self)
+            if let date = formatter.date(from: dateString) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date string \(dateString)")
+        }
         return decoder
     }()
 }
