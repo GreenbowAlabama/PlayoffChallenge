@@ -175,6 +175,7 @@ final class LineupViewModel: ObservableObject {
         case "TE": return positionLimits.te
         case "K": return positionLimits.k
         case "DEF": return positionLimits.def
+        case "G": return positionLimits.golf
         default: return 0
         }
     }
@@ -603,4 +604,5 @@ struct LineupPositionLimits {
     var te: Int = 1
     var k: Int = 1
     var def: Int = 1
+    var golf: Int = 7
 }

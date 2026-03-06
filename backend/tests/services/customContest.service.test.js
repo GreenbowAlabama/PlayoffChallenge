@@ -1125,9 +1125,29 @@ describe('Custom Contest Service Unit Tests', () => {
           /UPDATE contest_instances/,
           mockQueryResponses.single({ ...mockInstance, status: 'SCHEDULED', join_token: 'dev_mockedtoken123' })
         );
+        // BEGIN transaction
+        mockPool.setQueryResponse(
+          /BEGIN/,
+          mockQueryResponses.empty()
+        );
+        // Wallet balance (sufficient: $50 > $25)
+        mockPool.setQueryResponse(
+          q => q.includes('SUM(CASE') && q.includes('user_id'),
+          mockQueryResponses.single({ balance_cents: 5000 })
+        );
         mockPool.setQueryResponse(
           /INSERT INTO contest_participants/,
           mockQueryResponses.single({})
+        );
+        // Entry fee insert
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO ledger') && q.includes('ON CONFLICT'),
+          mockQueryResponses.single({})
+        );
+        // COMMIT transaction
+        mockPool.setQueryResponse(
+          /COMMIT/,
+          mockQueryResponses.empty()
         );
 
         const result = await customContestService.publishContestInstance(
@@ -1224,9 +1244,29 @@ describe('Custom Contest Service Unit Tests', () => {
           /UPDATE contest_instances/,
           mockQueryResponses.single({ ...mockInstance, status: 'SCHEDULED', join_token: 'dev_newgeneratedtoken12345678' })
         );
+        // BEGIN transaction
+        mockPool.setQueryResponse(
+          /BEGIN/,
+          mockQueryResponses.empty()
+        );
+        // Wallet balance (sufficient: $50 > $25)
+        mockPool.setQueryResponse(
+          q => q.includes('SUM(CASE') && q.includes('user_id'),
+          mockQueryResponses.single({ balance_cents: 5000 })
+        );
         mockPool.setQueryResponse(
           /INSERT INTO contest_participants/,
           mockQueryResponses.single({})
+        );
+        // Entry fee insert
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO ledger') && q.includes('ON CONFLICT'),
+          mockQueryResponses.single({})
+        );
+        // COMMIT transaction
+        mockPool.setQueryResponse(
+          /COMMIT/,
+          mockQueryResponses.empty()
         );
 
         const result = await customContestService.publishContestInstance(
@@ -1351,10 +1391,30 @@ describe('Custom Contest Service Unit Tests', () => {
           /UPDATE contest_instances[\s\S]*join_token IS NULL/,
           mockQueryResponses.single(publishedInstance)
         );
+        // First call: BEGIN transaction
+        mockPool.setQueryResponse(
+          /BEGIN/,
+          mockQueryResponses.empty()
+        );
+        // First call: Wallet balance
+        mockPool.setQueryResponse(
+          q => q.includes('SUM(CASE') && q.includes('user_id'),
+          mockQueryResponses.single({ balance_cents: 5000 })
+        );
         // First call: INSERT organizer participant
         mockPool.setQueryResponse(
           /INSERT INTO contest_participants/,
           mockQueryResponses.single({})
+        );
+        // First call: Entry fee insert
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO ledger') && q.includes('ON CONFLICT'),
+          mockQueryResponses.single({})
+        );
+        // First call: COMMIT
+        mockPool.setQueryResponse(
+          /COMMIT/,
+          mockQueryResponses.empty()
         );
 
         // First publish succeeds
@@ -2384,6 +2444,16 @@ describe('Custom Contest Service Unit Tests', () => {
         /UPDATE contest_instances/,
         mockQueryResponses.single({ ...mockInstance, status: 'SCHEDULED', join_token: 'dev_generatedtoken12345678901234' })
       );
+      // BEGIN transaction
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+      // Wallet balance (sufficient: $50 > $25)
+      mockPool.setQueryResponse(
+        q => q.includes('SUM(CASE') && q.includes('user_id'),
+        mockQueryResponses.single({ balance_cents: 5000 })
+      );
       mockPool.setQueryResponse(
         /INSERT INTO contest_participants/,
         mockQueryResponses.single({
@@ -2392,6 +2462,25 @@ describe('Custom Contest Service Unit Tests', () => {
           user_id: TEST_USER_ID,
           joined_at: new Date().toISOString()
         })
+      );
+      // Entry fee insert
+      mockPool.setQueryResponse(
+        q => q.includes('INSERT INTO ledger') && q.includes('ON CONFLICT'),
+        mockQueryResponses.single({
+          id: 'ffffffff-ffff-ffff-ffff-ffffffffffff',
+          entry_type: 'ENTRY_FEE',
+          direction: 'DEBIT',
+          amount_cents: 2500,
+          reference_type: 'CONTEST',
+          reference_id: TEST_INSTANCE_ID,
+          contest_instance_id: TEST_INSTANCE_ID,
+          idempotency_key: `entry_fee:${TEST_INSTANCE_ID}:${TEST_USER_ID}`
+        })
+      );
+      // COMMIT transaction
+      mockPool.setQueryResponse(
+        /COMMIT/,
+        mockQueryResponses.empty()
       );
 
       await customContestService.publishContestInstance(mockPool, TEST_INSTANCE_ID, TEST_USER_ID);

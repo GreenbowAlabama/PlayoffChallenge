@@ -1097,21 +1097,122 @@ async function publishContestInstance(pool, instanceId, organizerId) {
 
   // Auto-join organizer as first participant (only on first publish)
   if (didPublish) {
-    await pool.query(
-      'INSERT INTO contest_participants (contest_instance_id, user_id) VALUES ($1, $2) ON CONFLICT (contest_instance_id, user_id) DO NOTHING',
-      [instanceId, organizerId]
-    );
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    // Initialize tournament field for GOLF contests (non-blocking)
-    if (instance.sport === 'GOLF') {
-      try {
-        await initializeTournamentField(pool, instanceId);
-      } catch (err) {
-        console.warn(
-          `[publishContestInstance] tournament initialization failed for ${instanceId}:`,
-          err.message
+      // 1. Extract entry fee (same pattern as joinContest line 1235)
+      const entryFeeCents = parseInt(instance.entry_fee_cents, 10);
+
+      // 2. Check organizer wallet balance (same pattern as joinContest line 1236)
+      const walletBalance = await LedgerRepository.computeWalletBalance(client, organizerId);
+
+      if (walletBalance < entryFeeCents) {
+        await client.query('ROLLBACK');
+        throw new Error(
+          `[publishContestInstance] Organizer insufficient wallet balance: ` +
+          `has ${walletBalance} cents, need ${entryFeeCents} cents for entry fee`
         );
       }
+
+      // 3. Insert participant (same pattern as joinContest line 1249-1255)
+      const insertResult = await client.query(
+        `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (contest_instance_id, user_id) DO NOTHING
+         RETURNING id, contest_instance_id, user_id, joined_at`,
+        [instanceId, organizerId]
+      );
+
+      // Only debit if this insert actually created a new row
+      if (insertResult.rowCount > 0) {
+        // 4. Record entry fee debit (same pattern as joinContest lines 1281-1298)
+        const idempotencyKey = `entry_fee:${instanceId}:${organizerId}`;
+
+        const debitResult = await client.query(
+          `INSERT INTO ledger (
+             user_id,
+             entry_type,
+             direction,
+             amount_cents,
+             reference_type,
+             reference_id,
+             contest_instance_id,
+             idempotency_key,
+             created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+           ON CONFLICT (idempotency_key) DO NOTHING
+           RETURNING id, entry_type, direction, amount_cents, reference_type, reference_id,
+             contest_instance_id, idempotency_key`,
+          [organizerId, 'ENTRY_FEE', 'DEBIT', entryFeeCents, 'CONTEST', instanceId, instanceId, idempotencyKey]
+        );
+
+        if (debitResult.rowCount === 0) {
+          // Entry fee with same idempotency_key already exists (race condition)
+          // Verify it matches and commit
+          const existingEntryFeeResult = await client.query(
+            `SELECT entry_type, direction, amount_cents, reference_type, reference_id,
+               contest_instance_id, idempotency_key
+             FROM ledger
+             WHERE idempotency_key = $1`,
+            [idempotencyKey]
+          );
+
+          if (existingEntryFeeResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            throw new Error(
+              `Invariant violation: ENTRY_FEE with idempotency_key ` +
+              `${idempotencyKey} was reported as conflicted but not found`
+            );
+          }
+
+          const existingEntryFee = existingEntryFeeResult.rows[0];
+          const fieldsMatch = (
+            existingEntryFee.entry_type === 'ENTRY_FEE' &&
+            existingEntryFee.direction === 'DEBIT' &&
+            parseInt(existingEntryFee.amount_cents, 10) === entryFeeCents &&
+            existingEntryFee.reference_type === 'CONTEST' &&
+            existingEntryFee.reference_id === instanceId &&
+            existingEntryFee.contest_instance_id === instanceId &&
+            existingEntryFee.idempotency_key === idempotencyKey
+          );
+
+          if (!fieldsMatch) {
+            await client.query('ROLLBACK');
+            throw new Error(
+              `Invariant violation: ENTRY_FEE with idempotency_key ${idempotencyKey} exists but ` +
+              `fields mismatch. Expected: entry_type=ENTRY_FEE, direction=DEBIT, ` +
+              `amount_cents=${entryFeeCents}, reference_type=CONTEST, reference_id=${instanceId}, ` +
+              `contest_instance_id=${instanceId}. Found: ${JSON.stringify(existingEntryFee)}`
+            );
+          }
+        }
+      }
+
+      await client.query('COMMIT');
+
+      // Initialize tournament field for GOLF contests (non-blocking, after successful
+      // participant/fee insert)
+      if (instance.sport === 'GOLF') {
+        try {
+          await initializeTournamentField(pool, instanceId);
+        } catch (err) {
+          console.warn(
+            `[publishContestInstance] tournament initialization failed for ${instanceId}:`,
+            err.message
+          );
+        }
+      }
+
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        // Ignore rollback errors
+      }
+      throw err;
+    } finally {
+      client.release();
     }
   }
 

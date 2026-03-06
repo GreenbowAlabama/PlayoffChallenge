@@ -1353,9 +1353,29 @@ describe('Custom Contest Routes', () => {
         /UPDATE contest_instances SET join_token/,
         mockQueryResponses.single({ ...mockInstance, status: 'SCHEDULED' })
       );
+      // BEGIN transaction
+      mockPool.setQueryResponse(
+        /BEGIN/,
+        mockQueryResponses.empty()
+      );
+      // Wallet balance (sufficient: $50 > $25)
+      mockPool.setQueryResponse(
+        q => q.includes('SUM(CASE') && q.includes('user_id'),
+        mockQueryResponses.single({ balance_cents: 5000 })
+      );
       mockPool.setQueryResponse(
         /INSERT INTO contest_participants/,
         mockQueryResponses.single({})
+      );
+      // Entry fee insert
+      mockPool.setQueryResponse(
+        q => q.includes('INSERT INTO ledger') && q.includes('ON CONFLICT'),
+        mockQueryResponses.single({})
+      );
+      // COMMIT transaction
+      mockPool.setQueryResponse(
+        /COMMIT/,
+        mockQueryResponses.empty()
       );
 
       const response = await request(app)
