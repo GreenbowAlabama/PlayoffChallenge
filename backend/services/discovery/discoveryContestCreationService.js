@@ -267,12 +267,10 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
     let tournamentTemplateId = null;
 
     if (templateInsertResult.rows.length > 0) {
-      // New template created
       tournamentTemplateId = templateInsertResult.rows[0].id;
       template_created = true;
     } else {
-      // Template already exists, resolve its ID
-      const existingResult = await client.query(
+      const existingTemplate = await client.query(
         `SELECT id FROM contest_templates
          WHERE provider_tournament_id = $1
          AND season_year = $2
@@ -281,26 +279,19 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
         [providerTournamentId, seasonYear]
       );
 
-      if (existingResult.rows.length > 0) {
-        tournamentTemplateId = existingResult.rows[0].id;
+      if (existingTemplate.rows.length > 0) {
+        tournamentTemplateId = existingTemplate.rows[0].id;
       } else {
-        console.warn(`[Discovery] Failed to resolve tournament template: ${providerTournamentId}/${seasonYear}`);
+        console.warn(`[Discovery] Template not found: ${providerTournamentId}/${seasonYear}`);
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          template_created: false,
+          instance_created: false,
+          errors: ['Failed to resolve or create tournament template'],
+          message: `Failed to resolve tournament template for ${event.provider_event_id}`
+        };
       }
-    }
-
-    if (tournamentTemplateId) {
-      console.log(`[Discovery] Tournament template ${template_created ? 'created' : 'resolved'}: id=${tournamentTemplateId}`);
-    }
-
-    if (!tournamentTemplateId) {
-      await client.query('ROLLBACK');
-      return {
-        success: false,
-        template_created: false,
-        instance_created: false,
-        errors: ['Failed to resolve or create tournament template'],
-        message: `Failed to resolve tournament template for ${event.provider_event_id}`
-      };
     }
 
     // Step 3: Derive lock_time from ESPN data (immutable after creation)
