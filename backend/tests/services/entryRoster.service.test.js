@@ -39,12 +39,16 @@ describe('Entry Roster Service', () => {
         }
       );
 
-      // Mock field_selections (empty)
+      // Mock field_selections with valid players
       pool.setQueryResponse(
         q => q.includes('field_selections'),
         {
-          rows: [],
-          rowCount: 0
+          rows: [{
+            selection_json: {
+              primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
         }
       );
 
@@ -181,7 +185,7 @@ describe('Entry Roster Service', () => {
 
       await expect(
         entryRosterService.submitPicks(pool, contestId, userId, playerIds)
-      ).rejects.toThrow('Too many players');
+      ).rejects.toThrow('Roster size must be exactly 7');
     });
 
     it('rejects picks with duplicates', async () => {
@@ -214,14 +218,19 @@ describe('Entry Roster Service', () => {
       pool.setQueryResponse(
         q => q.includes('field_selections'),
         {
-          rows: [],
-          rowCount: 0
+          rows: [{
+            selection_json: {
+              // Include all unique players from playerIds (to avoid "not in validated field" error)
+              primary: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'].map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
         }
       );
 
       await expect(
         entryRosterService.submitPicks(pool, contestId, userId, playerIds)
-      ).rejects.toThrow('Duplicate');
+      ).rejects.toThrow('Duplicate players');
     });
 
     it('updates existing picks on second submission', async () => {
@@ -254,8 +263,12 @@ describe('Entry Roster Service', () => {
       pool.setQueryResponse(
         q => q.includes('field_selections'),
         {
-          rows: [],
-          rowCount: 0
+          rows: [{
+            selection_json: {
+              primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
         }
       );
 
@@ -302,8 +315,12 @@ describe('Entry Roster Service', () => {
       pool.setQueryResponse(
         q => q.includes('field_selections'),
         {
-          rows: [],
-          rowCount: 0
+          rows: [{
+            selection_json: {
+              primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
         }
       );
 

@@ -68,6 +68,7 @@ extension ContestListItemDTO {
         actions: ContestActionsContract? = nil,
         payoutTable: [PayoutTierContract]? = nil,
         rosterConfig: RosterConfigContract? = nil,
+        templateType: String = "PGA",
         isPlatformOwned: Bool? = nil
     ) -> ContestListItemDTO {
         return ContestListItemDTO(
@@ -89,6 +90,7 @@ extension ContestListItemDTO {
             actions: actions,
             payoutTable: payoutTable,
             rosterConfig: rosterConfig,
+            templateType: templateType,
             isPlatformOwned: isPlatformOwned
         )
     }

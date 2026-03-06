@@ -16,6 +16,7 @@ protocol WalletFetching: Sendable {
     func fetchWallet() async throws -> WalletResponseDTO
     func fundWallet(amountCents: Int, idempotencyKey: String) async throws -> WalletFundResponseDTO
     func withdrawFunds(amountCents: Int, method: String, idempotencyKey: String) async throws -> WalletWithdrawResponseDTO
+    func fetchTransactions(limit: Int, offset: Int) async throws -> WalletTransactionsResponseDTO
 }
 
 /// Production implementation for wallet fetching.
@@ -248,6 +249,67 @@ final class WalletService: WalletFetching, @unchecked Sendable {
         } catch {
             print("[WalletService:Withdraw] ERROR: Failed to decode response: \(error)")
             print("[WalletService:Withdraw] Raw response data: \(String(data: data, encoding: .utf8) ?? "Unable to convert to string")")
+            throw APIError.decodingError
+        }
+    }
+
+    /// Fetch wallet transaction history.
+    /// - Parameters:
+    ///   - limit: Maximum number of transactions to return (1-100, default: 50)
+    ///   - offset: Number of transactions to skip (default: 0)
+    /// - Returns: WalletTransactionsResponseDTO with transactions array and total count
+    /// - Throws: APIError on network, decoding, or server error
+    func fetchTransactions(limit: Int = 50, offset: Int = 0) async throws -> WalletTransactionsResponseDTO {
+        let url = URL(string: "\(baseURL)/api/wallet/transactions?limit=\(limit)&offset=\(offset)")!
+
+        print("[WalletService] Fetching transactions from: \(url)")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Add Authorization header using current user's ID as bearer token
+        if let userId = authService.currentUser?.id {
+            let bearerToken = userId.uuidString
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+            print("[WalletService] Added Authorization header for userId: \(bearerToken)")
+        } else {
+            print("[WalletService] No authenticated user available - request will likely fail with 401")
+            throw APIError.unauthorized
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            print("[WalletService] Invalid response type")
+            throw APIError.invalidResponse
+        }
+
+        print("[WalletService] Response status: \(http.statusCode)")
+
+        switch http.statusCode {
+        case 200:
+            // Success — decode transactions
+            break
+        case 401:
+            print("[WalletService] 401 Unauthorized")
+            throw APIError.unauthorized
+        case 404:
+            print("[WalletService] 404 Not Found")
+            throw APIError.notFound
+        default:
+            let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            print("[WalletService] Server error: \(errorMsg)")
+            throw APIError.serverError("Server returned \(http.statusCode)")
+        }
+
+        let decoder = JSONDecoder.iso8601Decoder
+        do {
+            let transactionsDTO = try decoder.decode(WalletTransactionsResponseDTO.self, from: data)
+            print("[WalletService] Decoded transactions: count=\(transactionsDTO.transactions.count), total=\(transactionsDTO.total_count)")
+            return transactionsDTO
+        } catch {
+            print("[WalletService] Failed to decode response: \(error)")
             throw APIError.decodingError
         }
     }

@@ -27,7 +27,7 @@ struct ContestLeaderboardView: View {
         Group {
             if viewModel.isLoading {
                 ProgressView("Loading leaderboard...")
-            } else if viewModel.isPending {
+            } else if viewModel.isPending && viewModel.rows.isEmpty {
                 VStack(spacing: DesignTokens.Spacing.lg) {
                     Image(systemName: "hourglass")
                         .font(.system(size: 60))

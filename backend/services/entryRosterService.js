@@ -147,7 +147,7 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
       [contestInstanceId]
     );
 
-    let validatedField = null;
+    let validatedField = [];
     if (fieldResult.rows.length > 0) {
       const selectionJson = fieldResult.rows[0].selection_json;
       // Extract primary field - each item has { player_id, name, ... }

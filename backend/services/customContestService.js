@@ -144,7 +144,9 @@ async function _getScheduledStandings(pool, contestInstanceId) {
     user_id: row.user_id,
     username: row.user_display_name,
     rank: index + 1, // Sequential rank based on alphabetical order
-    values: {},
+    values: {
+      total_score: 0  // Placeholder: no scores until LIVE/COMPLETE
+    },
     tier: null
   }));
 
@@ -526,6 +528,19 @@ async function createContestInstance(pool, organizerId, input) {
   validateEntryFeeAgainstTemplate(input.entry_fee_cents, template);
   validatePayoutStructureAgainstTemplate(input.payout_structure, template);
 
+  // Apply timing defaults if not provided by user
+  // Strategy: If user provides start_time, use it; else use now
+  // If user provides lock_time, use it; else lock_time = start_time
+  const now = new Date().toISOString();
+  let finalStartTime = input.start_time || now;
+  let finalLockTime = input.lock_time || finalStartTime;
+  let finalEndTime = input.end_time || null;
+
+  // Validate: lock_time must never be NULL (governance requirement)
+  if (!finalLockTime) {
+    throw new Error('lock_time must not be NULL (derived or provided)');
+  }
+
   // HARD GUARD: Prevent malformed percentage payout structures
   if (
     input.payout_structure?.type === 'percentage' &&
@@ -556,11 +571,11 @@ async function createContestInstance(pool, organizerId, input) {
 
   // Note: join_token is generated at publish time, not creation time
 
-  // Validate time invariants before insert
+  // Validate time invariants before insert (use final computed times)
   const timeUpdates = {
-    lock_time: input.lock_time,
-    start_time: input.start_time,
-    end_time: input.end_time
+    lock_time: finalLockTime,
+    start_time: finalStartTime,
+    end_time: finalEndTime
   };
   validateContestTimeInvariants({ existing: {}, updates: timeUpdates });
 
@@ -586,9 +601,9 @@ async function createContestInstance(pool, organizerId, input) {
       input.entry_fee_cents,
       JSON.stringify(input.payout_structure),
       'SCHEDULED',
-      input.start_time ?? null,
-      input.lock_time ?? null,
-      input.end_time ?? null
+      finalStartTime,
+      finalLockTime,
+      finalEndTime
     ]
   );
 

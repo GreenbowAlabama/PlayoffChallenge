@@ -692,6 +692,81 @@ describe('Custom Contest Service Unit Tests', () => {
           })
         ).rejects.toThrow('payout_structure must match one of the allowed structures');
       });
+
+      it('should use provided start_time and lock_time', async () => {
+        const startTime = '2026-03-20T10:00:00Z';
+        const lockTime = '2026-03-20T08:00:00Z';
+        const instanceWithTimes = {
+          ...mockInstance,
+          start_time: startTime,
+          lock_time: lockTime
+        };
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(instanceWithTimes)
+        );
+
+        const result = await customContestService.createContestInstance(mockPool, TEST_USER_ID, {
+          template_id: TEST_TEMPLATE_ID,
+          contest_name: 'Test Contest',
+          entry_fee_cents: 2500,
+          payout_structure: { type: 'top_n_split', max_winners: 3 },
+          start_time: startTime,
+          lock_time: lockTime
+        });
+
+        expect(result.start_time).toBe(startTime);
+        expect(result.lock_time).toBe(lockTime);
+      });
+
+      it('should default lock_time to start_time if not provided', async () => {
+        const startTime = '2026-03-20T10:00:00Z';
+        const instanceWithDefaultLock = {
+          ...mockInstance,
+          start_time: startTime,
+          lock_time: startTime
+        };
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(instanceWithDefaultLock)
+        );
+
+        const result = await customContestService.createContestInstance(mockPool, TEST_USER_ID, {
+          template_id: TEST_TEMPLATE_ID,
+          contest_name: 'Test Contest',
+          entry_fee_cents: 2500,
+          payout_structure: { type: 'top_n_split', max_winners: 3 },
+          start_time: startTime
+        });
+
+        expect(result.start_time).toBe(startTime);
+        expect(result.lock_time).toBe(startTime);
+      });
+
+      it('should default to now() if neither start_time nor lock_time provided', async () => {
+        const beforeTime = Date.now();
+        const instanceWithNowDefaults = {
+          ...mockInstance,
+          start_time: new Date().toISOString(),
+          lock_time: new Date().toISOString()
+        };
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(instanceWithNowDefaults)
+        );
+
+        const result = await customContestService.createContestInstance(mockPool, TEST_USER_ID, {
+          template_id: TEST_TEMPLATE_ID,
+          contest_name: 'Test Contest',
+          entry_fee_cents: 2500,
+          payout_structure: { type: 'top_n_split', max_winners: 3 }
+        });
+        const afterTime = Date.now();
+
+        expect(result.lock_time).not.toBeNull();
+        expect(new Date(result.lock_time).getTime()).toBeGreaterThanOrEqual(beforeTime);
+        expect(new Date(result.lock_time).getTime()).toBeLessThanOrEqual(afterTime + 1000); // Allow 1 second buffer for execution
+      });
     });
 
     describe('getContestInstance', () => {
@@ -2815,6 +2890,35 @@ describe('Custom Contest Service Unit Tests', () => {
         const result = await customContestService.getContestLeaderboard(mockPool, contestId);
 
         expect(result.rows[0].username).toBe('FallbackName');
+      });
+
+      it('should include username and values.total_score (0) for SCHEDULED contests', async () => {
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN contest_templates[\s\S]*WHERE ci.id/,
+          mockQueryResponses.single(mockContestInstanceScheduled)
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT 1 FROM settlement_records/,
+          mockQueryResponses.empty()
+        );
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_participants[\s\S]*LEFT JOIN users/,
+          mockQueryResponses.multiple([
+            { user_id: user1Id, user_display_name: 'Alice' },
+            { user_id: user2Id, user_display_name: 'Bob' }
+          ])
+        );
+
+        const result = await customContestService.getContestLeaderboard(mockPool, contestId);
+
+        expect(result.rows).toHaveLength(2);
+        result.rows.forEach(row => {
+          expect(row.username).toBeTruthy();
+          expect(row.values).toBeDefined();
+          expect(row.values.total_score).toBe(0);
+        });
       });
     });
 

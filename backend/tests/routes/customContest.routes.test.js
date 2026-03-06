@@ -598,8 +598,18 @@ describe('Custom Contest Routes', () => {
       });
 
       it('should allow valid ISO lock_time', async () => {
-        const isoTime = new Date(Date.now() + 3600000).toISOString();
-        const scheduledInstance = { ...mockInstance, status: 'SCHEDULED', join_token: null, lock_time: isoTime };
+        const lockTime = new Date(Date.now() + 1800000).toISOString(); // 30 min from now
+        const startTime = new Date(Date.now() + 3600000).toISOString(); // 60 min from now
+        const scheduledInstance = {
+          ...mockInstance,
+          status: 'SCHEDULED',
+          join_token: null,
+          lock_time: lockTime,
+          start_time: startTime,
+          end_time: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
         mockPool.setQueryResponse(
           /SELECT[\s\S]*FROM contest_templates WHERE id/,
           mockQueryResponses.single(mockTemplate)
@@ -614,12 +624,13 @@ describe('Custom Contest Routes', () => {
           .set('X-User-Id', TEST_USER_ID)
           .send({
             ...validInput,
-            lock_time: isoTime
+            start_time: startTime,
+            lock_time: lockTime
           });
 
         expect(response.status).toBe(201);
         expect(response.body.lock_time).toBeDefined();
-        expect(response.body.lock_time).toBe(isoTime);
+        expect(response.body.lock_time).toBe(lockTime);
       });
 
       it('should reject invalid lock_time string with 400', async () => {

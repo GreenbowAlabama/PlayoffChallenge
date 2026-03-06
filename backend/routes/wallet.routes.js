@@ -107,6 +107,127 @@ router.get('/', extractUserId, async (req, res) => {
 });
 
 /**
+ * GET /api/wallet/transactions
+ *
+ * Get user's recent wallet transactions (ledger entries).
+ * Returns all ledger entries for the user, sorted by date (newest first).
+ *
+ * Request:
+ * - Headers:
+ *   - Authorization (required): Bearer {userId}
+ *   - X-User-Id (alternative): {userId}
+ * - Query params (optional):
+ *   - limit: number (default: 50, max: 100)
+ *   - offset: number (default: 0)
+ *
+ * Response (200):
+ * {
+ *   transactions: [
+ *     {
+ *       id: string (UUID),
+ *       entry_type: 'ENTRY_FEE' | 'WALLET_DEPOSIT' | 'WALLET_WITHDRAWAL' | 'PAYOUT_COMPLETED',
+ *       direction: 'DEBIT' | 'CREDIT',
+ *       amount_cents: number,
+ *       reference_type: 'CONTEST' | 'WALLET' | 'PAYOUT_TRANSFER',
+ *       reference_id: string (UUID),
+ *       description: string,
+ *       created_at: ISO string
+ *     }
+ *   ],
+ *   total_count: number
+ * }
+ *
+ * Error responses:
+ * - 400: Invalid parameters
+ * - 401: Authentication required
+ * - 500: Database error
+ */
+router.get('/transactions', extractUserId, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const userId = req.userId;
+
+    // Parse and validate pagination params
+    let limit = parseInt(req.query.limit) || 50;
+    let offset = parseInt(req.query.offset) || 0;
+
+    limit = Math.min(Math.max(limit, 1), 100); // Clamp to 1-100
+    offset = Math.max(offset, 0);
+
+    // Fetch total count
+    const countResult = await pool.query(
+      'SELECT COUNT(*) as count FROM ledger WHERE reference_id = $1',
+      [userId]
+    );
+    const totalCount = parseInt(countResult.rows[0].count, 10);
+
+    // Fetch transactions
+    const txResult = await pool.query(
+      `SELECT
+        id,
+        entry_type,
+        direction,
+        amount_cents,
+        reference_type,
+        reference_id,
+        idempotency_key,
+        created_at
+      FROM ledger
+      WHERE reference_id = $1
+      ORDER BY created_at DESC
+      LIMIT $2 OFFSET $3`,
+      [userId, limit, offset]
+    );
+
+    // Map to response format with human-readable descriptions
+    const transactions = txResult.rows.map(row => {
+      let description = '';
+      switch (row.entry_type) {
+        case 'ENTRY_FEE':
+          description = 'Contest Entry Fee';
+          break;
+        case 'WALLET_DEPOSIT':
+          description = 'Wallet Top-Up';
+          break;
+        case 'WALLET_WITHDRAWAL':
+          description = 'Wallet Withdrawal';
+          break;
+        case 'PAYOUT_COMPLETED':
+          description = 'Contest Payout';
+          break;
+        default:
+          description = row.entry_type;
+      }
+
+      return {
+        id: row.id,
+        entry_type: row.entry_type,
+        direction: row.direction,
+        amount_cents: row.amount_cents,
+        reference_type: row.reference_type,
+        reference_id: row.reference_id,
+        description,
+        created_at: row.created_at
+      };
+    });
+
+    return res.status(200).json({
+      transactions,
+      total_count: totalCount
+    });
+  } catch (err) {
+    console.error('[Wallet] Error fetching transactions', {
+      userId: req.userId,
+      error: err.message
+    });
+
+    return res.status(500).json({
+      error: 'Failed to fetch transactions'
+    });
+  }
+});
+
+/**
  * POST /api/wallet/fund
  *
  * Create Stripe PaymentIntent for wallet top-up (QA/testing).

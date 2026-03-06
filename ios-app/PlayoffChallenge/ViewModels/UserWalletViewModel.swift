@@ -51,6 +51,45 @@ struct Wallet {
     }
 }
 
+/// Domain model: WalletTransaction
+/// Internal representation (not DTO).
+/// Converted from WalletTransactionDTO in ViewModel.
+struct WalletTransaction: Identifiable {
+    let id: String
+    let entryType: String
+    let direction: String
+    let amountCents: Int
+    let referenceType: String
+    let referenceId: String
+    let description: String
+    let createdAt: Date
+
+    /// Format amount with sign and currency (display-only)
+    var formattedAmount: String {
+        let dollars = Double(amountCents) / 100.0
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+
+        let sign = direction == "CREDIT" ? "+" : "−"
+        let formatted = formatter.string(from: NSNumber(value: abs(dollars))) ?? "$0.00"
+        return "\(sign)\(formatted)"
+    }
+
+    /// Human-readable timestamp (display-only)
+    var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: createdAt)
+    }
+
+    /// Color for amount based on direction
+    var amountColor: String {
+        direction == "CREDIT" ? "green" : "red"
+    }
+}
+
 /// Domain model: LedgerEntry
 /// Internal representation (not DTO).
 /// Converted from LedgerEntryDTO in ViewModel.
@@ -124,6 +163,15 @@ final class UserWalletViewModel: ObservableObject {
 
     /// Payment orchestration state (NEW architecture).
     @Published private(set) var paymentState: PaymentState = .idle
+
+    /// Transaction history (fetched from backend).
+    @Published private(set) var transactions: [WalletTransaction] = []
+
+    /// Loading indicator for transaction fetch operations.
+    @Published private(set) var isLoadingTransactions: Bool = false
+
+    /// Error message for transaction fetch failures.
+    @Published private(set) var transactionError: String? = nil
 
     /// Computed formatted balance (display-only, no math).
     var displayBalance: String {
@@ -231,6 +279,50 @@ final class UserWalletViewModel: ObservableObject {
     func refreshBalance() async {
         print("[UserWalletViewModel] refreshBalance() called")
         await fetchWallet()
+    }
+
+    /// Fetch transaction history from backend.
+    func fetchTransactions(limit: Int = 50, offset: Int = 0) async {
+        print("[UserWalletViewModel] fetchTransactions() ENTERED")
+
+        await MainActor.run {
+            self.isLoadingTransactions = true
+            self.transactionError = nil
+        }
+        defer {
+            Task { @MainActor in
+                self.isLoadingTransactions = false
+            }
+        }
+
+        // Guard that user is authenticated
+        guard let _ = authService.currentUser?.id else {
+            print("[UserWalletViewModel] No authenticated user - cannot fetch transactions")
+            await MainActor.run {
+                self.transactionError = "Please sign in to view transactions"
+            }
+            return
+        }
+
+        do {
+            let dto = try await walletService.fetchTransactions(limit: limit, offset: offset)
+
+            // Convert DTOs to Domain immediately
+            let domainTransactions = dto.transactions.map { txnDTO -> WalletTransaction in
+                convertTransactionDTOToDomain(txnDTO)
+            }
+
+            await MainActor.run {
+                print("[UserWalletViewModel] Transactions fetch succeeded: count=\(domainTransactions.count)")
+                self.transactions = domainTransactions
+                self.transactionError = nil
+            }
+        } catch {
+            await MainActor.run {
+                print("[UserWalletViewModel] Transactions fetch failed: \(error)")
+                self.transactionError = error.localizedDescription
+            }
+        }
     }
 
     /// Clear error message.
@@ -406,6 +498,21 @@ final class UserWalletViewModel: ObservableObject {
             entryType: dto.entry_type,
             referenceType: dto.reference_type,
             referenceId: dto.reference_id,
+            createdAt: date
+        )
+    }
+
+    /// Convert WalletTransactionDTO to Domain WalletTransaction.
+    private func convertTransactionDTOToDomain(_ dto: WalletTransactionDTO) -> WalletTransaction {
+        let date = ISO8601DateFormatter().date(from: dto.created_at) ?? Date()
+        return WalletTransaction(
+            id: dto.id,
+            entryType: dto.entry_type,
+            direction: dto.direction,
+            amountCents: dto.amount_cents,
+            referenceType: dto.reference_type,
+            referenceId: dto.reference_id,
+            description: dto.description,
             createdAt: date
         )
     }

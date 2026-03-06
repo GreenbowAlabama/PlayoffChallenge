@@ -899,6 +899,24 @@ func getScoringRules() async throws -> [ScoringRule] {
   return try JSONDecoder().decode([ScoringRule].self, from: data)
 }
 
+func getContestRules(contestId: UUID) async throws -> [String: Any] {
+  let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)/rules")!
+
+  var request = createV2Request(url: url)
+  let (data, response) = try await URLSession.shared.data(for: request)
+
+  guard let httpResponse = response as? HTTPURLResponse,
+        (200...299).contains(httpResponse.statusCode) else {
+    throw APIError.invalidResponse
+  }
+
+  guard let jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+    throw APIError.decodingError
+  }
+
+  return jsonObject
+}
+
 // MARK: - Multiplier & Player Replacement Methods
 
 // Get eliminated players for a user

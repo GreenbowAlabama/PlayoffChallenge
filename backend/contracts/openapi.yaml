@@ -2,7 +2,7 @@ openapi: 3.0.0
 info:
   title: Custom Contests API
   description: Canonical source of truth for all public API response shapes used by iOS
-  version: 1.1.0
+  version: 1.2.0
 
 servers:
   - url: https://api.playoffchallenge.com
@@ -963,18 +963,24 @@ paths:
     get:
       tags:
         - Wallet
-      summary: Get user wallet balance and ledger
-      description: Retrieve the authenticated user's wallet balance and transaction history
+      summary: Get user wallet balance
+      description: Retrieve the authenticated user's wallet balance in cents. For transaction history, use GET /api/wallet/transactions.
       operationId: getWallet
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Wallet balance and ledger retrieved successfully
+          description: Wallet balance retrieved successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WalletResponse'
+                type: object
+                required:
+                  - balance_cents
+                properties:
+                  balance_cents:
+                    type: integer
+                    description: Current wallet balance in cents
         '401':
           description: Unauthorized - authentication required
           content:
@@ -1079,6 +1085,59 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
           description: Insufficient wallet funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/wallet/transactions:
+    get:
+      tags:
+        - Wallet
+      summary: Get user wallet transaction history
+      description: Retrieve the authenticated user's wallet transaction history (ledger entries), sorted by date (newest first)
+      operationId: getWalletTransactions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: "Maximum number of transactions to return (default: 50, max: 100)"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: "Number of transactions to skip (default: 0)"
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Transaction history retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletTransactionsResponse'
+        '400':
+          description: Invalid parameters (limit, offset, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
           content:
             application/json:
               schema:
@@ -2000,6 +2059,66 @@ components:
         amount_cents:
           type: integer
           description: Withdrawal amount in cents
+
+    WalletTransactionsResponse:
+      type: object
+      description: Response containing wallet transaction history
+      required:
+        - transactions
+        - total_count
+      properties:
+        transactions:
+          type: array
+          description: Array of wallet transactions (newest first)
+          items:
+            $ref: '#/components/schemas/WalletTransaction'
+        total_count:
+          type: integer
+          description: Total number of transactions for this user (across all pages)
+
+    WalletTransaction:
+      type: object
+      description: A single wallet transaction ledger entry
+      required:
+        - id
+        - entry_type
+        - direction
+        - amount_cents
+        - reference_type
+        - reference_id
+        - description
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique transaction ID
+        entry_type:
+          type: string
+          enum: [ENTRY_FEE, WALLET_DEPOSIT, WALLET_WITHDRAWAL, PAYOUT_COMPLETED]
+          description: Type of transaction
+        direction:
+          type: string
+          enum: [DEBIT, CREDIT]
+          description: Transaction direction (money out or money in)
+        amount_cents:
+          type: integer
+          description: Transaction amount in cents
+        reference_type:
+          type: string
+          enum: [CONTEST, WALLET, PAYOUT_TRANSFER]
+          description: Type of resource this transaction references
+        reference_id:
+          type: string
+          format: uuid
+          description: ID of the referenced resource (contest ID, user ID, payout ID, etc.)
+        description:
+          type: string
+          description: Human-readable description of the transaction
+        created_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp when transaction occurred
 
     PicksSubmissionRequest:
       type: object

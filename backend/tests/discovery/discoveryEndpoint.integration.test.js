@@ -15,6 +15,7 @@ describe('POST /api/admin/tournaments/discover', () => {
   let adminToken;
   let testProviderId;
   const adminUserId = '00000000-0000-0000-0000-000000000099';
+  const platformOrganizerId = '00000000-0000-0000-0000-000000000043';
 
   const getValidPayload = (providerId) => ({
     provider_tournament_id: providerId,
@@ -31,6 +32,16 @@ describe('POST /api/admin/tournaments/discover', () => {
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
     });
     app.locals.pool = pool;
+
+    // Set platform organizer ID for route handler
+    process.env.PLATFORM_ORGANIZER_ID = platformOrganizerId;
+
+    // Create platform organizer user (required by FK constraint)
+    await pool.query(
+      `INSERT INTO users (id, email, username) VALUES ($1, $2, $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [platformOrganizerId, 'platform@system.local', 'platform-discovery']
+    );
 
     // Create test admin user
     await pool.query(

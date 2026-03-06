@@ -31,11 +31,13 @@ describe('Contract Freeze', () => {
       .digest('hex');
 
     // Expected hash (update this when intentionally changing the contract)
-    // This hash was generated after PGA Contest Lineup Implementation (2026-03-04):
-    // - Added RosterConfig schema with PGA-specific fields (lineup_size, scoring_count, drop_lowest)
-    // - Enhanced roster_config response for PGA tournament contests
-    // - Backward compatible: existing NFL contests unaffected
-    const expectedHash = '5305b9aeb17d761fe2f43a3e6e199ab3d06886139fd6088455435a9a06ea4600';
+    // This hash was generated after Wallet Transactions Feature (2026-03-06):
+    // - Added GET /api/wallet/transactions endpoint
+    // - Updated GET /api/wallet description (balance-only)
+    // - Added WalletTransactionsResponse and WalletTransaction schemas
+    // - API version bumped to 1.2.0
+    // Updated (2026-03-06) - Fixed YAML parsing: quoted descriptions with colons
+    const expectedHash = '1cb03c72cab194151710e392bb17eee732b3b2edba0ad8ef474168f120c5cf3a';
 
     // The hashes must match - if they don't, the contract has drifted
     expect(currentHash).toBe(expectedHash);
@@ -64,7 +66,8 @@ describe('Contract Freeze', () => {
       '/api/user',
       '/api/wallet',
       '/api/wallet/fund',
-      '/api/wallet/withdraw'
+      '/api/wallet/withdraw',
+      '/api/wallet/transactions'
     ];
 
     requiredPaths.forEach((path) => {

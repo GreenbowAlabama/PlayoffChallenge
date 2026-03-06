@@ -409,9 +409,7 @@ struct ContestDetailViewInner: View {
         }
         .sheet(isPresented: $showRules) {
             NavigationStack {
-                RulesView()
-                    .navigationTitle("Rules")
-                    .navigationBarTitleDisplayMode(.inline)
+                ContestRulesView(contestId: viewModel.contestId)
                     .toolbar {
                         ToolbarItem(placement: .navigationBarTrailing) {
                             Button("Done") {
