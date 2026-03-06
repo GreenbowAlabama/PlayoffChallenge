@@ -857,7 +857,7 @@ describe('Custom Contest Service Unit Tests', () => {
         const MOCK_COMPLETE_STANDINGS = [{
           id: TEST_USER_ID,
           user_id: TEST_USER_ID,
-          username: 'TestUser',
+          user_display_name: 'TestUser',
           rank: 1,
           values: {
             total_score: 100,
@@ -2805,14 +2805,14 @@ describe('Custom Contest Service Unit Tests', () => {
         expect(result.rows).toHaveLength(3);
 
         // Verify sorted by username alphabetically
-        expect(result.rows[0].username).toBe('AliceJones');
-        expect(result.rows[1].username).toBe('BobSmith');
-        expect(result.rows[2].username).toBe('CharlieBrown');
+        expect(result.rows[0].user_display_name).toBe('AliceJones');
+        expect(result.rows[1].user_display_name).toBe('BobSmith');
+        expect(result.rows[2].user_display_name).toBe('CharlieBrown');
 
         // Verify format
         expect(result.rows[0]).toHaveProperty('id');
         expect(result.rows[0]).toHaveProperty('user_id');
-        expect(result.rows[0]).toHaveProperty('username');
+        expect(result.rows[0]).toHaveProperty('user_display_name');
         expect(result.rows[0]).toHaveProperty('rank');
         expect(result.rows[0]).toHaveProperty('values');
       });
@@ -2843,8 +2843,8 @@ describe('Custom Contest Service Unit Tests', () => {
         expect(result.rows).toHaveLength(2);
 
         // Verify sorted by username alphabetically
-        expect(result.rows[0].username).toBe('YvonneRyan');
-        expect(result.rows[1].username).toBe('ZoeWilson');
+        expect(result.rows[0].user_display_name).toBe('YvonneRyan');
+        expect(result.rows[1].user_display_name).toBe('ZoeWilson');
       });
 
       it('should return empty leaderboard for SCHEDULED contest with no participants', async () => {
@@ -2889,7 +2889,7 @@ describe('Custom Contest Service Unit Tests', () => {
 
         const result = await customContestService.getContestLeaderboard(mockPool, contestId);
 
-        expect(result.rows[0].username).toBe('FallbackName');
+        expect(result.rows[0].user_display_name).toBe('FallbackName');
       });
 
       it('should include username and values.total_score (0) for SCHEDULED contests', async () => {
@@ -2915,7 +2915,7 @@ describe('Custom Contest Service Unit Tests', () => {
 
         expect(result.rows).toHaveLength(2);
         result.rows.forEach(row => {
-          expect(row.username).toBeTruthy();
+          expect(row.user_display_name).toBeTruthy();
           expect(row.values).toBeDefined();
           expect(row.values.total_score).toBe(0);
         });

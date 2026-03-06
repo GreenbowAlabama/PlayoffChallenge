@@ -110,7 +110,7 @@ async function _getCompleteStandings(pool, contestInstanceId) {
     return {
       id: userId,
       user_id: userId,
-      username: displayName,
+      user_display_name: displayName,
       rank: rank,
       values: {
         total_score: totalScore,
@@ -142,7 +142,7 @@ async function _getScheduledStandings(pool, contestInstanceId) {
   const mappedRows = result.rows.map((row, index) => ({
     id: row.user_id,
     user_id: row.user_id,
-    username: row.user_display_name,
+    user_display_name: row.user_display_name,
     rank: index + 1, // Sequential rank based on alphabetical order
     values: {
       total_score: 0  // Placeholder: no scores until LIVE/COMPLETE

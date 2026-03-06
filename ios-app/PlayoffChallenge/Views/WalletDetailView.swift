@@ -68,6 +68,10 @@ struct WalletDetailView: View {
         .sheet(isPresented: $showWithdrawSheet) {
             withdrawSheet
         }
+        .task {
+            print("[WalletDetailView] View appeared, loading wallet data")
+            await viewModel.fetchWallet()
+        }
     }
 
     // MARK: - Subviews
@@ -420,5 +424,21 @@ class MockWalletService: WalletFetching {
 
     func withdrawFunds(amountCents: Int, method: String, idempotencyKey: String) async throws -> WalletWithdrawResponseDTO {
         return WalletWithdrawResponseDTO(withdrawal_id: UUID().uuidString, status: "PROCESSING", amount_cents: amountCents)
+    }
+
+    func fetchTransactions(limit: Int, offset: Int) async throws -> WalletTransactionsResponseDTO {
+        let mockTransactions = [
+            WalletTransactionDTO(
+                id: UUID().uuidString,
+                entry_type: "CONTEST_DEBIT",
+                direction: "DEBIT",
+                amount_cents: 2500,
+                reference_type: "CONTEST",
+                reference_id: UUID().uuidString,
+                description: "Entry fee - PGA Tournament",
+                created_at: ISO8601DateFormatter().string(from: Date())
+            )
+        ]
+        return WalletTransactionsResponseDTO(transactions: mockTransactions, total_count: 1)
     }
 }

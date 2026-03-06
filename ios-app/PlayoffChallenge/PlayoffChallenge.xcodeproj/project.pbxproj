@@ -24,6 +24,7 @@
 		EA4764932F4E79DA00CC6C65 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4764912F4E79D900CC6C65 /* DesignTokens.swift */; };
 		EA6730002F57402B00903546 /* WalletRefreshing.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA672FFE2F57402B00903546 /* WalletRefreshing.swift */; };
 		EA6730B92F5B787000903546 /* WalletTransactionDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA6730B82F5B787000903546 /* WalletTransactionDTO.swift */; };
+		EA6730BB2F5B813200903546 /* LeaderboardAPIResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA6730BA2F5B813200903546 /* LeaderboardAPIResponse.swift */; };
 		EA74C87E2F4E295C002BFE04 /* CreateContestResponseDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA74C87D2F4E2953002BFE04 /* CreateContestResponseDTO.swift */; };
 		EA7A2A622F55676D00D557C8 /* WalletDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA7A2A612F55676C00D557C8 /* WalletDTO.swift */; };
 		EA7A2A692F5613C600D557C8 /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = EA7A2A682F5613C600D557C8 /* StripePaymentSheet */; };
@@ -83,6 +84,7 @@
 		EA493C3B2F45134300F878AD /* PlayoffChallengeUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlayoffChallengeUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA672FFE2F57402B00903546 /* WalletRefreshing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletRefreshing.swift; sourceTree = "<group>"; };
 		EA6730B82F5B787000903546 /* WalletTransactionDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletTransactionDTO.swift; sourceTree = "<group>"; };
+		EA6730BA2F5B813200903546 /* LeaderboardAPIResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardAPIResponse.swift; sourceTree = "<group>"; };
 		EA74C87D2F4E2953002BFE04 /* CreateContestResponseDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateContestResponseDTO.swift; sourceTree = "<group>"; };
 		EA7A2A612F55676C00D557C8 /* WalletDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletDTO.swift; sourceTree = "<group>"; };
 		EA8194E82F46F5E000B5A5E1 /* ContestType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContestType.swift; sourceTree = "<group>"; };
@@ -308,6 +310,7 @@
 				EA83ECE82F4C2CE1002D227A /* StandingDTO.swift */,
 				EA7A2A612F55676C00D557C8 /* WalletDTO.swift */,
 				EA6730B82F5B787000903546 /* WalletTransactionDTO.swift */,
+				EA6730BA2F5B813200903546 /* LeaderboardAPIResponse.swift */,
 			);
 			path = Contracts;
 			sourceTree = "<group>";
@@ -518,6 +521,7 @@
 				EA98FE422F2D776C00CA4A36 /* JoinLinkError.swift in Sources */,
 				EA98FE432F2D776C00CA4A36 /* PendingJoinStoring.swift in Sources */,
 				EA98FE442F2D776C00CA4A36 /* DeepLinkCoordinator.swift in Sources */,
+				EA6730BB2F5B813200903546 /* LeaderboardAPIResponse.swift in Sources */,
 				EA6730002F57402B00903546 /* WalletRefreshing.swift in Sources */,
 				EA74C87E2F4E295C002BFE04 /* CreateContestResponseDTO.swift in Sources */,
 				EA98FE452F2D776C00CA4A36 /* JoinLinkModels.swift in Sources */,
