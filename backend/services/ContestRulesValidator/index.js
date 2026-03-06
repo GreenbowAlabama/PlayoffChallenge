@@ -33,14 +33,14 @@ function validateRoster(roster, config, validatedField) {
     return { valid: false, errors };
   }
 
-  // Constraint 1: Roster size must match config
+  // Constraint 1: Roster size must not exceed config (allows partial submissions)
   if (config.roster_size === undefined || config.roster_size === null) {
     errors.push('Config.roster_size is required');
   } else if (typeof config.roster_size !== 'number' || config.roster_size <= 0) {
     errors.push('Config.roster_size must be a positive number');
-  } else if (roster.length !== config.roster_size) {
+  } else if (roster.length > config.roster_size) {
     errors.push(
-      `Roster size mismatch: expected ${config.roster_size}, got ${roster.length}`
+      `Too many players: maximum ${config.roster_size}, got ${roster.length}`
     );
   }
 
