@@ -16,6 +16,7 @@ const { mapContestToApiResponse, mapContestToApiResponseForList } = require('./h
 const LedgerRepository = require('../repositories/LedgerRepository');
 const { getStrategy } = require('./scoringStrategyRegistry');
 const { initializeTournamentField } = require('./ingestionService');
+const { cancelContestForAdmin } = require('./contestLifecycleService');
 
 // Function to compare two numbers with a fixed precision (e.g., 2 decimal places)
 const areScoresEqual = (score1, score2, precision = 2) => {
@@ -2009,13 +2010,15 @@ async function deleteContestInstance(pool, contestId, organizerId) {
       throw error;
     }
 
-    // Update status to CANCELLED
-    await client.query(
-      'UPDATE contest_instances SET status = $1, updated_at = NOW() WHERE id = $2',
-      ['CANCELLED', contestId]
-    );
-
+    // Commit validation transaction before calling frozen primitive
     await client.query('COMMIT');
+
+    // Call frozen primitive to perform atomic cancellation + transition record
+    const cancellationResult = await cancelContestForAdmin(pool, new Date(), contestId);
+
+    if (!cancellationResult.success) {
+      throw new Error('Failed to cancel contest via lifecycle service');
+    }
 
     // Return updated contest with new status
     const updatedContest = {
