@@ -256,7 +256,8 @@ async function getMyEntry(pool, contestInstanceId, userId) {
     if (selectionJson && Array.isArray(selectionJson.primary)) {
       availablePlayers = selectionJson.primary.map(player => ({
         player_id: player.player_id,
-        name: player.name || 'Unknown'
+        name: player.name || 'Unknown',
+        image_url: player.image_url || null
       }));
     }
   }

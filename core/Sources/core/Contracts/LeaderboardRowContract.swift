@@ -39,7 +39,8 @@ public struct LeaderboardRowContract: Decodable, Sendable {
         // Extract known fields with fallbacks for adversarial fixtures
         self.id = (dynamicValues["id"]?.value as? String) ?? (dynamicValues["user_id"]?.value as? String) ?? ""
         self.userId = (dynamicValues["user_id"]?.value as? String) ?? (dynamicValues["id"]?.value as? String) ?? ""
-        self.username = (dynamicValues["username"]?.value as? String) ?? ""
+        self.username = (dynamicValues["user_display_name"]?.value as? String) ??
+                        (dynamicValues["username"]?.value as? String) ?? ""
         
         if let rankVal = dynamicValues["rank"]?.value {
             if let intRank = rankVal as? Int {
