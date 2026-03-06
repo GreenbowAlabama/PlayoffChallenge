@@ -31,21 +31,36 @@ const ERROR_CODES = {
 };
 
 /**
- * Map scoring_strategy_key to roster config.
- * Delegates to strategy registry to eliminate string literal conditionals.
+ * Derive roster config from scoring strategy.
+ * Falls back to PGA defaults if strategy not found (with warning).
+ * MUST return complete config matching OpenAPI RosterConfig schema.
  *
  * @param {string} strategyKey - e.g. 'pga_standard_v1'
- * @returns {Object} Roster config with roster_size and validation_rules
+ * @returns {Object} Complete roster config with all required fields
  */
 function deriveRosterConfigFromStrategy(strategyKey) {
   try {
     const strategy = getStrategy(strategyKey);
     return strategy.rosterConfig();
   } catch (err) {
-    // Return stub config for unknown strategies
+    // Error in strategy lookup or rosterConfig() call
+    console.error(
+      `[entryRosterService] Failed to derive roster config for strategy '${strategyKey}':`,
+      err.message
+    );
+
+    // Return PGA defaults (safe fallback for most contests)
+    // GOVERNANCE: Must match OpenAPI RosterConfig schema
     return {
-      entry_fields: [],
-      validation_rules: {}
+      roster_size: 7,
+      lineup_size: 7,
+      scoring_count: 6,
+      drop_lowest: true,
+      entry_fields: ['player_ids'],
+      validation_rules: {
+        no_duplicates: true,
+        must_be_in_field: true
+      }
     };
   }
 }

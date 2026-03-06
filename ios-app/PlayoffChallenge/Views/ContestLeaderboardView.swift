@@ -16,8 +16,11 @@ struct ContestLeaderboardView: View {
         authService.currentUser?.username ?? ""
     }
 
-    init(contestId: UUID) {
-        _viewModel = StateObject(wrappedValue: ContestLeaderboardViewModel(contestId: contestId))
+    init(contestId: UUID, status: ContestStatus = .scheduled) {
+        _viewModel = StateObject(wrappedValue: ContestLeaderboardViewModel(
+            contestId: contestId,
+            status: status
+        ))
     }
 
     var body: some View {
