@@ -27,8 +27,11 @@ import {
   getOrphanedFundsSummary,
   getContestAffectedUsers,
   refundContest,
+  addCaseNote,
+  getCaseNotes,
   type OrphanedFundsContest,
   type AffectedUser,
+  type CaseNote,
 } from '../api/orphaned-funds';
 
 // ============================================
@@ -120,6 +123,202 @@ function StatusBadge({ status, label }: StatusBadgeProps) {
       {status === 'critical' && <span className="h-2 w-2 rounded-full bg-red-600 mr-1.5"></span>}
       {label}
     </span>
+  );
+}
+
+// ============================================
+// REFUND MODAL
+// ============================================
+
+interface RefundModalProps {
+  isOpen: boolean;
+  contestName: string;
+  affectedUsers: AffectedUser[];
+  onConfirm: (reason: string, selectedUsers?: string[]) => Promise<void>;
+  onClose: () => void;
+}
+
+function RefundModal({ isOpen, contestName, affectedUsers, onConfirm, onClose }: RefundModalProps) {
+  const [reason, setReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleConfirm = async () => {
+    const finalReason = reason === 'Other' ? customReason : reason;
+    if (!finalReason) {
+      alert('Please enter a reason');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await onConfirm(finalReason);
+      setReason('');
+      setCustomReason('');
+      onClose();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">Refund Users</h3>
+          <p className="text-sm text-gray-600 mt-1">Contest: {contestName}</p>
+          <p className="text-sm text-gray-600">Affected Users: {affectedUsers.length}</p>
+        </div>
+
+        <div className="px-6 py-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Reason for Refund</label>
+            <select
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-indigo-500"
+            >
+              <option value="">Select a reason...</option>
+              <option value="Test contest refund">Test contest refund</option>
+              <option value="Entry fee reversal">Entry fee reversal</option>
+              <option value="Stranded funds return">Stranded funds return</option>
+              <option value="Other">Other (specify below)</option>
+            </select>
+          </div>
+
+          {reason === 'Other' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Custom Reason</label>
+              <textarea
+                value={customReason}
+                onChange={(e) => setCustomReason(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-indigo-500"
+                rows={3}
+                placeholder="Enter custom reason..."
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            disabled={isLoading}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={isLoading || !reason}
+            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {isLoading ? 'Processing...' : 'Confirm Refund'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// CASE NOTES PANEL
+// ============================================
+
+interface CaseNotesPanelProps {
+  issueType: 'NEGATIVE_POOL' | 'STRANDED_FUNDS';
+  issueContestId: string;
+  issueUserId?: string;
+}
+
+function CaseNotesPanel({ issueType, issueContestId, issueUserId }: CaseNotesPanelProps) {
+  const [caseNotes, setCaseNotes] = useState<CaseNote[]>([]);
+  const [noteText, setNoteText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  const loadNotes = async () => {
+    try {
+      setIsLoading(true);
+      const response = await getCaseNotes(issueType, issueContestId, issueUserId);
+      setCaseNotes(response.case_notes);
+      setHasLoaded(true);
+    } catch (err) {
+      console.error('Failed to load case notes:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAddNote = async () => {
+    if (!noteText.trim()) {
+      alert('Please enter a note');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const newNote = await addCaseNote(issueType, issueContestId, noteText, issueUserId);
+      setCaseNotes([newNote, ...caseNotes]);
+      setNoteText('');
+    } catch (err) {
+      alert(`Failed to add note: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!hasLoaded) {
+    return (
+      <button onClick={loadNotes} className="text-indigo-600 hover:text-indigo-900 text-sm font-medium">
+        View case notes ({caseNotes.length})
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          placeholder="Add case note..."
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-indigo-500"
+          disabled={isLoading}
+        />
+        <button
+          onClick={handleAddNote}
+          disabled={isLoading || !noteText.trim()}
+          className="px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+
+      {caseNotes.length === 0 ? (
+        <p className="text-sm text-gray-500 italic">No case notes yet</p>
+      ) : (
+        <div className="space-y-2 max-h-48 overflow-y-auto">
+          {caseNotes.map((note) => (
+            <div key={note.id} className="bg-gray-50 border border-gray-200 rounded p-2 text-xs">
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <p className="font-medium text-gray-900">{note.csa_username || 'Unknown'}</p>
+                  <p className="text-gray-700 mt-1">{note.note_text}</p>
+                </div>
+                {note.resolved_at && (
+                  <span className="text-green-700 font-medium ml-2">✓ Resolved</span>
+                )}
+              </div>
+              <p className="text-gray-500 mt-1">{new Date(note.created_at).toLocaleString()}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -331,14 +530,15 @@ function AnomaliesSection({
                       </td>
                     </tr>
 
-                    {/* Expanded Ledger Details */}
+                    {/* Expanded Ledger Details & Actions */}
                     {expandedContestId === contest.contest_id && (
                       <tr className="bg-gray-50">
                         <td colSpan={8} className="px-4 py-4">
                           {detailsLoading ? (
                             <div className="text-sm text-gray-600">Loading details...</div>
                           ) : details ? (
-                            <div className="space-y-3">
+                            <div className="space-y-4">
+                              {/* Ledger Breakdown Table */}
                               <div>
                                 <h4 className="text-sm font-semibold text-gray-900 mb-2">Ledger Breakdown</h4>
                                 <table className="w-full text-xs">
@@ -372,6 +572,15 @@ function AnomaliesSection({
                                     ))}
                                   </tbody>
                                 </table>
+                              </div>
+
+                              {/* Case Notes Panel */}
+                              <div className="border-t border-gray-200 pt-3">
+                                <h4 className="text-sm font-semibold text-gray-900 mb-2">Case Notes</h4>
+                                <CaseNotesPanel
+                                  issueType="NEGATIVE_POOL"
+                                  issueContestId={contest.contest_id}
+                                />
                               </div>
                             </div>
                           ) : null}
@@ -413,6 +622,9 @@ function OrphanedFundsSection({
   const [expandedContestId, setExpandedContestId] = useState<string | null>(null);
   const [affectedUsers, setAffectedUsers] = useState<AffectedUser[]>([]);
   const [loadingAffected, setLoadingAffected] = useState(false);
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [refundingContestId, setRefundingContestId] = useState<string | null>(null);
+  const [refundingContestName, setRefundingContestName] = useState('');
 
   const handleExpandContest = async (contestId: string) => {
     if (expandedContestId === contestId) {
@@ -429,6 +641,25 @@ function OrphanedFundsSection({
       console.error('Failed to load affected users:', err);
     } finally {
       setLoadingAffected(false);
+    }
+  };
+
+  const handleOpenRefundModal = (contestId: string, contestName: string) => {
+    setRefundingContestId(contestId);
+    setRefundingContestName(contestName);
+    setRefundModalOpen(true);
+  };
+
+  const handleConfirmRefund = async (reason: string) => {
+    if (!refundingContestId) return;
+
+    try {
+      await refundContest(refundingContestId, reason);
+      alert('Refund executed successfully');
+      // Reload the orphaned funds data
+      onRefund?.(refundingContestId);
+    } catch (err) {
+      alert(`Refund failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -491,47 +722,62 @@ function OrphanedFundsSection({
                       <td className="px-3 py-2 text-right font-medium text-red-700">
                         {formatCurrency(contest.total_stranded_cents)}
                       </td>
-                      <td className="px-3 py-2">
-                        <button
-                          onClick={() => onRefund?.(contest.contest_id)}
-                          className="text-indigo-600 hover:text-indigo-900 font-medium"
-                        >
-                          Refund
-                        </button>
-                      </td>
+                      <td className="px-3 py-2"></td>
                     </tr>
 
-                    {/* Expanded Affected Users */}
+                    {/* Expanded Affected Users & Actions */}
                     {expandedContestId === contest.contest_id && (
                       <tr className="bg-gray-50">
                         <td colSpan={6} className="px-4 py-4">
                           {loadingAffected ? (
                             <div className="text-sm text-gray-600">Loading affected users...</div>
-                          ) : affectedUsers.length === 0 ? (
-                            <div className="text-sm text-gray-600">No affected users</div>
                           ) : (
-                            <div>
-                              <h4 className="text-sm font-semibold text-gray-900 mb-2">Affected Users</h4>
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="bg-white border-b">
-                                    <th className="text-left px-2 py-1 font-medium text-gray-700">User</th>
-                                    <th className="text-left px-2 py-1 font-medium text-gray-700">Email</th>
-                                    <th className="text-right px-2 py-1 font-medium text-gray-700">Stranded Amount</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200">
-                                  {affectedUsers.map((user) => (
-                                    <tr key={user.user_id} className="hover:bg-white">
-                                      <td className="px-2 py-1 text-gray-900">{user.username || user.user_id}</td>
-                                      <td className="px-2 py-1 text-gray-700">{user.email || '—'}</td>
-                                      <td className="px-2 py-1 text-right font-medium text-gray-900">
-                                        {formatCurrency(user.stranded_cents)}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                            <div className="space-y-4">
+                              {/* Affected Users Table */}
+                              {affectedUsers.length > 0 && (
+                                <div>
+                                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Affected Users</h4>
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="bg-white border-b">
+                                        <th className="text-left px-2 py-1 font-medium text-gray-700">User</th>
+                                        <th className="text-left px-2 py-1 font-medium text-gray-700">Email</th>
+                                        <th className="text-right px-2 py-1 font-medium text-gray-700">Stranded Amount</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                      {affectedUsers.map((user) => (
+                                        <tr key={user.user_id} className="hover:bg-white">
+                                          <td className="px-2 py-1 text-gray-900">{user.username || user.user_id}</td>
+                                          <td className="px-2 py-1 text-gray-700">{user.email || '—'}</td>
+                                          <td className="px-2 py-1 text-right font-medium text-gray-900">
+                                            {formatCurrency(user.stranded_cents)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* Case Notes Panel */}
+                              <div className="border-t border-gray-200 pt-3">
+                                <h4 className="text-sm font-semibold text-gray-900 mb-2">Case Notes</h4>
+                                <CaseNotesPanel
+                                  issueType="STRANDED_FUNDS"
+                                  issueContestId={contest.contest_id}
+                                />
+                              </div>
+
+                              {/* Action Buttons */}
+                              <div className="border-t border-gray-200 pt-3 flex gap-2">
+                                <button
+                                  onClick={() => handleOpenRefundModal(contest.contest_id, contest.contest_name)}
+                                  className="px-3 py-1 text-xs font-medium text-white bg-indigo-600 rounded hover:bg-indigo-700"
+                                >
+                                  Refund Users
+                                </button>
+                              </div>
                             </div>
                           )}
                         </td>
@@ -544,6 +790,19 @@ function OrphanedFundsSection({
           </div>
         </div>
       )}
+
+      {/* Refund Modal */}
+      <RefundModal
+        isOpen={refundModalOpen}
+        contestName={refundingContestName}
+        affectedUsers={affectedUsers}
+        onConfirm={handleConfirmRefund}
+        onClose={() => {
+          setRefundModalOpen(false);
+          setRefundingContestId(null);
+          setRefundingContestName('');
+        }}
+      />
     </div>
   );
 }
