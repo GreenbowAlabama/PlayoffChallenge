@@ -28,3 +28,23 @@ export async function updateUserNotes(
     body: JSON.stringify({ adminNotes }),
   });
 }
+
+export interface WalletTransaction {
+  id: string;
+  entry_type: string;
+  direction: 'CREDIT' | 'DEBIT';
+  amount_cents: number;
+  created_at: string;
+  reference_id: string;
+  metadata_json: Record<string, unknown>;
+}
+
+export interface UserWalletLedger {
+  user_id: string;
+  current_balance_cents: number;
+  transactions: WalletTransaction[];
+}
+
+export async function getUserWalletLedger(userId: string): Promise<UserWalletLedger> {
+  return apiRequest<UserWalletLedger>(`/api/admin/users/${userId}/wallet-ledger`);
+}

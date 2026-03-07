@@ -60,6 +60,91 @@ router.get('/:userId', async (req, res) => {
 });
 
 /**
+ * GET /api/admin/users/:userId/wallet-ledger
+ *
+ * Returns wallet transaction history for a specific user.
+ * Ordered by most recent first, limited to 100 transactions.
+ *
+ * Response:
+ * {
+ *   "user_id": "uuid",
+ *   "current_balance_cents": 55000,
+ *   "transactions": [
+ *     {
+ *       "id": "uuid",
+ *       "entry_type": "WALLET_DEPOSIT|ENTRY_FEE|PRIZE_PAYOUT|...",
+ *       "direction": "CREDIT|DEBIT",
+ *       "amount_cents": 6000,
+ *       "created_at": "2026-03-07T14:15:00Z",
+ *       "reference_id": "uuid",
+ *       "metadata_json": {}
+ *     }
+ *   ]
+ * }
+ */
+router.get('/:userId/wallet-ledger', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { userId } = req.params;
+
+    // Verify user exists
+    const userResult = await pool.query(
+      `SELECT id FROM users WHERE id = $1`,
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get transaction history
+    const transactionsResult = await pool.query(
+      `SELECT
+        id,
+        entry_type,
+        direction,
+        amount_cents,
+        created_at,
+        reference_id,
+        metadata_json
+      FROM ledger
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+      LIMIT 100`,
+      [userId]
+    );
+
+    // Compute current wallet balance
+    const balanceResult = await pool.query(
+      `SELECT
+        COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount_cents ELSE -amount_cents END), 0) as balance_cents
+      FROM ledger
+      WHERE user_id = $1`,
+      [userId]
+    );
+
+    const currentBalance = balanceResult.rows[0]?.balance_cents || 0;
+
+    res.json({
+      user_id: userId,
+      current_balance_cents: parseInt(currentBalance, 10),
+      transactions: transactionsResult.rows.map(row => ({
+        id: row.id,
+        entry_type: row.entry_type,
+        direction: row.direction,
+        amount_cents: parseInt(row.amount_cents, 10),
+        created_at: row.created_at,
+        reference_id: row.reference_id,
+        metadata_json: row.metadata_json
+      }))
+    });
+  } catch (err) {
+    console.error('[Admin Users] Error fetching wallet ledger:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * POST /api/admin/users/:userId/wallet/credit
  *
  * Issue a wallet credit to a user for payouts, refunds, or adjustments.

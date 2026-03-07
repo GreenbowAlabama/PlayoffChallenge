@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Login } from './pages/Login';
 import { Users } from './pages/Users';
+import UserWalletLedger from './pages/UserWalletLedger';
 import { Dashboard } from './pages/Dashboard';
 import { Funding } from './pages/Funding';
 import { Admin } from './pages/Admin';
@@ -47,6 +48,7 @@ function App() {
             <Route path="admin" element={<Admin />} />
             <Route path="alerts" element={<AlertCenter />} />
             <Route path="users" element={<Users />} />
+            <Route path="users/wallet-ledger" element={<UserWalletLedger />} />
             <Route path="diagnostics" element={<DiagnosticsDashboard />} />
             <Route path="diagnostics/users" element={<DiagnosticsUsers />} />
             <Route path="diagnostics/users/:userId" element={<DiagnosticsUserDetail />} />

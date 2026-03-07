@@ -81,6 +81,16 @@ export function Layout() {
                 >
                   Users
                 </Link>
+                <Link
+                  to="/users/wallet-ledger"
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
+                    isActive('/users/wallet-ledger')
+                      ? 'border-indigo-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  }`}
+                >
+                  Wallet Ledger
+                </Link>
 
                 {/* Divider */}
                 <div className="border-l border-gray-300"></div>
