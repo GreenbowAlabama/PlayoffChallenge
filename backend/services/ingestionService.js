@@ -359,6 +359,19 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
     }
 
     await client.query('COMMIT');
+
+    // RC3 Fix: Refresh all SCHEDULED contests for this sport (blocking call, synchronous)
+    // Ensures deterministic state before run() returns.
+    // Non-blocking error handling: failures don't break ingestion (same pattern as line 354-357)
+    if (row.sport) {
+      try {
+        await refreshAllScheduledContestFields(pool, row.sport);
+      } catch (refreshErr) {
+        console.error(`[ingestionService] RC3 fan-out failed for sport ${row.sport}:`, refreshErr.message);
+        // Don't fail the ingestion; refresh is important but not critical
+      }
+    }
+
     return summary;
 
   } catch (err) {
@@ -375,6 +388,12 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
  * Creates tournament_configs and field_selections entries when a GOLF contest
  * is published. Uses ON CONFLICT DO NOTHING for idempotency.
  *
+ * RC1 Fix: Handles null provider_event_id by generating synthetic ID (manual_${contestInstanceId})
+ * RC2 Fix: Immediately populates field_selections with active players after skeleton creation
+ *
+ * Transaction-safe: Manages BEGIN/COMMIT internally to ensure atomicity.
+ * Race-condition safe: ON CONFLICT DO NOTHING + transaction isolation.
+ *
  * @param {Object} pool - Database connection pool
  * @param {string} contestInstanceId - UUID of the contest_instance
  * @throws {Error} If contest_instance not found or sport is not GOLF
@@ -384,76 +403,180 @@ async function initializeTournamentField(pool, contestInstanceId) {
     throw new Error('initializeTournamentField: contestInstanceId is required');
   }
 
-  // Load contest instance + template
-  const ciResult = await pool.query(
-    `SELECT ci.id, ci.provider_event_id, ct.sport
-     FROM contest_instances ci
-     JOIN contest_templates ct ON ci.template_id = ct.id
-     WHERE ci.id = $1`,
-    [contestInstanceId]
-  );
+  const client = await pool.connect();
 
-  if (ciResult.rows.length === 0) {
-    throw new Error(`Contest instance not found: ${contestInstanceId}`);
-  }
+  try {
+    await client.query('BEGIN');
 
-  const { sport, provider_event_id } = ciResult.rows[0];
-
-  // Verify sport is GOLF
-  if (sport !== 'GOLF') {
-    throw new Error(`initializeTournamentField: sport must be GOLF, got ${sport}`);
-  }
-
-  // Verify provider_event_id is present (required for ingestion)
-  if (!provider_event_id) {
-    throw new Error(`Contest instance missing provider_event_id`);
-  }
-
-  // Insert tournament_configs (idempotent: ON CONFLICT DO NOTHING)
-  const tcResult = await pool.query(
-    `INSERT INTO tournament_configs (
-      id, contest_instance_id, provider_event_id, ingestion_endpoint,
-      event_start_date, event_end_date, round_count, cut_after_round,
-      leaderboard_schema_version, field_source, hash, published_at, is_active, created_at
-    )
-    VALUES (
-      gen_random_uuid(), $1, $2, '',
-      NOW(), NOW() + interval '7 days', 4, NULL,
-      1, 'provider_sync', '', NOW(), false, NOW()
-    )
-    ON CONFLICT DO NOTHING
-    RETURNING id`,
-    [contestInstanceId, provider_event_id]
-  );
-
-  // Get tournament_config_id (either from insert or from existing row)
-  let tourneyConfigId;
-  if (tcResult.rows.length > 0) {
-    tourneyConfigId = tcResult.rows[0].id;
-  } else {
-    // If ON CONFLICT triggered, fetch the existing row
-    const existingResult = await pool.query(
-      `SELECT id FROM tournament_configs
-       WHERE contest_instance_id = $1`,
+    // Load contest instance + template
+    const ciResult = await client.query(
+      `SELECT ci.id, ci.provider_event_id, ct.sport
+       FROM contest_instances ci
+       JOIN contest_templates ct ON ci.template_id = ct.id
+       WHERE ci.id = $1`,
       [contestInstanceId]
     );
-    if (existingResult.rows.length === 0) {
-      throw new Error(`Failed to create or find tournament_configs for ${contestInstanceId}`);
+
+    if (ciResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      throw new Error(`Contest instance not found: ${contestInstanceId}`);
     }
-    tourneyConfigId = existingResult.rows[0].id;
+
+    const { sport, provider_event_id } = ciResult.rows[0];
+
+    // Verify sport is GOLF
+    if (sport !== 'GOLF') {
+      await client.query('ROLLBACK');
+      throw new Error(`initializeTournamentField: sport must be GOLF, got ${sport}`);
+    }
+
+    // RC1 Fix: Generate synthetic provider_event_id if null (manual contests)
+    const effectiveProviderId = provider_event_id || `manual_${contestInstanceId}`;
+
+    // Insert tournament_configs (idempotent: ON CONFLICT DO NOTHING)
+    const tcResult = await client.query(
+      `INSERT INTO tournament_configs (
+        id, contest_instance_id, provider_event_id, ingestion_endpoint,
+        event_start_date, event_end_date, round_count, cut_after_round,
+        leaderboard_schema_version, field_source, hash, published_at, is_active, created_at
+      )
+      VALUES (
+        gen_random_uuid(), $1, $2, '',
+        NOW(), NOW() + interval '7 days', 4, NULL,
+        1, 'provider_sync', '', NOW(), false, NOW()
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING id`,
+      [contestInstanceId, effectiveProviderId]
+    );
+
+    // Get tournament_config_id (either from insert or from existing row)
+    let tourneyConfigId;
+    if (tcResult.rows.length > 0) {
+      tourneyConfigId = tcResult.rows[0].id;
+    } else {
+      // If ON CONFLICT triggered, fetch the existing row
+      const existingResult = await client.query(
+        `SELECT id FROM tournament_configs
+         WHERE contest_instance_id = $1`,
+        [contestInstanceId]
+      );
+      if (existingResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        throw new Error(`Failed to create or find tournament_configs for ${contestInstanceId}`);
+      }
+      tourneyConfigId = existingResult.rows[0].id;
+    }
+
+    // Insert field_selections with placeholder structure (idempotent)
+    await client.query(
+      `INSERT INTO field_selections (
+        id, contest_instance_id, tournament_config_id, selection_json, created_at
+      )
+      VALUES (
+        gen_random_uuid(), $1, $2, $3, NOW()
+      )
+      ON CONFLICT DO NOTHING`,
+      [contestInstanceId, tourneyConfigId, JSON.stringify({ primary: [] })]
+    );
+
+    // RC2 Fix: Immediately populate field_selections with active players
+    const activePlayerIds = await fetchExistingGolfPlayerIds(pool);
+    if (activePlayerIds.length > 0) {
+      try {
+        await populateFieldSelections(client, contestInstanceId, activePlayerIds);
+      } catch (err) {
+        console.error(`[ingestionService] Failed to populate field_selections during initialization for ${contestInstanceId}:`, err.message);
+        // RC2: Don't fail the entire initialization; field population is important but not blocking
+      }
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Refresh field_selections for all SCHEDULED contests of a given sport.
+ *
+ * RC3 Fix: Fan-out mechanism to update field_selections whenever new players are ingested.
+ * Ensures all SCHEDULED contests see updated player pool across the platform.
+ *
+ * Called after ingestion run completes successfully. Skips LOCKED, LIVE, and COMPLETE contests.
+ * Sport-agnostic: works for all sports (GOLF, NFL, etc.).
+ *
+ * Transaction-safe (Option A): Each contest update is wrapped in its own transaction.
+ * This ensures atomicity and idempotency of each refresh operation.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} sport - Sport type ('GOLF', 'NFL', etc.)
+ * @returns {Promise<void>}
+ */
+async function refreshAllScheduledContestFields(pool, sport) {
+  if (!sport) {
+    console.warn('[ingestionService] refreshAllScheduledContestFields: sport is required, skipping refresh');
+    return;
   }
 
-  // Insert field_selections with placeholder structure (idempotent)
-  await pool.query(
-    `INSERT INTO field_selections (
-      id, contest_instance_id, tournament_config_id, selection_json, created_at
-    )
-    VALUES (
-      gen_random_uuid(), $1, $2, $3, NOW()
-    )
-    ON CONFLICT DO NOTHING`,
-    [contestInstanceId, tourneyConfigId, JSON.stringify({ primary: [] })]
+  // Query all SCHEDULED contests for this sport
+  const scheduledResult = await pool.query(
+    `SELECT ci.id
+     FROM contest_instances ci
+     JOIN contest_templates ct ON ct.id = ci.template_id
+     JOIN field_selections fs ON fs.contest_instance_id = ci.id
+     WHERE ci.status = 'SCHEDULED'
+       AND ct.sport = $1
+     ORDER BY ci.created_at`,
+    [sport]
   );
+
+  if (scheduledResult.rows.length === 0) {
+    return; // No SCHEDULED contests to refresh
+  }
+
+  // Fetch all active players for this sport
+  let activePlayerIds = [];
+  if (sport === 'GOLF') {
+    activePlayerIds = await fetchExistingGolfPlayerIds(pool);
+  }
+  // Other sports can be added here in the future
+
+  if (activePlayerIds.length === 0) {
+    return; // No active players to populate
+  }
+
+  // Refresh field_selections for each SCHEDULED contest (Option A: transactional per-contest)
+  let refreshedCount = 0;
+  for (const row of scheduledResult.rows) {
+    const contestInstanceId = row.id;
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+      await populateFieldSelections(client, contestInstanceId, activePlayerIds);
+      await client.query('COMMIT');
+      refreshedCount++;
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        // Rollback already failed, just log and continue
+        console.error(`[ingestionService] Rollback failed for ${contestInstanceId}:`, rollbackErr.message);
+      }
+      console.error(`[ingestionService] Failed to refresh field_selections for SCHEDULED contest ${contestInstanceId}:`, err.message);
+      // Continue with other contests even if one fails
+    } finally {
+      client.release();
+    }
+  }
+
+  if (refreshedCount > 0) {
+    console.log(`[ingestionService] Refreshed field_selections for ${refreshedCount} SCHEDULED ${sport} contests`);
+  }
 }
 
 /**
@@ -485,4 +608,4 @@ async function runScoring(contestInstanceId, pool) {
   return run(contestInstanceId, pool, null, { phase: 'SCORING' });
 }
 
-module.exports = { run, runPlayerPool, runScoring, initializeTournamentField };
+module.exports = { run, runPlayerPool, runScoring, initializeTournamentField, refreshAllScheduledContestFields };

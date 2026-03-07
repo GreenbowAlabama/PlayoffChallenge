@@ -145,6 +145,8 @@ async function _getScheduledStandings(pool, contestInstanceId) {
     user_display_name: row.user_display_name,
     rank: index + 1, // Sequential rank based on alphabetical order
     values: {
+      rank: index + 1,
+      user_display_name: row.user_display_name,  // Include participant name in values dict for leaderboard display
       total_score: 0  // Placeholder: no scores until LIVE/COMPLETE
     },
     tier: null
