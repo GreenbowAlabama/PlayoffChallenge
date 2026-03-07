@@ -13,6 +13,7 @@ import { ViewDiscovered } from './pages/ViewDiscovered';
 import { CreateContestType } from './pages/CreateContestType';
 import StagingCleanup from './pages/StagingCleanup';
 import { AlertCenter } from './pages/AlertCenter';
+import { ContestPoolDiagnostics } from './pages/ContestPoolDiagnostics';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -47,6 +48,7 @@ function App() {
             <Route path="diagnostics" element={<DiagnosticsDashboard />} />
             <Route path="diagnostics/users" element={<DiagnosticsUsers />} />
             <Route path="diagnostics/users/:userId" element={<DiagnosticsUserDetail />} />
+            <Route path="diagnostics/contest-pools" element={<ContestPoolDiagnostics />} />
             <Route path="lineups" element={<Lineups />} />
             <Route path="trends" element={<Trends />} />
             <Route path="discovery" element={<ViewDiscovered />} />

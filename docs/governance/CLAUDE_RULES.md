@@ -1160,6 +1160,161 @@ Every session must:
 
 ---
 
+# 21. OPERATIONAL UI PRINCIPLE (WEB-ADMIN DESIGN MANDATE)
+
+## Purpose
+
+Web-admin is the **single source of truth for operational signals**. Non-technical staff (customer service, operations, business users) must be able to identify and understand issues WITHOUT running CLI scripts, parsing logs, or asking engineers.
+
+## Core Rule
+
+Every operational issue must be surfaced in web-admin with:
+
+1. **What is the problem?** (Plain English, not technical jargon)
+2. **Why did it happen?** (Root cause explanation)
+3. **What's the impact?** (Business context)
+4. **What can be done?** (Self-service action or escalation path)
+
+## Plain Language Requirements
+
+### ❌ What NOT to do:
+```
+Pool Balance: -$150.00
+Status: CRITICAL
+Code: PAYOUTS_EXCEED_ENTRIES
+```
+
+### ✅ What TO do:
+```
+🔴 POOL IMBALANCE: -$150.00
+
+What Happened:
+• 3 users joined and paid $100 in total entry fees
+• Settlement distributed $250 in prizes
+• The platform is covering a $150 loss
+
+Root Cause: Prize payout calculation exceeded collected entry fees
+
+Action Required:
+⚠️ This needs technical review
+→ Contact engineering with this contest ID
+→ Reference: Settlement calculation audit needed
+```
+
+## UI Design Checklist
+
+When building operational pages (like Contest Pool Diagnostics, Orphaned Funds, Financial Health):
+
+- [ ] Every number has a story (Why is this $X? Where did it come from?)
+- [ ] Every status badge has color + explanation (🔴 Red = action needed, 🟡 Yellow = caution, 🟢 Green = healthy)
+- [ ] Every root cause is labeled and explained (Not just "PAYOUTS_EXCEED_ENTRIES", but "Prize payout math error")
+- [ ] Every action path is clear:
+  - **Self-service:** "[Fix Button] [Refund Button] [Adjust Button]" with clear confirmation
+  - **Escalation:** "⚠️ Manual review needed → Contact [team] with [what info]"
+- [ ] Every expandable section shows detailed breakdown without page jump
+- [ ] Summary stats are prominent (total affected, total amount, count of issues)
+- [ ] Root cause breakdown (stats cards showing N contests with each issue type)
+- [ ] Timestamps show when issue was detected/when resolved
+
+## Information Architecture Rule
+
+**No CLI scripts for operational diagnosis.**
+
+Instead, build:
+1. Backend service/API that diagnoses the issue
+2. Web-admin page that calls the API
+3. Clear presentation of root cause
+4. Action buttons (if self-service available)
+
+**Example Flow (Good):**
+```
+User opens web-admin Cleanup page
+→ Sees "Total Stranded Funds: $0.00"
+→ Page says "No action needed"
+→ Can navigate elsewhere
+```
+
+**Example Flow (Bad):**
+```
+User opens web-admin, sees nothing
+→ Has to run: node scripts/diagnose-orphaned-funds.js
+→ Reads output in terminal
+→ Asks engineer what it means
+```
+
+## Forbidden Patterns
+
+Do NOT:
+- ❌ Show raw database values without explanation
+- ❌ Display error codes instead of human-readable messages
+- ❌ Force non-technical users to interpret timestamps or technical abbreviations
+- ❌ Hide complexity in collapsed sections without signal
+- ❌ Create "resolution" buttons that require technical knowledge
+- ❌ Link to runbooks or documentation as a substitute for clear UI
+- ❌ Use industry jargon without explanation
+- ❌ Show raw SQL query results or server logs in web-admin
+
+## Enforcement
+
+When building operational pages:
+
+**During Code Review:**
+- Is the root cause clearly stated in plain English?
+- Would a customer service agent understand what's wrong?
+- Can they fix it themselves, or do they know who to contact?
+- Are all action paths labeled with consequences?
+
+**In Tests:**
+- Verify root cause text is accurate and clear
+- Verify action buttons have confirmation dialogs
+- Verify summary stats match detailed breakdowns
+
+**In Documentation:**
+- Document what each page surfaces
+- Document self-service vs. escalation paths
+- Document who handles each issue type
+
+## Example: Contest Pool Diagnostics Page
+
+**Signal Component:**
+```
+Root Cause Breakdown
+├─ 🔴 Payouts Exceed Entries (2 contests)
+│  Description: More in prizes were paid than collected in fees
+│  Impact: Platform covered $X loss
+│
+├─ 🟡 Refunded Entries With Payouts (1 contest)
+│  Description: Entry fees were refunded but prizes still distributed
+│  Impact: User kept $Y, cost platform $Z
+│
+└─ 🟢 Healthy (15 contests)
+   Description: Entry fees match or exceed payouts
+```
+
+**Action Component:**
+```
+Contest: "Players Championship - Invite Only"
+Entry Fees Collected: $100
+Prizes Distributed: $250
+Deficit: -$150
+
+Next Steps:
+[ ] Self-service: [Review Settlement] [Refund Prizes] [Adjust Entry Fees]
+[ ] Escalation: ⚠️ Contact engineering if numbers don't match records
+             Reference this contest ID in the ticket
+```
+
+## Continuous Improvement
+
+Every operational page added must:
+1. Be usable by non-technical staff
+2. Not require CLI scripts or log parsing
+3. Surface root cause clearly
+4. Provide action path
+5. Serve as single source of truth for that operational domain
+
+---
+
 This file is a governance lock.
 
 If you are Claude, you must follow this.

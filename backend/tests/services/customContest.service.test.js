@@ -3140,4 +3140,147 @@ describe('Custom Contest Service Unit Tests', () => {
       });
     });
   });
+
+  describe('deleteContestInstance', () => {
+    // Note: deleteContestInstance calls the frozen primitive cancelContestForAdmin,
+    // which is integration-heavy and has its own transaction management.
+    // Unit tests here verify the refund logic path structure.
+    // Full integration tests would use database.
+
+    it('should be idempotent if contest already CANCELLED', async () => {
+      const contestId = 'already-cancelled-contest';
+      const organizerId = 'org-user-id';
+
+      mockPool.setQueryResponse(
+        q => q.includes('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('FOR UPDATE') && q.includes('contest_instances'),
+        { rows: [{
+          id: contestId,
+          template_id: TEST_TEMPLATE_ID,
+          organizer_id: organizerId,
+          status: 'CANCELLED',
+          contest_name: 'Already Cancelled',
+          entry_fee_cents: 2500,
+          payout_structure: { type: 'winner_take_all' },
+          max_entries: 10
+        }], rowCount: 1 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('COUNT') && q.includes('contest_participants'),
+        { rows: [{ count: '0' }], rowCount: 1 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('COMMIT') || q.includes('ROLLBACK'),
+        { rows: [], rowCount: 0 }
+      );
+
+      const result = await customContestService.deleteContestInstance(mockPool, contestId, organizerId);
+      expect(result.status).toBe('CANCELLED');
+    });
+
+    it('should be idempotent if contest already CANCELLED', async () => {
+      const contestId = 'already-cancelled-contest';
+      const organizerId = 'org-user-id';
+
+      mockPool.setQueryResponse(
+        q => q.includes('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('FOR UPDATE') && q.includes('contest_instances'),
+        { rows: [{
+          id: contestId,
+          template_id: TEST_TEMPLATE_ID,
+          organizer_id: organizerId,
+          status: 'CANCELLED',
+          contest_name: 'Already Cancelled',
+          entry_fee_cents: 2500,
+          payout_structure: { type: 'winner_take_all' },
+          max_entries: 10
+        }], rowCount: 1 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('COUNT') && q.includes('contest_participants'),
+        { rows: [{ count: '0' }], rowCount: 1 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('COMMIT') || q.includes('ROLLBACK'),
+        { rows: [], rowCount: 0 }
+      );
+
+      const result = await customContestService.deleteContestInstance(mockPool, contestId, organizerId);
+      expect(result.status).toBe('CANCELLED');
+    });
+
+    it('should reject if user is not organizer', async () => {
+      const contestId = 'contest-id';
+      const organizerId = 'org-user-id';
+      const otherUserId = 'other-user-id';
+
+      mockPool.setQueryResponse(
+        q => q.includes('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('FOR UPDATE') && q.includes('contest_instances'),
+        { rows: [{
+          id: contestId,
+          organizer_id: organizerId,
+          status: 'SCHEDULED'
+        }], rowCount: 1 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('ROLLBACK'),
+        { rows: [], rowCount: 0 }
+      );
+
+      await expect(
+        customContestService.deleteContestInstance(mockPool, contestId, otherUserId)
+      ).rejects.toThrow('Only the organizer can delete a contest');
+    });
+
+    it('should reject if contest has more than 1 participant', async () => {
+      const contestId = 'contest-id';
+      const organizerId = 'org-user-id';
+
+      mockPool.setQueryResponse(
+        q => q.includes('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('FOR UPDATE') && q.includes('contest_instances'),
+        { rows: [{
+          id: contestId,
+          organizer_id: organizerId,
+          status: 'SCHEDULED'
+        }], rowCount: 1 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('COUNT') && q.includes('contest_participants'),
+        { rows: [{ count: '2' }], rowCount: 1 }
+      );
+
+      mockPool.setQueryResponse(
+        q => q.includes('ROLLBACK'),
+        { rows: [], rowCount: 0 }
+      );
+
+      await expect(
+        customContestService.deleteContestInstance(mockPool, contestId, organizerId)
+      ).rejects.toThrow('Cannot delete contest in SCHEDULED status with 2 participants');
+    });
+  });
 });

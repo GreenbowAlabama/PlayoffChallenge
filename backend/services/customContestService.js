@@ -2098,15 +2098,58 @@ async function deleteContestInstance(pool, contestId, organizerId) {
       throw error;
     }
 
-    // Commit validation transaction before calling frozen primitive
-    await client.query('COMMIT');
-
     // Call frozen primitive to perform atomic cancellation + transition record
-    const cancellationResult = await cancelContestForAdmin(pool, new Date(), contestId);
+    // Keep transaction open to include refunds in same atomic operation
+    const cancellationResult = await cancelContestForAdmin(pool, new Date(), contestId, client);
 
     if (!cancellationResult.success) {
       throw new Error('Failed to cancel contest via lifecycle service');
     }
+
+    // Refund all participants (deterministic, idempotent via idempotency_key)
+    if (contest.entry_fee_cents > 0) {
+      // Get all participants at time of cancellation
+      const participantsResult = await client.query(
+        `SELECT DISTINCT user_id FROM contest_participants WHERE contest_instance_id = $1`,
+        [contestId]
+      );
+
+      // Create refund entry for each participant
+      for (const participant of participantsResult.rows) {
+        const userId = participant.user_id;
+        const refundIdempotencyKey = `cancel_contest_refund:${contestId}:${userId}`;
+
+        await client.query(
+          `INSERT INTO ledger (
+             user_id,
+             entry_type,
+             direction,
+             amount_cents,
+             currency,
+             reference_type,
+             reference_id,
+             contest_instance_id,
+             idempotency_key,
+             created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [
+            userId,
+            'ENTRY_FEE_REFUND',
+            'CREDIT',
+            contest.entry_fee_cents,
+            'USD',
+            'CONTEST',
+            contestId,
+            contestId,
+            refundIdempotencyKey
+          ]
+        );
+      }
+    }
+
+    // Commit transaction (includes lifecycle state change + refunds)
+    await client.query('COMMIT');
 
     // Return updated contest with new status
     const updatedContest = {
