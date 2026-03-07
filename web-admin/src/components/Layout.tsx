@@ -37,6 +37,16 @@ export function Layout() {
                   Dashboard
                 </Link>
                 <Link
+                  to="/funding"
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
+                    isActive('/funding')
+                      ? 'border-indigo-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  }`}
+                >
+                  Funding
+                </Link>
+                <Link
                   to="/lineups"
                   className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
                     isActive('/lineups')
@@ -87,16 +97,6 @@ export function Layout() {
                   Diagnostics
                 </Link>
                 <Link
-                  to="/diagnostics/contest-pools"
-                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
-                    isActive('/diagnostics/contest-pools')
-                      ? 'border-indigo-500 text-gray-900'
-                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                  }`}
-                >
-                  Contest Pools
-                </Link>
-                <Link
                   to="/discovery"
                   className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
                     isActive('/discovery')
@@ -125,16 +125,6 @@ export function Layout() {
                   }`}
                 >
                   Admin
-                </Link>
-                <Link
-                  to="/staging-cleanup"
-                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
-                    isActive('/staging-cleanup')
-                      ? 'border-red-500 text-red-900'
-                      : 'border-transparent text-red-600 hover:border-red-300 hover:text-red-700'
-                  }`}
-                >
-                  Cleanup
                 </Link>
               </div>
             </div>

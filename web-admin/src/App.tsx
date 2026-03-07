@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Login } from './pages/Login';
 import { Users } from './pages/Users';
 import { Dashboard } from './pages/Dashboard';
+import { Funding } from './pages/Funding';
 import { Admin } from './pages/Admin';
 import { DiagnosticsDashboard } from './pages/DiagnosticsDashboard';
 import { DiagnosticsUsers } from './pages/DiagnosticsUsers';
@@ -42,6 +43,7 @@ function App() {
           >
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="funding" element={<Funding />} />
             <Route path="admin" element={<Admin />} />
             <Route path="alerts" element={<AlertCenter />} />
             <Route path="users" element={<Users />} />

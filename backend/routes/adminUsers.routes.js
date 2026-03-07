@@ -101,6 +101,15 @@ router.post('/:userId/wallet/credit', async (req, res) => {
       return res.status(400).json({ error_code: 'INVALID_NOTES', reason: 'notes is required' });
     }
 
+    // Reject any attempt to create ENTRY_FEE entries via admin endpoint
+    // ENTRY_FEE entries can ONLY be created by contest join logic
+    if (reason === 'ENTRY_FEE') {
+      return res.status(400).json({
+        error: 'INVALID_ENTRY_TYPE',
+        message: 'ENTRY_FEE entries can only be created by contest join logic (joinContest, publishContestInstance), not admin endpoints'
+      });
+    }
+
     // Generate deterministic idempotency key
     const idempotencyKey = `wallet_credit:${userId}:${reason}:${reference_contest_id || 'none'}`;
 
@@ -118,7 +127,7 @@ router.post('/:userId/wallet/credit', async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (idempotency_key) DO NOTHING
          RETURNING id`,
-        [ledgerId, userId, 'ENTRY_FEE', 'CREDIT', amount_cents, reference_contest_id ? 'CONTEST' : 'WALLET', idempotencyKey, now]
+        [ledgerId, userId, 'WALLET_DEPOSIT', 'CREDIT', amount_cents, 'WALLET', idempotencyKey, now]
       );
 
       // Check if insert was successful (didn't violate unique constraint)
