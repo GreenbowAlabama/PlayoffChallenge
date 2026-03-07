@@ -1,16 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getUsers, getUserWalletLedger } from '../api/users';
-import type { User, UserWalletLedger, WalletTransaction } from '../api/users';
+import type { UserWalletLedger, WalletTransaction } from '../api/users';
 
 // Helper to format cents as USD
 function formatUSD(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
-}
-
-// Helper to format datetime
-function formatDateTime(dateString: string): string {
-  return new Date(dateString).toLocaleString();
 }
 
 // Helper to format date only
@@ -28,7 +23,7 @@ export default function UserWalletLedger() {
   const [searchInput, setSearchInput] = useState<string>('');
 
   // Fetch all users for search dropdown
-  const { data: users = [], isLoading: usersLoading } = useQuery({
+  const { data: users = [] } = useQuery({
     queryKey: ['adminUsers'],
     queryFn: () => getUsers()
   });
