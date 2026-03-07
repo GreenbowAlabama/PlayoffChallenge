@@ -184,6 +184,12 @@ final class UserWalletViewModel: ObservableObject {
         wallet?.ledgerEntries ?? []
     }
 
+    /// Computed transaction history from domain transactions.
+    /// Backend refactored to return transactions via separate endpoint.
+    var displayTransactions: [WalletTransaction] {
+        transactions
+    }
+
     // MARK: - Dependencies
 
     private let walletService: WalletFetching

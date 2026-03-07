@@ -116,7 +116,6 @@ struct ContestDetailViewInner: View {
                 .background(DesignTokens.Color.Surface.card)
                 .cornerRadius(DesignTokens.Radius.lg)
                 .padding(.horizontal)
-                .redacted(reason: viewModel.contest.contestName == "Loading…" ? .placeholder : [])
 
                 // MARK: - Primary Action: Join Button
                 if viewModel.canJoinContest {
@@ -258,7 +257,6 @@ struct ContestDetailViewInner: View {
                 .cornerRadius(DesignTokens.Radius.lg)
                 .padding(.horizontal)
                 .padding(.top, DesignTokens.Spacing.lg)
-                .redacted(reason: viewModel.contest.contestName == "Loading…" ? .placeholder : [])
 
                 // MARK: - Share Link Section (conditional)
                 if viewModel.actionState?.actions.canShareInvite == true {

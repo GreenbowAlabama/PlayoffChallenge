@@ -18,6 +18,7 @@ import Core
 /// User identity is EXPLICIT parameter, never resolved internally.
 protocol ContestDetailFetching: Sendable {
     func fetchContestActionState(contestId: UUID, userId: UUID?) async throws -> ContestActionState
+    func fetchContestDetail(contestId: UUID, userId: UUID?) async throws -> (contest: Contest, actionState: ContestActionState)
     func fetchLeaderboard(contestId: UUID, userId: UUID?) async throws -> Leaderboard
 }
 
@@ -64,6 +65,81 @@ final class ContestDetailService: ContestDetailFetching, @unchecked Sendable {
         } catch {
             print("❌ Failed to decode and map ContestActionState: \(error)")
             throw APIError.decodingError
+        }
+    }
+
+    func fetchContestDetail(contestId: UUID, userId: UUID?) async throws -> (contest: Contest, actionState: ContestActionState) {
+        let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        if let userId = userId {
+            request.setValue(userId.uuidString.lowercased(), forHTTPHeaderField: "X-User-Id")
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard http.statusCode == 200 else {
+            if http.statusCode == 404 { throw APIError.notFound }
+            throw APIError.serverError("Server returned \(http.statusCode)")
+        }
+
+        let decoder = JSONDecoder.iso8601Decoder
+        do {
+            // Decode to DTO (full response with all fields)
+            let dto = try decoder.decode(ContestDetailResponseDTO.self, from: data)
+
+            // Decode to contract for ContestActionState mapping
+            let contract = try decoder.decode(Core.ContestDetailResponseContract.self, from: data)
+
+            // Map DTO → Contest domain model with all available fields
+            let contest = Contest(
+                id: dto.id,
+                organizerId: dto.organizer_id.uuidString,
+                contestName: dto.contest_name,
+                organizerName: dto.organizer_name,
+                status: ContestStatus(rawValue: dto.status.uppercased()) ?? .scheduled,
+                entryCount: dto.entry_count,
+                maxEntries: dto.max_entries,
+                entryFeeCents: dto.entry_fee_cents,
+                lockTime: dto.lock_time,
+                startTime: dto.start_time,
+                endTime: dto.end_time,
+                tournamentStartTime: dto.tournament_start_time,
+                tournamentEndTime: dto.tournament_end_time,
+                joinToken: dto.join_token,
+                createdAt: dto.created_at,
+                updatedAt: dto.updated_at,
+                leaderboardState: mapLeaderboardState(dto.leaderboard_state),
+                actions: ContestActions.from(contract.actions),
+                payoutTable: dto.payout_table.map { PayoutTier.from($0) },
+                rosterConfig: RosterConfig.from(dto.roster_config),
+                templateType: ContestTemplateType(rawValue: dto.type) ?? .unknown,
+                isPlatformOwned: dto.is_platform_owned
+            )
+
+            // Map DTO → ContestActionState (for consistency)
+            let actionState = ContestActionState.from(contract)
+
+            return (contest: contest, actionState: actionState)
+        } catch {
+            print("❌ Failed to decode and map Contest: \(error)")
+            throw APIError.decodingError
+        }
+    }
+
+    private func mapLeaderboardState(_ state: String) -> LeaderboardComputationState {
+        switch state.lowercased() {
+        case "pending": return .pending
+        case "computed": return .computed
+        case "error": return .error
+        default: return .unknown
         }
     }
 

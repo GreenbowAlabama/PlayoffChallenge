@@ -74,19 +74,27 @@ extension MockContestJoiner {
 @MainActor
 final class MockContestDetailFetcher: ContestDetailFetching, @unchecked Sendable {
     var fetchActionStateCallCount = 0
+    var fetchContestDetailCallCount = 0
     var fetchLeaderboardCallCount = 0
 
     var lastActionStateContestId: UUID?
+    var lastContestDetailContestId: UUID?
     var lastLeaderboardContestId: UUID?
 
     var actionStateResult: Result<ContestActionState, Error>
+    var contestDetailResult: Result<(contest: Contest, actionState: ContestActionState), Error>
     var leaderboardResult: Result<Leaderboard, Error>
 
     init(
         actionStateResult: Result<ContestActionState, Error>? = nil,
+        contestDetailResult: Result<(contest: Contest, actionState: ContestActionState), Error>? = nil,
         leaderboardResult: Result<Leaderboard, Error>? = nil
     ) {
         self.actionStateResult = actionStateResult ?? .success(.fixture())
+        self.contestDetailResult = contestDetailResult ?? .success((
+            contest: Contest.stub(),
+            actionState: ContestActionState.fixture()
+        ))
         self.leaderboardResult = leaderboardResult ?? .success(.fixture())
     }
 
@@ -94,6 +102,12 @@ final class MockContestDetailFetcher: ContestDetailFetching, @unchecked Sendable
         fetchActionStateCallCount += 1
         lastActionStateContestId = contestId
         return try actionStateResult.get()
+    }
+
+    func fetchContestDetail(contestId: UUID, userId: UUID?) async throws -> (contest: Contest, actionState: ContestActionState) {
+        fetchContestDetailCallCount += 1
+        lastContestDetailContestId = contestId
+        return try contestDetailResult.get()
     }
 
     func fetchLeaderboard(contestId: UUID, userId: UUID?) async throws -> Leaderboard {
@@ -104,10 +118,16 @@ final class MockContestDetailFetcher: ContestDetailFetching, @unchecked Sendable
 
     func reset() {
         fetchActionStateCallCount = 0
+        fetchContestDetailCallCount = 0
         fetchLeaderboardCallCount = 0
         lastActionStateContestId = nil
+        lastContestDetailContestId = nil
         lastLeaderboardContestId = nil
         actionStateResult = .success(.fixture())
+        contestDetailResult = .success((
+            contest: Contest.stub(),
+            actionState: ContestActionState.fixture()
+        ))
         leaderboardResult = .success(.fixture())
     }
 }

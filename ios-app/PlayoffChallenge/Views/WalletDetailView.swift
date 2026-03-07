@@ -33,7 +33,7 @@ struct WalletDetailView: View {
                 .background(Color(.systemGray6))
 
             // Ledger: Transaction list
-            if viewModel.displayLedger.isEmpty {
+            if viewModel.displayTransactions.isEmpty {
                 emptyLedgerView
             } else {
                 ledgerListView
@@ -61,6 +61,8 @@ struct WalletDetailView: View {
         .refreshable {
             print("[WalletDetailView] Pull-to-refresh triggered")
             await viewModel.refreshBalance()
+            // Also refresh transactions when pulling to refresh
+            await viewModel.fetchTransactions()
         }
         .sheet(isPresented: $showDepositSheet) {
             depositSheet
@@ -71,6 +73,8 @@ struct WalletDetailView: View {
         .task {
             print("[WalletDetailView] View appeared, loading wallet data")
             await viewModel.fetchWallet()
+            // Fetch transactions after balance loads
+            await viewModel.fetchTransactions()
         }
     }
 
@@ -365,8 +369,8 @@ struct WalletDetailView: View {
     private var ledgerListView: some View {
         List {
             Section(header: Text("Transactions")) {
-                ForEach(viewModel.displayLedger) { entry in
-                    ledgerRowView(entry)
+                ForEach(viewModel.displayTransactions) { transaction in
+                    transactionRowView(transaction)
                 }
             }
         }
@@ -398,6 +402,35 @@ struct WalletDetailView: View {
                 .font(.body)
                 .fontWeight(.semibold)
                 .foregroundColor(entry.direction == "CREDIT" ? .green : .red)
+        }
+        .padding(.vertical, DesignTokens.Spacing.xs)
+    }
+
+    @ViewBuilder
+    private func transactionRowView(_ transaction: WalletTransaction) -> some View {
+        HStack(spacing: DesignTokens.Spacing.md) {
+            // Icon based on direction
+            Text(transaction.direction == "CREDIT" ? "💰" : "🎯")
+                .font(.title3)
+
+            // Description & date
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+                Text(transaction.description)
+                    .font(.body)
+                    .fontWeight(.medium)
+
+                Text(transaction.formattedDate)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            // Amount (sign-formatted, color-coded)
+            Text(transaction.formattedAmount)
+                .font(.body)
+                .fontWeight(.semibold)
+                .foregroundColor(transaction.direction == "CREDIT" ? .green : .red)
         }
         .padding(.vertical, DesignTokens.Spacing.xs)
     }

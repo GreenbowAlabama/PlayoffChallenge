@@ -79,36 +79,39 @@ final class ContestDetailViewModel: ObservableObject {
         }
     }
 
-    /// Fetches contest action state from the backend.
+    /// Fetches full contest details from the backend.
     /// Overwrites all placeholder data with the authoritative backend response.
     /// Always fetches on explicit refresh, skips duplicate fetch only on initial load.
     func fetchContestDetail() async {
         guard !hasFetched || isFetching else { return }
         isFetching = true
-        print("JOIN PREVIEW FETCHING CONTEST ACTION STATE \(contestId)")
+        print("JOIN PREVIEW FETCHING CONTEST DETAIL \(contestId)")
 
         do {
-            // Fetch the authoritative action state from backend
+            // Fetch full contest details and action state from backend
             // Pass currentUserId explicitly — it's set via configure() from View
-            let fetchedActionState = try await detailFetcher.fetchContestActionState(
+            let result = try await detailFetcher.fetchContestDetail(
                 contestId: contestId,
                 userId: currentUserId
             )
-            actionState = fetchedActionState
+
+            // Update both contest and action state from server response
+            contest = result.contest
+            actionState = result.actionState
 
             // Log server-returned actions (DEBUGGING)
             print("""
             SERVER ACTIONS:
-            leaderboardState=\(fetchedActionState.leaderboardState)
-            can_join=\(fetchedActionState.actions.canJoin)
-            can_delete=\(fetchedActionState.actions.canDelete)
-            can_unjoin=\(fetchedActionState.actions.canUnjoin)
-            can_edit_entry=\(fetchedActionState.actions.canEditEntry)
-            can_share_invite=\(fetchedActionState.actions.canShareInvite)
+            leaderboardState=\(result.actionState.leaderboardState)
+            can_join=\(result.actionState.actions.canJoin)
+            can_delete=\(result.actionState.actions.canDelete)
+            can_unjoin=\(result.actionState.actions.canUnjoin)
+            can_edit_entry=\(result.actionState.actions.canEditEntry)
+            can_share_invite=\(result.actionState.actions.canShareInvite)
             """)
 
             hasFetched = true
-            print("ContestDetailViewModel: action state set → \(fetchedActionState.contestId)")
+            print("ContestDetailViewModel: contest detail set → \(result.contest.id)")
         } catch {
             // On fetch failure, keep placeholder data — don't blank the screen
             print("ContestDetailViewModel: fetch failed — \(error.localizedDescription)")
@@ -122,26 +125,28 @@ final class ContestDetailViewModel: ObservableObject {
         isFetching = true
 
         do {
-            // Fetch the authoritative action state from backend
-            // Pass currentUserId explicitly — it's set via configure() from View
-            let fetchedActionState = try await detailFetcher.fetchContestActionState(
+            // Fetch full contest details and action state from backend
+            let result = try await detailFetcher.fetchContestDetail(
                 contestId: contestId,
                 userId: currentUserId
             )
-            actionState = fetchedActionState
+
+            // Update both contest and action state from server response
+            contest = result.contest
+            actionState = result.actionState
 
             // Log server-returned actions (DEBUGGING)
             print("""
             SERVER ACTIONS (REFRESH):
-            leaderboardState=\(fetchedActionState.leaderboardState)
-            can_join=\(fetchedActionState.actions.canJoin)
-            can_delete=\(fetchedActionState.actions.canDelete)
-            can_unjoin=\(fetchedActionState.actions.canUnjoin)
-            can_edit_entry=\(fetchedActionState.actions.canEditEntry)
-            can_share_invite=\(fetchedActionState.actions.canShareInvite)
+            leaderboardState=\(result.actionState.leaderboardState)
+            can_join=\(result.actionState.actions.canJoin)
+            can_delete=\(result.actionState.actions.canDelete)
+            can_unjoin=\(result.actionState.actions.canUnjoin)
+            can_edit_entry=\(result.actionState.actions.canEditEntry)
+            can_share_invite=\(result.actionState.actions.canShareInvite)
             """)
 
-            print("ContestDetailViewModel: action state refreshed → \(fetchedActionState.contestId)")
+            print("ContestDetailViewModel: contest detail refreshed → \(result.contest.id)")
         } catch {
             print("ContestDetailViewModel: refresh failed — \(error.localizedDescription)")
         }
