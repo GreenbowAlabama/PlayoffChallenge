@@ -19,7 +19,7 @@ function formatTime(dateString: string): string {
 }
 
 export default function UserWalletLedger() {
-  const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [expandedUserId, setExpandedUserId] = useState<string>('');
   const [searchInput, setSearchInput] = useState<string>('');
 
   // Fetch all users
@@ -28,11 +28,11 @@ export default function UserWalletLedger() {
     queryFn: () => getUsers()
   });
 
-  // Fetch wallet ledger for selected user
+  // Fetch wallet ledger for expanded user
   const { data: walletLedger, isLoading: ledgerLoading, error: ledgerError } = useQuery({
-    queryKey: ['userWalletLedger', selectedUserId],
-    queryFn: () => getUserWalletLedger(selectedUserId),
-    enabled: !!selectedUserId
+    queryKey: ['userWalletLedger', expandedUserId],
+    queryFn: () => getUserWalletLedger(expandedUserId),
+    enabled: !!expandedUserId
   });
 
   // Filter users based on search input
@@ -46,8 +46,8 @@ export default function UserWalletLedger() {
     );
   });
 
-  const handleUserSelect = (userId: string) => {
-    setSelectedUserId(userId);
+  const handleToggleExpanded = (userId: string) => {
+    setExpandedUserId(expandedUserId === userId ? '' : userId);
   };
 
   return (
@@ -56,7 +56,7 @@ export default function UserWalletLedger() {
         {/* Header */}
         <div>
           <h1 className="text-3xl font-bold text-gray-900">User Wallet Ledger</h1>
-          <p className="text-gray-600 mt-2">Search and verify individual user transactions</p>
+          <p className="text-gray-600 mt-2">Click any user row to view their wallet balance and transaction history</p>
         </div>
 
         {/* Search Filter */}
@@ -82,161 +82,130 @@ export default function UserWalletLedger() {
               {searchInput ? `No users found matching "${searchInput}"` : 'No users found'}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Name</th>
-                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Email</th>
-                    <th className="px-6 py-3 text-left font-semibold text-gray-900">ID</th>
-                    <th className="px-6 py-3 text-right font-semibold text-gray-900">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {filteredUsers.map(user => (
-                    <tr key={user.id} className={selectedUserId === user.id ? 'bg-indigo-50' : 'hover:bg-gray-50 transition-colors'}>
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                <tr>
+                  <th className="w-8"></th>
+                  <th className="px-6 py-3 text-left font-semibold text-gray-900">Name</th>
+                  <th className="px-6 py-3 text-left font-semibold text-gray-900">Email</th>
+                  <th className="px-6 py-3 text-left font-semibold text-gray-900">ID</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {filteredUsers.map(user => (
+                  <>
+                    <tr
+                      key={user.id}
+                      onClick={() => handleToggleExpanded(user.id)}
+                      className="cursor-pointer hover:bg-gray-50 transition-colors"
+                    >
+                      <td className="px-3 py-3 text-center">
+                        <span className={`inline-block transition-transform ${expandedUserId === user.id ? 'rotate-90' : ''}`}>
+                          ▶
+                        </span>
+                      </td>
                       <td className="px-6 py-3 text-gray-900 font-medium">{user.name || 'Unnamed'}</td>
                       <td className="px-6 py-3 text-gray-600">{user.email || '-'}</td>
                       <td className="px-6 py-3 text-gray-500 font-mono text-xs">{user.id.slice(0, 8)}...</td>
-                      <td className="px-6 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleUserSelect(user.id)}
-                          className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                            selectedUserId === user.id
-                              ? 'bg-indigo-600 text-white'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          {selectedUserId === user.id ? 'Selected' : 'View'}
-                        </button>
-                      </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+
+                    {/* Expanded Row */}
+                    {expandedUserId === user.id && (
+                      <tr className="bg-indigo-50 border-b-2 border-indigo-200">
+                        <td colSpan={4} className="px-6 py-6">
+                          {ledgerLoading ? (
+                            <div className="text-center text-gray-500">Loading wallet data...</div>
+                          ) : ledgerError ? (
+                            <div className="bg-red-50 border border-red-200 rounded p-4">
+                              <div className="text-red-700 font-medium">Error loading wallet ledger</div>
+                              <div className="text-sm text-red-600 mt-1">
+                                {ledgerError instanceof Error ? ledgerError.message : 'Unknown error'}
+                              </div>
+                            </div>
+                          ) : walletLedger ? (
+                            <div className="space-y-6">
+                              {/* Wallet Summary */}
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                  <div className="text-xs font-medium text-gray-600 uppercase tracking-wider">
+                                    Current Balance
+                                  </div>
+                                  <div className="text-2xl font-bold text-gray-900 mt-1">
+                                    {formatUSD(walletLedger.current_balance_cents)}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-xs font-medium text-gray-600 uppercase tracking-wider">
+                                    Total Transactions
+                                  </div>
+                                  <div className="text-2xl font-bold text-gray-900 mt-1">
+                                    {walletLedger.transactions.length}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-xs font-medium text-gray-600 uppercase tracking-wider">
+                                    User ID
+                                  </div>
+                                  <div className="text-sm font-mono text-gray-600 mt-1">
+                                    {walletLedger.user_id}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Transaction History */}
+                              {walletLedger.transactions.length > 0 ? (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="bg-white border-b border-gray-300">
+                                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Date</th>
+                                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Time</th>
+                                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Type</th>
+                                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Dir</th>
+                                        <th className="px-4 py-2 text-right font-semibold text-gray-700">Amount</th>
+                                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Ref ID</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                      {walletLedger.transactions.map((txn: WalletTransaction) => (
+                                        <tr key={txn.id} className="hover:bg-white transition-colors">
+                                          <td className="px-4 py-2 text-gray-600">{formatDate(txn.created_at)}</td>
+                                          <td className="px-4 py-2 text-gray-600">{formatTime(txn.created_at)}</td>
+                                          <td className="px-4 py-2 text-gray-700">{txn.entry_type}</td>
+                                          <td className="px-4 py-2">
+                                            <span className={txn.direction === 'CREDIT' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                                              {txn.direction === 'CREDIT' ? '+' : '-'}
+                                            </span>
+                                          </td>
+                                          <td className="px-4 py-2 text-right font-semibold">
+                                            <span className={txn.direction === 'CREDIT' ? 'text-green-600' : 'text-red-600'}>
+                                              {formatUSD(txn.amount_cents)}
+                                            </span>
+                                          </td>
+                                          <td className="px-4 py-2 text-gray-500 font-mono">
+                                            {txn.reference_id.slice(0, 8)}...
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <div className="text-center text-gray-500 py-4">
+                                  No transactions found for this user
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
-
-        {/* Wallet Summary */}
-        {selectedUserId && walletLedger && (
-          <div className="bg-white rounded-lg shadow">
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Current Balance
-                  </div>
-                  <div className="text-2xl font-bold text-gray-900 mt-1">
-                    {formatUSD(walletLedger.current_balance_cents)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Total Transactions
-                  </div>
-                  <div className="text-2xl font-bold text-gray-900 mt-1">
-                    {walletLedger.transactions.length}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    User ID
-                  </div>
-                  <div className="text-sm font-mono text-gray-600 mt-1">
-                    {walletLedger.user_id.slice(0, 8)}...
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Loading State */}
-        {selectedUserId && ledgerLoading && (
-          <div className="bg-white rounded-lg shadow p-6 text-center">
-            <div className="text-gray-500">Loading wallet transactions...</div>
-          </div>
-        )}
-
-        {/* Error State */}
-        {selectedUserId && ledgerError && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <div className="text-red-700 font-medium">Error loading wallet ledger</div>
-            <div className="text-sm text-red-600 mt-1">
-              {ledgerError instanceof Error ? ledgerError.message : 'Unknown error'}
-            </div>
-          </div>
-        )}
-
-        {/* Transaction History Table */}
-        {selectedUserId && walletLedger && walletLedger.transactions.length > 0 && (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Transaction History</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Date</th>
-                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Time</th>
-                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Type</th>
-                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Direction</th>
-                    <th className="px-6 py-3 text-right font-semibold text-gray-900">Amount</th>
-                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Reference ID</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {walletLedger.transactions.map((txn: WalletTransaction) => (
-                    <tr key={txn.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-3 text-gray-600">{formatDate(txn.created_at)}</td>
-                      <td className="px-6 py-3 text-gray-600">{formatTime(txn.created_at)}</td>
-                      <td className="px-6 py-3">
-                        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                          {txn.entry_type}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3">
-                        <span
-                          className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${
-                            txn.direction === 'CREDIT'
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {txn.direction === 'CREDIT' ? '+' : '-'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3 text-right font-semibold">
-                        <span
-                          className={
-                            txn.direction === 'CREDIT'
-                              ? 'text-green-600'
-                              : 'text-red-600'
-                          }
-                        >
-                          {txn.direction === 'CREDIT' ? '+' : '-'}{formatUSD(txn.amount_cents)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3 text-gray-500 font-mono text-xs">
-                        {txn.reference_id.slice(0, 8)}...
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Empty State */}
-        {selectedUserId && walletLedger && walletLedger.transactions.length === 0 && (
-          <div className="bg-white rounded-lg shadow p-6 text-center">
-            <div className="text-gray-500">No transactions found for this user</div>
-          </div>
-        )}
       </div>
     </div>
   );
