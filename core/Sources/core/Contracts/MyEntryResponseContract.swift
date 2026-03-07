@@ -41,18 +41,21 @@ public struct MyEntryResponseContract: Decodable {
 }
 
 /// DTO for player info available for selection
-/// Maps OpenAPI PlayerInfo schema: { player_id: string, name: string }
+/// Maps OpenAPI PlayerInfo schema: { player_id: string, name: string, image_url?: string }
 public struct PlayerInfoContract: Decodable {
     public let playerId: String
     public let name: String
+    public let imageUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case playerId = "player_id"
         case name
+        case imageUrl = "image_url"
     }
 
-    public init(playerId: String, name: String) {
+    public init(playerId: String, name: String, imageUrl: String? = nil) {
         self.playerId = playerId
         self.name = name
+        self.imageUrl = imageUrl
     }
 }

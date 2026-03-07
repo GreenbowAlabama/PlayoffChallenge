@@ -213,6 +213,8 @@ final class CreateCustomContestViewModel: ObservableObject {
         state = .creating
 
         do {
+            print("[CreateCustomContest] DEBUG: Starting draft creation with userId=\(userId.uuidString)")
+
             let createdDraft = try await creator.createDraft(
                 templateId: templateId,
                 name: trimmedName,
@@ -225,6 +227,9 @@ final class CreateCustomContestViewModel: ObservableObject {
             print("Draft Contest ID: \(createdDraft.id.uuidString)")
             print("Draft Contest Status: \(createdDraft.status)")
             print("Draft Contest Name: \(createdDraft.contestName)")
+            print("Draft Organizer ID: \(createdDraft.organizerId)")
+            print("Current userId: \(userId.uuidString)")
+            print("Match: \(createdDraft.organizerId == userId.uuidString)")
             print("===== VIEWMODEL ASSIGNMENT END =====")
             draft = createdDraft
 
@@ -242,15 +247,24 @@ final class CreateCustomContestViewModel: ObservableObject {
         state = .publishing
 
         do {
+            print("[CreateCustomContest] DEBUG: Publishing draft")
+            print("  Contest ID: \(currentDraft.id.uuidString)")
+            print("  Contest Organizer ID: \(currentDraft.organizerId)")
+            print("  ViewModel userId: \(userId.uuidString)")
+            print("  Sending to publisher with userId=\(userId.uuidString)")
+
             let result = try await publisher.publish(
                 contestId: currentDraft.id,
                 userId: userId
             )
+            print("[CreateCustomContest] DEBUG: Publish succeeded")
             publishResult = result
             state = .published
         } catch let error as CustomContestError {
+            print("[CreateCustomContest] DEBUG: Publish failed with CustomContestError: \(error)")
             state = .error(error)
         } catch {
+            print("[CreateCustomContest] DEBUG: Publish failed: \(error)")
             state = .error(.networkError(underlying: error.localizedDescription))
         }
     }

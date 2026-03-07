@@ -20,20 +20,6 @@ struct SignInView: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 90, height: 90)
 
-                    VStack(spacing: DesignTokens.Spacing.xs) {
-                        Text("67 Games")
-                            .font(.system(size: 28, weight: .black, design: .rounded))
-                            .foregroundColor(DesignTokens.Color.Text.primary)
-                            .tracking(1.2)
-                            .minimumScaleFactor(0.5)
-                            .lineLimit(1)
-
-                        Text("'67 Enterprises")
-                            .font(.system(size: 18, weight: .semibold, design: .rounded))
-                            .foregroundColor(DesignTokens.Color.Brand.primary)
-                            .tracking(0.5)
-                    }
-
                     // Brand accent divider
                     RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
                         .fill(DesignTokens.Color.Brand.primary)

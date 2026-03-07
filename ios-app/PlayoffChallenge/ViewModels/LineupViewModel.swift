@@ -261,7 +261,7 @@ final class LineupViewModel: ObservableObject {
                         team: nil,
                         isActive: true,
                         gameTime: nil,
-                        imageUrl: nil
+                        imageUrl: playerInfo.imageUrl
                     )
                     playersById[playerInfo.playerId] = player
                 }
