@@ -74,6 +74,7 @@ async function getNegativePoolContests(pool) {
         END as root_cause
       FROM pool_calculations
       WHERE (entry_fee_debits_cents - entry_fee_refunds_cents) - (prize_payout_cents - prize_reversal_cents) < 0
+        AND NOT (status = 'CANCELLED' AND participant_count = 0)
     )
     SELECT
       id as contest_id,

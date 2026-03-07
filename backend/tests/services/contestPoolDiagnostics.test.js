@@ -338,6 +338,96 @@ describe('Contest Pool Diagnostics Service', () => {
       // Empty contest should not appear (no negative balance)
       expect(contest).toBeUndefined();
     });
+
+    test('excludes CANCELLED contests with 0 participants', async () => {
+      const organizerId = randomUUID();
+      await pool.query(
+        `INSERT INTO users (id, name, email) VALUES ($1, $2, $3)`,
+        [organizerId, 'Test Org', `org-${organizerId}@test.com`]
+      );
+
+      // Create a CANCELLED contest with negative pool (and 0 participants)
+      const cancelledContestId = randomUUID();
+      await pool.query(
+        `INSERT INTO contest_instances (
+          id, template_id, organizer_id, status, contest_name,
+          entry_fee_cents, payout_structure, max_entries
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [cancelledContestId, templateId, organizerId, 'CANCELLED', 'MidloPGA',
+          5000, JSON.stringify({ '1': 50000 }), 10]
+      );
+
+      // Add payout to create negative pool balance
+      const payoutIdCancelled = randomUUID();
+      await pool.query(
+        `INSERT INTO ledger (
+          contest_instance_id, user_id, entry_type, direction, amount_cents,
+          currency, reference_type, reference_id, idempotency_key, metadata_json, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [
+          cancelledContestId, user1Id, 'PRIZE_PAYOUT', 'CREDIT', 50000,
+          'USD', 'stripe_event', payoutIdCancelled,
+          `payout:${cancelledContestId}:${user1Id}`,
+          JSON.stringify({})
+        ]
+      );
+
+      // Create an active contest with negative pool (for comparison)
+      const activeContestId = randomUUID();
+      await pool.query(
+        `INSERT INTO contest_instances (
+          id, template_id, organizer_id, status, contest_name,
+          entry_fee_cents, payout_structure, max_entries
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [activeContestId, templateId, organizerId, 'COMPLETE', 'Active Contest',
+          5000, JSON.stringify({ '1': 50000 }), 10]
+      );
+
+      // Add participant and entries to active contest
+      await pool.query(
+        `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at)
+         VALUES ($1, $2, NOW())`,
+        [activeContestId, user2Id]
+      );
+
+      await pool.query(
+        `INSERT INTO ledger (
+          contest_instance_id, user_id, entry_type, direction, amount_cents,
+          currency, reference_type, reference_id, idempotency_key, metadata_json, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [
+          activeContestId, user2Id, 'ENTRY_FEE', 'DEBIT', 5000,
+          'USD', 'CONTEST', activeContestId,
+          `wallet_debit:${activeContestId}:${user2Id}`,
+          JSON.stringify({})
+        ]
+      );
+
+      const payoutIdActive = randomUUID();
+      await pool.query(
+        `INSERT INTO ledger (
+          contest_instance_id, user_id, entry_type, direction, amount_cents,
+          currency, reference_type, reference_id, idempotency_key, metadata_json, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [
+          activeContestId, user2Id, 'PRIZE_PAYOUT', 'CREDIT', 50000,
+          'USD', 'stripe_event', payoutIdActive,
+          `payout:${activeContestId}:${user2Id}`,
+          JSON.stringify({})
+        ]
+      );
+
+      const result = await contestPoolDiagnosticsService.getNegativePoolContests(pool);
+
+      // CANCELLED contest should NOT appear in results
+      const midloPGA = result.find(c => c.contest_id === cancelledContestId);
+      expect(midloPGA).toBeUndefined();
+
+      // Active contest SHOULD appear
+      const activeContest = result.find(c => c.contest_id === activeContestId);
+      expect(activeContest).toBeDefined();
+      expect(activeContest.pool_balance_cents).toBeLessThan(0);
+    });
   });
 
   describe('getContestPoolDetails', () => {
