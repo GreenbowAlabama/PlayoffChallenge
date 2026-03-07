@@ -11,7 +11,6 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 export interface FloatBreakdownProps {
   stripeBalance?: number; // cents
@@ -94,7 +93,6 @@ export function FloatBreakdown({
   onNavigateToUserWallets,
   onNavigateToLedgerVerification,
 }: FloatBreakdownProps) {
-  const navigate = useNavigate();
   const [totalDelta, setTotalDelta] = useState(0);
 
   useEffect(() => {

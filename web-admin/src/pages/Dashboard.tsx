@@ -10,6 +10,8 @@ import {
 import {
   getOrphanedFundsSummary,
 } from '../api/orphaned-funds';
+import { FloatBreakdown } from '../components/FloatBreakdown';
+import { getLedgerVerification } from '../api/ledger-verification';
 
 function formatCurrency(cents: number): string {
   const dollars = (cents / 100).toFixed(2);
@@ -57,6 +59,13 @@ export function Dashboard() {
   const { data: orphanedData } = useQuery({
     queryKey: ['orphaned-funds', 'summary'],
     queryFn: getOrphanedFundsSummary,
+  });
+
+  // Ledger verification
+  const { data: ledgerData } = useQuery({
+    queryKey: ['ledgerVerification'],
+    queryFn: getLedgerVerification,
+    staleTime: 60 * 1000,
   });
 
   const getHealthStatus = (data: FinancialHealthResponse): 'healthy' | 'warning' | 'critical' => {
@@ -154,6 +163,18 @@ export function Dashboard() {
           </div>
         ) : null}
       </div>
+
+      {/* Float Breakdown Widget */}
+      <FloatBreakdown
+        stripeBalance={healthData?.stripe_total_balance || 0}
+        userWalletsTotal={healthData?.wallet_balance || 0}
+        contestPoolsTotal={poolsData?.total_negative_cents ? Math.abs(poolsData.total_negative_cents) : 0}
+        unaccountedDelta={ledgerData?.is_balanced ? 0 : (ledgerData?.net || 0)}
+        isLoading={healthLoading}
+        onNavigateToContestPools={() => navigate('/funding')}
+        onNavigateToUserWallets={() => navigate('/funding')}
+        onNavigateToLedgerVerification={() => navigate('/funding')}
+      />
 
       {/* Alert Panel */}
       {totalAnomalies > 0 && (
