@@ -22,8 +22,8 @@ export default function UserWalletLedger() {
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [searchInput, setSearchInput] = useState<string>('');
 
-  // Fetch all users for search dropdown
-  const { data: users = [] } = useQuery({
+  // Fetch all users
+  const { data: users = [], isLoading: usersLoading } = useQuery({
     queryKey: ['adminUsers'],
     queryFn: () => getUsers()
   });
@@ -46,15 +46,8 @@ export default function UserWalletLedger() {
     );
   });
 
-  const selectedUser = users.find(u => u.id === selectedUserId);
-
   const handleUserSelect = (userId: string) => {
     setSelectedUserId(userId);
-  };
-
-  const handleClearSelection = () => {
-    setSelectedUserId('');
-    setSearchInput('');
   };
 
   return (
@@ -66,72 +59,64 @@ export default function UserWalletLedger() {
           <p className="text-gray-600 mt-2">Search and verify individual user transactions</p>
         </div>
 
-        {/* User Search Section */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-6">
-            <div className="space-y-4">
-              {/* Search Input */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Search User by Email or ID
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter email, user ID, or name..."
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
+        {/* Search Filter */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Filter Users by Email, ID, or Name
+          </label>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          />
+        </div>
 
-              {/* User Dropdown */}
-              {searchInput && (
-                <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg bg-white">
-                  {filteredUsers.length === 0 ? (
-                    <div className="px-4 py-3 text-sm text-gray-500">
-                      No users found matching "{searchInput}"
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-gray-200">
-                      {filteredUsers.map(user => (
-                        <li key={user.id}>
-                          <button
-                            type="button"
-                            onClick={() => handleUserSelect(user.id)}
-                            className="w-full text-left px-4 py-2 hover:bg-indigo-50 text-sm transition-colors"
-                          >
-                            <div className="font-medium text-gray-900">{user.name || 'Unnamed'}</div>
-                            <div className="text-xs text-gray-500">{user.email}</div>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-
-              {/* Selected User Info */}
-              {selectedUser && (
-                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="text-sm font-semibold text-gray-900">Selected User</div>
-                      <div className="text-sm text-gray-600">{selectedUser.name || 'Unnamed'}</div>
-                      <div className="text-xs text-gray-500 mt-1">{selectedUser.email}</div>
-                      <div className="text-xs text-gray-500 font-mono mt-1">{selectedUser.id}</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleClearSelection}
-                      className="px-3 py-1 text-sm text-indigo-600 hover:text-indigo-700 hover:bg-indigo-100 rounded transition-colors"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-              )}
+        {/* Users List Table */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          {usersLoading ? (
+            <div className="p-6 text-center text-gray-500">Loading users...</div>
+          ) : filteredUsers.length === 0 ? (
+            <div className="p-6 text-center text-gray-500">
+              {searchInput ? `No users found matching "${searchInput}"` : 'No users found'}
             </div>
-          </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Name</th>
+                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Email</th>
+                    <th className="px-6 py-3 text-left font-semibold text-gray-900">ID</th>
+                    <th className="px-6 py-3 text-right font-semibold text-gray-900">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {filteredUsers.map(user => (
+                    <tr key={user.id} className={selectedUserId === user.id ? 'bg-indigo-50' : 'hover:bg-gray-50 transition-colors'}>
+                      <td className="px-6 py-3 text-gray-900 font-medium">{user.name || 'Unnamed'}</td>
+                      <td className="px-6 py-3 text-gray-600">{user.email || '-'}</td>
+                      <td className="px-6 py-3 text-gray-500 font-mono text-xs">{user.id.slice(0, 8)}...</td>
+                      <td className="px-6 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleUserSelect(user.id)}
+                          className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                            selectedUserId === user.id
+                              ? 'bg-indigo-600 text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          {selectedUserId === user.id ? 'Selected' : 'View'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Wallet Summary */}
