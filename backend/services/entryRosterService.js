@@ -259,13 +259,6 @@ async function getMyEntry(pool, contestInstanceId, userId) {
         name: player.name || 'Unknown',
         image_url: player.image_url || null
       }));
-
-      // [POINT 4] Response Builder Logging
-      console.log(`[MYENTRY][RESPONSE] Preparing response with ${availablePlayers.length} available_players`);
-      if (availablePlayers.length > 0) {
-        console.log(`[MYENTRY][RESPONSE] Sample player in response:`, JSON.stringify(availablePlayers[0], null, 2));
-      }
-      console.log(`[MYENTRY][RESPONSE] Players with image_url:`, availablePlayers.filter(p => p.image_url).length);
     }
   }
 

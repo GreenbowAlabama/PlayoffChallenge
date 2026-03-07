@@ -58,14 +58,14 @@ describe('ESPN PGA Player Service', () => {
       expect(result[0]).toEqual({
         external_id: '12345',
         name: 'Rory McIlroy',
-        image_url: 'https://a.espncdn.com/media/golf/players/12345.jpg',
+        image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/12345.png',
         sport: 'GOLF',
         position: 'G'
       });
       expect(result[1]).toEqual({
         external_id: '67890',
         name: 'Jon Rahm',
-        image_url: 'https://a.espncdn.com/media/golf/players/67890.jpg',
+        image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/67890.png',
         sport: 'GOLF',
         position: 'G'
       });
@@ -99,7 +99,7 @@ describe('ESPN PGA Player Service', () => {
       const result = await espnPgaPlayerService.fetchGolfers();
 
       expect(result).toHaveLength(1);
-      expect(result[0].image_url).toBeNull();
+      expect(result[0].image_url).toBe('https://a.espncdn.com/i/headshots/golf/players/full/12345.png');
     });
 
     it('should call ESPN API with correct endpoint', async () => {
@@ -293,7 +293,7 @@ describe('ESPN PGA Player Service', () => {
       expect(normalized).toEqual({
         external_id: '12345',
         name: 'Tiger Woods',
-        image_url: 'https://example.com/tiger.jpg',
+        image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/12345.png',
         sport: 'GOLF',
         position: 'G'
       });
@@ -308,7 +308,7 @@ describe('ESPN PGA Player Service', () => {
 
       const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
 
-      expect(normalized.image_url).toBeNull();
+      expect(normalized.image_url).toBe('https://a.espncdn.com/i/headshots/golf/players/full/99999.png');
       expect(normalized.external_id).toBe('99999');
     });
 
@@ -320,7 +320,7 @@ describe('ESPN PGA Player Service', () => {
 
       const normalized = espnPgaPlayerService.normalizeGolfer(espnAthlete);
 
-      expect(normalized.image_url).toBeNull();
+      expect(normalized.image_url).toBe('https://a.espncdn.com/i/headshots/golf/players/full/88888.png');
       expect(normalized.external_id).toBe('88888');
     });
 
@@ -395,7 +395,7 @@ describe('ESPN PGA Player Service', () => {
       expect(normalized).toEqual({
         external_id: '12345',
         name: 'Rory McIlroy',
-        image_url: 'https://example.com/rory.jpg',
+        image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/12345.png',
         sport: 'GOLF',
         position: 'G'
       });
@@ -413,7 +413,7 @@ describe('ESPN PGA Player Service', () => {
       expect(normalized).toEqual({
         external_id: '12345',
         name: 'Tiger',
-        image_url: 'https://example.com/tiger.jpg',
+        image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/12345.png',
         sport: 'GOLF',
         position: 'G'
       });
@@ -431,7 +431,7 @@ describe('ESPN PGA Player Service', () => {
       expect(normalized).toEqual({
         external_id: '99999',
         name: 'Test Golfer',
-        image_url: 'https://example.com/test.jpg',
+        image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/99999.png',
         sport: 'GOLF',
         position: 'G'
       });
@@ -505,14 +505,14 @@ describe('ESPN PGA Player Service', () => {
       expect(result[0]).toEqual({
         external_id: '12345',
         name: 'Rory McIlroy',
-        image_url: 'https://a.espncdn.com/media/golf/players/12345.jpg',
+        image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/12345.png',
         sport: 'GOLF',
         position: 'G'
       });
       expect(result[1]).toEqual({
         external_id: '67890',
         name: 'Jon Rahm',
-        image_url: 'https://a.espncdn.com/media/golf/players/67890.jpg',
+        image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/67890.png',
         sport: 'GOLF',
         position: 'G'
       });
@@ -564,7 +564,7 @@ describe('ESPN PGA Player Service', () => {
       const result = await espnPgaPlayerService.fetchTournamentField('401811937');
 
       expect(result).toHaveLength(1);
-      expect(result[0].image_url).toBeNull();
+      expect(result[0].image_url).toBe('https://a.espncdn.com/i/headshots/golf/players/full/12345.png');
     });
 
     it('should throw on ESPN API error', async () => {

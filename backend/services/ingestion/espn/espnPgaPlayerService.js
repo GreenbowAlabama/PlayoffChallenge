@@ -232,10 +232,13 @@ function normalizeGolfer(competitor) {
     return null;
   }
 
+  // Deterministic image URL construction (no ESPN response dependency)
+  const imageUrl = `https://a.espncdn.com/i/headshots/golf/players/full/${athleteId}.png`;
+
   return {
     external_id: athleteId,
     name: name,
-    image_url: `https://a.espncdn.com/i/headshots/golf/players/full/${athleteId}.png`,
+    image_url: imageUrl,
     sport: 'GOLF',
     position: 'G'
   };

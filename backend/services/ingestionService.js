@@ -77,13 +77,6 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
 
   const players = playersResult.rows;
 
-  // [POINT 1] Database Query Layer Logging
-  console.log(`[INGESTION][DB] Fetched ${players.length} players`);
-  if (players.length > 0) {
-    console.log(`[INGESTION][DB] Sample player row:`, JSON.stringify(players[0], null, 2));
-    console.log(`[INGESTION][DB] image_url present in first player?`, players[0]?.image_url ? 'YES' : 'NO');
-  }
-
   if (players.length === 0) {
     console.warn(`[ingestionService] No golf players found for ${contestInstanceId}`);
     return;
@@ -102,13 +95,6 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
     playerImageMap.set(p.id, p.image_url || null);
   });
 
-  // [POINT 2] PlayerImageMap Creation Logging
-  console.log(`[INGESTION][MAP] Created playerImageMap with ${playerImageMap.size} entries`);
-  if (players.length > 0) {
-    console.log(`[INGESTION][MAP] Sample entry: id=${players[0]?.id}, image_url=${playerImageMap.get(players[0]?.id)}`);
-    console.log(`[INGESTION][MAP] Map keys sample:`, Array.from(playerImageMap.keys()).slice(0, 3));
-  }
-
   // Call selectField to build field selection
   let fieldSelection;
   try {
@@ -120,16 +106,12 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
 
   // Enhance field selection with player details (including image_url from playerImageMap)
   const enhancedField = {
-    primary: fieldSelection.primary.map(p => {
-      const imageUrl = playerImageMap.get(p.player_id);
-      console.log(`[INGESTION][ENHANCE] player_id=${p.player_id}, lookup result: ${imageUrl ? 'FOUND' : 'NOT FOUND'}`);
-      return {
-        player_id: p.player_id,
-        name: p.name,
-        espn_id: p.espn_id,
-        image_url: imageUrl || null
-      };
-    }),
+    primary: fieldSelection.primary.map(p => ({
+      player_id: p.player_id,
+      name: p.name,
+      espn_id: p.espn_id,
+      image_url: playerImageMap.get(p.player_id) || null
+    })),
     alternates: fieldSelection.alternates.map(p => ({
       player_id: p.player_id,
       name: p.name,
@@ -137,11 +119,6 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
       image_url: playerImageMap.get(p.player_id) || null
     }))
   };
-
-  // [POINT 3] Field Enhancement Summary
-  if (enhancedField.primary.length > 0) {
-    console.log(`[INGESTION][ENHANCE] Enhanced primary array sample:`, JSON.stringify(enhancedField.primary[0], null, 2));
-  }
 
   // Update field_selections with new selection_json
   const updateResult = await dbClient.query(

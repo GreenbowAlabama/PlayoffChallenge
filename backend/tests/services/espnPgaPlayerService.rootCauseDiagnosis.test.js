@@ -54,7 +54,7 @@ describe('ESPN PGA Player Normalization - Root Cause', () => {
       expect(result).toEqual({
         external_id: '12345',
         name: 'Daniel Berger',
-        image_url: null,
+        image_url: 'https://a.espncdn.com/i/headshots/golf/players/full/12345.png',
         sport: 'GOLF',
         position: 'G'
       });
