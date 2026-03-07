@@ -98,7 +98,8 @@ final class ContestDetailService: ContestDetailFetching, @unchecked Sendable {
             // Decode to contract for ContestActionState mapping
             let contract = try decoder.decode(Core.ContestDetailResponseContract.self, from: data)
 
-            // Map DTO → Contest domain model with all available fields
+            // Map DTO + Contract → Contest domain model with all available fields
+            // Use contract fields for payout_table and roster_config (already in correct types)
             let contest = Contest(
                 id: dto.id,
                 organizerId: dto.organizer_id.uuidString,
@@ -118,8 +119,8 @@ final class ContestDetailService: ContestDetailFetching, @unchecked Sendable {
                 updatedAt: dto.updated_at,
                 leaderboardState: mapLeaderboardState(dto.leaderboard_state),
                 actions: ContestActions.from(contract.actions),
-                payoutTable: dto.payout_table.map { PayoutTier.from($0) },
-                rosterConfig: RosterConfig.from(dto.roster_config),
+                payoutTable: contract.payout_table.map { PayoutTier.from($0) },
+                rosterConfig: RosterConfig.from(contract.roster_config),
                 templateType: ContestTemplateType(rawValue: dto.type) ?? .unknown,
                 isPlatformOwned: dto.is_platform_owned
             )
