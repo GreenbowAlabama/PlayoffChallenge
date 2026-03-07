@@ -10,6 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 
 /**
  * Get summary of all contests with stranded funds (cancelled contests with ENTRY_FEE debits).
+ * Excludes contests where all entry fees have been fully refunded.
  *
  * @param {Object} pool - Database pool
  * @returns {Promise<Array>} Array of contests with stranded funds
@@ -21,16 +22,23 @@ async function getOrphanedFundsSummary(pool) {
        ci.contest_name,
        ci.status,
        ci.created_at,
-       COUNT(DISTINCT l.user_id) as affected_user_count,
-       SUM(CASE WHEN l.direction = 'DEBIT' THEN l.amount_cents ELSE 0 END) as total_stranded_cents
+       COUNT(DISTINCT debit_ledger.user_id) as affected_user_count,
+       SUM(CASE WHEN debit_ledger.direction = 'DEBIT' THEN debit_ledger.amount_cents ELSE 0 END) as total_debit_cents,
+       COALESCE(SUM(CASE WHEN refund_ledger.entry_type = 'ENTRY_FEE_REFUND' AND refund_ledger.direction = 'CREDIT' THEN refund_ledger.amount_cents ELSE 0 END), 0) as total_refund_cents,
+       MAX(refund_ledger.created_at) as refunded_at
      FROM contest_instances ci
-     LEFT JOIN ledger l ON ci.id = l.contest_instance_id
-       AND l.entry_type = 'ENTRY_FEE'
-       AND l.direction = 'DEBIT'
+     LEFT JOIN ledger debit_ledger ON ci.id = debit_ledger.contest_instance_id
+       AND debit_ledger.entry_type = 'ENTRY_FEE'
+       AND debit_ledger.direction = 'DEBIT'
+     LEFT JOIN ledger refund_ledger ON ci.id = refund_ledger.contest_instance_id
+       AND refund_ledger.entry_type = 'ENTRY_FEE_REFUND'
+       AND refund_ledger.direction = 'CREDIT'
      WHERE ci.status = 'CANCELLED'
      GROUP BY ci.id, ci.contest_name, ci.status, ci.created_at
-     HAVING SUM(CASE WHEN l.direction = 'DEBIT' THEN l.amount_cents ELSE 0 END) > 0
-     ORDER BY total_stranded_cents DESC`
+     HAVING SUM(CASE WHEN debit_ledger.direction = 'DEBIT' THEN debit_ledger.amount_cents ELSE 0 END) > 0
+       AND SUM(CASE WHEN debit_ledger.direction = 'DEBIT' THEN debit_ledger.amount_cents ELSE 0 END)
+         > COALESCE(SUM(CASE WHEN refund_ledger.entry_type = 'ENTRY_FEE_REFUND' AND refund_ledger.direction = 'CREDIT' THEN refund_ledger.amount_cents ELSE 0 END), 0)
+     ORDER BY SUM(CASE WHEN debit_ledger.direction = 'DEBIT' THEN debit_ledger.amount_cents ELSE 0 END) - COALESCE(SUM(CASE WHEN refund_ledger.entry_type = 'ENTRY_FEE_REFUND' AND refund_ledger.direction = 'CREDIT' THEN refund_ledger.amount_cents ELSE 0 END), 0) DESC`
   );
 
   return result.rows.map(row => ({
@@ -38,8 +46,9 @@ async function getOrphanedFundsSummary(pool) {
     contest_name: row.contest_name,
     status: row.status,
     affected_user_count: parseInt(row.affected_user_count, 10),
-    total_stranded_cents: parseInt(row.total_stranded_cents, 10),
-    created_at: row.created_at
+    total_stranded_cents: parseInt(row.total_debit_cents, 10) - parseInt(row.total_refund_cents, 10),
+    created_at: row.created_at,
+    refunded_at: row.refunded_at
   }));
 }
 

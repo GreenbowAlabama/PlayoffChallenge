@@ -139,6 +139,157 @@ describe('Orphaned Funds Service', () => {
       const emptyContest = result.find(c => c.contest_id === emptyContestId);
       expect(emptyContest).toBeUndefined(); // Should not include contests with 0 stranded
     });
+
+    it('should exclude contests where all entry fees have been refunded', async () => {
+      // Create a contest with entry fee debits
+      const refundedContestId = randomUUID();
+      await pool.query(
+        `INSERT INTO contest_instances (
+          id, template_id, organizer_id, status, contest_name,
+          entry_fee_cents, payout_structure, max_entries
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          refundedContestId,
+          templateId,
+          organizerId,
+          'CANCELLED',
+          'Fully Refunded Contest',
+          5000,
+          JSON.stringify({ '1': 100 }),
+          10
+        ]
+      );
+
+      // Insert entry fee debit
+      const user3Id = randomUUID();
+      const idemKey3 = `wallet_debit:${refundedContestId}:${user3Id}`;
+      await pool.query(
+        `INSERT INTO users (id, name, email) VALUES ($1, $2, $3)`,
+        [user3Id, 'User 3', `user3-${user3Id}@test.com`]
+      );
+      await pool.query(
+        `INSERT INTO ledger (
+          contest_instance_id, user_id, entry_type, direction, amount_cents,
+          currency, reference_type, reference_id, idempotency_key, metadata_json, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [
+          refundedContestId,
+          user3Id,
+          'ENTRY_FEE',
+          'DEBIT',
+          5000,
+          'USD',
+          'CONTEST',
+          refundedContestId,
+          idemKey3,
+          JSON.stringify({ reason: 'test entry' })
+        ]
+      );
+
+      // Insert full refund credit (matches the debit amount)
+      const refundIdemKey = `refund:${refundedContestId}:${user3Id}`;
+      await pool.query(
+        `INSERT INTO ledger (
+          contest_instance_id, user_id, entry_type, direction, amount_cents,
+          currency, reference_type, reference_id, idempotency_key, metadata_json, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [
+          refundedContestId,
+          user3Id,
+          'ENTRY_FEE_REFUND',
+          'CREDIT',
+          5000,
+          'USD',
+          'CONTEST',
+          refundedContestId,
+          refundIdemKey,
+          JSON.stringify({ reason: 'refund' })
+        ]
+      );
+
+      const result = await orphanedFundsService.getOrphanedFundsSummary(pool);
+      const refundedContest = result.find(c => c.contest_id === refundedContestId);
+      expect(refundedContest).toBeUndefined(); // Should not include fully refunded contests
+    });
+
+    it('should include refunded_at timestamp when refunds exist', async () => {
+      // Create a contest and refund it
+      const refundedContestId = randomUUID();
+      await pool.query(
+        `INSERT INTO contest_instances (
+          id, template_id, organizer_id, status, contest_name,
+          entry_fee_cents, payout_structure, max_entries
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          refundedContestId,
+          templateId,
+          organizerId,
+          'CANCELLED',
+          'Contest With Refund Status',
+          5000,
+          JSON.stringify({ '1': 100 }),
+          10
+        ]
+      );
+
+      const user4Id = randomUUID();
+      const idemKey4 = `wallet_debit:${refundedContestId}:${user4Id}`;
+      await pool.query(
+        `INSERT INTO users (id, name, email) VALUES ($1, $2, $3)`,
+        [user4Id, 'User 4', `user4-${user4Id}@test.com`]
+      );
+
+      // Insert debit
+      await pool.query(
+        `INSERT INTO ledger (
+          contest_instance_id, user_id, entry_type, direction, amount_cents,
+          currency, reference_type, reference_id, idempotency_key, metadata_json, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [
+          refundedContestId,
+          user4Id,
+          'ENTRY_FEE',
+          'DEBIT',
+          5000,
+          'USD',
+          'CONTEST',
+          refundedContestId,
+          idemKey4,
+          JSON.stringify({ reason: 'test entry' })
+        ]
+      );
+
+      // Insert partial refund (only $25 refunded, $25 still stranded)
+      const refundIdemKey4 = `refund:${refundedContestId}:${user4Id}`;
+      await pool.query(
+        `INSERT INTO ledger (
+          contest_instance_id, user_id, entry_type, direction, amount_cents,
+          currency, reference_type, reference_id, idempotency_key, metadata_json, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [
+          refundedContestId,
+          user4Id,
+          'ENTRY_FEE_REFUND',
+          'CREDIT',
+          2500,
+          'USD',
+          'CONTEST',
+          refundedContestId,
+          refundIdemKey4,
+          JSON.stringify({ reason: 'partial refund' })
+        ]
+      );
+
+      const result = await orphanedFundsService.getOrphanedFundsSummary(pool);
+      const contestWithRefund = result.find(c => c.contest_id === refundedContestId);
+
+      // Should be included because refund (2500) < debit (5000)
+      expect(contestWithRefund).toBeDefined();
+      expect(contestWithRefund.total_stranded_cents).toBe(2500); // 5000 - 2500
+      // Check refunded_at field exists
+      expect(contestWithRefund.refunded_at).toBeDefined();
+      expect(contestWithRefund.refunded_at instanceof Date).toBe(true);
+    });
   });
 
   describe('getContestAffectedUsers', () => {

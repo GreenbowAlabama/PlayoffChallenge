@@ -11,6 +11,7 @@ export interface OrphanedFundsContest {
   affected_user_count: number;
   total_stranded_cents: number;
   created_at: string;
+  refunded_at?: string;
 }
 
 export interface AffectedUser {

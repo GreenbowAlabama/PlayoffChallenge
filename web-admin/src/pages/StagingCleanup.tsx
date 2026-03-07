@@ -166,6 +166,7 @@ export default function StagingCleanup() {
               <th>Status</th>
               <th>Affected Users</th>
               <th>Stranded Amount</th>
+              <th>Refund Status</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -186,11 +187,27 @@ export default function StagingCleanup() {
                   <td>{contest.affected_user_count}</td>
                   <td>{formatCents(contest.total_stranded_cents)}</td>
                   <td>
+                    {contest.refunded_at ? (
+                      <div className="refund-status-badge refund-status-completed">
+                        <span className="refund-status-icon">✓</span>
+                        <span className="refund-status-text">
+                          Refunded {new Date(contest.refunded_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="refund-status-badge refund-status-pending">
+                        <span className="refund-status-icon">⚠</span>
+                        <span className="refund-status-text">Pending</span>
+                      </div>
+                    )}
+                  </td>
+                  <td>
                     <button
                       className="refund-btn"
                       onClick={() => openRefundModal(contest.contest_id)}
+                      disabled={!!contest.refunded_at}
                     >
-                      Refund All
+                      {contest.refunded_at ? 'Already Refunded' : 'Refund All'}
                     </button>
                   </td>
                 </tr>
@@ -390,8 +407,40 @@ export default function StagingCleanup() {
           font-size: 12px;
         }
 
-        .refund-btn:hover {
+        .refund-btn:hover:not(:disabled) {
           background-color: #218838;
+        }
+
+        .refund-btn:disabled {
+          background-color: #6c757d;
+          cursor: not-allowed;
+          opacity: 0.7;
+        }
+
+        .refund-status-badge {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 10px;
+          border-radius: 3px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+
+        .refund-status-icon {
+          font-size: 14px;
+        }
+
+        .refund-status-completed {
+          background-color: #d4edda;
+          border: 1px solid #c3e6cb;
+          color: #155724;
+        }
+
+        .refund-status-pending {
+          background-color: #fff3cd;
+          border: 1px solid #ffeeba;
+          color: #856404;
         }
 
         .expansion-row td {
