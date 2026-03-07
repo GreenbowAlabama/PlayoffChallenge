@@ -529,45 +529,54 @@ async function createContestInstance(pool, organizerId, input) {
   validatePayoutStructureAgainstTemplate(input.payout_structure, template);
 
   // Apply timing defaults if not provided by user
-  // Strategy: Inherit tournament timing from template, calculate lock_time as 24 hours before start
-  const now = new Date().toISOString();
+  // Strategy: Require tournament timing from client, OR compute sensible default (7 days from now)
+  const now = new Date();
+  const nowIso = now.toISOString();
 
-  // Extract template tournament times (source of truth for custom contests)
-  const templateTournamentStartTime = template.tournament_start_time;
-  const templateTournamentEndTime = template.tournament_end_time;
+  // If client didn't provide tournament_start_time, compute default: 7 days from now
+  let finalTournamentStartTime = input.tournament_start_time || null;
+  if (!finalTournamentStartTime) {
+    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    finalTournamentStartTime = sevenDaysFromNow.toISOString();
+    console.log(`[createContestInstance] No tournament_start_time provided; computed default (7 days from now):`, finalTournamentStartTime);
+  }
 
-  // Determine final times: user override takes precedence, template timing as fallback
+  // If client didn't provide tournament_end_time, compute default: same day as start, 24 hours later
+  let finalTournamentEndTime = input.tournament_end_time || null;
+  if (!finalTournamentEndTime && finalTournamentStartTime) {
+    const endDate = new Date(new Date(finalTournamentStartTime).getTime() + 24 * 60 * 60 * 1000);
+    finalTournamentEndTime = endDate.toISOString();
+  }
+
+  // Calculate lock_time: 24 hours before tournament starts
   let finalLockTime = input.lock_time || null;
-  let finalTournamentStartTime = templateTournamentStartTime;
-  let finalTournamentEndTime = templateTournamentEndTime;
-
-  // Auto-calculate lock_time if not provided by user
   if (!finalLockTime && finalTournamentStartTime) {
-    // Lock 24 hours before tournament starts
     const startDate = new Date(finalTournamentStartTime);
     const lockDate = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
     finalLockTime = lockDate.toISOString();
   }
 
-  // If no lock_time from user or template, use legacy behavior (default to now)
-  // This maintains backward compatibility with templates that have no timing
+  // Fallback: if somehow still no lock_time, use now (should not happen)
   if (!finalLockTime) {
-    finalLockTime = now;
+    finalLockTime = nowIso;
   }
 
-  // For start_time and end_time fields (legacy): use user input if provided, else default to now
-  const finalStartTime = input.start_time || now;
-  const finalEndTime = input.end_time || null;
+  // For start_time and end_time fields (legacy): use user input if provided, else align with tournament timing
+  // User-provided start_time takes precedence
+  const finalStartTime = input.start_time || finalTournamentStartTime || nowIso;
 
-  // Log timing inheritance for debugging
-  if (finalTournamentStartTime) {
-    console.log(`[createContestInstance] Inherited tournament timing from template:`, {
-      template_id: input.template_id,
-      tournament_start_time: finalTournamentStartTime,
-      tournament_end_time: finalTournamentEndTime,
-      calculated_lock_time: finalLockTime
-    });
+  // Only use computed tournament_end_time if user didn't provide either end_time or start_time
+  let finalEndTime = input.end_time || null;
+  if (!finalEndTime && !input.start_time && finalTournamentEndTime) {
+    finalEndTime = finalTournamentEndTime;
   }
+
+  console.log(`[createContestInstance] Timing computed:`, {
+    tournament_start_time: finalTournamentStartTime,
+    tournament_end_time: finalTournamentEndTime,
+    lock_time: finalLockTime,
+    start_time: finalStartTime
+  });
 
   // HARD GUARD: Prevent malformed percentage payout structures
   if (

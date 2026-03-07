@@ -89,6 +89,12 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
     espn_id: p.espn_id
   }));
 
+  // Create map of player_id → image_url for lookups
+  const playerImageMap = new Map();
+  players.forEach(p => {
+    playerImageMap.set(p.id, p.image_url || null);
+  });
+
   // Call selectField to build field selection
   let fieldSelection;
   try {
@@ -98,19 +104,19 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
     throw err;
   }
 
-  // Enhance field selection with player details
+  // Enhance field selection with player details (including image_url from playerImageMap)
   const enhancedField = {
     primary: fieldSelection.primary.map(p => ({
       player_id: p.player_id,
       name: p.name,
       espn_id: p.espn_id,
-      image_url: p.image_url || null
+      image_url: playerImageMap.get(p.player_id) || null
     })),
     alternates: fieldSelection.alternates.map(p => ({
       player_id: p.player_id,
       name: p.name,
       espn_id: p.espn_id,
-      image_url: p.image_url || null
+      image_url: playerImageMap.get(p.player_id) || null
     }))
   };
 
