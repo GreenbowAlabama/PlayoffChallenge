@@ -252,7 +252,11 @@ final class LineupViewModel: ObservableObject {
                 let availablePlayers = entryResponse.availablePlayers ?? []
                 var playersById: [String: Player] = [:]
 
+                var withImages = 0
                 for playerInfo in availablePlayers {
+                    if playerInfo.imageUrl != nil {
+                        withImages += 1
+                    }
                     let player = Player(
                         id: playerInfo.playerId,
                         sleeperId: nil,
@@ -265,6 +269,7 @@ final class LineupViewModel: ObservableObject {
                     )
                     playersById[playerInfo.playerId] = player
                 }
+                print("[MYLINEUP][vm] Player image URLs: \(withImages)/\(availablePlayers.count) have imageUrl set")
 
                 print("[MYLINEUP][vm] playersById=\(playersById.count)")
 
