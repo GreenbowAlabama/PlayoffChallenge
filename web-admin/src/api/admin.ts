@@ -112,6 +112,8 @@ export interface WeekTransitionPreviewResponse {
 
 export interface GameConfig {
   id: string;
+  sport: string;
+  contest_template_id: string;
   playoff_start_week: number;
   current_playoff_week: number;
   is_week_active: boolean;

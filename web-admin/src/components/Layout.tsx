@@ -25,6 +25,7 @@ export function Layout() {
                 </h1>
               </div>
               <div className="ml-4 flex space-x-4 overflow-x-auto sm:ml-6 sm:space-x-8">
+                {/* OBSERVATIONAL & ANALYTICS */}
                 <Link
                   to="/dashboard"
                   className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
@@ -34,26 +35,6 @@ export function Layout() {
                   }`}
                 >
                   Dashboard
-                </Link>
-                <Link
-                  to="/users"
-                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
-                    isActive('/users')
-                      ? 'border-indigo-500 text-gray-900'
-                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                  }`}
-                >
-                  Users
-                </Link>
-                <Link
-                  to="/diagnostics"
-                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
-                    isActivePrefix('/diagnostics')
-                      ? 'border-indigo-500 text-gray-900'
-                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                  }`}
-                >
-                  Diagnostics
                 </Link>
                 <Link
                   to="/picks"
@@ -74,6 +55,36 @@ export function Layout() {
                   }`}
                 >
                   Trends
+                </Link>
+
+                {/* Divider */}
+                <div className="border-l border-gray-300"></div>
+
+                {/* USER & FINANCIAL MANAGEMENT */}
+                <Link
+                  to="/users"
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
+                    isActive('/users')
+                      ? 'border-indigo-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  }`}
+                >
+                  Users
+                </Link>
+
+                {/* Divider */}
+                <div className="border-l border-gray-300"></div>
+
+                {/* SYSTEM OPERATIONS */}
+                <Link
+                  to="/diagnostics"
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
+                    isActivePrefix('/diagnostics')
+                      ? 'border-indigo-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  }`}
+                >
+                  Diagnostics
                 </Link>
                 <Link
                   to="/discovery"

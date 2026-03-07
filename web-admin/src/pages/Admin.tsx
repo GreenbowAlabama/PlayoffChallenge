@@ -196,11 +196,11 @@ export function Admin() {
             <div>
               <div className="flex items-center gap-3">
                 <span className="text-lg font-semibold text-gray-900">
-                  Playoff Week {currentPlayoffWeek ?? '—'}
+                  Contest Week {currentPlayoffWeek ?? '—'}
                 </span>
                 <span className="text-gray-400">|</span>
                 <span className="text-lg text-gray-700">
-                  NFL Week {currentNflWeek ?? '—'}
+                  Event Week {currentNflWeek ?? '—'}
                 </span>
               </div>
               <div className={`text-sm font-medium ${isWeekLocked ? 'text-red-700' : 'text-green-700'}`}>
@@ -215,7 +215,7 @@ export function Admin() {
           <div className="text-right">
             <div className="text-sm text-gray-500">Next Week</div>
             <div className="text-sm font-medium text-gray-700">
-              Playoff Week {currentPlayoffWeek !== null ? currentPlayoffWeek + 1 : '—'} / NFL Week {nextNflWeek ?? '—'}
+              Contest Week {currentPlayoffWeek !== null ? currentPlayoffWeek + 1 : '—'} / Event Week {nextNflWeek ?? '—'}
             </div>
           </div>
         </div>
@@ -359,11 +359,11 @@ export function Admin() {
             <h3 className="text-sm font-medium text-blue-900 mb-2">Pre-flight Status</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
               <div>
-                <span className="text-blue-700">Current NFL Week:</span>
+                <span className="text-blue-700">Current Event Week:</span>
                 <span className="ml-1 font-medium text-blue-900">{currentNflWeek ?? '—'}</span>
               </div>
               <div>
-                <span className="text-blue-700">Playoff Week:</span>
+                <span className="text-blue-700">Contest Week:</span>
                 <span className="ml-1 font-medium text-blue-900">{currentPlayoffWeek ?? '—'}</span>
               </div>
               <div>
@@ -464,8 +464,8 @@ export function Admin() {
               </button>
               <span className="text-sm text-gray-500">
                 {currentNflWeek && nextNflWeek
-                  ? `NFL Week ${currentNflWeek} → Week ${nextNflWeek}`
-                  : 'Progress the contest to the next NFL week'}
+                  ? `Event Week ${currentNflWeek} → Week ${nextNflWeek}`
+                  : 'Progress the contest to the next event week'}
               </span>
             </div>
             {/* Inline disable reason */}
@@ -628,8 +628,8 @@ export function Admin() {
         }}
         title="Advance to Next Week"
         description={previewData
-          ? `ESPN returned ${previewData.teamCount} teams for NFL Week ${previewData.nflWeek} (Playoff Week ${previewData.toPlayoffWeek}). Review the teams below and confirm they are correct.`
-          : "This will advance the contest to the next playoff week."}
+          ? `ESPN returned ${previewData.teamCount} teams for Event Week ${previewData.nflWeek} (Contest Week ${previewData.toPlayoffWeek}). Review the teams below and confirm they are correct.`
+          : "This will advance the contest to the next contest week."}
         confirmText="Advance Week"
         confirmationPhrase="ADVANCE WEEK"
         isLoading={weekTransitionMutation.isPending}
@@ -663,7 +663,7 @@ export function Admin() {
                 className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
               />
               <span className="text-sm text-gray-700">
-                I confirm these teams are correct for NFL Week {previewData.nflWeek}
+                I confirm these teams are correct for Event Week {previewData.nflWeek}
               </span>
             </label>
           </div>

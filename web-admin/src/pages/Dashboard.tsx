@@ -216,11 +216,11 @@ export function Dashboard() {
             <div>
               <div className="flex items-center gap-3">
                 <span className="text-lg font-semibold text-gray-900">
-                  Playoff Week {currentPlayoffWeek ?? '—'}
+                  Contest Week {currentPlayoffWeek ?? '—'}
                 </span>
                 <span className="text-gray-400">|</span>
                 <span className="text-lg text-gray-700">
-                  NFL Week {currentNflWeek ?? '—'}
+                  Event Week {currentNflWeek ?? '—'}
                 </span>
               </div>
               <div className={`text-sm font-medium ${isWeekLocked ? 'text-red-700' : 'text-green-700'}`}>
@@ -235,7 +235,7 @@ export function Dashboard() {
           <div className="text-right">
             <div className="text-sm text-gray-500">Next Week</div>
             <div className="text-sm font-medium text-gray-700">
-              Playoff Week {currentPlayoffWeek !== null ? currentPlayoffWeek + 1 : '—'} / NFL Week {nextNflWeek ?? '—'}
+              Contest Week {currentPlayoffWeek !== null ? currentPlayoffWeek + 1 : '—'} / Event Week {nextNflWeek ?? '—'}
             </div>
             <Link
               to="/admin"
@@ -578,7 +578,7 @@ export function Dashboard() {
               </svg>
               <h2 className="text-lg font-medium text-green-900">First Live Score Received</h2>
             </div>
-            <p className="text-sm text-green-700 mt-1">Scoring system confirmed operational for Playoff Week {firstLiveScore.weekNumber}</p>
+            <p className="text-sm text-green-700 mt-1">Scoring system confirmed operational for Contest Week {firstLiveScore.weekNumber}</p>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
