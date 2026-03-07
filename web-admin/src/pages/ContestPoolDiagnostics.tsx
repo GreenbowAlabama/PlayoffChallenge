@@ -11,13 +11,14 @@
  */
 
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import type {
+  NegativePoolContest,
+  RootCauseBreakdown,
+} from '../api/contest-pools';
 import {
   getNegativePoolContests,
   getContestPoolDetails,
-  NegativePoolContest,
-  ContestPoolDetailsResponse,
-  RootCauseBreakdown,
 } from '../api/contest-pools';
 
 // Root cause colors, labels, and plain English explanations (Section 21)
@@ -203,8 +204,6 @@ function StatCard({ label, value, color }: { label: string; value: number; color
 }
 
 export function ContestPoolDiagnostics() {
-  const queryClient = useQueryClient();
-
   const {
     data: response,
     isLoading,
@@ -224,7 +223,12 @@ export function ContestPoolDiagnostics() {
   const contests = response?.contests || [];
   const totalCount = response?.total_count || 0;
   const totalNegativeCents = response?.total_negative_cents || 0;
-  const breakdown = response?.root_cause_breakdown || {};
+  const breakdown: RootCauseBreakdown = response?.root_cause_breakdown || {
+    PAYOUTS_EXCEED_ENTRIES: 0,
+    NO_ENTRIES_WITH_PAYOUTS: 0,
+    REFUNDED_ENTRIES_WITH_PAYOUTS: 0,
+    MIXED: 0,
+  };
 
   return (
     <div className="space-y-6">
