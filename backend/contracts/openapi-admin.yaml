@@ -1,0 +1,586 @@
+openapi: 3.0.0
+info:
+  title: Admin Observability API
+  description: Admin-only endpoints for customer service operations and technical support. Separate from public API contract.
+  version: 1.0.0
+
+servers:
+  - url: https://api.playoffchallenge.com
+    description: Production
+  - url: http://localhost:3000
+    description: Development
+
+paths:
+  /api/admin/contests/{contestId}/force-lock:
+    post:
+      tags:
+        - Admin Contest Operations
+      summary: Force a SCHEDULED contest to LOCKED state
+      description: |
+        Admin-triggered transition: SCHEDULED → LOCKED.
+        Used to manually lock a contest before the automatic lock_time.
+
+        Constraints:
+        - Contest must be in SCHEDULED state
+        - Idempotent: If already LOCKED, returns success without state change
+        - Updates lock_time if provided in request
+      operationId: forceContestLock
+      security:
+        - adminAuth: []
+      parameters:
+        - name: contestId
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: Admin reason for force-locking
+              required:
+                - reason
+      responses:
+        '200':
+          description: Contest successfully locked (or already was locked)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  contest:
+                    $ref: '#/components/schemas/ContestDetailResponse'
+        '400':
+          description: Invalid request (bad UUID, missing reason, or invalid state transition)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+              example:
+                error_code: INVALID_STATE_TRANSITION
+                reason: Cannot lock from LIVE status
+        '401':
+          description: Unauthorized - admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+
+  /api/admin/contests/{contestId}/unlock:
+    post:
+      tags:
+        - Admin Contest Operations
+      summary: Revert a LOCKED contest back to SCHEDULED
+      description: |
+        Admin-triggered transition: LOCKED → SCHEDULED (reverting a previous lock).
+        Used to undo a force-lock action.
+
+        Constraints:
+        - Contest must be in LOCKED state
+        - Idempotent: If already SCHEDULED, returns success without state change
+      operationId: unlockContest
+      security:
+        - adminAuth: []
+      parameters:
+        - name: contestId
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: Admin reason for unlocking
+              required:
+                - reason
+      responses:
+        '200':
+          description: Contest successfully unlocked (or already was unlocked)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  contest:
+                    $ref: '#/components/schemas/ContestDetailResponse'
+        '400':
+          description: Invalid request or invalid state transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '401':
+          description: Unauthorized - admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+
+  /api/admin/contests/{contestId}/force-live:
+    post:
+      tags:
+        - Admin Contest Operations
+      summary: Force a LOCKED contest to LIVE state
+      description: |
+        Admin-triggered transition: LOCKED → LIVE.
+        Used to manually transition a contest to LIVE before tournament_start_time.
+
+        Constraints:
+        - Contest must be in LOCKED state
+        - tournament_start_time must be set and must be <= now
+        - Idempotent: If already LIVE, returns success without state change
+      operationId: forceContestLive
+      security:
+        - adminAuth: []
+      parameters:
+        - name: contestId
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: Admin reason for forcing LIVE
+              required:
+                - reason
+      responses:
+        '200':
+          description: Contest successfully transitioned to LIVE (or already was LIVE)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  contest:
+                    $ref: '#/components/schemas/ContestDetailResponse'
+        '400':
+          description: Invalid request (tournament_start_time in future, invalid state, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+              example:
+                error_code: TOURNAMENT_NOT_STARTED
+                reason: Cannot force LIVE - tournament_start_time is in the future
+        '401':
+          description: Unauthorized - admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+
+  /api/admin/users/{userId}/wallet/credit:
+    post:
+      tags:
+        - Admin Wallet Operations
+      summary: Issue a wallet credit to a user
+      description: |
+        Admin-triggered wallet credit for payouts, refunds, or adjustments.
+
+        Atomicity:
+        - Creates single ledger entry with CREDIT direction
+        - If reference_contest_id provided, inserts contest_state_transitions record
+        - Idempotent: Same idempotency_key returns success without duplicate ledger entry
+
+        Idempotency Key Format:
+        wallet_credit:{userId}:{reason}:{reference_contest_id or 'none'}
+      operationId: creditUserWallet
+      security:
+        - adminAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: User UUID to credit
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount_cents:
+                  type: integer
+                  minimum: 1
+                  description: Credit amount in cents (must be positive)
+                reason:
+                  type: string
+                  enum:
+                    - PAYOUT_ADJUSTMENT
+                    - REFUND
+                    - GOODWILL
+                    - OTHER
+                  description: Reason category for credit
+                reference_contest_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Optional reference contest (for audit trail)
+                notes:
+                  type: string
+                  maxLength: 1000
+                  description: Admin notes explaining the credit
+              required:
+                - amount_cents
+                - reason
+                - notes
+      responses:
+        '200':
+          description: Wallet credit successfully issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  new_balance_cents:
+                    type: integer
+                    description: User's new wallet balance after credit
+                  ledger_entry_id:
+                    type: string
+                    format: uuid
+                    description: ID of the ledger entry created
+                  idempotency_key:
+                    type: string
+                    description: Idempotency key used for this credit
+                  timestamp:
+                    type: string
+                    format: date-time
+                    description: Timestamp when credit was processed
+        '400':
+          description: Invalid request (bad amount, invalid reason, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+              example:
+                error_code: INVALID_AMOUNT
+                reason: amount_cents must be a positive integer
+        '401':
+          description: Unauthorized - admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '409':
+          description: Idempotency conflict (same key with different amount)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+              example:
+                error_code: IDEMPOTENCY_CONFLICT
+                reason: Conflict - idempotency key already exists with different amount
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+
+  /api/admin/contests/{contestId}/audit-trail:
+    get:
+      tags:
+        - Admin Audit & Inspection
+      summary: Get contest state transition audit trail
+      description: |
+        Retrieve all state transitions for a contest in chronological order.
+        Includes transitions triggered by automatic lifecycle, admin actions, and provider changes.
+
+        Each transition record includes:
+        - From/to states
+        - Trigger mechanism (LOCK_TIME_REACHED, ADMIN, PROVIDER_TOURNAMENT_CANCELLED, etc.)
+        - Admin user (if ADMIN triggered)
+        - Reason/notes
+        - Timestamp
+      operationId: getContestAuditTrail
+      security:
+        - adminAuth: []
+      parameters:
+        - name: contestId
+          in: path
+          required: true
+          description: Contest instance UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Audit trail retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contest_id:
+                    type: string
+                    format: uuid
+                  transitions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ContestStateTransition'
+                    description: Array of state transitions in chronological order
+        '401':
+          description: Unauthorized - admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '404':
+          description: Contest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+
+components:
+  securitySchemes:
+    adminAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Bearer token authentication for admin-only API endpoints. Separate from public user auth.
+
+  schemas:
+    AdminErrorResponse:
+      type: object
+      description: Error response for admin API endpoints
+      required:
+        - error_code
+        - reason
+      properties:
+        error_code:
+          type: string
+          enum:
+            - INVALID_STATE_TRANSITION
+            - INVALID_AMOUNT
+            - INVALID_REASON
+            - TOURNAMENT_NOT_STARTED
+            - IDEMPOTENCY_CONFLICT
+            - NOT_FOUND
+            - UNAUTHORIZED
+            - INTERNAL_ERROR
+          description: Machine-readable error code
+        reason:
+          type: string
+          description: Human-readable error explanation
+
+    ContestDetailResponse:
+      type: object
+      description: Full contest details (reuses schema from public API)
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - SCHEDULED
+            - LOCKED
+            - LIVE
+            - COMPLETE
+            - CANCELLED
+            - ERROR
+        contest_name:
+          type: string
+        entry_fee_cents:
+          type: integer
+        max_entries:
+          type: integer
+          nullable: true
+        entry_count:
+          type: integer
+        lock_time:
+          type: string
+          format: date-time
+          nullable: true
+        tournament_start_time:
+          type: string
+          format: date-time
+          nullable: true
+        tournament_end_time:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ContestStateTransition:
+      type: object
+      description: |
+        Record of a contest state change.
+        Each transition is immutable and provides audit trail for contest lifecycle changes.
+      required:
+        - id
+        - contest_instance_id
+        - from_state
+        - to_state
+        - triggered_by
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for this transition record
+        contest_instance_id:
+          type: string
+          format: uuid
+          description: Contest that transitioned
+        from_state:
+          type: string
+          enum:
+            - SCHEDULED
+            - LOCKED
+            - LIVE
+            - COMPLETE
+            - CANCELLED
+            - ERROR
+          description: State before transition
+        to_state:
+          type: string
+          enum:
+            - SCHEDULED
+            - LOCKED
+            - LIVE
+            - COMPLETE
+            - CANCELLED
+            - ERROR
+          description: State after transition
+        triggered_by:
+          type: string
+          enum:
+            - LOCK_TIME_REACHED
+            - TOURNAMENT_START_TIME_REACHED
+            - TOURNAMENT_END_TIME_REACHED
+            - PROVIDER_TOURNAMENT_CANCELLED
+            - ADMIN_FORCE_LOCK
+            - ADMIN_UNLOCK
+            - ADMIN_FORCE_LIVE
+            - ADMIN_SETTLE
+            - ADMIN_CANCEL
+            - ADMIN_WALLET_CREDIT
+            - SETTLEMENT_ERROR
+            - ERROR_RECOVERY
+          description: What triggered this transition
+        reason:
+          type: string
+          nullable: true
+          description: Human-readable reason or notes (set for ADMIN and manual triggers)
+        admin_user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of admin who triggered (if ADMIN-triggered)
+        admin_email:
+          type: string
+          nullable: true
+          description: Email of admin who triggered (if ADMIN-triggered)
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when transition occurred (ISO 8601 UTC)
+        context:
+          type: object
+          nullable: true
+          description: |
+            Type-specific context (for future use):
+            - snapshot_id: ID of settlement snapshot (for LIVE→COMPLETE)
+            - settlement_error: Error message (for error states)
+            - provider_reason: Reason from provider (for PROVIDER_TOURNAMENT_CANCELLED)
+            - affected_participants: Count (for CANCELLED cascades)

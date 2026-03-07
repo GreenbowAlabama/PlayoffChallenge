@@ -59,4 +59,141 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/admin/users/:userId/wallet/credit
+ *
+ * Issue a wallet credit to a user for payouts, refunds, or adjustments.
+ *
+ * Request body:
+ * - amount_cents: number (positive integer, in cents)
+ * - reason: string enum (PAYOUT_ADJUSTMENT | REFUND | GOODWILL | OTHER)
+ * - reference_contest_id: string uuid (optional, for audit trail)
+ * - notes: string (max 1000 chars, admin explanation)
+ *
+ * Response:
+ * - success: boolean
+ * - new_balance_cents: number (user's balance after credit)
+ * - ledger_entry_id: string uuid
+ * - idempotency_key: string
+ * - timestamp: ISO 8601 timestamp
+ * - error: string (if applicable)
+ *
+ * Idempotency:
+ * - Same idempotency_key (userId:reason:reference_contest_id) = single ledger entry
+ * - Calling twice with same params returns success with same result
+ */
+router.post('/:userId/wallet/credit', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { userId } = req.params;
+    const { amount_cents, reason, reference_contest_id, notes } = req.body;
+
+    // Validate inputs
+    if (!Number.isInteger(amount_cents) || amount_cents <= 0) {
+      return res.status(400).json({ error_code: 'INVALID_AMOUNT', reason: 'amount_cents must be a positive integer' });
+    }
+
+    if (!['PAYOUT_ADJUSTMENT', 'REFUND', 'GOODWILL', 'OTHER'].includes(reason)) {
+      return res.status(400).json({ error_code: 'INVALID_REASON', reason: 'reason must be one of: PAYOUT_ADJUSTMENT, REFUND, GOODWILL, OTHER' });
+    }
+
+    if (!notes || notes.trim().length === 0) {
+      return res.status(400).json({ error_code: 'INVALID_NOTES', reason: 'notes is required' });
+    }
+
+    // Generate deterministic idempotency key
+    const idempotencyKey = `wallet_credit:${userId}:${reason}:${reference_contest_id || 'none'}`;
+
+    // Insert credit atomically
+    const ledgerId = require('crypto').randomUUID();
+    const now = new Date();
+
+    try {
+      // Try to insert the ledger entry
+      // Columns based on actual schema (no reason_code or created_by_admin_id)
+      const insertResult = await pool.query(
+        `INSERT INTO ledger
+         (id, reference_id, entry_type, direction, amount_cents, reference_type,
+          idempotency_key, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING id`,
+        [ledgerId, userId, 'ENTRY_FEE', 'CREDIT', amount_cents, reference_contest_id ? 'CONTEST' : 'WALLET', idempotencyKey, now]
+      );
+
+      // Check if insert was successful (didn't violate unique constraint)
+      if (insertResult.rows.length === 0) {
+        // Idempotency key already exists - verify it matches our request
+        const existingResult = await pool.query(
+          `SELECT id, amount_cents FROM ledger WHERE idempotency_key = $1`,
+          [idempotencyKey]
+        );
+
+        if (existingResult.rows.length === 0) {
+          return res.status(500).json({ error: 'Ledger entry disappeared after conflict check' });
+        }
+
+        const existingEntry = existingResult.rows[0];
+        if (existingEntry.amount_cents !== amount_cents) {
+          return res.status(409).json({ error_code: 'IDEMPOTENCY_CONFLICT', reason: 'Conflict - idempotency key already exists with different amount' });
+        }
+
+        // Return success with existing ledger entry
+        const walletBalance = await require('../repositories/LedgerRepository').computeWalletBalance(pool, userId);
+        return res.json({
+          success: true,
+          new_balance_cents: walletBalance,
+          ledger_entry_id: existingEntry.id,
+          idempotency_key: idempotencyKey,
+          timestamp: now.toISOString()
+        });
+      }
+
+      // Insert succeeded - compute new balance
+      const { computeWalletBalance } = require('../repositories/LedgerRepository');
+      const newBalance = await computeWalletBalance(pool, userId);
+
+      res.json({
+        success: true,
+        new_balance_cents: newBalance,
+        ledger_entry_id: insertResult.rows[0].id,
+        idempotency_key: idempotencyKey,
+        timestamp: now.toISOString()
+      });
+    } catch (dbErr) {
+      if (dbErr.code === '23505') {
+        // Unique violation on idempotency_key
+        const existingResult = await pool.query(
+          `SELECT id, amount_cents FROM ledger WHERE idempotency_key = $1`,
+          [idempotencyKey]
+        );
+
+        if (existingResult.rows.length > 0) {
+          const existingEntry = existingResult.rows[0];
+          if (existingEntry.amount_cents !== amount_cents) {
+            return res.status(409).json({ error_code: 'IDEMPOTENCY_CONFLICT', reason: 'Conflict - idempotency key already exists with different amount' });
+          }
+
+          const walletBalance = await require('../repositories/LedgerRepository').computeWalletBalance(pool, userId);
+          return res.json({
+            success: true,
+            new_balance_cents: walletBalance,
+            ledger_entry_id: existingEntry.id,
+            idempotency_key: idempotencyKey,
+            timestamp: now.toISOString()
+          });
+        }
+      }
+      throw dbErr;
+    }
+  } catch (err) {
+    if (err.code === '23503') {
+      // Foreign key violation - user doesn't exist
+      return res.status(404).json({ error: 'User not found' });
+    }
+    console.error('[Admin Users] Error crediting wallet:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

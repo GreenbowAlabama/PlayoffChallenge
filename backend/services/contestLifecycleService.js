@@ -607,6 +607,111 @@ async function resolveContestErrorForAdmin(pool, now, contestInstanceId, toStatu
 }
 
 /**
+ * Unlock a LOCKED contest back to SCHEDULED (admin operation).
+ *
+ * Atomically:
+ * - Updates status LOCKED → SCHEDULED
+ * - Clears lock_time
+ * - Inserts transition record
+ *
+ * Idempotent: If already SCHEDULED, returns success without state change
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {Date} now - Injected current time
+ * @param {string} contestInstanceId - Contest instance UUID
+ * @returns {Promise<{ success: boolean, changed: boolean }>}
+ */
+async function unlockScheduledContestForAdmin(pool, now, contestInstanceId) {
+  const result = await performSingleStateTransition(
+    pool,
+    now,
+    contestInstanceId,
+    ['LOCKED'],
+    'SCHEDULED',
+    'ADMIN_UNLOCK',
+    'Manual admin unlock',
+    null, // no callback
+    { lock_time: 'NULL' } // atomic field update to clear lock_time
+  );
+  return { success: result.success, changed: result.changed };
+}
+
+/**
+ * Transition a single LOCKED contest to LIVE (admin-triggered force-live).
+ *
+ * Manual override of the LOCKED → LIVE transition (normally time-driven).
+ * Used by admins to manually advance a contest when ready.
+ *
+ * Constraints:
+ * - Contest must be LOCKED
+ * - tournament_start_time must be set
+ * - now >= tournament_start_time (validates time window)
+ * - Idempotent: If already LIVE, returns success without state change
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {Date} now - Injected current time
+ * @param {string} contestInstanceId - Contest instance UUID
+ * @returns {Promise<{ success: boolean, changed: boolean }>}
+ * @throws {Error} If tournament_start_time is null or in the future
+ */
+async function transitionSingleLockedToLive(pool, now, contestInstanceId) {
+  // First, validate tournament_start_time before attempting transition
+  const validateResult = await pool.query(
+    `SELECT id, tournament_start_time FROM contest_instances
+     WHERE id = $1 AND status = $2`,
+    [contestInstanceId, 'LOCKED']
+  );
+
+  if (!validateResult.rows.length) {
+    // Contest not found or not in LOCKED state
+    const checkResult = await pool.query(
+      'SELECT id, status FROM contest_instances WHERE id = $1',
+      [contestInstanceId]
+    );
+
+    if (!checkResult.rows.length) {
+      const err = new Error(`Contest ${contestInstanceId} not found`);
+      err.code = 'CONTEST_NOT_FOUND';
+      throw err;
+    }
+
+    // Contest exists but not in LOCKED state - let performSingleStateTransition handle it
+    return {
+      success: true,
+      changed: false
+    };
+  }
+
+  const contest = validateResult.rows[0];
+
+  // Validate tournament_start_time exists and is not in future
+  if (!contest.tournament_start_time) {
+    const err = new Error(`Cannot transition contest to LIVE: tournament_start_time is not set`);
+    err.code = 'TOURNAMENT_START_TIME_MISSING';
+    throw err;
+  }
+
+  if (now < contest.tournament_start_time) {
+    const err = new Error(`Cannot transition to LIVE: tournament_start_time (${contest.tournament_start_time.toISOString()}) is in the future`);
+    err.code = 'TOURNAMENT_NOT_STARTED';
+    throw err;
+  }
+
+  // Proceed with state transition
+  const result = await performSingleStateTransition(
+    pool,
+    now,
+    contestInstanceId,
+    ['LOCKED'],
+    'LIVE',
+    'ADMIN_FORCE_LIVE',
+    'Manual admin force-live transition'
+  );
+
+  return { success: result.success, changed: result.changed };
+}
+
+/**
  * Cancel a contest (admin operation, any status except COMPLETE → CANCELLED).
  * @param {Object} pool - Database connection pool
  * @param {Date} now - Injected current time
@@ -637,6 +742,8 @@ module.exports = {
   // Single-instance (admin) frozen primitives
   transitionSingleLiveToComplete,
   lockScheduledContestForAdmin,
+  unlockScheduledContestForAdmin,
+  transitionSingleLockedToLive,
   markContestAsErrorForAdmin,
   resolveContestErrorForAdmin,
   cancelContestForAdmin

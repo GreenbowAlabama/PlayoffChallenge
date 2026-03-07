@@ -3,24 +3,20 @@ import { apiRequest } from '../api/client';
 import type {
   PlayerPickTrend,
   TeamPickTrend,
-  ConferencePickTrend,
 } from '../api/admin';
 
 interface TrendsState {
   playerTrends: PlayerPickTrend[];
   teamTrends: TeamPickTrend[];
-  conferenceTrends: ConferencePickTrend[];
   loading: boolean;
   error: string | null;
 }
 
 export function Trends() {
-  const [trendScope, setTrendScope] = useState<'current' | 'all'>('current');
   const [playerTrendLimit, setPlayerTrendLimit] = useState<10 | 25 | 'all'>(10);
   const [trends, setTrends] = useState<TrendsState>({
     playerTrends: [],
     teamTrends: [],
-    conferenceTrends: [],
     loading: true,
     error: null,
   });
@@ -33,15 +29,12 @@ export function Trends() {
       try {
         setTrends((prev) => ({ ...prev, loading: true, error: null }));
 
-        const [playerRes, teamRes, conferenceRes] = await Promise.all([
+        const [playerRes, teamRes] = await Promise.all([
           apiRequest<PlayerPickTrend[]>(
-            `/api/admin/trends/players?weekRange=${trendScope}`
+            `/api/admin/trends/players?weekRange=all`
           ),
           apiRequest<TeamPickTrend[]>(
-            `/api/admin/trends/teams?weekRange=${trendScope}`
-          ),
-          apiRequest<ConferencePickTrend[]>(
-            `/api/admin/trends/conferences?weekRange=${trendScope}`
+            `/api/admin/trends/teams?weekRange=all`
           ),
         ]);
 
@@ -49,7 +42,6 @@ export function Trends() {
           setTrends({
             playerTrends: playerRes || [],
             teamTrends: teamRes || [],
-            conferenceTrends: conferenceRes || [],
             loading: false,
             error: null,
           });
@@ -70,16 +62,7 @@ export function Trends() {
     return () => {
       cancelled = true;
     };
-  }, [trendScope]);
-
-  // Conference distribution computed values
-  const afcData = trends.conferenceTrends.find((c) => c.conference === 'AFC');
-  const nfcData = trends.conferenceTrends.find((c) => c.conference === 'NFC');
-  const afcCount = afcData?.pickCount ?? 0;
-  const nfcCount = nfcData?.pickCount ?? 0;
-  const totalConference = afcCount + nfcCount;
-  const afcPct = totalConference > 0 ? Math.round((afcCount / totalConference) * 100) : 0;
-  const nfcPct = totalConference > 0 ? 100 - afcPct : 0;
+  }, []);
 
   // Player trends with limit applied
   const displayedPlayerTrends =
@@ -102,22 +85,6 @@ export function Trends() {
         </p>
       </div>
 
-      {/* Controls */}
-      <div className="flex items-center gap-2">
-        <label htmlFor="trendScope" className="text-sm font-medium text-gray-700">
-          Scope:
-        </label>
-        <select
-          id="trendScope"
-          value={trendScope}
-          onChange={(e) => setTrendScope(e.target.value as 'current' | 'all')}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-        >
-          <option value="current">Current Week</option>
-          <option value="all">Entire Contest</option>
-        </select>
-      </div>
-
       {/* Disclaimer banner */}
       <div className="rounded-md bg-blue-50 border border-blue-200 p-3">
         <p className="text-xs text-blue-700">
@@ -135,55 +102,6 @@ export function Trends() {
         </div>
       )}
 
-
-      {/* Conference Distribution */}
-      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
-          <h2 className="text-lg font-medium text-gray-900">Conference Distribution</h2>
-          <p className="text-sm text-gray-500">AFC vs NFC pick breakdown</p>
-        </div>
-        <div className="p-4">
-          {trends.loading ? (
-            <div className="animate-pulse h-8 bg-gray-200 rounded"></div>
-          ) : totalConference === 0 ? (
-            <div className="text-sm text-gray-500 italic">No picks data available</div>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm text-gray-600 mb-1">
-                <span>
-                  AFC: {afcCount} picks ({afcPct}%)
-                </span>
-                <span>
-                  NFC: {nfcCount} picks ({nfcPct}%)
-                </span>
-              </div>
-              <div className="h-6 rounded-full overflow-hidden flex bg-gray-200">
-                <div
-                  className="bg-blue-500 h-full transition-all"
-                  style={{ width: `${afcPct}%` }}
-                  title={`AFC: ${afcPct}%`}
-                />
-                <div
-                  className="bg-red-500 h-full transition-all"
-                  style={{ width: `${nfcPct}%` }}
-                  title={`NFC: ${nfcPct}%`}
-                />
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 bg-blue-500 rounded"></span>
-                  AFC
-                </span>
-                <span className="text-gray-500">Total: {totalConference} picks</span>
-                <span className="flex items-center gap-1">
-                  NFC
-                  <span className="w-3 h-3 bg-red-500 rounded"></span>
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Team Pick Trends */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">

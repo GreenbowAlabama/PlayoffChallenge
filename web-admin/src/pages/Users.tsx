@@ -55,10 +55,10 @@ function UserDetailPanel({ user }: { user: User }) {
       <button
         type="button"
         onClick={handleExpand}
-        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 focus:outline-none"
-        title="View details"
+        className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500"
+        title="Click to expand user details"
       >
-        {isExpanded ? '▼' : '▶'} Details
+        {isExpanded ? '▼ Hide' : '▶ Show'} Details
       </button>
 
       {isExpanded && (
@@ -322,7 +322,7 @@ export function Users() {
                       <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                         {formatDateTime(user.last_wallet_activity_at)}
                       </td>
-                      <td className="px-3 py-4 text-sm text-gray-500">
+                      <td className="px-3 py-4 text-sm font-medium">
                         <UserDetailPanel user={user} />
                       </td>
                     </tr>

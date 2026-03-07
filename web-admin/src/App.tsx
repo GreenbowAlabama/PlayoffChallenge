@@ -7,10 +7,12 @@ import { Admin } from './pages/Admin';
 import { DiagnosticsDashboard } from './pages/DiagnosticsDashboard';
 import { DiagnosticsUsers } from './pages/DiagnosticsUsers';
 import { DiagnosticsUserDetail } from './pages/DiagnosticsUserDetail';
-import { PicksExplorer } from './pages/PicksExplorer';
+import { Lineups } from './pages/Lineups';
 import { Trends } from './pages/Trends';
 import { ViewDiscovered } from './pages/ViewDiscovered';
 import { CreateContestType } from './pages/CreateContestType';
+import StagingCleanup from './pages/StagingCleanup';
+import { AlertCenter } from './pages/AlertCenter';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -40,14 +42,16 @@ function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="admin" element={<Admin />} />
+            <Route path="alerts" element={<AlertCenter />} />
             <Route path="users" element={<Users />} />
             <Route path="diagnostics" element={<DiagnosticsDashboard />} />
             <Route path="diagnostics/users" element={<DiagnosticsUsers />} />
             <Route path="diagnostics/users/:userId" element={<DiagnosticsUserDetail />} />
-            <Route path="picks" element={<PicksExplorer />} />
+            <Route path="lineups" element={<Lineups />} />
             <Route path="trends" element={<Trends />} />
             <Route path="discovery" element={<ViewDiscovered />} />
             <Route path="create-contest-type" element={<CreateContestType />} />
+            <Route path="staging-cleanup" element={<StagingCleanup />} />
           </Route>
         </Routes>
       </BrowserRouter>

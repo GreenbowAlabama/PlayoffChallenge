@@ -266,6 +266,112 @@ router.post('/:id/resolve-error', async (req, res) => {
 });
 
 /**
+ * POST /api/admin/contests/:id/unlock
+ * Revert LOCKED → SCHEDULED (undo a force-lock)
+ * Body: { reason }
+ */
+router.post('/:id/unlock', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { reason } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({ error: 'reason is required' });
+    }
+
+    const { unlockScheduledContestForAdmin } = require('../services/contestLifecycleService');
+    const result = await unlockScheduledContestForAdmin(pool, new Date(), req.params.id);
+
+    if (!result.success) {
+      return res.status(400).json({ error: 'Failed to unlock contest' });
+    }
+
+    // Fetch updated contest for response
+    const contest = await adminContestService.getContest(pool, req.params.id);
+
+    res.json({ success: true, contest });
+  } catch (err) {
+    if (err.code === 'CONTEST_NOT_FOUND') {
+      return res.status(404).json({ error: 'Contest not found' });
+    }
+    if (err.code === 'INVALID_STATUS') {
+      return res.status(409).json({ error: err.message });
+    }
+    console.error('[Admin Contests] Error unlocking contest:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/contests/:id/force-live
+ * Manually transition LOCKED → LIVE (admin override)
+ * Body: { reason }
+ */
+router.post('/:id/force-live', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { reason } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({ error: 'reason is required' });
+    }
+
+    const { transitionSingleLockedToLive } = require('../services/contestLifecycleService');
+    const result = await transitionSingleLockedToLive(pool, new Date(), req.params.id);
+
+    if (!result.success) {
+      return res.status(400).json({ error: 'Failed to transition contest to LIVE' });
+    }
+
+    // Fetch updated contest for response
+    const contest = await adminContestService.getContest(pool, req.params.id);
+
+    res.json({ success: true, contest });
+  } catch (err) {
+    if (err.code === 'CONTEST_NOT_FOUND') {
+      return res.status(404).json({ error: 'Contest not found' });
+    }
+    if (err.code === 'INVALID_STATUS' || err.code === 'TOURNAMENT_NOT_STARTED' || err.code === 'TOURNAMENT_START_TIME_MISSING') {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('[Admin Contests] Error forcing live:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/contests/:id/audit-trail
+ * Get contest state transitions (immutable audit trail)
+ */
+router.get('/:id/audit-trail', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const result = await pool.query(
+      `SELECT
+        id,
+        contest_instance_id,
+        from_state,
+        to_state,
+        triggered_by,
+        reason,
+        created_at
+       FROM contest_state_transitions
+       WHERE contest_instance_id = $1
+       ORDER BY created_at ASC`,
+      [req.params.id]
+    );
+
+    res.json({
+      contest_id: req.params.id,
+      transitions: result.rows
+    });
+  } catch (err) {
+    console.error('[Admin Contests] Error fetching audit trail:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/contests/:id/audit
  * Get audit log for contest
  */

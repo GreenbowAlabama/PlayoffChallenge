@@ -9,9 +9,10 @@
  * No auto-refresh. Manual refresh only.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { getHealthCheck, getUserStats, getJobsStatus, getLifecycleHealth } from '../api/diagnostics';
+import { getCacheStatus, getUsers } from '../api/admin';
 import { LifecycleHealthPanel } from '../components/LifecycleHealthPanel';
 
 function StatusBadge({ status }: { status: string }) {
@@ -49,6 +50,8 @@ function formatTimestamp(ts: string | null): string {
 }
 
 export function DiagnosticsDashboard() {
+  const queryClient = useQueryClient();
+
   const {
     data: health,
     isLoading: healthLoading,
@@ -92,13 +95,28 @@ export function DiagnosticsDashboard() {
     staleTime: Infinity,
   });
 
-  const isAnyFetching = healthFetching || statsFetching || jobsFetching || lifecycleFetching;
+  // System Health queries
+  const { data: cacheStatus, isLoading: cacheLoading, isFetching: cacheRefetching } = useQuery({
+    queryKey: ['systemHealth', 'cacheStatus'],
+    queryFn: getCacheStatus,
+    staleTime: Infinity,
+  });
+
+  const { data: sysUsers, isLoading: sysUsersLoading, isFetching: sysUsersRefetching } = useQuery({
+    queryKey: ['systemHealth', 'users'],
+    queryFn: getUsers,
+    staleTime: Infinity,
+  });
+
+  const isAnyFetching = healthFetching || statsFetching || jobsFetching || lifecycleFetching || cacheRefetching || sysUsersRefetching;
+  const isSystemHealthRefetching = cacheRefetching || sysUsersRefetching;
 
   const handleRefreshAll = () => {
     refetchHealth();
     refetchStats();
     refetchJobs();
     refetchLifecycleHealth();
+    queryClient.invalidateQueries({ queryKey: ['systemHealth'] });
   };
 
   return (
@@ -243,6 +261,69 @@ export function DiagnosticsDashboard() {
               Last checked: {formatTimestamp(health.timestamp)}
             </p>
           )}
+        </div>
+      </div>
+
+      {/* System Health Panel */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+          <h2 className="text-lg font-medium text-gray-900">System Health Summary</h2>
+          <p className="text-sm text-gray-500">Real-time system status indicators</p>
+        </div>
+        <div className="p-4">
+          {cacheLoading || sysUsersLoading ? (
+            <div className="animate-pulse space-y-2">
+              <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+              <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Link to="/users" className="bg-gray-50 rounded-md p-3 block hover:bg-gray-100 transition-colors">
+                <dt className="text-sm font-medium text-gray-500">Users</dt>
+                <dd className="mt-1 text-2xl font-semibold text-indigo-600">
+                  {sysUsers?.count ?? '—'}
+                </dd>
+                <span className="text-xs text-indigo-500">View all</span>
+              </Link>
+              <div className="bg-gray-50 rounded-md p-3">
+                <dt className="text-sm font-medium text-gray-500">Cached Players</dt>
+                <dd className="mt-1 text-2xl font-semibold text-gray-900">
+                  {cacheStatus?.cachedPlayerCount ?? '—'}
+                </dd>
+              </div>
+              <div className="bg-gray-50 rounded-md p-3">
+                <dt className="text-sm font-medium text-gray-500">Active Games</dt>
+                <dd className="mt-1 text-2xl font-semibold text-gray-900">
+                  {cacheStatus?.activeGames?.length ?? '—'}
+                </dd>
+              </div>
+              <div className="bg-gray-50 rounded-md p-3">
+                <dt className="text-sm font-medium text-gray-500">Cache Status</dt>
+                <dd className="mt-1">
+                  <span
+                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-sm font-medium ${
+                      cacheStatus?.lastScoreboardUpdate !== null
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-yellow-100 text-yellow-800'
+                    }`}
+                  >
+                    {cacheStatus?.lastScoreboardUpdate !== null ? 'Healthy' : 'Stale'}
+                  </span>
+                </dd>
+              </div>
+            </div>
+          )}
+          <div className="mt-4 text-right">
+            <button
+              onClick={() => {
+                queryClient.invalidateQueries({ queryKey: ['systemHealth'] });
+              }}
+              disabled={isSystemHealthRefetching}
+              className="inline-flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSystemHealthRefetching ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
         </div>
       </div>
 
