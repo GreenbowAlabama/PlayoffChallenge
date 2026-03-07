@@ -168,7 +168,7 @@ export function Dashboard() {
       <FloatBreakdown
         stripeBalance={healthData?.stripe_total_balance || 0}
         userWalletsTotal={healthData?.wallet_balance || 0}
-        contestPoolsTotal={poolsData?.total_negative_cents ? Math.abs(poolsData.total_negative_cents) : 0}
+        contestPoolsTotal={healthData?.contest_pool_balance || 0}
         unaccountedDelta={ledgerData?.is_balanced ? 0 : (ledgerData?.net || 0)}
         isLoading={healthLoading}
         onNavigateToContestPools={() => navigate('/funding')}
