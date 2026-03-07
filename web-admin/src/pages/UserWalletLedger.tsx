@@ -3,6 +3,34 @@ import { useQuery } from '@tanstack/react-query';
 import { getUsers, getUserWalletLedger } from '../api/users';
 import type { UserWalletLedger, WalletTransaction } from '../api/users';
 
+// Duplicate detection: find transactions that might be duplicates
+function findSuspectedDuplicates(transactions: WalletTransaction[]): Set<string> {
+  const suspected = new Set<string>();
+
+  // Look for same entry type, same direction, same amount within 60 seconds
+  for (let i = 0; i < transactions.length; i++) {
+    for (let j = i + 1; j < transactions.length; j++) {
+      const t1 = transactions[i];
+      const t2 = transactions[j];
+
+      const timeDiff = Math.abs(new Date(t1.created_at).getTime() - new Date(t2.created_at).getTime());
+
+      if (
+        t1.entry_type === t2.entry_type &&
+        t1.direction === t2.direction &&
+        t1.amount_cents === t2.amount_cents &&
+        timeDiff < 60000 && // within 60 seconds
+        t1.reference_id !== t2.reference_id // but different reference IDs
+      ) {
+        suspected.add(t1.id);
+        suspected.add(t2.id);
+      }
+    }
+  }
+
+  return suspected;
+}
+
 // Helper to format cents as USD
 function formatUSD(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -160,6 +188,27 @@ export default function UserWalletLedger() {
                             </div>
                           ) : walletLedger ? (
                             <div className="space-y-8">
+                              {/* Duplicate Warning */}
+                              {(() => {
+                                const suspected = findSuspectedDuplicates(walletLedger.transactions);
+                                return suspected.size > 0 ? (
+                                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                    <div className="flex items-start gap-3">
+                                      <span className="text-2xl">⚠️</span>
+                                      <div className="flex-1">
+                                        <h3 className="font-semibold text-yellow-900">Suspected Duplicate Refunds Detected</h3>
+                                        <p className="text-sm text-yellow-800 mt-1">
+                                          Found {suspected.size} transaction(s) with same type, direction, and amount within 60 seconds but different reference IDs.
+                                        </p>
+                                        <p className="text-xs text-yellow-700 mt-2">
+                                          <strong>How to verify:</strong> Check if duplicate refunds have <strong>same reference ID</strong> (same contest, legitimate single refund) or <strong>different reference IDs</strong> (different contests, or possible duplicate bug).
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null;
+                              })()}
+
                               {/* Wallet Summary */}
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div className="bg-white rounded-lg p-4 border border-indigo-100">
@@ -191,38 +240,56 @@ export default function UserWalletLedger() {
                               {/* Transaction History */}
                               {walletLedger.transactions.length > 0 ? (
                                 <div>
-                                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Transaction History</h3>
+                                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Transaction History (Most Recent First)</h3>
                                   <div className="overflow-x-auto border border-gray-200 rounded-lg">
                                     <table className="w-full text-xs bg-white">
                                       <thead>
                                         <tr className="bg-gray-50 border-b border-gray-200">
-                                          <th className="px-4 py-3 text-left font-semibold text-gray-700">Date</th>
-                                          <th className="px-4 py-3 text-left font-semibold text-gray-700">Time</th>
+                                          <th className="px-4 py-3 text-left font-semibold text-gray-700">Date & Time</th>
                                           <th className="px-4 py-3 text-left font-semibold text-gray-700">Type</th>
                                           <th className="px-4 py-3 text-center font-semibold text-gray-700">Dir</th>
                                           <th className="px-4 py-3 text-right font-semibold text-gray-700">Amount</th>
-                                          <th className="px-4 py-3 text-left font-semibold text-gray-700">Reference</th>
+                                          <th className="px-4 py-3 text-left font-semibold text-gray-700">Reference ID</th>
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-gray-100">
-                                        {walletLedger.transactions.map((txn: WalletTransaction, txnIdx) => (
-                                          <tr key={txn.id} className={txnIdx % 2 === 0 ? 'hover:bg-gray-50' : 'bg-gray-50 hover:bg-gray-100'}>
-                                            <td className="px-4 py-3 text-gray-600">{formatDate(txn.created_at)}</td>
-                                            <td className="px-4 py-3 text-gray-600">{formatTime(txn.created_at)}</td>
-                                            <td className="px-4 py-3 text-gray-700 font-medium">{txn.entry_type}</td>
-                                            <td className="px-4 py-3 text-center">
-                                              <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold ${txn.direction === 'CREDIT' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                                {txn.direction === 'CREDIT' ? '+' : '−'}
-                                              </span>
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-semibold">
-                                              <span className={txn.direction === 'CREDIT' ? 'text-green-600' : 'text-red-600'}>
-                                                {formatUSD(txn.amount_cents)}
-                                              </span>
-                                            </td>
-                                            <td className="px-4 py-3 text-gray-500 font-mono text-xs">{txn.reference_id.slice(0, 12)}...</td>
-                                          </tr>
-                                        ))}
+                                        {(() => {
+                                          const suspected = findSuspectedDuplicates(walletLedger.transactions);
+                                          return walletLedger.transactions.map((txn: WalletTransaction, txnIdx) => {
+                                            const isSuspected = suspected.has(txn.id);
+                                            return (
+                                              <tr
+                                                key={txn.id}
+                                                className={`${
+                                                  isSuspected
+                                                    ? 'bg-yellow-50 border-l-4 border-yellow-400 hover:bg-yellow-100'
+                                                    : txnIdx % 2 === 0
+                                                      ? 'hover:bg-gray-50'
+                                                      : 'bg-gray-50 hover:bg-gray-100'
+                                                }`}
+                                              >
+                                                <td className="px-4 py-3 text-gray-600">
+                                                  {formatDate(txn.created_at)} {formatTime(txn.created_at)}
+                                                  {isSuspected && <div className="text-yellow-700 text-xs font-semibold mt-0.5">🚨 Suspected Duplicate</div>}
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-700 font-medium">{txn.entry_type}</td>
+                                                <td className="px-4 py-3 text-center">
+                                                  <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold ${txn.direction === 'CREDIT' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                    {txn.direction === 'CREDIT' ? '+' : '−'}
+                                                  </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-semibold">
+                                                  <span className={txn.direction === 'CREDIT' ? 'text-green-600' : 'text-red-600'}>
+                                                    {formatUSD(txn.amount_cents)}
+                                                  </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-500 font-mono text-xs break-all" title={txn.reference_id}>
+                                                  {txn.reference_id}
+                                                </td>
+                                              </tr>
+                                            );
+                                          });
+                                        })()}
                                       </tbody>
                                     </table>
                                   </div>
