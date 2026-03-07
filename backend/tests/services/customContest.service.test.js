@@ -767,6 +767,150 @@ describe('Custom Contest Service Unit Tests', () => {
         expect(new Date(result.lock_time).getTime()).toBeGreaterThanOrEqual(beforeTime);
         expect(new Date(result.lock_time).getTime()).toBeLessThanOrEqual(afterTime + 1000); // Allow 1 second buffer for execution
       });
+
+      it('should inherit tournament_start_time from template', async () => {
+        const tournamentStartTime = '2026-03-12T04:00:00Z';
+        const tournamentEndTime = '2026-03-14T23:59:59Z';
+        const templateWithTiming = {
+          ...mockTemplate,
+          tournament_start_time: tournamentStartTime,
+          tournament_end_time: tournamentEndTime
+        };
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_templates WHERE id/,
+          mockQueryResponses.single(templateWithTiming)
+        );
+
+        const instanceWithTiming = {
+          ...mockInstance,
+          tournament_start_time: tournamentStartTime,
+          tournament_end_time: tournamentEndTime
+        };
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(instanceWithTiming)
+        );
+
+        const result = await customContestService.createContestInstance(mockPool, TEST_USER_ID, {
+          template_id: TEST_TEMPLATE_ID,
+          contest_name: 'Test Contest',
+          entry_fee_cents: 2500,
+          payout_structure: { type: 'top_n_split', max_winners: 3 }
+        });
+
+        expect(result.tournament_start_time).toBe(tournamentStartTime);
+        expect(result.tournament_end_time).toBe(tournamentEndTime);
+      });
+
+      it('should auto-calculate lock_time 24 hours before tournament start', async () => {
+        const tournamentStartTime = '2026-03-12T04:00:00Z';
+        const templateWithTiming = {
+          ...mockTemplate,
+          tournament_start_time: tournamentStartTime,
+          tournament_end_time: null
+        };
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_templates WHERE id/,
+          mockQueryResponses.single(templateWithTiming)
+        );
+
+        // Calculate expected lock time (24 hours before start)
+        const startDate = new Date(tournamentStartTime);
+        const lockDate = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
+        const expectedLockTime = lockDate.toISOString();
+
+        const instanceWithCalculatedLock = {
+          ...mockInstance,
+          tournament_start_time: tournamentStartTime,
+          lock_time: expectedLockTime
+        };
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(instanceWithCalculatedLock)
+        );
+
+        const result = await customContestService.createContestInstance(mockPool, TEST_USER_ID, {
+          template_id: TEST_TEMPLATE_ID,
+          contest_name: 'Test Contest',
+          entry_fee_cents: 2500,
+          payout_structure: { type: 'top_n_split', max_winners: 3 }
+        });
+
+        expect(result.lock_time).toBe(expectedLockTime);
+        expect(result.tournament_start_time).toBe(tournamentStartTime);
+      });
+
+      it('should respect user-provided lock_time over template timing', async () => {
+        const tournamentStartTime = '2026-03-12T04:00:00Z';
+        const userProvidedStart = '2026-03-12T04:00:00Z';
+        const userProvidedLock = '2026-03-11T00:00:00Z';
+        const templateWithTiming = {
+          ...mockTemplate,
+          tournament_start_time: tournamentStartTime,
+          tournament_end_time: null
+        };
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_templates WHERE id/,
+          mockQueryResponses.single(templateWithTiming)
+        );
+
+        const instanceWithUserLock = {
+          ...mockInstance,
+          tournament_start_time: tournamentStartTime,
+          start_time: userProvidedStart,
+          lock_time: userProvidedLock
+        };
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(instanceWithUserLock)
+        );
+
+        const result = await customContestService.createContestInstance(mockPool, TEST_USER_ID, {
+          template_id: TEST_TEMPLATE_ID,
+          contest_name: 'Test Contest',
+          entry_fee_cents: 2500,
+          payout_structure: { type: 'top_n_split', max_winners: 3 },
+          start_time: userProvidedStart,
+          lock_time: userProvidedLock
+        });
+
+        expect(result.lock_time).toBe(userProvidedLock);
+        expect(result.tournament_start_time).toBe(tournamentStartTime);
+      });
+
+      it('should handle template with null tournament_start_time', async () => {
+        const templateWithoutTiming = {
+          ...mockTemplate,
+          tournament_start_time: null,
+          tournament_end_time: null
+        };
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_templates WHERE id/,
+          mockQueryResponses.single(templateWithoutTiming)
+        );
+
+        const instanceWithoutTiming = {
+          ...mockInstance,
+          tournament_start_time: null,
+          tournament_end_time: null,
+          lock_time: new Date().toISOString() // Fallback to now
+        };
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(instanceWithoutTiming)
+        );
+
+        const result = await customContestService.createContestInstance(mockPool, TEST_USER_ID, {
+          template_id: TEST_TEMPLATE_ID,
+          contest_name: 'Test Contest',
+          entry_fee_cents: 2500,
+          payout_structure: { type: 'top_n_split', max_winners: 3 }
+        });
+
+        expect(result.tournament_start_time).toBeNull();
+        expect(result.tournament_end_time).toBeNull();
+        expect(result.lock_time).not.toBeNull(); // Should fallback to now
+      });
     });
 
     describe('getContestInstance', () => {

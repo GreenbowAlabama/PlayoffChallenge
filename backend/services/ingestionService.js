@@ -71,7 +71,7 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
 
   // Fetch all players that were ingested (by id, which includes espn_ prefix)
   const playersResult = await dbClient.query(
-    `SELECT id, full_name, espn_id FROM players WHERE id = ANY($1) AND sport = 'GOLF' ORDER BY id`,
+    `SELECT id, full_name, espn_id, image_url FROM players WHERE id = ANY($1) AND sport = 'GOLF' ORDER BY id`,
     [espnPlayerIds]
   );
 
@@ -103,12 +103,14 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
     primary: fieldSelection.primary.map(p => ({
       player_id: p.player_id,
       name: p.name,
-      espn_id: p.espn_id
+      espn_id: p.espn_id,
+      image_url: p.image_url || null
     })),
     alternates: fieldSelection.alternates.map(p => ({
       player_id: p.player_id,
       name: p.name,
-      espn_id: p.espn_id
+      espn_id: p.espn_id,
+      image_url: p.image_url || null
     }))
   };
 

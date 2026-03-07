@@ -529,16 +529,44 @@ async function createContestInstance(pool, organizerId, input) {
   validatePayoutStructureAgainstTemplate(input.payout_structure, template);
 
   // Apply timing defaults if not provided by user
-  // Strategy: If user provides start_time, use it; else use now
-  // If user provides lock_time, use it; else lock_time = start_time
+  // Strategy: Inherit tournament timing from template, calculate lock_time as 24 hours before start
   const now = new Date().toISOString();
-  let finalStartTime = input.start_time || now;
-  let finalLockTime = input.lock_time || finalStartTime;
-  let finalEndTime = input.end_time || null;
 
-  // Validate: lock_time must never be NULL (governance requirement)
+  // Extract template tournament times (source of truth for custom contests)
+  const templateTournamentStartTime = template.tournament_start_time;
+  const templateTournamentEndTime = template.tournament_end_time;
+
+  // Determine final times: user override takes precedence, template timing as fallback
+  let finalLockTime = input.lock_time || null;
+  let finalTournamentStartTime = templateTournamentStartTime;
+  let finalTournamentEndTime = templateTournamentEndTime;
+
+  // Auto-calculate lock_time if not provided by user
+  if (!finalLockTime && finalTournamentStartTime) {
+    // Lock 24 hours before tournament starts
+    const startDate = new Date(finalTournamentStartTime);
+    const lockDate = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
+    finalLockTime = lockDate.toISOString();
+  }
+
+  // If no lock_time from user or template, use legacy behavior (default to now)
+  // This maintains backward compatibility with templates that have no timing
   if (!finalLockTime) {
-    throw new Error('lock_time must not be NULL (derived or provided)');
+    finalLockTime = now;
+  }
+
+  // For start_time and end_time fields (legacy): use user input if provided, else default to now
+  const finalStartTime = input.start_time || now;
+  const finalEndTime = input.end_time || null;
+
+  // Log timing inheritance for debugging
+  if (finalTournamentStartTime) {
+    console.log(`[createContestInstance] Inherited tournament timing from template:`, {
+      template_id: input.template_id,
+      tournament_start_time: finalTournamentStartTime,
+      tournament_end_time: finalTournamentEndTime,
+      calculated_lock_time: finalLockTime
+    });
   }
 
   // HARD GUARD: Prevent malformed percentage payout structures
@@ -590,8 +618,10 @@ async function createContestInstance(pool, organizerId, input) {
       status,
       start_time,
       lock_time,
-      end_time
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      end_time,
+      tournament_start_time,
+      tournament_end_time
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     RETURNING *`,
     [
       input.template_id,
@@ -603,7 +633,9 @@ async function createContestInstance(pool, organizerId, input) {
       'SCHEDULED',
       finalStartTime,
       finalLockTime,
-      finalEndTime
+      finalEndTime,
+      finalTournamentStartTime,
+      finalTournamentEndTime
     ]
   );
 
