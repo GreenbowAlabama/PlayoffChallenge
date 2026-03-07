@@ -21,12 +21,16 @@ struct PlayoffChallengeApp: App {
         joinLinkResolver: JoinLinkService(),
         pendingJoinStore: PendingJoinManager()
     )
+    @StateObject private var availableContestsVM = AvailableContestsViewModel()
+    @StateObject private var myContestsVM = MyContestsViewModel()
 
     var body: some Scene {
         WindowGroup {
             rootView
                 .environmentObject(authService)
                 .environmentObject(deepLinkCoordinator)
+                .environmentObject(availableContestsVM)
+                .environmentObject(myContestsVM)
                 .onAppear {
                     // Configure auth state synchronously on appear — before onOpenURL can fire.
                     // This fixes the race where onOpenURL fires before .task{} runs.
@@ -65,6 +69,8 @@ struct PlayoffChallengeApp: App {
                                 }
                         }
                         .environmentObject(authService)
+                        .environmentObject(availableContestsVM)
+                        .environmentObject(myContestsVM)
                     }
                 }
         }

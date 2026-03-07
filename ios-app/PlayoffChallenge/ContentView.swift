@@ -20,26 +20,17 @@ struct ContentView: View {
 // MARK: - Authenticated Root
 
 /// Wrapper for authenticated content.
-/// Creates user-scoped ViewModels only after identity is confirmed.
-/// Ensures ViewModels are destroyed when user logs out or identity changes.
+/// Uses ViewModels provided by PlayoffChallengeApp to ensure they're shared across all views,
+/// including deep link sheets which exist outside the ContentView hierarchy.
 struct AuthenticatedRootView: View {
     let userId: String
 
-    @StateObject private var availableVM = AvailableContestsViewModel()
-    @StateObject private var myVM: MyContestsViewModel
+    @EnvironmentObject var availableVM: AvailableContestsViewModel
+    @EnvironmentObject var myVM: MyContestsViewModel
     @StateObject private var walletVM = UserWalletViewModel()
-
-    init(userId: String) {
-        self.userId = userId
-        _myVM = StateObject(
-            wrappedValue: MyContestsViewModel()
-        )
-    }
 
     var body: some View {
         MainTabView()
-            .environmentObject(availableVM)
-            .environmentObject(myVM)
             .environmentObject(walletVM)
             .onAppear { print("AuthenticatedRootView appear") }
             .task {

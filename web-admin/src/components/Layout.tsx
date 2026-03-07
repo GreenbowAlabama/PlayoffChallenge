@@ -76,6 +76,26 @@ export function Layout() {
                   Trends
                 </Link>
                 <Link
+                  to="/discovery"
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
+                    isActive('/discovery')
+                      ? 'border-indigo-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  }`}
+                >
+                  Discovery
+                </Link>
+                <Link
+                  to="/create-contest-type"
+                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
+                    isActive('/create-contest-type')
+                      ? 'border-indigo-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  }`}
+                >
+                  New Type
+                </Link>
+                <Link
                   to="/admin"
                   className={`inline-flex flex-shrink-0 items-center border-b-2 px-1 pt-1 text-sm font-medium whitespace-nowrap ${
                     isActive('/admin')
