@@ -24,7 +24,8 @@ export interface FloatBreakdownProps {
 }
 
 function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  const dollars = Math.abs(cents / 100).toFixed(2);
+  return cents < 0 ? `-$${dollars}` : `$${dollars}`;
 }
 
 function FloatComponent({
@@ -137,11 +138,11 @@ export function FloatBreakdown({
                   description="Sum of all user wallet balances (platform owes users)"
                 />
                 <FloatComponent
-                  label="Contest Pools Deficit"
+                  label="Contest Pool Balance"
                   value={contestPoolsTotal}
                   type="negative"
                   onNavigate={onNavigateToContestPools}
-                  description="Sum of negative contest pool balances"
+                  description="Net position of all contest pools"
                 />
                 <FloatComponent
                   label={hasDiscrepancy ? 'Unaccounted Loss' : 'Float Delta'}
@@ -150,7 +151,7 @@ export function FloatBreakdown({
                   onNavigate={hasDiscrepancy ? onNavigateToLedgerVerification : undefined}
                   description={
                     hasDiscrepancy
-                      ? 'Missing balance not accounted for'
+                      ? '⚠️  RECONCILIATION ERROR: Ledger does not match Stripe balance'
                       : 'Balanced (no discrepancy)'
                   }
                 />
@@ -173,7 +174,7 @@ export function FloatBreakdown({
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span>Contest pool deficits (platform owes):</span>
+                    <span>Contest pool balance:</span>
                     <span className="font-mono font-semibold text-red-700">
                       −{formatCents(contestPoolsTotal)}
                     </span>
