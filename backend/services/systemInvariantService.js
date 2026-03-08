@@ -431,22 +431,22 @@ async function checkSettlementInvariant(pool) {
  */
 async function checkPipelineInvariant(pool) {
   try {
-    // Discovery worker health
+    // Discovery worker health - check recent ingestion runs for discovery phase
     const discoveryResult = await pool.query(`
       SELECT
         MAX(created_at) as last_run,
-        SUM(CASE WHEN status IN ('ERROR', 'FAILED') THEN 1 ELSE 0 END) as error_count
-      FROM discovery_worker_runs
+        COUNT(CASE WHEN status IN ('ERROR', 'FAILED') THEN 1 END) as error_count
+      FROM ingestion_runs
       WHERE created_at > NOW() - INTERVAL '1 hour';
     `);
 
-    // Lifecycle reconciler health
+    // Lifecycle reconciler health - check validation errors in pipeline
     const lifecycleResult = await pool.query(`
       SELECT
-        MAX(run_at) as last_run,
-        COALESCE(SUM(error_count), 0) as total_errors
-      FROM lifecycle_reconciler_runs
-      WHERE run_at > NOW() - INTERVAL '1 hour';
+        MAX(created_at) as last_run,
+        COUNT(*) as total_errors
+      FROM ingestion_validation_errors
+      WHERE created_at > NOW() - INTERVAL '1 hour';
     `);
 
     // Ingestion pipeline health
