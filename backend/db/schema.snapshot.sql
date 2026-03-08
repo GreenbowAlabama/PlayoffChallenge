@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict SRTZdSD88djnxe7DygY7adBDWuSdS9ybfiuHJqnLZwsDj5hwhe0Ey6nSWjXWsbv
+\restrict 3Z2IuFbVLSxwPNed65qeyWrodAhAubE3YS7GHthFoVONtiFh8voGUKB3jogakIr
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -57,6 +57,20 @@ BEGIN
   RAISE EXCEPTION 'api_error_codes is append-only (add new rows only)';
 END;
 $$;
+
+
+--
+-- Name: delete_old_reconciliation_snapshots(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.delete_old_reconciliation_snapshots() RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+      BEGIN
+        DELETE FROM financial_reconciliation_snapshots
+        WHERE created_at < NOW() - INTERVAL '90 days';
+      END;
+      $$;
 
 
 --
@@ -597,6 +611,93 @@ CREATE TABLE public.field_selections (
 
 
 --
+-- Name: financial_admin_actions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.financial_admin_actions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    admin_id uuid NOT NULL,
+    action_type text NOT NULL,
+    ledger_id uuid,
+    affected_user_id uuid,
+    amount_cents integer,
+    reason text NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    result_message text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT admin_action_reason_not_empty CHECK ((length(TRIM(BOTH FROM reason)) > 0)),
+    CONSTRAINT financial_admin_actions_amount_cents_check CHECK (((amount_cents IS NULL) OR (amount_cents >= 0))),
+    CONSTRAINT financial_admin_actions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'completed'::text, 'failed'::text])))
+);
+
+
+--
+-- Name: financial_alerts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.financial_alerts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    severity text NOT NULL,
+    alert_type text NOT NULL,
+    message text NOT NULL,
+    first_detected timestamp with time zone DEFAULT now() NOT NULL,
+    last_seen timestamp with time zone DEFAULT now() NOT NULL,
+    occurrence_count integer DEFAULT 1 NOT NULL,
+    repair_action_available boolean DEFAULT false NOT NULL,
+    repair_action_function text,
+    acknowledged_by uuid,
+    acknowledged_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT acknowledgement_requires_user CHECK ((((acknowledged_by IS NULL) AND (acknowledged_at IS NULL)) OR ((acknowledged_by IS NOT NULL) AND (acknowledged_at IS NOT NULL)))),
+    CONSTRAINT alert_message_not_empty CHECK ((length(TRIM(BOTH FROM message)) > 0)),
+    CONSTRAINT financial_alerts_occurrence_count_check CHECK ((occurrence_count > 0)),
+    CONSTRAINT financial_alerts_severity_check CHECK ((severity = ANY (ARRAY['CRITICAL'::text, 'WARNING'::text, 'INFO'::text])))
+);
+
+
+--
+-- Name: financial_feature_flags; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.financial_feature_flags (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    feature text NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    disabled_by uuid,
+    disabled_reason text,
+    disabled_at timestamp with time zone,
+    re_enabled_by uuid,
+    re_enabled_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT disable_reason_not_empty CHECK (((disabled_reason IS NULL) OR (length(TRIM(BOTH FROM disabled_reason)) > 0))),
+    CONSTRAINT disable_requires_reason CHECK (((enabled = true) OR ((enabled = false) AND (disabled_by IS NOT NULL) AND (disabled_reason IS NOT NULL) AND (disabled_at IS NOT NULL)))),
+    CONSTRAINT financial_feature_flags_feature_check CHECK ((length(TRIM(BOTH FROM feature)) > 0))
+);
+
+
+--
+-- Name: financial_reconciliation_snapshots; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.financial_reconciliation_snapshots (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    "timestamp" timestamp with time zone DEFAULT now() NOT NULL,
+    wallet_liability_cents integer NOT NULL,
+    contest_pools_cents integer NOT NULL,
+    deposits_cents integer NOT NULL,
+    withdrawals_cents integer NOT NULL,
+    difference_cents integer NOT NULL,
+    status text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT financial_reconciliation_snapshots_deposits_cents_check CHECK ((deposits_cents >= 0)),
+    CONSTRAINT financial_reconciliation_snapshots_status_check CHECK ((status = ANY (ARRAY['coherent'::text, 'drift'::text, 'critical'::text]))),
+    CONSTRAINT financial_reconciliation_snapshots_wallet_liability_cents_check CHECK ((wallet_liability_cents >= 0)),
+    CONSTRAINT financial_reconciliation_snapshots_withdrawals_cents_check CHECK ((withdrawals_cents >= 0))
+);
+
+
+--
 -- Name: financial_reconciliations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -762,7 +863,9 @@ CREATE TABLE public.ledger (
     scoring_run_id uuid,
     CONSTRAINT ledger_amount_cents_check CHECK ((amount_cents >= 0)),
     CONSTRAINT ledger_direction_check CHECK ((direction = ANY (ARRAY['CREDIT'::text, 'DEBIT'::text]))),
+    CONSTRAINT ledger_entry_fee_direction CHECK ((NOT ((entry_type = 'ENTRY_FEE'::text) AND (direction <> 'DEBIT'::text)))),
     CONSTRAINT ledger_entry_type_check CHECK ((entry_type = ANY (ARRAY['ENTRY_FEE'::text, 'ENTRY_FEE_REFUND'::text, 'PRIZE_PAYOUT'::text, 'PRIZE_PAYOUT_REVERSAL'::text, 'ADJUSTMENT'::text, 'WALLET_DEPOSIT'::text, 'WALLET_DEBIT'::text, 'WALLET_WITHDRAWAL'::text, 'WALLET_WITHDRAWAL_REVERSAL'::text]))),
+    CONSTRAINT ledger_reference_required CHECK ((reference_id IS NOT NULL)),
     CONSTRAINT ledger_reference_type_check CHECK (((reference_type IS NULL) OR (reference_type = ANY (ARRAY['stripe_event'::text, 'CONTEST'::text, 'WALLET'::text]))))
 );
 
@@ -1490,6 +1593,39 @@ CREATE TABLE public.stripe_webhook_dead_letters (
 
 
 --
+-- Name: system_invariant_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.system_invariant_runs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    overall_status text NOT NULL,
+    financial_status text NOT NULL,
+    lifecycle_status text NOT NULL,
+    settlement_status text NOT NULL,
+    pipeline_status text NOT NULL,
+    ledger_status text NOT NULL,
+    execution_time_ms integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    wallet_liability_cents bigint,
+    contest_pools_cents bigint,
+    deposits_cents bigint,
+    withdrawals_cents bigint,
+    invariant_diff_cents bigint,
+    stuck_locked_count integer,
+    stuck_live_count integer,
+    stuck_settlement_count integer,
+    pipeline_errors jsonb,
+    ledger_anomalies jsonb,
+    CONSTRAINT financial_status_check CHECK ((financial_status = ANY (ARRAY['BALANCED'::text, 'DRIFT'::text, 'CRITICAL_IMBALANCE'::text]))),
+    CONSTRAINT ledger_status_check CHECK ((ledger_status = ANY (ARRAY['CONSISTENT'::text, 'VIOLATIONS'::text, 'ERROR'::text]))),
+    CONSTRAINT lifecycle_status_check CHECK ((lifecycle_status = ANY (ARRAY['HEALTHY'::text, 'STUCK_TRANSITIONS'::text, 'ERROR'::text]))),
+    CONSTRAINT overall_status_check CHECK ((overall_status = ANY (ARRAY['HEALTHY'::text, 'WARNING'::text, 'CRITICAL'::text]))),
+    CONSTRAINT pipeline_status_check CHECK ((pipeline_status = ANY (ARRAY['HEALTHY'::text, 'DEGRADED'::text, 'FAILED'::text]))),
+    CONSTRAINT settlement_status_check CHECK ((settlement_status = ANY (ARRAY['HEALTHY'::text, 'INCOMPLETE'::text, 'ERROR'::text])))
+);
+
+
+--
 -- Name: tournament_config_versions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1525,6 +1661,23 @@ CREATE TABLE public.tournament_configs (
     CONSTRAINT tournament_configs_check CHECK (((cut_after_round IS NULL) OR ((cut_after_round >= 1) AND (cut_after_round <= round_count)))),
     CONSTRAINT tournament_configs_field_source_check CHECK ((field_source = ANY (ARRAY['provider_sync'::text, 'static_import'::text]))),
     CONSTRAINT tournament_configs_round_count_check CHECK ((round_count > 0))
+);
+
+
+--
+-- Name: user_wallet_freeze; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_wallet_freeze (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    frozen_by uuid NOT NULL,
+    frozen_reason text NOT NULL,
+    frozen_at timestamp with time zone DEFAULT now() NOT NULL,
+    unfrozen_by uuid,
+    unfrozen_at timestamp with time zone,
+    CONSTRAINT frozen_reason_not_empty CHECK ((length(TRIM(BOTH FROM frozen_reason)) > 0)),
+    CONSTRAINT unfreeze_requires_date CHECK ((((unfrozen_by IS NULL) AND (unfrozen_at IS NULL)) OR ((unfrozen_by IS NOT NULL) AND (unfrozen_at IS NOT NULL))))
 );
 
 
@@ -1882,6 +2035,46 @@ ALTER TABLE ONLY public.event_data_snapshots
 
 ALTER TABLE ONLY public.field_selections
     ADD CONSTRAINT field_selections_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: financial_admin_actions financial_admin_actions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_admin_actions
+    ADD CONSTRAINT financial_admin_actions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: financial_alerts financial_alerts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_alerts
+    ADD CONSTRAINT financial_alerts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: financial_feature_flags financial_feature_flags_feature_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_feature_flags
+    ADD CONSTRAINT financial_feature_flags_feature_key UNIQUE (feature);
+
+
+--
+-- Name: financial_feature_flags financial_feature_flags_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_feature_flags
+    ADD CONSTRAINT financial_feature_flags_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: financial_reconciliation_snapshots financial_reconciliation_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_reconciliation_snapshots
+    ADD CONSTRAINT financial_reconciliation_snapshots_pkey PRIMARY KEY (id);
 
 
 --
@@ -2269,6 +2462,14 @@ ALTER TABLE ONLY public.stripe_webhook_dead_letters
 
 
 --
+-- Name: system_invariant_runs system_invariant_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.system_invariant_runs
+    ADD CONSTRAINT system_invariant_runs_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: tournament_config_versions tournament_config_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2298,6 +2499,22 @@ ALTER TABLE ONLY public.ingestion_events
 
 ALTER TABLE ONLY public.scores
     ADD CONSTRAINT unique_user_player_week_score UNIQUE (user_id, player_id, week_number);
+
+
+--
+-- Name: user_wallet_freeze user_wallet_freeze_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_wallet_freeze
+    ADD CONSTRAINT user_wallet_freeze_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: user_wallet_freeze user_wallet_freeze_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_wallet_freeze
+    ADD CONSTRAINT user_wallet_freeze_user_id_key UNIQUE (user_id);
 
 
 --
@@ -2613,6 +2830,69 @@ CREATE INDEX idx_entry_rosters_contest_instance ON public.entry_rosters USING bt
 
 
 --
+-- Name: idx_financial_admin_actions_action_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_admin_actions_action_type ON public.financial_admin_actions USING btree (action_type, created_at DESC);
+
+
+--
+-- Name: idx_financial_admin_actions_admin_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_admin_actions_admin_id ON public.financial_admin_actions USING btree (admin_id, created_at DESC);
+
+
+--
+-- Name: idx_financial_admin_actions_affected_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_admin_actions_affected_user_id ON public.financial_admin_actions USING btree (affected_user_id, created_at DESC);
+
+
+--
+-- Name: idx_financial_alerts_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_alerts_active ON public.financial_alerts USING btree (severity) WHERE (acknowledged_at IS NULL);
+
+
+--
+-- Name: idx_financial_alerts_alert_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_alerts_alert_type ON public.financial_alerts USING btree (alert_type, created_at DESC);
+
+
+--
+-- Name: idx_financial_alerts_severity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_alerts_severity ON public.financial_alerts USING btree (severity, created_at DESC);
+
+
+--
+-- Name: idx_financial_feature_flags_feature; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_feature_flags_feature ON public.financial_feature_flags USING btree (feature);
+
+
+--
+-- Name: idx_financial_reconciliation_snapshots_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_reconciliation_snapshots_status ON public.financial_reconciliation_snapshots USING btree (status, "timestamp" DESC);
+
+
+--
+-- Name: idx_financial_reconciliation_snapshots_timestamp; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_financial_reconciliation_snapshots_timestamp ON public.financial_reconciliation_snapshots USING btree ("timestamp" DESC);
+
+
+--
 -- Name: idx_financial_reconciliations_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2708,6 +2988,13 @@ CREATE INDEX idx_ingestion_validation_errors_contest ON public.ingestion_validat
 --
 
 CREATE INDEX idx_ledger_contest_created ON public.ledger USING btree (contest_instance_id, created_at);
+
+
+--
+-- Name: idx_ledger_contest_reference; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ledger_contest_reference ON public.ledger USING btree (reference_type, reference_id);
 
 
 --
@@ -3019,6 +3306,27 @@ CREATE INDEX idx_signup_attempts_state ON public.signup_attempts USING btree (at
 
 
 --
+-- Name: idx_system_invariant_runs_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_system_invariant_runs_created_at ON public.system_invariant_runs USING btree (created_at DESC);
+
+
+--
+-- Name: idx_user_wallet_freeze_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_wallet_freeze_active ON public.user_wallet_freeze USING btree (unfrozen_at) WHERE (unfrozen_at IS NULL);
+
+
+--
+-- Name: idx_user_wallet_freeze_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_wallet_freeze_user_id ON public.user_wallet_freeze USING btree (user_id);
+
+
+--
 -- Name: idx_users_eligibility; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3149,6 +3457,13 @@ CREATE UNIQUE INDEX tournament_configs_contest_instance_uidx ON public.tournamen
 --
 
 CREATE UNIQUE INDEX uniq_active_config ON public.tournament_configs USING btree (contest_instance_id) WHERE (is_active = true);
+
+
+--
+-- Name: uniq_ledger_stripe_event; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_ledger_stripe_event ON public.ledger USING btree (stripe_event_id) WHERE (stripe_event_id IS NOT NULL);
 
 
 --
@@ -3440,6 +3755,54 @@ ALTER TABLE ONLY public.field_selections
 
 ALTER TABLE ONLY public.field_selections
     ADD CONSTRAINT field_selections_tournament_config_id_fkey FOREIGN KEY (tournament_config_id) REFERENCES public.tournament_configs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: financial_admin_actions financial_admin_actions_admin_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_admin_actions
+    ADD CONSTRAINT financial_admin_actions_admin_id_fkey FOREIGN KEY (admin_id) REFERENCES public.users(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: financial_admin_actions financial_admin_actions_affected_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_admin_actions
+    ADD CONSTRAINT financial_admin_actions_affected_user_id_fkey FOREIGN KEY (affected_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: financial_admin_actions financial_admin_actions_ledger_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_admin_actions
+    ADD CONSTRAINT financial_admin_actions_ledger_id_fkey FOREIGN KEY (ledger_id) REFERENCES public.ledger(id) ON DELETE SET NULL;
+
+
+--
+-- Name: financial_alerts financial_alerts_acknowledged_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_alerts
+    ADD CONSTRAINT financial_alerts_acknowledged_by_fkey FOREIGN KEY (acknowledged_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: financial_feature_flags financial_feature_flags_disabled_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_feature_flags
+    ADD CONSTRAINT financial_feature_flags_disabled_by_fkey FOREIGN KEY (disabled_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: financial_feature_flags financial_feature_flags_re_enabled_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.financial_feature_flags
+    ADD CONSTRAINT financial_feature_flags_re_enabled_by_fkey FOREIGN KEY (re_enabled_by) REFERENCES public.users(id) ON DELETE SET NULL;
 
 
 --
@@ -3739,6 +4102,30 @@ ALTER TABLE ONLY public.tournament_configs
 
 
 --
+-- Name: user_wallet_freeze user_wallet_freeze_frozen_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_wallet_freeze
+    ADD CONSTRAINT user_wallet_freeze_frozen_by_fkey FOREIGN KEY (frozen_by) REFERENCES public.users(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: user_wallet_freeze user_wallet_freeze_unfrozen_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_wallet_freeze
+    ADD CONSTRAINT user_wallet_freeze_unfrozen_by_fkey FOREIGN KEY (unfrozen_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: user_wallet_freeze user_wallet_freeze_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_wallet_freeze
+    ADD CONSTRAINT user_wallet_freeze_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: wallet_deposit_intents wallet_deposit_intents_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3758,5 +4145,5 @@ ALTER TABLE ONLY public.wallet_withdrawals
 -- PostgreSQL database dump complete
 --
 
-\unrestrict SRTZdSD88djnxe7DygY7adBDWuSdS9ybfiuHJqnLZwsDj5hwhe0Ey6nSWjXWsbv
+\unrestrict 3Z2IuFbVLSxwPNed65qeyWrodAhAubE3YS7GHthFoVONtiFh8voGUKB3jogakIr
 

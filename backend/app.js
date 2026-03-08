@@ -18,6 +18,7 @@ const adminOrphanedFundsRoutes = require('./routes/admin.orphaned-funds.routes')
 const adminContestPoolsRoutes = require('./routes/admin.contest-pools.routes');
 const adminLedgerVerifyRoutes = require('./routes/admin.ledger-verify.routes');
 const adminFinancialReconciliationRoutes = require('./routes/admin/financial-reconciliation.routes');
+const systemInvariantsRoutes = require('./routes/admin/system-invariants.routes');
 const customContestRoutes = require('./routes/customContest.routes');
 const customContestTemplatesRoutes = require('./routes/customContestTemplates.routes');
 const contestsRoutes = require('./routes/contests.routes');
@@ -75,6 +76,7 @@ app.use('/api/admin/orphaned-funds', adminOrphanedFundsRoutes);
 app.use('/api/admin/contest-pools', adminContestPoolsRoutes);
 app.use('/api/admin/ledger', adminLedgerVerifyRoutes);
 app.use('/api/admin/financial-reconciliation', adminFinancialReconciliationRoutes);
+app.use('/api/admin/system-invariants', systemInvariantsRoutes);
 app.use('/api/admin/custom-contests/templates', customContestTemplatesRoutes);
 app.use('/api/custom-contests', customContestRoutes);
 app.use('/api/contests', contestsRoutes);
