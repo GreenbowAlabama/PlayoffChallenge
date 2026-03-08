@@ -1,3 +1,33 @@
 @import "tailwindcss";
 @source "../src/**/*.{js,ts,jsx,tsx}";
 @source "../index.html";
+
+/* iOS Native App Improvements */
+
+/* Smooth momentum scrolling on iOS */
+html {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Remove tap highlight flash on iOS */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Safe area inset for iPhone notch and home indicator */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Ensure inputs don't auto-zoom on iOS Safari (prevent zoom at 16px+) */
+input[type="text"],
+input[type="email"],
+input[type="search"],
+input[type="number"],
+input[type="tel"],
+input[type="url"],
+input[type="password"],
+textarea,
+select {
+  font-size: 16px;
+}

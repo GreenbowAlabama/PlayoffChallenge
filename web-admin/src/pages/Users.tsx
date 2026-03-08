@@ -188,15 +188,14 @@ export function Users() {
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
             placeholder="Filter by username, email, or name..."
-            className="w-80 pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-80 pl-9 pr-3 py-2 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           />
         </div>
       </div>
 
       <div className="mt-8 flow-root">
-        <div className="relative">
-          {/* Scroll hint gradient - mobile only */}
-          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none z-10 sm:hidden" aria-hidden="true" />
+        {/* Desktop Table */}
+        <div className="hidden md:block relative">
           <div className="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
             <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
             <table className="min-w-full divide-y divide-gray-300">
@@ -355,7 +354,7 @@ export function Users() {
                         <button
                           type="button"
                           onClick={() => toggleUserDetails(user.id)}
-                          className="text-indigo-600 hover:text-indigo-800 font-semibold whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 rounded px-1 -mx-1"
+                          className="text-indigo-600 hover:text-indigo-800 font-semibold whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 rounded px-1 -mx-1 min-h-[44px] flex items-center"
                           title="Toggle user details"
                         >
                           {expandedUserId === user.id ? '▼ Hide' : '▶ Show'} Details
@@ -449,6 +448,153 @@ export function Users() {
             )}
             </div>
           </div>
+        </div>
+
+        {/* Mobile Card List */}
+        <div className="md:hidden space-y-4">
+          {displayedUsers?.map((user) => (
+            <Fragment key={user.id}>
+              <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+                {/* User Header */}
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium text-gray-900">{user.username || 'N/A'}</div>
+                    {user.username && isSystemUser(user.username) && (
+                      <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded font-medium">
+                        SYSTEM
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm text-gray-500">{user.email || 'N/A'}</div>
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-gray-200 my-3" />
+
+                {/* Wallet Metrics */}
+                <div className="mb-4">
+                  <div className="text-xs font-semibold text-gray-700 mb-2">Wallet</div>
+                  <div className={`text-lg font-semibold ${user.wallet_balance_cents >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatUSD(user.wallet_balance_cents)}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Deposits {formatUSD(user.lifetime_deposits_cents)} • Withdrawals {formatUSD(user.lifetime_withdrawals_cents)}
+                  </div>
+                </div>
+
+                {/* Contests */}
+                <div className="mb-4">
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                    {user.active_contests_count} Active
+                  </span>
+                </div>
+
+                {/* Last Activity */}
+                <div className="mb-4">
+                  <div className="text-xs font-semibold text-gray-700 mb-1">Last Activity</div>
+                  <div className="text-sm text-gray-500">
+                    {user.last_wallet_activity_at ? (
+                      <>
+                        <div>{formatDateShort(user.last_wallet_activity_at)}</div>
+                        <div className="text-xs text-gray-400">{formatTimeShort(user.last_wallet_activity_at)}</div>
+                      </>
+                    ) : (
+                      'N/A'
+                    )}
+                  </div>
+                </div>
+
+                {/* Action Button */}
+                <button
+                  type="button"
+                  onClick={() => toggleUserDetails(user.id)}
+                  className="w-full py-2 px-3 text-base font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded border border-indigo-200 transition-colors min-h-[44px] flex items-center justify-center"
+                  title="Toggle user details"
+                >
+                  {expandedUserId === user.id ? '▼ Hide' : '▶ Show'} Details
+                </button>
+
+                {/* Expanded Details (Mobile) */}
+                {expandedUserId === user.id && (
+                  <div className="mt-4 border-t pt-4 space-y-4">
+                    {loadingUserId === user.id ? (
+                      <div className="text-sm text-gray-500">Loading...</div>
+                    ) : userDetails[user.id] ? (
+                      <>
+                        {/* Wallet Activity */}
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-sm font-semibold text-gray-700">Wallet Activity</h4>
+                            {userDetails[user.id].recent_ledger_entries && userDetails[user.id].recent_ledger_entries.length > 0 && (
+                              (() => {
+                                const velocity = calculateEntryVelocity(userDetails[user.id].recent_ledger_entries);
+                                return (
+                                  <span className={`text-xs ${velocity >= 3 ? 'text-green-600 font-medium' : 'text-gray-500'}`}>
+                                    ⚡ {velocity} entries/hr
+                                  </span>
+                                );
+                              })()
+                            )}
+                          </div>
+                          {userDetails[user.id].recent_ledger_entries && userDetails[user.id].recent_ledger_entries.length > 0 ? (
+                            <div className="space-y-2 text-xs">
+                              {userDetails[user.id].recent_ledger_entries.slice(0, 5).map((entry: LedgerEntry) => (
+                                <div key={entry.id} className="flex justify-between text-gray-600">
+                                  <span>{formatDateShort(entry.created_at)} {entry.entry_type}</span>
+                                  <span className={entry.direction === 'CREDIT' ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                                    {entry.direction === 'CREDIT' ? '+' : '-'}{formatUSD(entry.amount_cents)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-gray-400 text-sm">No wallet activity</p>
+                          )}
+                        </div>
+
+                        {/* Contest Entries */}
+                        <div className="border-t pt-4">
+                          <h4 className="text-sm font-semibold text-gray-700 mb-3">Contest Entries</h4>
+                          {userDetails[user.id].contests && userDetails[user.id].contests.length > 0 ? (
+                            <div className="space-y-3">
+                              {userDetails[user.id].contests.map((contest: UserContest) => (
+                                <div key={contest.id} className="border rounded-lg p-3 bg-gray-50 text-xs">
+                                  <div className="font-medium text-gray-900 mb-2">{contest.contest_name || 'Unknown'}</div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className={`px-2 py-0.5 rounded text-white text-xs font-medium ${
+                                      contest.status === 'SCHEDULED' ? 'bg-blue-500' :
+                                      contest.status === 'LOCKED' ? 'bg-yellow-500' :
+                                      contest.status === 'LIVE' ? 'bg-green-500' :
+                                      contest.status === 'COMPLETE' ? 'bg-gray-500' :
+                                      contest.status === 'CANCELLED' ? 'bg-red-500' :
+                                      'bg-gray-400'
+                                    }`}>
+                                      {contest.status}
+                                    </span>
+                                    <span className="text-gray-600">Entry {formatUSD(contest.entry_fee_cents)}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-gray-400 text-sm">No contest entries</p>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-sm text-gray-500">No data available</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </Fragment>
+          ))}
+
+          {displayedUsers?.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-sm text-gray-500">No users found</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

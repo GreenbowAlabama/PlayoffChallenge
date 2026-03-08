@@ -65,7 +65,7 @@ export function Layout() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 overflow-x-hidden">
+    <div className="min-h-screen bg-gray-50 overflow-x-hidden pb-safe">
       <nav className="sticky top-0 z-40 bg-white shadow-sm border-b border-gray-200 overflow-visible">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 overflow-visible">
           <div className="flex min-h-16 flex-col gap-2 sm:h-16 sm:flex-row sm:items-center sm:justify-between py-2 sm:py-0 overflow-visible">
@@ -124,7 +124,7 @@ export function Layout() {
 
               {/* Mobile Menu Button */}
               <button
-                className="sm:hidden inline-flex items-center justify-center rounded-md p-2 text-gray-600 hover:bg-gray-100"
+                className="sm:hidden inline-flex items-center justify-center rounded-md p-2 text-gray-600 hover:bg-gray-100 min-h-[44px]"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 transition-transform ${mobileMenuOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
