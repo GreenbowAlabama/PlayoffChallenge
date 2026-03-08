@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict QXcrLJueK6fC9z5RJqv3JVTnp4agcW3R94R7aTw8tnEaAWVQXrU7lSdeeUocsdq
+\restrict RCSDOvjzKXyz52k0qiBymbINr14Y1ujFYkJbhL6K7tZ4Xrp4mDeamDceHd1GRk3
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -2638,6 +2638,14 @@ ALTER TABLE ONLY public.worker_heartbeats
 
 
 --
+-- Name: worker_heartbeats worker_heartbeats_worker_name_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.worker_heartbeats
+    ADD CONSTRAINT worker_heartbeats_worker_name_uq UNIQUE (worker_name);
+
+
+--
 -- Name: api_contract_snapshots_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4191,5 +4199,5 @@ ALTER TABLE ONLY public.wallet_withdrawals
 -- PostgreSQL database dump complete
 --
 
-\unrestrict QXcrLJueK6fC9z5RJqv3JVTnp4agcW3R94R7aTw8tnEaAWVQXrU7lSdeeUocsdq
+\unrestrict RCSDOvjzKXyz52k0qiBymbINr14Y1ujFYkJbhL6K7tZ4Xrp4mDeamDceHd1GRk3
 

@@ -115,6 +115,72 @@ async function runCycle(pool) {
 }
 
 /**
+ * Run a single ingestion cycle with heartbeat publishing.
+ *
+ * @param {Object} pool - Database connection pool
+ * @returns {Promise<void>}
+ */
+async function runCycleWithHeartbeat(pool) {
+  try {
+    const result = await runCycle(pool);
+
+    // Publish heartbeat on success
+    try {
+      await pool.query(`
+        INSERT INTO worker_heartbeats
+        (worker_name, worker_type, status, last_run_at, error_count, metadata)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (worker_name)
+        DO UPDATE SET
+        status = EXCLUDED.status,
+        last_run_at = EXCLUDED.last_run_at,
+        error_count = EXCLUDED.error_count,
+        metadata = EXCLUDED.metadata,
+        created_at = NOW();
+      `, [
+        'ingestion_worker',
+        'ingestion',
+        'HEALTHY',
+        new Date(),
+        0,
+        JSON.stringify({ phases_run: result.phasesRun, phases_skipped: result.phasesSkipped, contests: result.contests })
+      ]);
+    } catch (err) {
+      console.error('[Ingestion Worker] Heartbeat publish failed:', err.message);
+      // Do NOT rethrow — ingestion must remain primary
+    }
+  } catch (err) {
+    console.error('[Ingestion Worker] Cycle error with heartbeat:', err.message);
+
+    // Publish heartbeat on error
+    try {
+      await pool.query(`
+        INSERT INTO worker_heartbeats
+        (worker_name, worker_type, status, last_run_at, error_count, metadata)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (worker_name)
+        DO UPDATE SET
+        status = EXCLUDED.status,
+        last_run_at = EXCLUDED.last_run_at,
+        error_count = EXCLUDED.error_count,
+        metadata = EXCLUDED.metadata,
+        created_at = NOW();
+      `, [
+        'ingestion_worker',
+        'ingestion',
+        'ERROR',
+        new Date(),
+        1,
+        JSON.stringify({ error: err.message })
+      ]);
+    } catch (heartbeatErr) {
+      console.error('[Ingestion Worker] Heartbeat error publish failed:', heartbeatErr.message);
+      // Do NOT rethrow — ingestion must remain primary
+    }
+  }
+}
+
+/**
  * Start the ingestion worker.
  *
  * @param {Object} pool - Database connection pool
@@ -140,11 +206,11 @@ function startIngestionWorker(pool, options = {}) {
   );
 
   // Run immediately on start
-  runCycle(pool);
+  runCycleWithHeartbeat(pool);
 
   // Then repeat on interval
   ingestionInterval = setInterval(() => {
-    runCycle(pool);
+    runCycleWithHeartbeat(pool);
   }, intervalMs);
 }
 
@@ -162,5 +228,6 @@ function stopIngestionWorker() {
 module.exports = {
   startIngestionWorker,
   stopIngestionWorker,
-  runCycle
+  runCycle,
+  runCycleWithHeartbeat
 };

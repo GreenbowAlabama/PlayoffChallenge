@@ -2407,6 +2407,7 @@ async function startPayoutScheduler() {
 async function runPayoutSchedulerWithTracking() {
   jobsService.markJobRunning('payout-scheduler');
   try {
+    const now = new Date();
     const result = await jobsService.runPayoutScheduler(pool);
 
     // INSTRUMENTATION: Log full result object
@@ -2425,6 +2426,32 @@ async function runPayoutSchedulerWithTracking() {
       transfers_created: result.transfers_created,
       failures: result.failures
     });
+
+    // Publish heartbeat on success
+    try {
+      await pool.query(`
+        INSERT INTO worker_heartbeats
+        (worker_name, worker_type, status, last_run_at, error_count, metadata)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (worker_name)
+        DO UPDATE SET
+        status = EXCLUDED.status,
+        last_run_at = EXCLUDED.last_run_at,
+        error_count = EXCLUDED.error_count,
+        metadata = EXCLUDED.metadata,
+        created_at = NOW();
+      `, [
+        'payout_scheduler',
+        'payout',
+        'HEALTHY',
+        now,
+        0,
+        JSON.stringify({ jobs_processed: result.jobs_processed, transfers_created: result.transfers_created })
+      ]);
+    } catch (heartbeatErr) {
+      console.error('[PayoutScheduler] Heartbeat publish failed:', heartbeatErr.message);
+      // Do NOT rethrow — payout scheduler must remain primary
+    }
   } catch (err) {
     // INSTRUMENTATION: Log full error object, not just err.message
     console.error('[runPayoutSchedulerWithTracking] Exception caught:', {
@@ -2438,6 +2465,32 @@ async function runPayoutSchedulerWithTracking() {
       success: false,
       error: err?.message || String(err) || 'Unknown scheduler error'
     });
+
+    // Publish heartbeat on error
+    try {
+      await pool.query(`
+        INSERT INTO worker_heartbeats
+        (worker_name, worker_type, status, last_run_at, error_count, metadata)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (worker_name)
+        DO UPDATE SET
+        status = EXCLUDED.status,
+        last_run_at = EXCLUDED.last_run_at,
+        error_count = EXCLUDED.error_count,
+        metadata = EXCLUDED.metadata,
+        created_at = NOW();
+      `, [
+        'payout_scheduler',
+        'payout',
+        'ERROR',
+        new Date(),
+        1,
+        JSON.stringify({ error: err?.message || String(err) || 'Unknown error' })
+      ]);
+    } catch (heartbeatErr) {
+      console.error('[PayoutScheduler] Heartbeat error publish failed:', heartbeatErr.message);
+      // Do NOT rethrow — payout scheduler must remain primary
+    }
   }
 }
 
@@ -2488,6 +2541,7 @@ async function runFinancialReconciliationWithTracking() {
 
   jobsService.markJobRunning('financial-reconciliation');
   try {
+    const now = new Date();
     const result = await financialReconciliationService.runDailyReconciliation(pool);
     jobsService.updateJobStatus('financial-reconciliation', {
       success: true,
@@ -2495,12 +2549,64 @@ async function runFinancialReconciliationWithTracking() {
       difference: result.difference,
       record_id: result.recordId
     });
+
+    // Publish heartbeat on success
+    try {
+      await pool.query(`
+        INSERT INTO worker_heartbeats
+        (worker_name, worker_type, status, last_run_at, error_count, metadata)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (worker_name)
+        DO UPDATE SET
+        status = EXCLUDED.status,
+        last_run_at = EXCLUDED.last_run_at,
+        error_count = EXCLUDED.error_count,
+        metadata = EXCLUDED.metadata,
+        created_at = NOW();
+      `, [
+        'financial_reconciler',
+        'financial',
+        'HEALTHY',
+        now,
+        0,
+        JSON.stringify({ status: result.status, difference: result.difference })
+      ]);
+    } catch (heartbeatErr) {
+      console.error('[FinancialReconciliation] Heartbeat publish failed:', heartbeatErr.message);
+      // Do NOT rethrow — financial reconciliation must remain primary
+    }
   } catch (err) {
     console.error('[FinancialReconciliation] Scheduler error:', err.message);
     jobsService.updateJobStatus('financial-reconciliation', {
       success: false,
       error: err.message
     });
+
+    // Publish heartbeat on error
+    try {
+      await pool.query(`
+        INSERT INTO worker_heartbeats
+        (worker_name, worker_type, status, last_run_at, error_count, metadata)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (worker_name)
+        DO UPDATE SET
+        status = EXCLUDED.status,
+        last_run_at = EXCLUDED.last_run_at,
+        error_count = EXCLUDED.error_count,
+        metadata = EXCLUDED.metadata,
+        created_at = NOW();
+      `, [
+        'financial_reconciler',
+        'financial',
+        'ERROR',
+        new Date(),
+        1,
+        JSON.stringify({ error: err.message })
+      ]);
+    } catch (heartbeatErr) {
+      console.error('[FinancialReconciliation] Heartbeat error publish failed:', heartbeatErr.message);
+      // Do NOT rethrow — financial reconciliation must remain primary
+    }
   }
 }
 

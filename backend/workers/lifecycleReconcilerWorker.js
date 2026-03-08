@@ -69,8 +69,60 @@ function startLifecycleReconciler(pool, options = {}) {
         console.error('Lifecycle monitoring insert failed:', err.message);
         // Do NOT rethrow — lifecycle must remain primary
       }
+
+      // Publish heartbeat on success
+      try {
+        await pool.query(`
+          INSERT INTO worker_heartbeats
+          (worker_name, worker_type, status, last_run_at, error_count, metadata)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          ON CONFLICT (worker_name)
+          DO UPDATE SET
+          status = EXCLUDED.status,
+          last_run_at = EXCLUDED.last_run_at,
+          error_count = EXCLUDED.error_count,
+          metadata = EXCLUDED.metadata,
+          created_at = NOW();
+        `, [
+          'lifecycle_reconciler',
+          'lifecycle',
+          'HEALTHY',
+          now,
+          0,
+          JSON.stringify({ transitions: result.totals.count })
+        ]);
+      } catch (err) {
+        console.error('Lifecycle heartbeat publish failed:', err.message);
+        // Do NOT rethrow — lifecycle must remain primary
+      }
     } catch (err) {
       console.error('Lifecycle reconciliation error:', err.message);
+
+      // Publish heartbeat on error
+      try {
+        await pool.query(`
+          INSERT INTO worker_heartbeats
+          (worker_name, worker_type, status, last_run_at, error_count, metadata)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          ON CONFLICT (worker_name)
+          DO UPDATE SET
+          status = EXCLUDED.status,
+          last_run_at = EXCLUDED.last_run_at,
+          error_count = EXCLUDED.error_count,
+          metadata = EXCLUDED.metadata,
+          created_at = NOW();
+        `, [
+          'lifecycle_reconciler',
+          'lifecycle',
+          'ERROR',
+          new Date(),
+          1,
+          JSON.stringify({ error: err.message })
+        ]);
+      } catch (heartbeatErr) {
+        console.error('Lifecycle heartbeat error publish failed:', heartbeatErr.message);
+        // Do NOT rethrow — lifecycle must remain primary
+      }
     }
   }, intervalMs);
 }

@@ -96,10 +96,63 @@ async function startDiscoveryWorker(pool, options = {}) {
           `[Discovery] Cycle errors: ${result.errors.join(', ')}`
         );
       }
+
+      // Publish heartbeat on success
+      try {
+        await pool.query(`
+          INSERT INTO worker_heartbeats
+          (worker_name, worker_type, status, last_run_at, error_count, metadata)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          ON CONFLICT (worker_name)
+          DO UPDATE SET
+          status = EXCLUDED.status,
+          last_run_at = EXCLUDED.last_run_at,
+          error_count = EXCLUDED.error_count,
+          metadata = EXCLUDED.metadata,
+          created_at = NOW();
+        `, [
+          'discovery_worker',
+          'discovery',
+          'HEALTHY',
+          now,
+          0,
+          JSON.stringify({ event_id: result.event_id, success: result.success })
+        ]);
+      } catch (err) {
+        console.error('[Discovery Worker] Heartbeat publish failed:', err.message);
+        // Do NOT rethrow — discovery must remain primary
+      }
     } catch (err) {
       console.error(
         `[Discovery Worker] Cycle error: ${err.message}`
       );
+
+      // Publish heartbeat on error
+      try {
+        await pool.query(`
+          INSERT INTO worker_heartbeats
+          (worker_name, worker_type, status, last_run_at, error_count, metadata)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          ON CONFLICT (worker_name)
+          DO UPDATE SET
+          status = EXCLUDED.status,
+          last_run_at = EXCLUDED.last_run_at,
+          error_count = EXCLUDED.error_count,
+          metadata = EXCLUDED.metadata,
+          created_at = NOW();
+        `, [
+          'discovery_worker',
+          'discovery',
+          'ERROR',
+          new Date(),
+          1,
+          JSON.stringify({ error: err.message })
+        ]);
+      } catch (heartbeatErr) {
+        console.error('[Discovery Worker] Heartbeat error publish failed:', heartbeatErr.message);
+        // Do NOT rethrow — discovery must remain primary
+      }
+
       // Continue on error, do not crash worker
     }
   }, intervalMs);
