@@ -18,8 +18,11 @@ export const systemInvariantsApi = {
    */
   async getCurrentStatus(): Promise<SystemInvariantsResponse> {
     const response = await fetch(`${API_BASE}/api/admin/system-invariants`, {
+      method: 'GET',
+      credentials: 'include',
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+        'Content-Type': 'application/json'
       }
     });
     if (!response.ok) {
@@ -39,8 +42,11 @@ export const systemInvariantsApi = {
     const response = await fetch(
       `${API_BASE}/api/admin/system-invariants/history?${params}`,
       {
+        method: 'GET',
+        credentials: 'include',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+          'Content-Type': 'application/json'
         }
       }
     );
@@ -55,8 +61,11 @@ export const systemInvariantsApi = {
    */
   async getLatest(): Promise<HistoryRecord> {
     const response = await fetch(`${API_BASE}/api/admin/system-invariants/latest`, {
+      method: 'GET',
+      credentials: 'include',
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+        'Content-Type': 'application/json'
       }
     });
     if (!response.ok) {

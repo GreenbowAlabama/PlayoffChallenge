@@ -256,7 +256,7 @@ export function FloatBreakdown({
       {/* Quick Help */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-4">
         <p className="text-xs font-medium text-gray-600 mb-2">💡 WHAT IS PLATFORM FLOAT?</p>
-        <p className="text-xs text-gray-700 space-y-2">
+        <div className="text-xs text-gray-700 space-y-2">
           <div className="mb-2">
             Platform float represents the capital buffer held by the platform after accounting for all wallet balances and contest pool obligations.
           </div>
@@ -269,7 +269,7 @@ export function FloatBreakdown({
           <div>
             <strong>Negative float:</strong> The platform currently owes more than it holds (unsustainable without additional funding).
           </div>
-        </p>
+        </div>
       </div>
     </div>
   );
