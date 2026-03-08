@@ -45,7 +45,7 @@ Read the following files in order:
 /Users/iancarter/Documents/workspace/playoff-challenge/docs/ai/AI_WORKER_RULES.md
 
 3.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/ai/CLAUDE_RULES.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/CLAUDE_RULES.md
 
 After reading them:
 
