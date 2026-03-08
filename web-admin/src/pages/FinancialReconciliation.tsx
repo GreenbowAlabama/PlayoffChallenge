@@ -16,6 +16,14 @@ import {
 } from '../api/financial-reconciliation';
 import '../styles/FinancialReconciliation.css';
 
+/**
+ * Format cents to currency string: -$120.00 instead of $-120.00
+ */
+function formatCurrency(cents: number): string {
+  const dollars = Math.abs(cents / 100).toFixed(2);
+  return cents < 0 ? `-$${dollars}` : `$${dollars}`;
+}
+
 
 interface ConfirmDialog {
   isOpen: boolean;
@@ -154,27 +162,50 @@ export default function FinancialReconciliation() {
           <div className="reconciliation-equation">
             <div className="equation-term">
               <span className="label">Wallet Liability</span>
-              <span className="value">${(reconciliation.wallet_liability_cents / 100).toFixed(2)}</span>
+              <span className="value">{formatCurrency(reconciliation.wallet_liability_cents)}</span>
             </div>
             <span className="plus">+</span>
             <div className="equation-term">
               <span className="label">Contest Pools</span>
-              <span className="value">${(reconciliation.contest_pools_cents / 100).toFixed(2)}</span>
+              <span className="value">{formatCurrency(reconciliation.contest_pools_cents)}</span>
             </div>
             <span className="equals">=</span>
             <div className="equation-term">
               <span className="label">Deposits</span>
-              <span className="value">${(reconciliation.deposits_cents / 100).toFixed(2)}</span>
+              <span className="value">{formatCurrency(reconciliation.deposits_cents)}</span>
             </div>
             <span className="minus">-</span>
             <div className="equation-term">
               <span className="label">Withdrawals</span>
-              <span className="value">${(reconciliation.withdrawals_cents / 100).toFixed(2)}</span>
+              <span className="value">{formatCurrency(reconciliation.withdrawals_cents)}</span>
             </div>
           </div>
           <div className={`difference ${coherenceClass}`}>
-            <span className="label">Difference (Orphaned Amount)</span>
-            <span className="value">${(reconciliation.difference_cents / 100).toFixed(2)}</span>
+            <span className="label">Reconciliation Difference (Orphaned Amount)</span>
+            <span className="value">{formatCurrency(reconciliation.difference_cents)}</span>
+          </div>
+        </section>
+
+        {/* Verification Box */}
+        <section className="box verification-box">
+          <h2>Verification Status</h2>
+          <div className="verification-grid">
+            <div className="verification-item">
+              <span className="label">Ledger Reconciliation</span>
+              <span className="value">{status.is_coherent ? '✅ Verified' : '⚠️ Requires Review'}</span>
+            </div>
+            <div className="verification-item">
+              <span className="label">Last Reconciliation Check</span>
+              <span className="value">{new Date(status.timestamp).toLocaleString('en-US', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZone: 'UTC'
+              })} UTC</span>
+            </div>
           </div>
         </section>
 
@@ -198,7 +229,7 @@ export default function FinancialReconciliation() {
               <span>Orphaned Withdrawals: {invariants.orphaned_withdrawals}</span>
             </div>
             <div className={`invariant ${invariants.negative_contest_pools > 0 ? 'issue' : 'ok'}`}>
-              <span>Negative Contest Pools: {invariants.negative_contest_pools}</span>
+              <span>Contests Exceeding Entry Fee Pool: {invariants.negative_contest_pools}</span>
             </div>
           </div>
         </section>
@@ -220,7 +251,7 @@ export default function FinancialReconciliation() {
               <div className="alert-item">⚠️ {invariants.orphaned_withdrawals} orphaned withdrawal(s)</div>
             )}
             {invariants.negative_contest_pools > 0 && (
-              <div className="alert-item">⚠️ {invariants.negative_contest_pools} contest pool(s) with negative balance</div>
+              <div className="alert-item">ℹ️ {invariants.negative_contest_pools} contest(s) funded by platform float</div>
             )}
             {status.is_coherent && (
               <div className="alert-item success">✅ Platform coherent</div>

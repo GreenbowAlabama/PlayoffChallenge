@@ -145,14 +145,14 @@ export function FloatBreakdown({
                   description="Net position of all contest pools"
                 />
                 <FloatComponent
-                  label={hasDiscrepancy ? 'Unaccounted Loss' : 'Float Delta'}
+                  label={hasDiscrepancy ? 'Unaccounted Loss' : 'Reconciliation Drift'}
                   value={unaccountedDelta}
                   type={hasDiscrepancy ? 'warning' : 'neutral'}
                   onNavigate={hasDiscrepancy ? onNavigateToLedgerVerification : undefined}
                   description={
                     hasDiscrepancy
                       ? '⚠️  RECONCILIATION ERROR: Ledger does not match Stripe balance'
-                      : 'Balanced (no discrepancy)'
+                      : 'Verified'
                   }
                 />
               </div>
@@ -255,11 +255,20 @@ export function FloatBreakdown({
 
       {/* Quick Help */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-4">
-        <p className="text-xs font-medium text-gray-600 mb-2">💡 WHAT IS FLOAT?</p>
-        <p className="text-xs text-gray-700">
-          Float is the difference between Stripe balance and all platform liabilities (user wallets + contest
-          pools). A negative float means the platform owes more than it has. A positive float means the platform
-          has a buffer.
+        <p className="text-xs font-medium text-gray-600 mb-2">💡 WHAT IS PLATFORM FLOAT?</p>
+        <p className="text-xs text-gray-700 space-y-2">
+          <div className="mb-2">
+            Platform float represents the capital buffer held by the platform after accounting for all wallet balances and contest pool obligations.
+          </div>
+          <div className="font-mono text-xs bg-gray-50 p-2 rounded mb-2">
+            Float = Stripe Balance − (User Wallets + Contest Pools)
+          </div>
+          <div>
+            <strong>Positive float:</strong> The platform has excess liquidity available as a buffer.
+          </div>
+          <div>
+            <strong>Negative float:</strong> The platform currently owes more than it holds (unsustainable without additional funding).
+          </div>
         </p>
       </div>
     </div>
