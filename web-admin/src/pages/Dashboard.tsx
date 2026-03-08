@@ -4,12 +4,6 @@ import {
   getFinancialHealth,
   type FinancialHealthResponse,
 } from '../api/admin';
-import {
-  getNegativePoolContests,
-} from '../api/contest-pools';
-import {
-  getOrphanedFundsSummary,
-} from '../api/orphaned-funds';
 import { FloatBreakdown } from '../components/FloatBreakdown';
 import { getLedgerVerification } from '../api/ledger-verification';
 
@@ -49,18 +43,6 @@ export function Dashboard() {
     refetchInterval: 60000,
   });
 
-  // Anomaly counts
-  const { data: poolsData } = useQuery({
-    queryKey: ['contestPools', 'negative'],
-    queryFn: getNegativePoolContests,
-    staleTime: Infinity,
-  });
-
-  const { data: orphanedData } = useQuery({
-    queryKey: ['orphaned-funds', 'summary'],
-    queryFn: getOrphanedFundsSummary,
-  });
-
   // Ledger verification
   const { data: ledgerData } = useQuery({
     queryKey: ['ledgerVerification'],
@@ -83,17 +65,12 @@ export function Dashboard() {
 
   const healthStatus = healthData ? getHealthStatus(healthData) : 'critical';
 
-  // Count anomalies
-  const negativePoolCount = poolsData?.total_count || 0;
-  const orphanedFundsCount = orphanedData?.contests_with_stranded_funds.length || 0;
-  const totalAnomalies = negativePoolCount + orphanedFundsCount;
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
-        <p className="mt-1 text-sm text-gray-600">Quick overview of platform financial health</p>
+        <p className="mt-1 text-sm text-gray-600">Executive summary of platform financial and operational state</p>
       </div>
 
       {/* Financial Summary Panel */}
@@ -176,33 +153,21 @@ export function Dashboard() {
         onNavigateToLedgerVerification={() => navigate('/funding')}
       />
 
-      {/* Alert Panel */}
-      {totalAnomalies > 0 && (
-        <div className="rounded-lg border-l-4 border-yellow-400 border border-yellow-200 bg-yellow-50 p-4">
-          <div className="flex items-start">
-            <div className="flex-shrink-0">
-              <span className="text-2xl text-yellow-600">⚠</span>
-            </div>
-            <div className="ml-3 flex-1">
-              <h3 className="text-sm font-medium text-yellow-800">Funding Issues Detected</h3>
-              <div className="mt-2 text-sm text-yellow-700">
-                <ul className="list-disc list-inside space-y-1">
-                  {negativePoolCount > 0 && <li>{negativePoolCount} contest(s) with negative pool balances</li>}
-                  {orphanedFundsCount > 0 && <li>{orphanedFundsCount} contest(s) with stranded funds</li>}
-                </ul>
-              </div>
-              <div className="mt-4">
-                <button
-                  onClick={() => navigate('/funding')}
-                  className="inline-flex items-center rounded-md bg-yellow-600 px-4 py-2 text-sm font-medium text-white hover:bg-yellow-700"
-                >
-                  View Funding Page →
-                </button>
-              </div>
-            </div>
-          </div>
+      {/* Deep Dive Link */}
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+        <h3 className="text-sm font-medium text-blue-900">Financial Details & Investigation</h3>
+        <p className="mt-1 text-sm text-blue-700">
+          For detailed financial breakdown, anomaly detection, and reconciliation history, visit the Funding page.
+        </p>
+        <div className="mt-3">
+          <button
+            onClick={() => navigate('/funding')}
+            className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Go to Funding Page →
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
