@@ -497,6 +497,73 @@ describe('Entry Roster Service', () => {
 
       expect(result.can_edit).toBe(true);
     });
+
+    it('returns available players from players table when field_selections is empty (PGA fallback)', async () => {
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+
+      // Mock contest row with template info (sport needed for mapping)
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && !q.includes('player_ids'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // field_selections is empty, should fall back to players table
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // Mock players table query (fallback)
+      // Use a function predicate to match the SELECT id, full_name, image_url FROM players query
+      pool.setQueryResponse(
+        q => q.includes('players') && q.includes('sport') && q.includes('is_active'),
+        {
+          rows: [
+            { id: 'golfer-1', full_name: 'Tiger Woods', image_url: 'https://example.com/tiger.jpg' },
+            { id: 'golfer-2', full_name: 'Rory McIlroy', image_url: 'https://example.com/rory.jpg' },
+            { id: 'golfer-3', full_name: 'Jon Rahm', image_url: null }
+          ],
+          rowCount: 3
+        }
+      );
+
+      const result = await entryRosterService.getMyEntry(pool, contestId, userId);
+
+      expect(result.available_players).not.toBeNull();
+      expect(result.available_players).toHaveLength(3);
+      expect(result.available_players[0]).toEqual({
+        player_id: 'golfer-1',
+        name: 'Tiger Woods',
+        image_url: 'https://example.com/tiger.jpg'
+      });
+      expect(result.available_players[2]).toEqual({
+        player_id: 'golfer-3',
+        name: 'Jon Rahm',
+        image_url: null
+      });
+    });
   });
 
   describe('getContestRules', () => {

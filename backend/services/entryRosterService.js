@@ -19,6 +19,16 @@ const { validateRoster } = require('./ContestRulesValidator');
 const { getStrategy } = require('./scoringStrategyRegistry');
 
 /**
+ * Sport mapping layer: convert template sport to player sport
+ * contest_templates.sport uses lowercase (nfl, pga)
+ * players.sport uses uppercase (NFL, GOLF)
+ */
+const SPORT_PLAYER_MAP = {
+  nfl: 'NFL',
+  pga: 'GOLF'
+};
+
+/**
  * Error codes (map to HTTP status)
  */
 const ERROR_CODES = {
@@ -208,9 +218,9 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
  * @returns {Promise<Object>} MyEntry response
  */
 async function getMyEntry(pool, contestInstanceId, userId) {
-  // Fetch contest + template
+  // Fetch contest + template (including sport for player pool mapping)
   const contestResult = await pool.query(
-    `SELECT ci.id, ci.status, ci.lock_time, ct.scoring_strategy_key
+    `SELECT ci.id, ci.status, ci.lock_time, ct.scoring_strategy_key, ct.sport
      FROM contest_instances ci
      LEFT JOIN contest_templates ct ON ct.id = ci.template_id
      WHERE ci.id = $1`,
@@ -259,6 +269,28 @@ async function getMyEntry(pool, contestInstanceId, userId) {
         name: player.name || 'Unknown',
         image_url: player.image_url || null
       }));
+    }
+  } else if (contestRow.sport) {
+    // Fallback: if field_selections is empty, query players table directly
+    // This is the primary path for PGA contests where players are global and not event-scoped
+    const playerSport = SPORT_PLAYER_MAP[contestRow.sport.toLowerCase()];
+    if (playerSport) {
+      const playersResult = await pool.query(
+        `SELECT id, full_name, image_url
+         FROM players
+         WHERE sport = $1
+         AND is_active = true
+         ORDER BY full_name`,
+        [playerSport]
+      );
+
+      if (playersResult.rows.length > 0) {
+        availablePlayers = playersResult.rows.map(player => ({
+          player_id: player.id,
+          name: player.full_name,
+          image_url: player.image_url || null
+        }));
+      }
     }
   }
 
