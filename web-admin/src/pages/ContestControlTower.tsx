@@ -56,26 +56,6 @@ function formatTimestamp(timestamp: string | null | undefined): string {
   }
 }
 
-// Format timestamp to relative time
-function formatRelativeTime(timestamp: string): string {
-  try {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSeconds = Math.floor(diffMs / 1000);
-    const diffMinutes = Math.floor(diffSeconds / 60);
-    const diffHours = Math.floor(diffMinutes / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffSeconds < 60) return `${diffSeconds}s ago`;
-    if (diffMinutes < 60) return `${diffMinutes}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
-  } catch {
-    return '—';
-  }
-}
-
 // Expandable contest row
 function ContestRow({ contest }: { contest: SystemInstance }) {
   const [expanded, setExpanded] = useState(false);

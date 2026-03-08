@@ -1,7 +1,7 @@
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useState } from 'react';
 import { logout } from '../api/auth';
-import { usePlatformHealth, type PlatformHealthResponse } from '../hooks/usePlatformHealth';
+import { usePlatformHealth } from '../hooks/usePlatformHealth';
 import { getHealthDisplay } from '../api/platform-health';
 
 interface NavGroup {

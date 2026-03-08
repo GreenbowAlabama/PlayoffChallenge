@@ -8,11 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { getWorkerStatus, getWorkerStatusDisplay, getWorkerDisplayName, type WorkerHeartbeatResponse } from '../api/worker-heartbeats';
 
-interface WorkerHeartbeatPanelProps {
-  isFetching?: boolean;
-}
-
-export const WorkerHeartbeatPanel: React.FC<WorkerHeartbeatPanelProps> = ({ isFetching = false }) => {
+export const WorkerHeartbeatPanel: React.FC = () => {
   const [data, setData] = useState<WorkerHeartbeatResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +168,7 @@ export const WorkerHeartbeatPanel: React.FC<WorkerHeartbeatPanelProps> = ({ isFe
                 </div>
 
                 {worker.freshness && (
-                  <div className="mt-2 pt-2 border-t" style={{ borderColor: display.color, borderOpacity: 0.3 }}>
+                  <div className="mt-2 pt-2 border-t" style={{ borderColor: display.color }}>
                     <div className="text-xs" style={{ color: getStatusTextColor(worker.status) }}>
                       Freshness: {worker.freshness.minutes_old}m old
                       {worker.freshness.is_stale && (
