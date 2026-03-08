@@ -52,9 +52,9 @@ export function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="sticky top-0 z-40 bg-white shadow-sm border-b border-gray-200">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 justify-between items-center">
+      <nav className="sticky top-0 z-40 bg-white shadow-sm border-b border-gray-200 overflow-visible">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 overflow-visible">
+          <div className="flex h-16 justify-between items-center overflow-visible">
             <div className="flex min-w-0 flex-1 items-center">
               <div className="flex flex-shrink-0 items-center gap-3">
                 {/* Global Status Light - Real-time from /api/admin/platform-health */}
@@ -107,7 +107,7 @@ export function Layout() {
                   Playoff Challenge Admin
                 </h1>
               </div>
-              <div className="ml-4 flex space-x-0 overflow-x-auto sm:ml-6">
+              <div className="ml-4 flex space-x-0 overflow-x-auto overflow-y-visible sm:ml-6">
                 {/* Dashboard */}
                 <Link
                   to="/dashboard"
