@@ -188,37 +188,42 @@ describe('systemInvariantService', () => {
   });
 
   describe('checkPipelineInvariant', () => {
-    it('should return HEALTHY status when all workers operational', async () => {
+    it('should return HEALTHY status when all workers have recent healthy heartbeats', async () => {
       const now = new Date();
+      const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
       mockPool.query.mockResolvedValueOnce({
-        rows: [{ last_run: now, error_count: 0 }]
-      }); // discovery
-      mockPool.query.mockResolvedValueOnce({
-        rows: [{ last_run: now, total_errors: 0 }]
-      }); // lifecycle
-      mockPool.query.mockResolvedValueOnce({
-        rows: [{ stuck_units: 0, minutes_oldest: null }]
-      }); // ingestion
+        rows: [
+          { worker_name: 'discovery_worker', worker_type: 'discovery', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'ingestion_worker', worker_type: 'ingestion', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'lifecycle_reconciler', worker_type: 'lifecycle', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'payout_scheduler', worker_type: 'payout', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'financial_reconciler', worker_type: 'financial', status: 'HEALTHY', last_run_at: now, error_count: 0 }
+        ]
+      });
 
       const result = await systemInvariantService.checkPipelineInvariant(mockPool);
 
       expect(result.status).toBe('HEALTHY');
       expect(result.pipeline_status.discovery_worker.status).toBe('HEALTHY');
-      expect(result.pipeline_status.lifecycle_reconciler.status).toBe('HEALTHY');
       expect(result.pipeline_status.ingestion_worker.status).toBe('HEALTHY');
+      expect(result.pipeline_status.lifecycle_reconciler.status).toBe('HEALTHY');
+      expect(result.pipeline_status.payout_scheduler.status).toBe('HEALTHY');
+      expect(result.pipeline_status.financial_reconciler.status).toBe('HEALTHY');
     });
 
-    it('should return DEGRADED when discovery has errors', async () => {
+    it('should return DEGRADED when one worker is DEGRADED', async () => {
       const now = new Date();
+
       mockPool.query.mockResolvedValueOnce({
-        rows: [{ last_run: now, error_count: 3 }]
-      }); // discovery with errors
-      mockPool.query.mockResolvedValueOnce({
-        rows: [{ last_run: now, total_errors: 0 }]
-      }); // lifecycle
-      mockPool.query.mockResolvedValueOnce({
-        rows: [{ stuck_units: 0, minutes_oldest: null }]
-      }); // ingestion
+        rows: [
+          { worker_name: 'discovery_worker', worker_type: 'discovery', status: 'DEGRADED', last_run_at: now, error_count: 2 },
+          { worker_name: 'ingestion_worker', worker_type: 'ingestion', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'lifecycle_reconciler', worker_type: 'lifecycle', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'payout_scheduler', worker_type: 'payout', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'financial_reconciler', worker_type: 'financial', status: 'HEALTHY', last_run_at: now, error_count: 0 }
+        ]
+      });
 
       const result = await systemInvariantService.checkPipelineInvariant(mockPool);
 
@@ -226,20 +231,92 @@ describe('systemInvariantService', () => {
       expect(result.pipeline_status.discovery_worker.status).toBe('DEGRADED');
     });
 
-    it('should return FAILED when 2+ components down', async () => {
+    it('should return FAILED when any worker is ERROR', async () => {
+      const now = new Date();
+
       mockPool.query.mockResolvedValueOnce({
-        rows: [{ last_run: null, error_count: 0 }]
-      }); // discovery unknown
-      mockPool.query.mockResolvedValueOnce({
-        rows: [{ last_run: null, total_errors: 0 }]
-      }); // lifecycle unknown
-      mockPool.query.mockResolvedValueOnce({
-        rows: [{ stuck_units: 0, minutes_oldest: null }]
-      }); // ingestion
+        rows: [
+          { worker_name: 'discovery_worker', worker_type: 'discovery', status: 'ERROR', last_run_at: now, error_count: 10 },
+          { worker_name: 'ingestion_worker', worker_type: 'ingestion', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'lifecycle_reconciler', worker_type: 'lifecycle', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'payout_scheduler', worker_type: 'payout', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'financial_reconciler', worker_type: 'financial', status: 'HEALTHY', last_run_at: now, error_count: 0 }
+        ]
+      });
 
       const result = await systemInvariantService.checkPipelineInvariant(mockPool);
 
       expect(result.status).toBe('FAILED');
+      expect(result.pipeline_status.discovery_worker.status).toBe('ERROR');
+    });
+
+    it('should return UNKNOWN when worker heartbeat is stale (older than freshness window)', async () => {
+      const now = new Date();
+      const sixMinutesAgo = new Date(now.getTime() - 6 * 60 * 1000); // Older than 5-minute window for discovery
+
+      mockPool.query.mockResolvedValueOnce({
+        rows: [
+          { worker_name: 'discovery_worker', worker_type: 'discovery', status: 'HEALTHY', last_run_at: sixMinutesAgo, error_count: 0 },
+          { worker_name: 'ingestion_worker', worker_type: 'ingestion', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'lifecycle_reconciler', worker_type: 'lifecycle', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'payout_scheduler', worker_type: 'payout', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'financial_reconciler', worker_type: 'financial', status: 'HEALTHY', last_run_at: now, error_count: 0 }
+        ]
+      });
+
+      const result = await systemInvariantService.checkPipelineInvariant(mockPool);
+
+      expect(result.status).toBe('DEGRADED');
+      expect(result.pipeline_status.discovery_worker.status).toBe('UNKNOWN');
+    });
+
+    it('should return UNKNOWN when no worker heartbeats exist', async () => {
+      mockPool.query.mockResolvedValueOnce({
+        rows: []
+      });
+
+      const result = await systemInvariantService.checkPipelineInvariant(mockPool);
+
+      expect(result.status).toBe('FAILED');
+      expect(result.pipeline_status.discovery_worker.status).toBe('UNKNOWN');
+      expect(result.pipeline_status.ingestion_worker.status).toBe('UNKNOWN');
+      expect(result.pipeline_status.lifecycle_reconciler.status).toBe('UNKNOWN');
+      expect(result.pipeline_status.payout_scheduler.status).toBe('UNKNOWN');
+      expect(result.pipeline_status.financial_reconciler.status).toBe('UNKNOWN');
+    });
+
+    it('should respect different freshness windows for different workers', async () => {
+      const now = new Date();
+      const sixMinutesAgo = new Date(now.getTime() - 6 * 60 * 1000); // Stale for 5-min workers
+      const elevenMinutesAgo = new Date(now.getTime() - 11 * 60 * 1000); // Stale for 10-min workers
+
+      mockPool.query.mockResolvedValueOnce({
+        rows: [
+          { worker_name: 'discovery_worker', worker_type: 'discovery', status: 'HEALTHY', last_run_at: sixMinutesAgo, error_count: 0 }, // STALE
+          { worker_name: 'ingestion_worker', worker_type: 'ingestion', status: 'HEALTHY', last_run_at: now, error_count: 0 }, // FRESH
+          { worker_name: 'lifecycle_reconciler', worker_type: 'lifecycle', status: 'HEALTHY', last_run_at: now, error_count: 0 }, // FRESH
+          { worker_name: 'payout_scheduler', worker_type: 'payout', status: 'HEALTHY', last_run_at: elevenMinutesAgo, error_count: 0 }, // STALE for 10-min
+          { worker_name: 'financial_reconciler', worker_type: 'financial', status: 'HEALTHY', last_run_at: now, error_count: 0 } // FRESH
+        ]
+      });
+
+      const result = await systemInvariantService.checkPipelineInvariant(mockPool);
+
+      expect(result.status).toBe('DEGRADED');
+      expect(result.pipeline_status.discovery_worker.status).toBe('UNKNOWN');
+      expect(result.pipeline_status.payout_scheduler.status).toBe('UNKNOWN');
+      expect(result.pipeline_status.ingestion_worker.status).toBe('HEALTHY');
+    });
+
+    it('should handle database errors gracefully', async () => {
+      mockPool.query.mockRejectedValueOnce(new Error('DB Connection failed'));
+
+      const result = await systemInvariantService.checkPipelineInvariant(mockPool);
+
+      expect(result.status).toBe('ERROR');
+      expect(result.anomalies).toEqual([
+        expect.objectContaining({ type: 'QUERY_ERROR' })
+      ]);
     });
   });
 

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 3Z2IuFbVLSxwPNed65qeyWrodAhAubE3YS7GHthFoVONtiFh8voGUKB3jogakIr
+\restrict QXcrLJueK6fC9z5RJqv3JVTnp4agcW3R94R7aTw8tnEaAWVQXrU7lSdeeUocsdq
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -1863,6 +1863,30 @@ CREATE TABLE public.withdrawal_config (
 
 
 --
+-- Name: worker_heartbeats; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.worker_heartbeats (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    worker_name text NOT NULL,
+    worker_type text NOT NULL,
+    status text NOT NULL,
+    last_run_at timestamp with time zone,
+    error_count integer DEFAULT 0,
+    metadata jsonb,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT worker_heartbeats_status_check CHECK ((status = ANY (ARRAY['HEALTHY'::text, 'DEGRADED'::text, 'ERROR'::text])))
+);
+
+
+--
+-- Name: TABLE worker_heartbeats; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.worker_heartbeats IS 'Operational heartbeat telemetry for background workers (discovery, ingestion, lifecycle, payouts, reconciliation).';
+
+
+--
 -- Name: lifecycle_reconciler_runs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2603,6 +2627,14 @@ ALTER TABLE ONLY public.withdrawal_config
 
 ALTER TABLE ONLY public.withdrawal_config
     ADD CONSTRAINT withdrawal_config_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: worker_heartbeats worker_heartbeats_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.worker_heartbeats
+    ADD CONSTRAINT worker_heartbeats_pkey PRIMARY KEY (id);
 
 
 --
@@ -3390,6 +3422,20 @@ CREATE INDEX idx_wallet_withdrawals_user_id_status ON public.wallet_withdrawals 
 
 
 --
+-- Name: idx_worker_heartbeats_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_worker_heartbeats_created_at ON public.worker_heartbeats USING btree (created_at DESC);
+
+
+--
+-- Name: idx_worker_heartbeats_worker_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_worker_heartbeats_worker_name ON public.worker_heartbeats USING btree (worker_name);
+
+
+--
 -- Name: ledger_stripe_event_id_uq; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4145,5 +4191,5 @@ ALTER TABLE ONLY public.wallet_withdrawals
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 3Z2IuFbVLSxwPNed65qeyWrodAhAubE3YS7GHthFoVONtiFh8voGUKB3jogakIr
+\unrestrict QXcrLJueK6fC9z5RJqv3JVTnp4agcW3R94R7aTw8tnEaAWVQXrU7lSdeeUocsdq
 

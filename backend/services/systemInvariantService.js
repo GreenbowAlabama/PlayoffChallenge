@@ -427,92 +427,127 @@ async function checkSettlementInvariant(pool) {
 }
 
 /**
- * Check pipeline health: discovery worker, lifecycle reconciler, ingestion
+ * Check pipeline health using worker heartbeats
+ *
+ * Reads explicit worker telemetry from worker_heartbeats table.
+ * No indirect inference. Workers must publish heartbeats.
+ *
+ * Freshness windows (minutes):
+ * - discovery_worker: 5
+ * - ingestion_worker: 5
+ * - lifecycle_reconciler: 5
+ * - payout_scheduler: 10
+ * - financial_reconciler: 10
  */
 async function checkPipelineInvariant(pool) {
+  // Define freshness windows for each worker (minutes)
+  const FRESHNESS_WINDOWS = {
+    discovery_worker: 5,
+    ingestion_worker: 5,
+    lifecycle_reconciler: 5,
+    payout_scheduler: 10,
+    financial_reconciler: 10
+  };
+
+  // Expected worker names
+  const EXPECTED_WORKERS = Object.keys(FRESHNESS_WINDOWS);
+
   try {
-    // Discovery worker health - check recent ingestion runs for discovery phase
-    const discoveryResult = await pool.query(`
+    // Fetch latest heartbeat for each worker
+    const heartbeatResult = await pool.query(`
       SELECT
-        MAX(created_at) as last_run,
-        COUNT(CASE WHEN status IN ('ERROR', 'FAILED') THEN 1 END) as error_count
-      FROM ingestion_runs
-      WHERE created_at > NOW() - INTERVAL '1 hour';
-    `);
+        worker_name,
+        worker_type,
+        status,
+        last_run_at,
+        error_count,
+        metadata
+      FROM worker_heartbeats
+      WHERE worker_name = ANY($1::text[])
+      ORDER BY worker_name, created_at DESC
+    `, [EXPECTED_WORKERS]);
 
-    // Lifecycle reconciler health - check validation errors in pipeline
-    const lifecycleResult = await pool.query(`
-      SELECT
-        MAX(created_at) as last_run,
-        COUNT(*) as total_errors
-      FROM ingestion_validation_errors
-      WHERE created_at > NOW() - INTERVAL '1 hour';
-    `);
+    // Index heartbeats by worker_name (latest only)
+    const heartbeatsByWorker = {};
+    const now = new Date();
 
-    // Ingestion pipeline health
-    const ingestionResult = await pool.query(`
-      SELECT
-        COUNT(*) as stuck_units,
-        MAX(EXTRACT(EPOCH FROM (NOW() - created_at))) / 60 as minutes_oldest
-      FROM work_units
-      WHERE status = 'PROCESSING'
-        AND created_at < NOW() - INTERVAL '15 minutes';
-    `);
+    heartbeatResult.rows.forEach(row => {
+      if (!heartbeatsByWorker[row.worker_name]) {
+        heartbeatsByWorker[row.worker_name] = row;
+      }
+    });
 
-    const discoveryLastRun = discoveryResult.rows[0]?.last_run;
-    const discoveryErrors = parseInt(discoveryResult.rows[0]?.error_count || 0, 10);
-    const discoveryStatus = !discoveryLastRun ? 'UNKNOWN' :
-                           discoveryErrors > 0 ? 'DEGRADED' : 'HEALTHY';
+    // Evaluate each worker
+    const pipeline_status = {};
+    let hasError = false;
+    let hasDegraded = false;
+    let hasUnknown = false;
 
-    const lifecycleLastRun = lifecycleResult.rows[0]?.last_run;
-    const lifecycleErrors = parseInt(lifecycleResult.rows[0]?.total_errors || 0, 10);
-    const lifecycleStatus = !lifecycleLastRun ? 'UNKNOWN' :
-                           lifecycleErrors > 0 ? 'DEGRADED' : 'HEALTHY';
+    EXPECTED_WORKERS.forEach(workerName => {
+      const heartbeat = heartbeatsByWorker[workerName];
+      const freshnessMins = FRESHNESS_WINDOWS[workerName];
 
-    const stuckUnits = parseInt(ingestionResult.rows[0]?.stuck_units || 0, 10);
-    const ingestionStatus = stuckUnits > 0 ? 'DEGRADED' : 'HEALTHY';
+      // Determine worker status
+      let workerStatus = 'UNKNOWN'; // Default: no heartbeat
+      let lastRun = null;
+      let errorCount = 0;
+      let details = 'No heartbeat detected';
 
-    const statusCounts = {
-      HEALTHY: [discoveryStatus, lifecycleStatus, ingestionStatus].filter(s => s === 'HEALTHY').length,
-      DEGRADED: [discoveryStatus, lifecycleStatus, ingestionStatus].filter(s => s === 'DEGRADED').length,
-      UNKNOWN: [discoveryStatus, lifecycleStatus, ingestionStatus].filter(s => s === 'UNKNOWN').length
-    };
+      if (heartbeat) {
+        lastRun = heartbeat.last_run_at ? heartbeat.last_run_at.toISOString() : null;
+        errorCount = heartbeat.error_count || 0;
 
+        // Check if heartbeat is stale
+        const minutesSinceLastRun = (now - heartbeat.last_run_at) / (60 * 1000);
+        const isStale = minutesSinceLastRun > freshnessMins;
+
+        if (isStale) {
+          workerStatus = 'UNKNOWN';
+          details = `Heartbeat stale (${Math.floor(minutesSinceLastRun)} minutes old, freshness window: ${freshnessMins} min)`;
+          hasUnknown = true;
+        } else if (heartbeat.status === 'ERROR') {
+          workerStatus = 'ERROR';
+          details = `Worker reported ERROR status (${errorCount} errors)`;
+          hasError = true;
+        } else if (heartbeat.status === 'DEGRADED') {
+          workerStatus = 'DEGRADED';
+          details = `Worker reported DEGRADED status (${errorCount} errors)`;
+          hasDegraded = true;
+        } else if (heartbeat.status === 'HEALTHY') {
+          workerStatus = 'HEALTHY';
+          details = `Worker operational (${errorCount} errors in recent runs)`;
+        }
+      } else {
+        hasUnknown = true;
+      }
+
+      pipeline_status[workerName] = {
+        status: workerStatus,
+        last_run: lastRun,
+        error_count: errorCount,
+        freshness_window_minutes: freshnessMins,
+        details
+      };
+    });
+
+    // Determine overall status
     let overallStatus = 'HEALTHY';
-    if (statusCounts.DEGRADED >= 2 || statusCounts.UNKNOWN >= 2) {
+    if (hasError) {
       overallStatus = 'FAILED';
-    } else if (statusCounts.DEGRADED > 0 || statusCounts.UNKNOWN > 0) {
+    } else if (hasDegraded || hasUnknown) {
       overallStatus = 'DEGRADED';
+    }
+
+    // If all workers are UNKNOWN, overall status should be FAILED (pipeline completely dark)
+    const allUnknown = EXPECTED_WORKERS.every(w => pipeline_status[w].status === 'UNKNOWN');
+    if (allUnknown) {
+      overallStatus = 'FAILED';
     }
 
     return {
       status: overallStatus,
       timestamp: new Date().toISOString(),
-      pipeline_status: {
-        discovery_worker: {
-          status: discoveryStatus,
-          last_run: discoveryLastRun ? discoveryLastRun.toISOString() : null,
-          error_count_1h: discoveryErrors,
-          details: discoveryStatus === 'HEALTHY' ? 'Discovery worker operational' :
-                   discoveryStatus === 'DEGRADED' ? `${discoveryErrors} errors in last hour` :
-                   'No recent runs detected'
-        },
-        lifecycle_reconciler: {
-          status: lifecycleStatus,
-          last_run: lifecycleLastRun ? lifecycleLastRun.toISOString() : null,
-          error_count_1h: lifecycleErrors,
-          details: lifecycleStatus === 'HEALTHY' ? 'Lifecycle reconciler operational' :
-                   lifecycleStatus === 'DEGRADED' ? `${lifecycleErrors} errors in last hour` :
-                   'No recent runs detected'
-        },
-        ingestion_worker: {
-          status: ingestionStatus,
-          last_run: null, // Inferred from work_units
-          error_count_1h: stuckUnits,
-          details: ingestionStatus === 'HEALTHY' ? 'No stuck work units' :
-                   `${stuckUnits} work units stuck > 15 minutes`
-        }
-      },
+      pipeline_status,
       anomalies: []
     };
   } catch (error) {
@@ -524,19 +559,36 @@ async function checkPipelineInvariant(pool) {
         discovery_worker: {
           status: 'UNKNOWN',
           last_run: null,
-          error_count_1h: 0,
-          details: error.message
-        },
-        lifecycle_reconciler: {
-          status: 'UNKNOWN',
-          last_run: null,
-          error_count_1h: 0,
+          error_count: 0,
+          freshness_window_minutes: FRESHNESS_WINDOWS.discovery_worker,
           details: error.message
         },
         ingestion_worker: {
           status: 'UNKNOWN',
           last_run: null,
-          error_count_1h: 0,
+          error_count: 0,
+          freshness_window_minutes: FRESHNESS_WINDOWS.ingestion_worker,
+          details: error.message
+        },
+        lifecycle_reconciler: {
+          status: 'UNKNOWN',
+          last_run: null,
+          error_count: 0,
+          freshness_window_minutes: FRESHNESS_WINDOWS.lifecycle_reconciler,
+          details: error.message
+        },
+        payout_scheduler: {
+          status: 'UNKNOWN',
+          last_run: null,
+          error_count: 0,
+          freshness_window_minutes: FRESHNESS_WINDOWS.payout_scheduler,
+          details: error.message
+        },
+        financial_reconciler: {
+          status: 'UNKNOWN',
+          last_run: null,
+          error_count: 0,
+          freshness_window_minutes: FRESHNESS_WINDOWS.financial_reconciler,
           details: error.message
         }
       },
