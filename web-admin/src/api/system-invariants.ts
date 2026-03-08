@@ -10,7 +10,9 @@ import type {
   HistoryRecord
 } from '../types/SystemInvariants';
 
-const API_BASE = import.meta.env.VITE_REACT_APP_API_URL || import.meta.env.REACT_APP_API_URL || 'http://localhost:3000';
+// Get API base from environment
+// For Vite, use VITE_REACT_APP_API_URL (Railway env var becomes VITE_REACT_APP_API_URL at build time)
+const API_BASE = import.meta.env.VITE_REACT_APP_API_URL || 'http://localhost:3000';
 
 /**
  * Helper: Build headers with optional authorization
