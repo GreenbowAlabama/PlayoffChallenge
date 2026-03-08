@@ -229,24 +229,24 @@ export const ContestControlTower: React.FC = () => {
   const overallStatus = getOverallStatus();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Contest Operations</h1>
           <p className="mt-1 text-sm text-gray-500">
             Operational visibility into contests, entries, picks, and scoring
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 sm:flex-nowrap">
           <button
             onClick={handleRefresh}
             disabled={instancesLoading}
-            className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
+            className="w-full sm:w-auto inline-flex items-center justify-center rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
           >
             {instancesLoading ? 'Refreshing...' : '🔄 Refresh'}
           </button>
-          <label className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+          <label className="w-full sm:w-auto inline-flex items-center justify-center rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
             <input
               type="checkbox"
               checked={autoRefresh}
@@ -262,12 +262,12 @@ export const ContestControlTower: React.FC = () => {
       <div className="rounded-lg overflow-hidden shadow-lg border-2" style={{
         borderColor: overallStatus === 'healthy' ? '#16a34a' : '#f59e0b'
       }}>
-        <div className="p-8" style={{
+        <div className="p-4 sm:p-8" style={{
           background: overallStatus === 'healthy'
             ? 'linear-gradient(135deg, #dcfce7 0%, #86efac 100%)'
             : 'linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%)'
         }}>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-2xl font-bold" style={{
                 color: overallStatus === 'healthy' ? '#166534' : '#92400e'
@@ -290,9 +290,9 @@ export const ContestControlTower: React.FC = () => {
       </div>
 
       {/* Operational Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
         {/* Contest Lifecycle Card */}
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-6">
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-4 sm:p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Contest Lifecycle</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-blue-50 rounded border border-blue-200">
@@ -315,7 +315,7 @@ export const ContestControlTower: React.FC = () => {
         </div>
 
         {/* Entry Integrity Card */}
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-6">
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-4 sm:p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Entry Integrity</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-200">
@@ -334,7 +334,7 @@ export const ContestControlTower: React.FC = () => {
         </div>
 
         {/* Scoring Pipeline Card */}
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-6">
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-4 sm:p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Scoring Pipeline</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-200">
@@ -353,7 +353,7 @@ export const ContestControlTower: React.FC = () => {
         </div>
 
         {/* Data Integrity Card */}
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-6">
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-4 sm:p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Data Integrity</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-200">

@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { logout } from '../api/auth';
 import { usePlatformHealth } from '../hooks/usePlatformHealth';
 import { getHealthDisplay } from '../api/platform-health';
@@ -13,7 +13,21 @@ export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { status, health } = usePlatformHealth();
+
+  // Lock background scroll when mobile menu is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileMenuOpen]);
 
   const handleLogout = () => {
     logout();
@@ -51,10 +65,10 @@ export function Layout() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 overflow-x-hidden">
       <nav className="sticky top-0 z-40 bg-white shadow-sm border-b border-gray-200 overflow-visible">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 overflow-visible">
-          <div className="flex h-16 justify-between items-center overflow-visible">
+          <div className="flex min-h-16 flex-col gap-2 sm:h-16 sm:flex-row sm:items-center sm:justify-between py-2 sm:py-0 overflow-visible">
             <div className="flex min-w-0 flex-1 items-center">
               <div className="flex flex-shrink-0 items-center gap-3">
                 {/* Global Status Light - Real-time from /api/admin/platform-health */}
@@ -107,7 +121,18 @@ export function Layout() {
                   Playoff Challenge Admin
                 </h1>
               </div>
-              <div className="ml-4 flex space-x-0 sm:ml-6">
+
+              {/* Mobile Menu Button */}
+              <button
+                className="sm:hidden inline-flex items-center justify-center rounded-md p-2 text-gray-600 hover:bg-gray-100"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 transition-transform ${mobileMenuOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+
+              <div className="hidden sm:flex ml-4 space-x-0 sm:ml-6">
                 {/* Dashboard */}
                 <Link
                   to="/dashboard"
@@ -184,7 +209,7 @@ export function Layout() {
                 </Link>
               </div>
             </div>
-            <div className="flex items-center">
+            <div className="hidden sm:flex items-center">
               <button
                 onClick={handleLogout}
                 className="ml-3 inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
@@ -195,6 +220,79 @@ export function Layout() {
           </div>
         </div>
       </nav>
+
+      {/* Mobile Navigation Menu */}
+      {mobileMenuOpen && (
+        <div
+          className="sm:hidden border-b border-gray-200 bg-white transition-all duration-200"
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          <div
+            className="space-y-1 px-4 py-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Dashboard Link */}
+            <Link
+              to="/dashboard"
+              className={`block rounded-md px-3 py-2 text-base font-medium ${
+                isActive('/dashboard')
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Dashboard
+            </Link>
+
+            {/* Navigation Groups */}
+            {Object.entries(navGroups).map(([key, group]) => (
+              <div key={key} className="space-y-1">
+                <div className="text-xs font-semibold text-gray-500 uppercase px-3 py-2">
+                  {group.label}
+                </div>
+                {group.items.map(item => (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`block rounded-md px-3 py-2 text-base ${
+                      isActive(item.path)
+                        ? 'bg-indigo-50 text-indigo-700 font-medium'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            ))}
+
+            {/* Users Link */}
+            <Link
+              to="/users"
+              className={`block rounded-md px-3 py-2 text-base font-medium ${
+                isActive('/users')
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Users
+            </Link>
+
+            {/* Logout Button */}
+            <button
+              onClick={() => {
+                handleLogout();
+                setMobileMenuOpen(false);
+              }}
+              className="w-full text-left rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      )}
 
       <main className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <Outlet />

@@ -66,7 +66,7 @@ export function Dashboard() {
   const healthStatus = healthData ? getHealthStatus(healthData) : 'critical';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
@@ -76,7 +76,7 @@ export function Dashboard() {
       {/* Financial Summary Panel */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-medium text-gray-900">Funds Summary</h2>
               <p className="text-sm text-gray-500">Current platform financial state</p>
@@ -95,7 +95,7 @@ export function Dashboard() {
         ) : healthData ? (
           <div className="space-y-4 px-4 py-5">
             {/* 3-Box Summary */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               <div className="rounded border border-gray-200 bg-gray-50 p-3">
                 <dt className="text-xs font-semibold text-gray-600 uppercase">Stripe Balance</dt>
                 <dd className="mt-1 text-2xl font-semibold text-gray-900">
@@ -117,7 +117,7 @@ export function Dashboard() {
             </div>
 
             {/* Liquidity Coverage */}
-            <div className="grid grid-cols-2 gap-4 border-t border-gray-200 pt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 border-t border-gray-200 pt-3 sm:pt-4">
               <div>
                 <dt className="text-sm font-medium text-gray-600">Liquidity Coverage Ratio</dt>
                 <dd
