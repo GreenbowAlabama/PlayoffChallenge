@@ -4,7 +4,7 @@
  * Provides access to operational diagnostics for contest troubleshooting.
  */
 
-import { api } from './api';
+import { apiRequest } from './client';
 
 export interface ContestOpsSnapshot {
   server_time: string;
@@ -90,6 +90,5 @@ export interface ContestOpsSnapshot {
 export async function getContestOpsSnapshot(
   contestId: string
 ): Promise<ContestOpsSnapshot> {
-  const response = await api.get(`/admin/contests/${contestId}/ops`);
-  return response.data;
+  return apiRequest<ContestOpsSnapshot>(`/admin/contests/${contestId}/ops`);
 }

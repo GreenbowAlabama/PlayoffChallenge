@@ -188,6 +188,41 @@ export const ContestOpsDetailPage: React.FC = () => {
     snapshot.server_time
   );
 
+  // Compute expected next lifecycle state
+  const serverTime = new Date(snapshot.server_time).getTime();
+  const lockTime = snapshot.contest.lock_time ? new Date(snapshot.contest.lock_time).getTime() : null;
+  const tournamentStartTime = snapshot.contest.tournament_start_time
+    ? new Date(snapshot.contest.tournament_start_time).getTime()
+    : null;
+
+  let expectedNextState = 'Unknown';
+  switch (snapshot.contest.status) {
+    case 'SCHEDULED':
+      expectedNextState = lockTime && serverTime >= lockTime ? 'LOCKED' : 'SCHEDULED (waiting for lock_time)';
+      break;
+    case 'LOCKED':
+      expectedNextState = tournamentStartTime && serverTime >= tournamentStartTime
+        ? 'LIVE'
+        : 'LOCKED (waiting for tournament_start_time)';
+      break;
+    case 'LIVE':
+      expectedNextState = 'LIVE (awaiting manual settlement or ERROR)';
+      break;
+    case 'COMPLETE':
+      expectedNextState = 'COMPLETE (terminal state)';
+      break;
+    case 'CANCELLED':
+      expectedNextState = 'CANCELLED (terminal state)';
+      break;
+    case 'ERROR':
+      expectedNextState = 'ERROR (awaiting resolution)';
+      break;
+  }
+
+  // Get timestamp of most recent lifecycle transition
+  const lastLifecycleWorkerRun =
+    snapshot.lifecycle.length > 0 ? snapshot.lifecycle[0].created_at : 'Never';
+
   return (
     <div className="contest-ops-detail">
       <div className="page-header">
@@ -257,7 +292,41 @@ export const ContestOpsDetailPage: React.FC = () => {
         </div>
       </Panel>
 
-      {/* Panel 2: Integrity Warnings */}
+      {/* Panel 2: Lifecycle Engine */}
+      <Panel title="Lifecycle Engine">
+        <div className="lifecycle-grid">
+          <div className="lifecycle-item">
+            <span className="label">Current Status</span>
+            <StatusBadge status={snapshot.contest.status} />
+          </div>
+          <div className="lifecycle-item">
+            <span className="label">Server Time</span>
+            <span className="value">{formatTimestamp(snapshot.server_time)}</span>
+          </div>
+          <div className="lifecycle-item">
+            <span className="label">Lock Time</span>
+            <span className="value">{formatTimestamp(snapshot.contest.lock_time)}</span>
+          </div>
+          <div className="lifecycle-item">
+            <span className="label">Tournament Start</span>
+            <span className="value">{formatTimestamp(snapshot.contest.tournament_start_time)}</span>
+          </div>
+          <div className="lifecycle-item full-width">
+            <span className="label">Expected Next State</span>
+            <span className="value next-state">{expectedNextState}</span>
+          </div>
+          <div className="lifecycle-item full-width">
+            <span className="label">Last State Transition</span>
+            <span className="value">
+              {lastLifecycleWorkerRun === 'Never'
+                ? '—'
+                : `${formatTimestamp(lastLifecycleWorkerRun)} (${formatRelativeTime(lastLifecycleWorkerRun)})`}
+            </span>
+          </div>
+        </div>
+      </Panel>
+
+      {/* Panel 3: Integrity Warnings */}
       {integrityWarnings.length > 0 && (
         <Panel title="Integrity Warnings">
           <div className="warnings-container">
@@ -268,7 +337,7 @@ export const ContestOpsDetailPage: React.FC = () => {
         </Panel>
       )}
 
-      {/* Panel 3: Tournament Config (attached to this contest) */}
+      {/* Panel 4: Tournament Config (attached to this contest) */}
       {snapshot.contest_tournament_config && (
         <Panel title="Tournament Config (Attached to This Contest)">
           <div className="config-grid">
@@ -314,7 +383,7 @@ export const ContestOpsDetailPage: React.FC = () => {
         </Panel>
       )}
 
-      {/* Panel 4: All Tournament Configs (event family) */}
+      {/* Panel 5: All Tournament Configs (event family) */}
       <Panel title="All Tournament Configs (Event Family)">
         {snapshot.tournament_configs.length === 0 ? (
           <p className="no-data">No tournament configs found</p>
@@ -352,7 +421,7 @@ export const ContestOpsDetailPage: React.FC = () => {
         )}
       </Panel>
 
-      {/* Panel 5: Template Contest Instances */}
+      {/* Panel 6: Template Contest Instances */}
       <Panel title="Template Contest Instances">
         {snapshot.template_contests.length === 0 ? (
           <p className="no-data">No contests found for this template</p>
@@ -394,7 +463,7 @@ export const ContestOpsDetailPage: React.FC = () => {
         )}
       </Panel>
 
-      {/* Panel 6: Lifecycle History */}
+      {/* Panel 7: Lifecycle History */}
       <Panel title="Lifecycle History">
         {snapshot.lifecycle.length === 0 ? (
           <p className="no-data">No lifecycle transitions recorded</p>
@@ -428,7 +497,7 @@ export const ContestOpsDetailPage: React.FC = () => {
         )}
       </Panel>
 
-      {/* Panel 7: Snapshot Health */}
+      {/* Panel 8: Snapshot Health */}
       <Panel title="Snapshot Health">
         <div className="health-grid">
           <div className="health-item">

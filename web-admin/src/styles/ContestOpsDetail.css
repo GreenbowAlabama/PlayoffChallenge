@@ -138,6 +138,49 @@
   word-break: break-all;
 }
 
+/* Lifecycle Grid */
+.lifecycle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.lifecycle-item {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.lifecycle-item .label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.lifecycle-item .value {
+  font-size: 14px;
+  color: #1f2937;
+  word-break: break-all;
+}
+
+.lifecycle-item .value.next-state {
+  font-weight: 600;
+  color: #1e40af;
+  background: #dbeafe;
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+
+.lifecycle-item.full-width {
+  grid-column: 1 / -1;
+}
+
 /* Config Grid */
 .config-grid {
   display: grid;
