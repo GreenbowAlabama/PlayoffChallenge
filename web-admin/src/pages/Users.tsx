@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getUsers, getUserDetail } from '../api/users';
 import type { User, UserDetail, LedgerEntry, UserContest } from '../types';
@@ -38,133 +38,6 @@ function calculateEntryVelocity(entries: LedgerEntry[]): number {
   ).length;
 }
 
-// Expandable detail panel for user wallet activity
-function UserDetailPanel({ user }: { user: User }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [detail, setDetail] = useState<UserDetail | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleExpand = async () => {
-    if (isExpanded) {
-      setIsExpanded(false);
-      return;
-    }
-
-    if (!detail) {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const data = await getUserDetail(user.id);
-        setDetail(data);
-      } catch (err) {
-        console.error('Failed to load user detail:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load details');
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    setIsExpanded(true);
-  };
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={handleExpand}
-        className="inline-flex items-center gap-1 px-2 py-2 text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 whitespace-nowrap"
-        title="Click to expand user details"
-      >
-        {isExpanded ? '▼' : '▶'} Details
-      </button>
-
-      {isExpanded && (
-        <tr className="bg-gray-50 border-t-2 border-gray-200">
-          <td colSpan={6} className="px-6 py-6">
-            {isLoading ? (
-              <div className="text-sm text-gray-500">Loading...</div>
-            ) : error ? (
-              <div className="text-sm text-red-600">Error: {error}</div>
-            ) : detail ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Wallet Activity Panel */}
-                <section>
-                  <div className="flex items-baseline gap-2 mb-3">
-                    <h4 className="text-sm font-semibold text-gray-900">Wallet Activity</h4>
-                    {detail.recent_ledger_entries && detail.recent_ledger_entries.length > 0 && (
-                      (() => {
-                        const velocity = calculateEntryVelocity(detail.recent_ledger_entries);
-                        return (
-                          <div className="flex items-center gap-1">
-                            <span className={`text-xs ${velocity >= 3 ? 'text-green-600 font-medium' : 'text-gray-500'}`}>
-                              ⚡ {velocity} entries/hr
-                            </span>
-                            {velocity >= 5 && (
-                              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium">
-                                HOT
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })()
-                    )}
-                  </div>
-                  {detail.recent_ledger_entries && detail.recent_ledger_entries.length > 0 ? (
-                    <ul className="space-y-2">
-                      {detail.recent_ledger_entries.slice(0, 5).map((entry: LedgerEntry) => (
-                        <li key={entry.id} className="grid grid-cols-3 gap-2 text-xs">
-                          <span className="text-gray-500">{formatDateShort(entry.created_at)}</span>
-                          <span className="text-gray-600 col-span-1">{entry.entry_type}</span>
-                          <span className={`text-right font-medium ${entry.direction === 'CREDIT' ? 'text-green-600' : 'text-red-600'}`}>
-                            {entry.direction === 'CREDIT' ? '+' : '-'}{formatUSD(entry.amount_cents)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-gray-400 text-sm">No wallet activity</p>
-                  )}
-                </section>
-
-                {/* Contest Entries Panel */}
-                <section>
-                  <h4 className="text-sm font-semibold text-gray-900 mb-3">Contest Entries</h4>
-                  {detail.contests && detail.contests.length > 0 ? (
-                    <div className="space-y-2">
-                      {detail.contests.map((contest: UserContest) => (
-                        <div key={contest.id} className="border border-gray-200 rounded p-3 text-xs">
-                          <div className="font-medium text-gray-900 mb-1">{contest.contest_name || 'Unknown Contest'}</div>
-                          <div className="flex items-center justify-between">
-                            <span className={`px-2 py-0.5 rounded text-white text-xs font-medium ${
-                              contest.status === 'SCHEDULED' ? 'bg-blue-500' :
-                              contest.status === 'LOCKED' ? 'bg-yellow-500' :
-                              contest.status === 'LIVE' ? 'bg-green-500' :
-                              contest.status === 'COMPLETE' ? 'bg-gray-500' :
-                              contest.status === 'CANCELLED' ? 'bg-red-500' :
-                              'bg-gray-400'
-                            }`}>
-                              {contest.status}
-                            </span>
-                            <span className="text-gray-600">Entry {formatUSD(contest.entry_fee_cents)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-400 text-sm">No contest entries</p>
-                  )}
-                </section>
-              </div>
-            ) : (
-              <div className="text-sm text-gray-500">No data available</div>
-            )}
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
 
 export function Users() {
   const [copiedEmailId, setCopiedEmailId] = useState<string | null>(null);
@@ -172,6 +45,9 @@ export function Users() {
   const [filterText, setFilterText] = useState('');
   const [sortColumn, setSortColumn] = useState<'balance' | 'deposits' | 'activity' | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [userDetails, setUserDetails] = useState<{ [userId: string]: UserDetail }>({});
+  const [loadingUserId, setLoadingUserId] = useState<string | null>(null);
 
   const copyEmailToClipboard = useCallback(async (email: string, userId: string) => {
     try {
@@ -208,6 +84,28 @@ export function Users() {
       setSortColumn(column);
       setSortDirection('desc');
     }
+  };
+
+  const toggleUserDetails = async (userId: string) => {
+    if (expandedUserId === userId) {
+      setExpandedUserId(null);
+      return;
+    }
+
+    // Load details if not already loaded
+    if (!userDetails[userId]) {
+      setLoadingUserId(userId);
+      try {
+        const data = await getUserDetail(userId);
+        setUserDetails(prev => ({ ...prev, [userId]: data }));
+      } catch (err) {
+        console.error('Failed to load user detail:', err);
+      } finally {
+        setLoadingUserId(null);
+      }
+    }
+
+    setExpandedUserId(userId);
   };
 
   const { data: users, isLoading, error } = useQuery({
@@ -389,8 +287,8 @@ export function Users() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {displayedUsers?.map((user) => (
-                  <>
-                    <tr key={user.id}>
+                  <Fragment key={user.id}>
+                    <tr>
                       <td className="py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-0">
                         <div className="flex items-center gap-2">
                           <span>{user.username || 'N/A'}</span>
@@ -454,10 +352,92 @@ export function Users() {
                         )}
                       </td>
                       <td className="px-4 py-4 text-sm font-medium">
-                        <UserDetailPanel user={user} />
+                        <button
+                          type="button"
+                          onClick={() => toggleUserDetails(user.id)}
+                          className="text-indigo-600 hover:text-indigo-800 font-semibold whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 rounded px-1 -mx-1"
+                          title="Toggle user details"
+                        >
+                          {expandedUserId === user.id ? '▼ Hide' : '▶ Show'} Details
+                        </button>
                       </td>
                     </tr>
-                  </>
+
+                    {expandedUserId === user.id && (
+                      <tr className="bg-gray-50">
+                        <td colSpan={7} className="px-6 py-6">
+                          {loadingUserId === user.id ? (
+                            <div className="text-sm text-gray-500">Loading...</div>
+                          ) : userDetails[user.id] ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                              {/* Wallet Activity Panel */}
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-sm font-semibold text-gray-700">Wallet Activity</h4>
+                                  {userDetails[user.id].recent_ledger_entries && userDetails[user.id].recent_ledger_entries.length > 0 && (
+                                    (() => {
+                                      const velocity = calculateEntryVelocity(userDetails[user.id].recent_ledger_entries);
+                                      return (
+                                        <span className={`text-xs ${velocity >= 3 ? 'text-green-600 font-medium' : 'text-gray-500'}`}>
+                                          ⚡ {velocity} entries/hr
+                                        </span>
+                                      );
+                                    })()
+                                  )}
+                                </div>
+                                {userDetails[user.id].recent_ledger_entries && userDetails[user.id].recent_ledger_entries.length > 0 ? (
+                                  <div className="space-y-2">
+                                    {userDetails[user.id].recent_ledger_entries.slice(0, 5).map((entry: LedgerEntry) => (
+                                      <div key={entry.id} className="grid grid-cols-3 gap-3 text-xs">
+                                        <span className="text-gray-500">{formatDateShort(entry.created_at)}</span>
+                                        <span className="text-gray-600">{entry.entry_type}</span>
+                                        <span className={`text-right font-medium ${entry.direction === 'CREDIT' ? 'text-green-600' : 'text-red-600'}`}>
+                                          {entry.direction === 'CREDIT' ? '+' : '-'}{formatUSD(entry.amount_cents)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-gray-400 text-sm">No wallet activity</p>
+                                )}
+                              </div>
+
+                              {/* Contest Entries Panel */}
+                              <div>
+                                <h4 className="text-sm font-semibold text-gray-700 mb-3">Contest Entries</h4>
+                                {userDetails[user.id].contests && userDetails[user.id].contests.length > 0 ? (
+                                  <div className="space-y-3">
+                                    {userDetails[user.id].contests.map((contest: UserContest) => (
+                                      <div key={contest.id} className="border rounded-lg p-3 bg-white text-xs">
+                                        <div className="font-medium text-gray-900 mb-2">{contest.contest_name || 'Unknown'}</div>
+                                        <div className="flex items-center justify-between">
+                                          <span className={`px-2 py-0.5 rounded text-white text-xs font-medium ${
+                                            contest.status === 'SCHEDULED' ? 'bg-blue-500' :
+                                            contest.status === 'LOCKED' ? 'bg-yellow-500' :
+                                            contest.status === 'LIVE' ? 'bg-green-500' :
+                                            contest.status === 'COMPLETE' ? 'bg-gray-500' :
+                                            contest.status === 'CANCELLED' ? 'bg-red-500' :
+                                            'bg-gray-400'
+                                          }`}>
+                                            {contest.status}
+                                          </span>
+                                          <span className="text-gray-600">Entry {formatUSD(contest.entry_fee_cents)}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-gray-400 text-sm">No contest entries</p>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-500">No data available</div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
