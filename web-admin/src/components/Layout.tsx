@@ -107,7 +107,7 @@ export function Layout() {
                   Playoff Challenge Admin
                 </h1>
               </div>
-              <div className="ml-4 flex space-x-0 overflow-x-auto overflow-y-visible sm:ml-6">
+              <div className="ml-4 flex space-x-0 sm:ml-6">
                 {/* Dashboard */}
                 <Link
                   to="/dashboard"
