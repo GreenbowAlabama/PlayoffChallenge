@@ -40,19 +40,36 @@ Read them in this order.
 /Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/CLAUDE_RULES.md
 
 2.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/LIFECYCLE_EXECUTION_MAP.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/LEDGER_ARCHITECTURE_AND_RECONCILIATION.md
 
 3.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/FINANCIAL_INVARIANTS.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/LIFECYCLE_EXECUTION_MAP.md
 
 4.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/DISCOVERY_LIFECYCLE_BOUNDARY.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/FINANCIAL_INVARIANTS.md
 
 5.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/IOS_SWEEP_PROTOCOL.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/DISCOVERY_LIFECYCLE_BOUNDARY.md
 
 6.
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/IOS_SWEEP_PROTOCOL.md
+
+7.
 /Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/ARCHITECTURE_ENFORCEMENT.md
+
+---
+
+# Financial Invariant Awareness
+
+Workers modifying financial code must ensure the reconciliation equation remains valid:
+
+**wallet_liability + contest_pools = deposits - withdrawals**
+
+This equation must hold at all times. If a proposed change risks breaking this equation, workers must STOP and report:
+
+Financial invariant at risk.
+
+Workers must not implement changes that could violate this equation without architect approval.
 
 ---
 

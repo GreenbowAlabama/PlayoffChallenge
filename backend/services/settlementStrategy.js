@@ -464,6 +464,49 @@ async function executeSettlementTx({
     [scoringRunId, settlementRecord.id]
   );
 
+  // 9c. POOL CONSERVATION GUARD: Verify SUM(payouts) <= distributable pool
+  const totalPayouts = settlementPlan.payouts.reduce((sum, p) => sum + p.amount_cents, 0);
+  if (totalPayouts > settlementPlan.distributable_cents) {
+    throw new Error(
+      `PAYOUT_EXCEEDS_POOL: Total payouts (${totalPayouts}) exceed distributable pool (${settlementPlan.distributable_cents}). Settlement is invalid.`
+    );
+  }
+
+  // 9d. INSERT PRIZE_PAYOUT ledger entries for each recipient
+  for (const payout of settlementPlan.payouts) {
+    const payoutIdempotencyKey = `payout:${contestInstanceId}:${payout.rank}:${payout.user_id}`;
+
+    await client.query(
+      `INSERT INTO ledger (
+         user_id,
+         entry_type,
+         direction,
+         amount_cents,
+         reference_type,
+         reference_id,
+         idempotency_key,
+         scoring_run_id,
+         snapshot_id,
+         snapshot_hash,
+         created_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+       ON CONFLICT (idempotency_key) DO NOTHING`,
+      [
+        payout.user_id,
+        'PRIZE_PAYOUT',
+        'CREDIT',
+        payout.amount_cents,
+        'CONTEST',
+        contestInstanceId,
+        payoutIdempotencyKey,
+        scoringRunId,
+        snapshotId,
+        snapshotHash
+      ]
+    );
+  }
+
   // 10. WRITE settle_time and status to COMPLETE (only if currently LIVE)
   const previousStatus = lockedContest.status;
   const newStatus = 'COMPLETE';

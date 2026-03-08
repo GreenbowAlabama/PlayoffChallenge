@@ -10,6 +10,56 @@
 
 ---
 
+## Platform Reconciliation Invariant
+
+The platform maintains two categories of liabilities:
+
+1. User wallet balances
+2. Contest entry pools
+
+Wallet balances represent withdrawable user funds.
+
+Contest pools represent locked funds awaiting contest settlement.
+
+The platform must always satisfy the reconciliation equation:
+
+**wallet_liability + contest_pools = deposits - withdrawals**
+
+### Definitions
+
+**wallet_liability** =
+```
+SUM(
+  CASE
+    WHEN direction = 'CREDIT' THEN amount_cents
+    WHEN direction = 'DEBIT' THEN -amount_cents
+  END
+)
+WHERE user_id IS NOT NULL
+```
+
+**contest_pools** =
+```
+SUM(entry_fee) - SUM(entry_fee_refund)
+```
+
+**funding** =
+```
+SUM(wallet_deposit) - SUM(wallet_withdrawal)
+```
+
+### Invariant Violations
+
+Any deviation from this equation indicates:
+
+• ledger corruption
+• a partial repair operation in progress
+• or a system bug
+
+All financial mutations must preserve this invariant.
+
+---
+
 ## 1. Atomic Join Debit Ordering (Phase 2)
 
 ### Contract
@@ -83,7 +133,7 @@ balance = SUM(
   CASE WHEN direction = 'CREDIT' THEN amount_cents
        WHEN direction = 'DEBIT' THEN -amount_cents
   END
-) WHERE reference_id = user_id
+) WHERE user_id = $1
 ```
 
 **Note:** Balance aggregates across all entry types. It is not filtered by reference_type.

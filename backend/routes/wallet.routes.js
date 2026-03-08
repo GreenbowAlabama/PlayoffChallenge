@@ -156,7 +156,7 @@ router.get('/transactions', extractUserId, async (req, res) => {
 
     // Fetch total count
     const countResult = await pool.query(
-      'SELECT COUNT(*) as count FROM ledger WHERE reference_id = $1',
+      'SELECT COUNT(*) as count FROM ledger WHERE user_id = $1',
       [userId]
     );
     const totalCount = parseInt(countResult.rows[0].count, 10);
@@ -173,7 +173,7 @@ router.get('/transactions', extractUserId, async (req, res) => {
         idempotency_key,
         created_at
       FROM ledger
-      WHERE reference_id = $1
+      WHERE user_id = $1
       ORDER BY created_at DESC
       LIMIT $2 OFFSET $3`,
       [userId, limit, offset]

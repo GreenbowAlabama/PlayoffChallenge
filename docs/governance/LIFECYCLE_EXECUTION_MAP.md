@@ -155,6 +155,31 @@ This is intentional and safe due to:
 | **Entry Point** | Single: `reconcileLifecycle()` in `lifecycleReconciliationService.js` |
 | **Notes** | No new endpoints, no manual settlement paths for MVP (admin paths unchanged but deprecated). |
 
+#### Settlement Financial Responsibility
+
+Settlement moves funds from contest pools into user wallets via PRIZE_PAYOUT ledger entries.
+
+Settlement must satisfy the constraint:
+
+**SUM(prize_payouts) <= contest_entry_pool**
+
+Where:
+
+```
+contest_entry_pool =
+SUM(entry_fee) - SUM(entry_fee_refund)
+```
+
+### Settlement Safety Rules
+
+1. **Pool Conservation:** If payout calculations exceed the contest pool, the settlement transaction must fail and rollback.
+
+2. **No Fund Creation:** Contests cannot create funds beyond what participants contributed.
+
+3. **Atomic Payouts:** All prize payouts for a contest must commit or rollback together.
+
+4. **Ledger Binding:** Every payout must record a corresponding PRIZE_PAYOUT ledger entry inside the settlement transaction.
+
 ---
 
 ### Transition 4: → CANCELLED (Any non-terminal state)

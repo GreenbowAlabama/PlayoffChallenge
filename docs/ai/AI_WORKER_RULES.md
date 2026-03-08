@@ -12,10 +12,30 @@ Workers must operate deterministically.
 
 Workers must:
 
-• avoid repository scanning  
-• avoid token waste  
-• avoid architectural drift  
-• avoid unauthorized edits  
+• avoid repository scanning
+• avoid token waste
+• avoid architectural drift
+• avoid unauthorized edits
+
+---
+
+# Ledger Immutability
+
+Workers must never delete or modify existing ledger rows.
+
+All financial corrections must use compensating ledger entries.
+
+Ledger entries are append-only and immutable.
+
+---
+
+# Balance Mutation Forbidden
+
+Workers must never mutate wallet balances directly.
+
+All balance changes must occur through ledger entries.
+
+Balances are derived from ledger sums and must never be written as mutable fields.  
 
 ---
 
@@ -104,7 +124,8 @@ Workers must follow this sequence.
 
 1. Read AI_ENTRYPOINT.md
 2. Read AI_WORKER_RULES.md
-3. Read governance docs
+3. Read governance docs (in order from AI_ENTRYPOINT.md Step 2)
+   - **CRITICAL FOR FINANCIAL WORK:** Read LEDGER_ARCHITECTURE_AND_RECONCILIATION.md before implementing any ledger operations
 4. Write tests
 5. Run tests
 6. Implement changes

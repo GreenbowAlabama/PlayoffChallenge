@@ -97,3 +97,131 @@ Exception values (0,2,3,10,15,30) are allowed for documented context-specific sp
 Violations of mapped values will fail CI and must be corrected before merge.
 
 ---
+
+## Phase X — Financial Ledger Enforcement (CRITICAL)
+
+### Purpose
+
+Prevent financial corruption and unauthorized mutation of wallet balances.
+
+The ledger is the single source of truth for all financial state. This enforcement layer ensures no code bypasses ledger operations or directly mutates balances.
+
+### Rules
+
+#### 1. Ledger rows are append-only
+
+Ledger entries must never be updated or deleted.
+
+Corrections must be implemented using compensating ledger entries.
+
+**Forbidden patterns:**
+```sql
+UPDATE ledger SET ...
+DELETE FROM ledger WHERE ...
+```
+
+**Correct pattern:**
+```sql
+INSERT INTO ledger (..., entry_type, direction, ...)
+VALUES (..., 'ADJUSTMENT', 'CREDIT', ...)
+```
+
+---
+
+#### 2. Wallet balances must never be mutated directly
+
+Wallet balances must always be computed from ledger entries.
+
+Direct balance mutation is forbidden.
+
+**Forbidden patterns:**
+```sql
+UPDATE users SET balance = ...
+UPDATE wallets SET balance = ...
+```
+
+**Correct pattern:**
+```javascript
+// Balance is always computed from ledger
+const balance = SUM(CREDIT - DEBIT) WHERE user_id = $1
+```
+
+---
+
+#### 3. Financial writes must be atomic
+
+All ledger mutations must occur inside a single database transaction.
+
+Operations that involve multiple writes (e.g. participant insert + ledger debit) must commit or rollback together.
+
+**Forbidden pattern:**
+```javascript
+// ❌ BAD: Two separate transactions
+await insertParticipant(pool, ...);
+await insertLedgerDebit(pool, ...);
+```
+
+**Correct pattern:**
+```javascript
+// ✅ GOOD: Single transaction
+const client = await pool.connect();
+await client.query('BEGIN');
+try {
+  await insertParticipant(client, ...);
+  await insertLedgerDebit(client, ...);
+  await client.query('COMMIT');
+} catch (err) {
+  await client.query('ROLLBACK');
+  throw err;
+}
+```
+
+---
+
+#### 4. Idempotency keys are mandatory
+
+Every ledger mutation must include a deterministic idempotency_key.
+
+This ensures duplicate operations cannot create multiple financial entries.
+
+**Forbidden pattern:**
+```javascript
+// ❌ BAD: No idempotency key
+INSERT INTO ledger (user_id, amount_cents, ...)
+VALUES (userId, 100, ...)
+```
+
+**Correct pattern:**
+```javascript
+// ✅ GOOD: Deterministic idempotency key
+const idempotencyKey = `entry_fee:${contestInstanceId}:${userId}`;
+INSERT INTO ledger (user_id, amount_cents, idempotency_key, ...)
+VALUES (userId, 100, idempotencyKey, ...)
+```
+
+---
+
+#### 5. Financial invariant protection
+
+Workers must not introduce logic that violates the reconciliation invariant:
+
+**wallet_liability + contest_pools = deposits - withdrawals**
+
+If a change risks violating this equation, the worker must stop and escalate.
+
+**Invariant Check:**
+```javascript
+// Before any financial change, verify
+const walletLiability = SUM(ledger entries WHERE user_id IS NOT NULL);
+const contestPools = SUM(entry_fees) - SUM(refunds);
+const deposits = SUM(wallet deposits);
+const withdrawals = SUM(wallet withdrawals);
+
+if (walletLiability + contestPools !== deposits - withdrawals) {
+  throw new Error('Reconciliation invariant violated');
+}
+```
+
+---
+
+
