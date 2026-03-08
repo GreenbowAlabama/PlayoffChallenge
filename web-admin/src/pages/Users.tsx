@@ -8,18 +8,6 @@ function formatUSD(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-// Helper to format date
-function formatDate(dateString: string | null): string {
-  if (!dateString) return 'N/A';
-  return new Date(dateString).toLocaleDateString();
-}
-
-// Helper to format datetime
-function formatDateTime(dateString: string | null): string {
-  if (!dateString) return 'N/A';
-  return new Date(dateString).toLocaleString();
-}
-
 // Helper to format date only (e.g., "Mar 8")
 function formatDateShort(dateString: string | null): string {
   if (!dateString) return '';
@@ -406,7 +394,7 @@ export function Users() {
                       <td className="py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-0">
                         <div className="flex items-center gap-2">
                           <span>{user.username || 'N/A'}</span>
-                          {isSystemUser(user.username) && (
+                          {user.username && isSystemUser(user.username) && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
                               SYSTEM
                             </span>
