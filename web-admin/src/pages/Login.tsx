@@ -25,6 +25,7 @@ export function Login() {
   const [searchParams] = useSearchParams();
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [appleAuthReady, setAppleAuthReady] = useState(false);
 
   // Check for token in URL (from backend redirect after Apple auth)
   useEffect(() => {
@@ -50,6 +51,7 @@ export function Login() {
         responseType: 'code',
         state: 'web-admin',
       });
+      setAppleAuthReady(true);
     };
 
     return () => {
@@ -58,6 +60,10 @@ export function Login() {
   }, []);
 
   const handleAppleSignIn = async () => {
+    if (!appleAuthReady) {
+      setError('Apple auth is loading. Please wait...');
+      return;
+    }
     try {
       setLoading(true);
       setError('');
@@ -89,10 +95,10 @@ export function Login() {
 
           <button
             onClick={handleAppleSignIn}
-            disabled={loading}
+            disabled={loading || !appleAuthReady}
             className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Signing in...' : 'Sign in with Apple'}
+            {loading ? 'Signing in...' : appleAuthReady ? 'Sign in with Apple' : 'Loading...'}
           </button>
         </div>
       </div>
