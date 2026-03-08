@@ -52,7 +52,7 @@ export function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
+      <nav className="sticky top-0 z-40 bg-white shadow-sm border-b border-gray-200">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 justify-between items-center">
             <div className="flex min-w-0 flex-1 items-center">
@@ -151,7 +151,7 @@ export function Layout() {
 
                     {/* Dropdown Menu */}
                     {openDropdown === key && (
-                      <div className="absolute left-0 mt-0 w-48 bg-white shadow-lg rounded-b-lg border border-gray-200 border-t-0 z-10">
+                      <div className="absolute left-0 mt-0 w-48 bg-white shadow-lg rounded-b-lg border border-gray-200 border-t-0 z-50">
                         {group.items.map(item => (
                           <Link
                             key={item.path}
@@ -196,7 +196,7 @@ export function Layout() {
         </div>
       </nav>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <main className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <Outlet />
       </main>
     </div>

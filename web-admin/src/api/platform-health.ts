@@ -5,6 +5,8 @@
  * Aggregates all platform signals into one contract.
  */
 
+import { apiRequest } from './client';
+
 export interface PlatformHealthResponse {
   status: 'healthy' | 'degraded' | 'critical' | 'unknown';
   timestamp: string;
@@ -23,13 +25,7 @@ export interface PlatformHealthResponse {
  * This is the single source of truth for UI platform state.
  */
 export async function getPlatformHealth(): Promise<PlatformHealthResponse> {
-  const response = await fetch('/api/admin/platform-health');
-
-  if (!response.ok) {
-    throw new Error(`Platform health check failed: ${response.statusText}`);
-  }
-
-  return response.json();
+  return apiRequest<PlatformHealthResponse>('/api/admin/platform-health');
 }
 
 /**
