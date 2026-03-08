@@ -12,6 +12,17 @@ import type {
 
 const API_BASE = import.meta.env.VITE_REACT_APP_API_URL || import.meta.env.REACT_APP_API_URL || 'http://localhost:3000';
 
+/**
+ * Helper: Build headers with optional authorization
+ */
+function buildHeaders(): Record<string, string> {
+  const token = localStorage.getItem('adminToken');
+  return {
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    'Content-Type': 'application/json'
+  };
+}
+
 export const systemInvariantsApi = {
   /**
    * Execute full invariant check and get aggregated results
@@ -19,11 +30,7 @@ export const systemInvariantsApi = {
   async getCurrentStatus(): Promise<SystemInvariantsResponse> {
     const response = await fetch(`${API_BASE}/api/admin/system-invariants`, {
       method: 'GET',
-      credentials: 'include',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
-        'Content-Type': 'application/json'
-      }
+      headers: buildHeaders()
     });
     if (!response.ok) {
       throw new Error(`System invariants API failed: ${response.statusText}`);
@@ -43,11 +50,7 @@ export const systemInvariantsApi = {
       `${API_BASE}/api/admin/system-invariants/history?${params}`,
       {
         method: 'GET',
-        credentials: 'include',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
-          'Content-Type': 'application/json'
-        }
+        headers: buildHeaders()
       }
     );
     if (!response.ok) {
@@ -62,11 +65,7 @@ export const systemInvariantsApi = {
   async getLatest(): Promise<HistoryRecord> {
     const response = await fetch(`${API_BASE}/api/admin/system-invariants/latest`, {
       method: 'GET',
-      credentials: 'include',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
-        'Content-Type': 'application/json'
-      }
+      headers: buildHeaders()
     });
     if (!response.ok) {
       throw new Error(`Latest check API failed: ${response.statusText}`);
