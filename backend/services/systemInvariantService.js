@@ -46,20 +46,15 @@ async function runFullInvariantCheck(pool, timestamp = null) {
     const ledgerStatus = ledger.status === 'CONSISTENT' ? 'CONSISTENT' :
                         ledger.status === 'VIOLATIONS' ? 'VIOLATIONS' : 'ERROR';
 
-    // Calculate overall status based on normalized statuses
-    let overallStatus = 'HEALTHY';
+    // Calculate overall status: HEALTHY only if all subsystems are in good state
+    const allHealthy =
+      (financial.status === 'BALANCED') &&
+      (lifecycle.status === 'HEALTHY') &&
+      (settlement.status === 'HEALTHY') &&
+      (pipeline.status === 'HEALTHY') &&
+      (ledger.status === 'CONSISTENT');
 
-    // CRITICAL if any check has error conditions
-    if (financialStatus === 'CRITICAL_IMBALANCE' || lifecycleStatus === 'ERROR' ||
-        settlementStatus === 'ERROR' || pipelineStatus === 'FAILED' || ledgerStatus === 'ERROR') {
-      overallStatus = 'CRITICAL';
-    }
-    // WARNING if any check has non-critical issues
-    else if (financialStatus === 'DRIFT' || lifecycleStatus === 'STUCK_TRANSITIONS' ||
-             settlementStatus === 'INCOMPLETE' || pipelineStatus === 'DEGRADED' ||
-             ledgerStatus === 'VIOLATIONS') {
-      overallStatus = 'WARNING';
-    }
+    const overallStatus = allHealthy ? 'HEALTHY' : 'WARNING';
 
     const executionTime = Date.now() - startTime;
 
@@ -530,18 +525,22 @@ async function checkPipelineInvariant(pool) {
       };
     });
 
-    // Determine overall status
-    let overallStatus = 'HEALTHY';
-    if (hasError) {
-      overallStatus = 'FAILED';
-    } else if (hasDegraded || hasUnknown) {
-      overallStatus = 'DEGRADED';
-    }
+    // Determine overall status based on core workers only
+    // Core workers: discovery_worker, lifecycle_reconciler, ingestion_worker
+    const CORE_WORKERS = ['discovery_worker', 'lifecycle_reconciler', 'ingestion_worker'];
 
-    // If all workers are UNKNOWN, overall status should be FAILED (pipeline completely dark)
-    const allUnknown = EXPECTED_WORKERS.every(w => pipeline_status[w].status === 'UNKNOWN');
-    if (allUnknown) {
+    const coreWorkerStatuses = CORE_WORKERS.map(w => pipeline_status[w].status);
+    const coreHasError = coreWorkerStatuses.some(s => s === 'ERROR');
+    const allCoreUnknown = coreWorkerStatuses.every(s => s === 'UNKNOWN');
+    const allCoreHealthy = coreWorkerStatuses.every(s => s === 'HEALTHY');
+
+    let overallStatus = 'HEALTHY';
+    if (coreHasError) {
       overallStatus = 'FAILED';
+    } else if (allCoreUnknown) {
+      overallStatus = 'FAILED';
+    } else if (!allCoreHealthy) {
+      overallStatus = 'DEGRADED';
     }
 
     return {

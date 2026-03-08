@@ -1,13 +1,19 @@
 /**
- * System Invariant Monitor Page
+ * System Health Monitor Page
  *
- * Dashboard for monitoring platform critical invariants
+ * Merged dashboard combining system invariants and diagnostics.
+ * Monitors platform critical invariants and environmental health.
  */
 
 import React, { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { InvariantCard } from '../components/InvariantCard';
 import { AnomalyList } from '../components/AnomalyList';
 import { systemInvariantsApi } from '../api/system-invariants';
+import { getHealthCheck, getUserStats, getJobsStatus, getLifecycleHealth } from '../api/diagnostics';
+import { getCacheStatus, getUsers } from '../api/admin';
+import { LifecycleHealthPanel } from '../components/LifecycleHealthPanel';
 import type {
   SystemInvariantsResponse,
   HistoryRecord,
@@ -18,6 +24,40 @@ import type {
   LedgerInvariant
 } from '../types/SystemInvariants';
 import '../styles/SystemInvariantMonitor.css';
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    healthy: 'bg-green-100 text-green-800',
+    degraded: 'bg-amber-100 text-amber-800',
+    unhealthy: 'bg-red-100 text-red-800',
+    unknown: 'bg-gray-100 text-gray-800',
+    running: 'bg-blue-100 text-blue-800',
+    error: 'bg-red-100 text-red-800',
+    registered: 'bg-gray-100 text-gray-600',
+  };
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[status] || colors.unknown}`}>
+      {status}
+    </span>
+  );
+}
+
+function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
+function formatTimestamp(ts: string | null): string {
+  if (!ts) return '—';
+  const date = new Date(ts);
+  return date.toLocaleString();
+}
 
 export const SystemInvariantMonitor: React.FC = () => {
   const [data, setData] = useState<SystemInvariantsResponse | null>(null);
@@ -30,6 +70,7 @@ export const SystemInvariantMonitor: React.FC = () => {
   const [historyTotal, setHistoryTotal] = useState(0);
 
   const HISTORY_PAGE_SIZE = 20;
+  const queryClient = useQueryClient();
 
   const fetchData = async () => {
     setLoading(true);
@@ -55,6 +96,52 @@ export const SystemInvariantMonitor: React.FC = () => {
     }
   };
 
+  // Diagnostics queries
+  const { data: health, isLoading: healthLoading, isFetching: healthFetching } = useQuery({
+    queryKey: ['diagnostics', 'health'],
+    queryFn: getHealthCheck,
+    staleTime: Infinity,
+  });
+
+  const { data: userStats, isLoading: statsLoading, isFetching: statsFetching } = useQuery({
+    queryKey: ['diagnostics', 'userStats'],
+    queryFn: getUserStats,
+    staleTime: Infinity,
+  });
+
+  const { data: jobs, isLoading: jobsLoading, isFetching: jobsFetching } = useQuery({
+    queryKey: ['diagnostics', 'jobs'],
+    queryFn: getJobsStatus,
+    staleTime: Infinity,
+  });
+
+  const { isFetching: lifecycleFetching } = useQuery({
+    queryKey: ['diagnostics', 'lifecycleHealth'],
+    queryFn: getLifecycleHealth,
+    staleTime: Infinity,
+  });
+
+  const { data: cacheStatus, isFetching: cacheRefetching } = useQuery({
+    queryKey: ['systemHealth', 'cacheStatus'],
+    queryFn: getCacheStatus,
+    staleTime: Infinity,
+  });
+
+  const { data: sysUsers, isFetching: sysUsersRefetching } = useQuery({
+    queryKey: ['systemHealth', 'users'],
+    queryFn: getUsers,
+    staleTime: Infinity,
+  });
+
+  const isAnyFetching = healthFetching || statsFetching || jobsFetching || lifecycleFetching || cacheRefetching || sysUsersRefetching;
+
+  const handleRefreshAll = () => {
+    fetchData();
+    fetchHistory(0);
+    queryClient.invalidateQueries({ queryKey: ['diagnostics'] });
+    queryClient.invalidateQueries({ queryKey: ['systemHealth'] });
+  };
+
   useEffect(() => {
     fetchData();
     fetchHistory(0);
@@ -64,8 +151,8 @@ export const SystemInvariantMonitor: React.FC = () => {
     if (!autoRefresh) return;
 
     const interval = setInterval(() => {
-      fetchData();
-    }, 10000); // Refresh every 10 seconds
+      handleRefreshAll();
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [autoRefresh]);
@@ -188,44 +275,75 @@ export const SystemInvariantMonitor: React.FC = () => {
   );
 
   return (
-    <div className="system-invariant-monitor">
-      <header className="monitor-header">
-        <h1>System Invariant Monitor</h1>
-        <div className="header-controls">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">System Health</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Comprehensive system invariants and diagnostics (Read-only)
+          </p>
+        </div>
+        <div className="flex gap-2">
           <button
-            onClick={fetchData}
-            disabled={loading}
-            className="btn-refresh"
+            onClick={handleRefreshAll}
+            disabled={isAnyFetching}
+            className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
           >
-            {loading ? 'Loading...' : '🔄 Refresh Now'}
+            {isAnyFetching ? 'Refreshing...' : '🔄 Refresh All'}
           </button>
-          <label className="auto-refresh-toggle">
+          <label className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
             <input
               type="checkbox"
               checked={autoRefresh}
               onChange={(e) => setAutoRefresh(e.target.checked)}
+              className="mr-2"
             />
-            Auto-refresh (every 10s)
+            Auto-refresh (10s)
           </label>
         </div>
-      </header>
+      </div>
 
       {error && (
-        <div className="error-banner">
-          <strong>Error:</strong> {error}
+        <div className="rounded-md bg-red-50 p-4">
+          <p className="text-sm text-red-700"><strong>Error:</strong> {error}</p>
         </div>
       )}
 
+      {/* Overall Status Banner */}
       {data && (
-        <>
-          <div className="overall-status">
-            <div className={`status-box ${data.overall_status.toLowerCase()}`}>
-              <h2>Overall Status: {data.overall_status}</h2>
-              <p>Last check: {new Date(data.last_check_timestamp).toLocaleString()}</p>
-              <p>Execution time: {data.execution_time_ms}ms</p>
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+          <div className={`status-banner ${data.overall_status.toLowerCase()}`}>
+            <div className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Overall Status</h2>
+                  <p className="text-sm text-gray-500 mt-1">Last check: {formatTimestamp(data.last_check_timestamp)}</p>
+                </div>
+                <div className="text-4xl font-bold">
+                  {data.overall_status === 'HEALTHY' && (
+                    <span className="text-green-600">✓</span>
+                  )}
+                  {data.overall_status === 'WARNING' && (
+                    <span className="text-amber-600">⚠</span>
+                  )}
+                  {data.overall_status === 'CRITICAL' && (
+                    <span className="text-red-600">✗</span>
+                  )}
+                </div>
+              </div>
+              <div className="mt-4">
+                <StatusBadge status={data.overall_status.toLowerCase()} />
+                <span className="ml-2 text-xs text-gray-500">Execution: {data.execution_time_ms}ms</span>
+              </div>
             </div>
           </div>
+        </div>
+      )}
 
+      {/* System Invariants Grid */}
+      {data && (
+        <div className="system-invariant-monitor">
           <div className="invariants-grid">
             <div>
               <InvariantCard
@@ -303,36 +421,276 @@ export const SystemInvariantMonitor: React.FC = () => {
               />
             </div>
           </div>
+        </div>
+      )}
 
-          <section className="history-section">
-            <h2>Check History</h2>
-            <div className="history-table">
-              <table>
+      {loading && !data && (
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-6">
+          <p className="text-gray-500">Loading system health check...</p>
+        </div>
+      )}
+
+      {/* Environment Health Panel */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-medium text-gray-900">Environment Health</h2>
+              <p className="text-sm text-gray-500">System component status</p>
+            </div>
+            {health && <StatusBadge status={health.status} />}
+          </div>
+        </div>
+        <div className="p-4">
+          {healthLoading ? (
+            <div className="animate-pulse space-y-3">
+              <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+              <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+            </div>
+          ) : healthFetching ? (
+            <p className="text-gray-500">Updating...</p>
+          ) : health ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="rounded-md border border-gray-200 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">API Process</span>
+                  <StatusBadge status={health.checks.api_process.status} />
+                </div>
+                <dl className="text-xs text-gray-500 space-y-1">
+                  <div className="flex justify-between">
+                    <dt>Uptime</dt>
+                    <dd className="text-gray-900">{formatUptime(health.checks.api_process.uptime_seconds)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Memory</dt>
+                    <dd className="text-gray-900">{health.checks.api_process.memory_usage_mb} MB</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Environment</dt>
+                    <dd className="text-gray-900">{health.checks.api_process.environment}</dd>
+                  </div>
+                </dl>
+              </div>
+
+              <div className="rounded-md border border-gray-200 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">Database</span>
+                  <StatusBadge status={health.checks.database.status} />
+                </div>
+                <dl className="text-xs text-gray-500 space-y-1">
+                  <div className="flex justify-between">
+                    <dt>Latency</dt>
+                    <dd className="text-gray-900">
+                      {health.checks.database.latency_ms != null ? `${health.checks.database.latency_ms}ms` : '—'}
+                    </dd>
+                  </div>
+                  {health.checks.database.error && (
+                    <div className="text-red-600 mt-1">{health.checks.database.error}</div>
+                  )}
+                </dl>
+              </div>
+
+              <div className="rounded-md border border-gray-200 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">ESPN API</span>
+                  <StatusBadge status={health.checks.espn_api.status} />
+                </div>
+                <dl className="text-xs text-gray-500 space-y-1">
+                  <div className="flex justify-between">
+                    <dt>Latency</dt>
+                    <dd className="text-gray-900">
+                      {health.checks.espn_api.latency_ms != null ? `${health.checks.espn_api.latency_ms}ms` : '—'}
+                    </dd>
+                  </div>
+                  {health.checks.espn_api.error && (
+                    <div className="text-red-600 mt-1">{health.checks.espn_api.error}</div>
+                  )}
+                </dl>
+              </div>
+
+              <div className="rounded-md border border-gray-200 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">Sleeper API</span>
+                  <StatusBadge status={health.checks.sleeper_api.status} />
+                </div>
+                <dl className="text-xs text-gray-500 space-y-1">
+                  <div className="flex justify-between">
+                    <dt>Latency</dt>
+                    <dd className="text-gray-900">
+                      {health.checks.sleeper_api.latency_ms != null ? `${health.checks.sleeper_api.latency_ms}ms` : '—'}
+                    </dd>
+                  </div>
+                  {health.checks.sleeper_api.error && (
+                    <div className="text-red-600 mt-1">{health.checks.sleeper_api.error}</div>
+                  )}
+                </dl>
+              </div>
+            </div>
+          ) : null}
+          {health && (
+            <p className="text-xs text-gray-400 mt-3">
+              Last checked: {formatTimestamp(health.timestamp)}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Lifecycle Health Panel */}
+      <LifecycleHealthPanel isFetching={lifecycleFetching} />
+
+      {/* User Statistics Panel */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-medium text-gray-900">User Statistics</h2>
+              <p className="text-sm text-gray-500">Aggregate user counts</p>
+            </div>
+            <Link
+              to="/users"
+              className="text-sm text-indigo-600 hover:text-indigo-500"
+            >
+              View all →
+            </Link>
+          </div>
+        </div>
+        <div className="p-4">
+          {statsLoading ? (
+            <div className="animate-pulse grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-16 bg-gray-200 rounded"></div>
+              ))}
+            </div>
+          ) : userStats ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gray-50 rounded-md p-3">
+                <dt className="text-sm font-medium text-gray-500">Total Users</dt>
+                <dd className="mt-1 text-2xl font-semibold text-gray-900">
+                  {userStats.stats.total_users}
+                </dd>
+              </div>
+              <div className="bg-gray-50 rounded-md p-3">
+                <dt className="text-sm font-medium text-gray-500">Paid Users</dt>
+                <dd className="mt-1 text-2xl font-semibold text-green-600">
+                  {userStats.stats.paid_users}
+                </dd>
+              </div>
+              <div className="bg-gray-50 rounded-md p-3">
+                <dt className="text-sm font-medium text-gray-500">Admin Users</dt>
+                <dd className="mt-1 text-2xl font-semibold text-indigo-600">
+                  {userStats.stats.admin_users}
+                </dd>
+              </div>
+              <div className="bg-gray-50 rounded-md p-3">
+                <dt className="text-sm font-medium text-gray-500">Age Verified</dt>
+                <dd className="mt-1 text-2xl font-semibold text-gray-900">
+                  {userStats.stats.age_verified_users}
+                </dd>
+              </div>
+            </div>
+          ) : null}
+          {userStats && (
+            <p className="text-xs text-gray-400 mt-3">
+              As of: {formatTimestamp(userStats.timestamp)}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Background Jobs Panel */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+          <h2 className="text-lg font-medium text-gray-900">Background Jobs</h2>
+          <p className="text-sm text-gray-500">Job execution status (visibility only)</p>
+        </div>
+        <div className="p-4">
+          {jobsLoading ? (
+            <div className="animate-pulse space-y-3">
+              <div className="h-12 bg-gray-200 rounded"></div>
+            </div>
+          ) : jobs && jobs.jobs.length > 0 ? (
+            <div className="space-y-3">
+              {jobs.jobs.map((job) => (
+                <div key={job.name} className="rounded-md border border-gray-200 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-900">{job.name}</span>
+                    <StatusBadge status={job.status} />
+                  </div>
+                  {job.description && (
+                    <p className="text-xs text-gray-500 mb-2">{job.description}</p>
+                  )}
+                  <dl className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                    <div>
+                      <dt className="text-gray-500">Last Run</dt>
+                      <dd className="text-gray-900">{formatTimestamp(job.last_run_at)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Runs</dt>
+                      <dd className="text-gray-900">{job.run_count}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Success</dt>
+                      <dd className="text-green-600">{job.success_count}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Failures</dt>
+                      <dd className={job.failure_count > 0 ? 'text-red-600' : 'text-gray-900'}>
+                        {job.failure_count}
+                      </dd>
+                    </div>
+                  </dl>
+                  {job.last_error_message && (
+                    <div className="mt-2 text-xs text-red-600 bg-red-50 rounded p-2">
+                      Last error: {job.last_error_message}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No background jobs registered</p>
+          )}
+          {jobs && (
+            <p className="text-xs text-gray-400 mt-3">
+              As of: {formatTimestamp(jobs.timestamp)}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Check History */}
+      {data && (
+        <section className="rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+            <h2 className="text-lg font-medium text-gray-900">Check History</h2>
+            <p className="text-sm text-gray-500">Recent system invariant checks</p>
+          </div>
+          <div className="p-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
                 <thead>
-                  <tr>
-                    <th>Timestamp</th>
-                    <th>Overall Status</th>
-                    <th>Financial</th>
-                    <th>Lifecycle</th>
-                    <th>Settlement</th>
-                    <th>Pipeline</th>
-                    <th>Ledger</th>
-                    <th>Duration</th>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-900">Timestamp</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-900">Overall</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-900">Financial</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-900">Lifecycle</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-900">Settlement</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-900">Pipeline</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-900">Ledger</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-900">Duration</th>
                   </tr>
                 </thead>
                 <tbody>
                   {history.map((record) => (
-                    <tr key={record.id}>
-                      <td>{new Date(record.created_at).toLocaleString()}</td>
-                      <td className={`status-${record.overall_status.toLowerCase()}`}>
-                        {record.overall_status}
-                      </td>
-                      <td>{record.summary.financial_status}</td>
-                      <td>{record.summary.lifecycle_status}</td>
-                      <td>{record.summary.settlement_status}</td>
-                      <td>{record.summary.pipeline_status}</td>
-                      <td>{record.summary.ledger_status}</td>
-                      <td>{record.execution_time_ms}ms</td>
+                    <tr key={record.id} className="border-b border-gray-200 hover:bg-gray-50">
+                      <td className="py-2 px-2 text-gray-600">{formatTimestamp(record.created_at)}</td>
+                      <td className="py-2 px-2"><StatusBadge status={record.overall_status.toLowerCase()} /></td>
+                      <td className="py-2 px-2 text-xs">{record.summary.financial_status}</td>
+                      <td className="py-2 px-2 text-xs">{record.summary.lifecycle_status}</td>
+                      <td className="py-2 px-2 text-xs">{record.summary.settlement_status}</td>
+                      <td className="py-2 px-2 text-xs">{record.summary.pipeline_status}</td>
+                      <td className="py-2 px-2 text-xs">{record.summary.ledger_status}</td>
+                      <td className="py-2 px-2 text-xs text-gray-500">{record.execution_time_ms}ms</td>
                     </tr>
                   ))}
                 </tbody>
@@ -340,32 +698,28 @@ export const SystemInvariantMonitor: React.FC = () => {
             </div>
 
             {historyTotal > HISTORY_PAGE_SIZE && (
-              <div className="pagination">
+              <div className="flex items-center justify-center gap-4 mt-4">
                 <button
                   onClick={() => fetchHistory(historyPage - 1)}
                   disabled={historyPage === 0}
+                  className="px-3 py-1 text-sm rounded-md border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   ← Previous
                 </button>
-                <span>
+                <span className="text-sm text-gray-600">
                   Page {historyPage + 1} of {Math.ceil(historyTotal / HISTORY_PAGE_SIZE)}
                 </span>
                 <button
                   onClick={() => fetchHistory(historyPage + 1)}
                   disabled={(historyPage + 1) * HISTORY_PAGE_SIZE >= historyTotal}
+                  className="px-3 py-1 text-sm rounded-md border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next →
                 </button>
               </div>
             )}
-          </section>
-        </>
-      )}
-
-      {loading && !data && (
-        <div className="loading">
-          <p>Loading invariant check...</p>
-        </div>
+          </div>
+        </section>
       )}
     </div>
   );

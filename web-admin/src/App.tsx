@@ -6,7 +6,6 @@ import UserWalletLedger from './pages/UserWalletLedger';
 import { Dashboard } from './pages/Dashboard';
 import { Funding } from './pages/Funding';
 import { Admin } from './pages/Admin';
-import { DiagnosticsDashboard } from './pages/DiagnosticsDashboard';
 import { DiagnosticsUsers } from './pages/DiagnosticsUsers';
 import { DiagnosticsUserDetail } from './pages/DiagnosticsUserDetail';
 import { Lineups } from './pages/Lineups';
@@ -50,7 +49,6 @@ function App() {
             <Route path="alerts" element={<AlertCenter />} />
             <Route path="users" element={<Users />} />
             <Route path="users/wallet-ledger" element={<UserWalletLedger />} />
-            <Route path="diagnostics" element={<DiagnosticsDashboard />} />
             <Route path="diagnostics/users" element={<DiagnosticsUsers />} />
             <Route path="diagnostics/users/:userId" element={<DiagnosticsUserDetail />} />
             <Route path="diagnostics/contest-pools" element={<ContestPoolDiagnostics />} />
