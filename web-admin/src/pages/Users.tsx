@@ -73,10 +73,10 @@ function UserDetailPanel({ user }: { user: User }) {
       <button
         type="button"
         onClick={handleExpand}
-        className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500"
+        className="inline-flex items-center gap-1 px-2 py-2 text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 whitespace-nowrap"
         title="Click to expand user details"
       >
-        {isExpanded ? '▼ Hide' : '▶ Show'} Details
+        {isExpanded ? '▼' : '▶'} Details
       </button>
 
       {isExpanded && (
@@ -382,7 +382,7 @@ export function Users() {
                       )}
                     </button>
                   </th>
-                  <th className="px-3 py-4 text-left text-sm font-semibold text-gray-900">
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-gray-900 w-32">
                     Actions
                   </th>
                 </tr>
@@ -453,7 +453,7 @@ export function Users() {
                           'N/A'
                         )}
                       </td>
-                      <td className="px-3 py-4 text-sm font-medium">
+                      <td className="px-4 py-4 text-sm font-medium">
                         <UserDetailPanel user={user} />
                       </td>
                     </tr>
