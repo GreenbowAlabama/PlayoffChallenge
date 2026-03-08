@@ -610,7 +610,7 @@ export const SystemInvariantMonitor: React.FC = () => {
       <LifecycleHealthPanel isFetching={lifecycleFetching} />
 
       {/* Worker Heartbeats Panel */}
-      <WorkerHeartbeatPanel isFetching={lifecycleFetching} />
+      <WorkerHeartbeatPanel />
 
       {/* User Statistics Panel */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
