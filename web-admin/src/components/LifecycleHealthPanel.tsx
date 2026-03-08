@@ -106,7 +106,10 @@ export function LifecycleHealthPanel({ onRefetch, isFetching = false }: Lifecycl
             <div className="h-4 bg-gray-200 rounded w-2/5"></div>
           </div>
         ) : error ? (
-          <p className="text-red-600 text-sm">Failed to load lifecycle health</p>
+          <div className="rounded-md border border-red-200 bg-red-50 p-3">
+            <p className="text-sm font-medium text-red-800">API Error</p>
+            <p className="text-sm text-red-700 mt-1">{error.message || 'Failed to load lifecycle health'}</p>
+          </div>
         ) : health ? (
           <div className="space-y-4">
             {/* State Transition Anomalies Grid */}

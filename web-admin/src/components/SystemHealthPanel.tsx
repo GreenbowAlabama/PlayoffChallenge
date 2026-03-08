@@ -91,7 +91,8 @@ function OverallStatusCard({ health, isLoading, error }: OverallStatusCardProps)
   if (error) {
     return (
       <div className="rounded-md border border-red-200 bg-red-50 p-4">
-        <p className="text-sm text-red-600">Failed to load health status</p>
+        <p className="text-sm font-medium text-red-800">API Error</p>
+        <p className="text-sm text-red-700 mt-1">{error.message || 'Failed to load health status'}</p>
       </div>
     );
   }
@@ -146,7 +147,8 @@ function InfrastructureCard({ health, isLoading, error }: InfrastructureCardProp
   if (error) {
     return (
       <div className="rounded-md border border-red-200 bg-red-50 p-4">
-        <p className="text-sm text-red-600">Failed to load infrastructure status</p>
+        <p className="text-sm font-medium text-red-800">API Error</p>
+        <p className="text-sm text-red-700 mt-1">{error.message || 'Failed to load infrastructure status'}</p>
       </div>
     );
   }
@@ -221,7 +223,8 @@ function BackgroundJobsCard({ jobs, isLoading, error }: BackgroundJobsCardProps)
   if (error) {
     return (
       <div className="rounded-md border border-red-200 bg-red-50 p-4">
-        <p className="text-sm text-red-600">Failed to load job status</p>
+        <p className="text-sm font-medium text-red-800">API Error</p>
+        <p className="text-sm text-red-700 mt-1">{error.message || 'Failed to load job status'}</p>
       </div>
     );
   }
@@ -348,7 +351,8 @@ function LiveStatsCacheCard({ cache, isLoading, error }: LiveStatsCacheCardProps
   if (error) {
     return (
       <div className="rounded-md border border-red-200 bg-red-50 p-4">
-        <p className="text-sm text-red-600">Failed to load cache status</p>
+        <p className="text-sm font-medium text-red-800">API Error</p>
+        <p className="text-sm text-red-700 mt-1">{error.message || 'Failed to load cache status'}</p>
       </div>
     );
   }

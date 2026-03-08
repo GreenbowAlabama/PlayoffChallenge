@@ -12,6 +12,11 @@ export const WorkerHeartbeatPanel: React.FC = () => {
   const [data, setData] = useState<WorkerHeartbeatResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleRefresh = () => {
+    setRefreshKey(prev => prev + 1);
+  };
 
   useEffect(() => {
     const fetchWorkerStatus = async () => {
@@ -28,7 +33,7 @@ export const WorkerHeartbeatPanel: React.FC = () => {
     };
 
     fetchWorkerStatus();
-  }, []);
+  }, [refreshKey]);
 
   if (loading && !data) {
     return (
@@ -52,10 +57,22 @@ export const WorkerHeartbeatPanel: React.FC = () => {
     return (
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
-          <h2 className="text-lg font-medium text-gray-900">Background Workers</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-medium text-gray-900">Background Workers</h2>
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
         </div>
         <div className="p-4">
-          <p className="text-sm text-red-600">Error loading worker status: {error}</p>
+          <div className="rounded-md border border-red-200 bg-red-50 p-3">
+            <p className="text-sm font-medium text-red-800">API Error</p>
+            <p className="text-sm text-red-700 mt-1">{error || 'No data available'}</p>
+          </div>
         </div>
       </div>
     );
@@ -102,14 +119,23 @@ export const WorkerHeartbeatPanel: React.FC = () => {
             <h2 className="text-lg font-medium text-gray-900">Background Workers</h2>
             <p className="text-sm text-gray-500">Detects stalled ingestion, pipeline lag, worker failure</p>
           </div>
-          <div
-            className="px-3 py-1 rounded-full text-xs font-medium"
-            style={{
-              backgroundColor: data.overall_status === 'healthy' ? '#dcfce7' : data.overall_status === 'degraded' ? '#fef3c7' : '#f3f4f6',
-              color: data.overall_status === 'healthy' ? '#166534' : data.overall_status === 'degraded' ? '#92400e' : '#374151'
-            }}
-          >
-            {data.overall_status === 'healthy' ? '✓ All Healthy' : data.overall_status === 'degraded' ? '⚠ Degraded' : '? Unknown'}
+          <div className="flex items-center gap-3">
+            <div
+              className="px-3 py-1 rounded-full text-xs font-medium"
+              style={{
+                backgroundColor: data.overall_status === 'healthy' ? '#dcfce7' : data.overall_status === 'degraded' ? '#fef3c7' : '#f3f4f6',
+                color: data.overall_status === 'healthy' ? '#166534' : data.overall_status === 'degraded' ? '#92400e' : '#374151'
+              }}
+            >
+              {data.overall_status === 'healthy' ? '✓ All Healthy' : data.overall_status === 'degraded' ? '⚠ Degraded' : '? Unknown'}
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
           </div>
         </div>
       </div>
@@ -194,9 +220,18 @@ export const WorkerHeartbeatPanel: React.FC = () => {
           <p className="text-sm text-gray-500">No workers configured</p>
         )}
 
-        <p className="text-xs text-gray-400 mt-4">
-          Updated: {new Date(data.timestamp).toLocaleTimeString()}
-        </p>
+        <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
+          <p className="text-xs text-gray-400">
+            Last updated: {new Date(data.timestamp).toLocaleTimeString()}
+          </p>
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="inline-flex items-center rounded-md bg-white px-2 py-1 text-xs font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
     </div>
   );
