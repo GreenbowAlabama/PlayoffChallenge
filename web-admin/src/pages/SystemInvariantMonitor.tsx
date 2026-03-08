@@ -430,6 +430,51 @@ export const SystemInvariantMonitor: React.FC = () => {
         </div>
       )}
 
+      {/* System Health Summary Panel */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+          <h2 className="text-lg font-medium text-gray-900">System Health Summary</h2>
+          <p className="text-sm text-gray-500">Real-time system status indicators</p>
+        </div>
+        <div className="p-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Link to="/users" className="bg-gray-50 rounded-md p-3 block hover:bg-gray-100 transition-colors">
+              <dt className="text-sm font-medium text-gray-500">Users</dt>
+              <dd className="mt-1 text-2xl font-semibold text-indigo-600">
+                {sysUsers?.count ?? '—'}
+              </dd>
+              <span className="text-xs text-indigo-500">View all</span>
+            </Link>
+            <div className="bg-gray-50 rounded-md p-3">
+              <dt className="text-sm font-medium text-gray-500">Cached Players</dt>
+              <dd className="mt-1 text-2xl font-semibold text-gray-900">
+                {cacheStatus?.cachedPlayerCount ?? '—'}
+              </dd>
+            </div>
+            <div className="bg-gray-50 rounded-md p-3">
+              <dt className="text-sm font-medium text-gray-500">Active Games</dt>
+              <dd className="mt-1 text-2xl font-semibold text-gray-900">
+                {cacheStatus?.activeGames?.length ?? '—'}
+              </dd>
+            </div>
+            <div className="bg-gray-50 rounded-md p-3">
+              <dt className="text-sm font-medium text-gray-500">Cache Status</dt>
+              <dd className="mt-1">
+                <span
+                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-sm font-medium ${
+                    cacheStatus?.lastScoreboardUpdate !== null
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-yellow-100 text-yellow-800'
+                  }`}
+                >
+                  {cacheStatus?.lastScoreboardUpdate !== null ? 'Healthy' : 'Stale'}
+                </span>
+              </dd>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Environment Health Panel */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">

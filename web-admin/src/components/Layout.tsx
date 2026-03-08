@@ -11,7 +11,6 @@ export function Layout() {
   };
 
   const isActive = (path: string) => location.pathname === path;
-  const isActivePrefix = (prefix: string) => location.pathname.startsWith(prefix);
 
   return (
     <div className="min-h-screen bg-gray-50">
