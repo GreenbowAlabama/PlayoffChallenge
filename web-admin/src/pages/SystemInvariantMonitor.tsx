@@ -13,6 +13,7 @@ import { AnomalyList } from '../components/AnomalyList';
 import { systemInvariantsApi } from '../api/system-invariants';
 import { getHealthCheck, getUserStats, getJobsStatus, getLifecycleHealth } from '../api/diagnostics';
 import { LifecycleHealthPanel } from '../components/LifecycleHealthPanel';
+import { WorkerHeartbeatPanel } from '../components/WorkerHeartbeatPanel';
 import type {
   SystemInvariantsResponse,
   HistoryRecord,
@@ -607,6 +608,9 @@ export const SystemInvariantMonitor: React.FC = () => {
 
       {/* Lifecycle Health Panel */}
       <LifecycleHealthPanel isFetching={lifecycleFetching} />
+
+      {/* Worker Heartbeats Panel */}
+      <WorkerHeartbeatPanel isFetching={lifecycleFetching} />
 
       {/* User Statistics Panel */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">

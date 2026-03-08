@@ -606,7 +606,11 @@ async function createContestInstance(pool, organizerId, input) {
     throw new Error('max_entries must be a positive integer');
   }
 
-
+  // Extract provider_tournament_id from template to enforce tournament config inheritance
+  const providerTournamentId = template.provider_tournament_id;
+  if (!providerTournamentId) {
+    throw new Error('Template must have a provider_tournament_id to create a contest instance');
+  }
 
   // Note: join_token is generated at publish time, not creation time
 
@@ -618,40 +622,122 @@ async function createContestInstance(pool, organizerId, input) {
   };
   validateContestTimeInvariants({ existing: {}, updates: timeUpdates });
 
-  const result = await pool.query(
-    `INSERT INTO contest_instances (
-      template_id,
-      organizer_id,
-      contest_name,
-      max_entries,
-      entry_fee_cents,
-      payout_structure,
-      status,
-      start_time,
-      lock_time,
-      end_time,
-      tournament_start_time,
-      tournament_end_time
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-    RETURNING *`,
-    [
-      input.template_id,
-      organizerId,
-      contestName,
-      maxEntries,
-      input.entry_fee_cents,
-      JSON.stringify(input.payout_structure),
-      'SCHEDULED',
-      finalStartTime,
-      finalLockTime,
-      finalEndTime,
-      finalTournamentStartTime,
-      finalTournamentEndTime
-    ]
-  );
+  // Use transaction to enforce atomic contest + tournament_config creation
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  const instance = result.rows[0];
-  return instance;
+    // Step 1: Insert contest instance
+    const instanceResult = await client.query(
+      `INSERT INTO contest_instances (
+        template_id,
+        organizer_id,
+        contest_name,
+        max_entries,
+        entry_fee_cents,
+        payout_structure,
+        status,
+        start_time,
+        lock_time,
+        end_time,
+        tournament_start_time,
+        tournament_end_time,
+        provider_event_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING *`,
+      [
+        input.template_id,
+        organizerId,
+        contestName,
+        maxEntries,
+        input.entry_fee_cents,
+        JSON.stringify(input.payout_structure),
+        'SCHEDULED',
+        finalStartTime,
+        finalLockTime,
+        finalEndTime,
+        finalTournamentStartTime,
+        finalTournamentEndTime,
+        providerTournamentId
+      ]
+    );
+
+    const instance = instanceResult.rows[0];
+
+    // Step 2: Lookup active tournament_config for this provider_event_id
+    const configResult = await client.query(
+      `SELECT * FROM tournament_configs
+       WHERE provider_event_id = $1 AND is_active = true
+       LIMIT 1`,
+      [providerTournamentId]
+    );
+
+    if (configResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      throw new Error(`No active tournament configuration found for provider_event_id: ${providerTournamentId}`);
+    }
+
+    const eventConfig = configResult.rows[0];
+
+    // Step 3: Copy tournament config to the new contest instance
+    await client.query(
+      `INSERT INTO tournament_configs (
+        id,
+        contest_instance_id,
+        provider_event_id,
+        ingestion_endpoint,
+        event_start_date,
+        event_end_date,
+        round_count,
+        cut_after_round,
+        leaderboard_schema_version,
+        field_source,
+        hash,
+        published_at,
+        is_active,
+        created_at
+      ) VALUES (
+        gen_random_uuid(),
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10,
+        NOW(),
+        true,
+        NOW()
+      )`,
+      [
+        instance.id,                          // contest_instance_id
+        eventConfig.provider_event_id,       // provider_event_id
+        eventConfig.ingestion_endpoint,      // ingestion_endpoint
+        eventConfig.event_start_date,        // event_start_date
+        eventConfig.event_end_date,          // event_end_date
+        eventConfig.round_count,             // round_count
+        eventConfig.cut_after_round,         // cut_after_round
+        eventConfig.leaderboard_schema_version, // leaderboard_schema_version
+        eventConfig.field_source,            // field_source
+        eventConfig.hash                     // hash
+      ]
+    );
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    console.log(`[createContestInstance] Contest ${instance.id} created with inherited tournament config from event ${providerTournamentId}`);
+
+    return instance;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**

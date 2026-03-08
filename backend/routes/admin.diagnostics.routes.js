@@ -17,6 +17,7 @@ const healthService = require('../services/adminHealth.service');
 const rateLimitService = require('../services/adminRateLimit.service');
 const jobsService = require('../services/adminJobs.service');
 const lifecycleHealthService = require('../services/lifecycleHealthService');
+const workerHeartbeatService = require('../services/workerHeartbeatService');
 
 // ============================================
 // USER ENTITLEMENT & AUTH DIAGNOSTICS
@@ -387,6 +388,35 @@ router.get('/lifecycle-health', async (req, res) => {
   } catch (err) {
     console.error('[Admin Diagnostics] Error fetching lifecycle health:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// WORKER HEARTBEATS
+// ============================================
+
+/**
+ * GET /api/admin/diagnostics/workers
+ * Returns current status of all critical background workers
+ *
+ * Detects:
+ * - Stalled ingestion workers
+ * - Scoring pipeline lag
+ * - Lifecycle worker failure
+ */
+router.get('/workers', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const status = await workerHeartbeatService.getWorkerStatus(pool);
+
+    res.json(status);
+  } catch (err) {
+    console.error('[Admin Diagnostics] Error fetching worker status:', err);
+    res.status(500).json({
+      timestamp: new Date().toISOString(),
+      overall_status: 'unknown',
+      error: err.message
+    });
   }
 });
 

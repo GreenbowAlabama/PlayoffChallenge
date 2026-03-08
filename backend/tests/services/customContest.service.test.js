@@ -32,6 +32,8 @@ const mockTemplate = {
     { type: 'winner_take_all', max_winners: 1 }
   ],
   is_active: true,
+  provider_tournament_id: 'espn_event_123',
+  season_year: 2026,
   created_at: new Date(),
   updated_at: new Date()
 };
@@ -52,6 +54,7 @@ const mockInstance = {
   settle_time: null,
   prize_pool_cents: 10000, // For payout table derivation
   scoring_strategy_key: 'nfl_standard_v1', // Default strategy for test mocks
+  provider_event_id: null,
   created_at: new Date(),
   updated_at: new Date()
 };
@@ -605,11 +608,43 @@ describe('Custom Contest Service Unit Tests', () => {
           /SELECT[\s\S]*FROM contest_templates WHERE id/,
           mockQueryResponses.single(mockTemplate)
         );
+
+        // Default tournament_config mock for inheritance tests
+        const defaultEventConfig = {
+          id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+          provider_event_id: 'espn_event_123',
+          ingestion_endpoint: 'https://espn.com/api',
+          event_start_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          event_end_date: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString(),
+          round_count: 4,
+          cut_after_round: null,
+          leaderboard_schema_version: 1,
+          field_source: 'provider_sync',
+          hash: 'hash123',
+          is_active: true
+        };
+
+        // Mock transaction begin/commit
+        mockPool.setQueryResponse(/BEGIN/, mockQueryResponses.empty());
+        mockPool.setQueryResponse(/COMMIT/, mockQueryResponses.empty());
+        mockPool.setQueryResponse(/ROLLBACK/, mockQueryResponses.empty());
+
+        // Mock tournament_config lookup
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM tournament_configs[\s\S]*provider_event_id/,
+          mockQueryResponses.single(defaultEventConfig)
+        );
+
+        // Mock tournament_config insert
+        mockPool.setQueryResponse(
+          /INSERT INTO tournament_configs/,
+          mockQueryResponses.single({ id: 'new-config-id' })
+        );
       });
 
       it('should create instance with valid input (no join_token until publish)', async () => {
         // Draft instances have no join_token - it's set at publish time
-        const draftInstance = { ...mockInstance, join_token: null };
+        const draftInstance = { ...mockInstance, join_token: null, provider_event_id: 'espn_event_123' };
         mockPool.setQueryResponse(
           /INSERT INTO contest_instances/,
           mockQueryResponses.single(draftInstance)
@@ -627,6 +662,8 @@ describe('Custom Contest Service Unit Tests', () => {
         expect(instance.status).toBe('SCHEDULED');
         // join_token and join_url are only set at publish time, not creation
         expect(instance.join_token).toBeNull();
+        // provider_event_id should be set from template
+        expect(instance.provider_event_id).toBe('espn_event_123');
       });
 
       it('should reject missing template_id', async () => {
@@ -910,6 +947,63 @@ describe('Custom Contest Service Unit Tests', () => {
         expect(result.tournament_start_time).toBeNull();
         expect(result.tournament_end_time).toBeNull();
         expect(result.lock_time).not.toBeNull(); // Should fallback to now
+      });
+
+      it('should create contest and inherit tournament_config from active event config', async () => {
+        const templateWithProvider = {
+          ...mockTemplate,
+          provider_tournament_id: 'espn_event_123'
+        };
+
+        const eventConfig = {
+          id: 'config-123',
+          provider_event_id: 'espn_event_123',
+          ingestion_endpoint: 'https://espn.com/api',
+          event_start_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          event_end_date: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString(),
+          round_count: 4,
+          cut_after_round: null,
+          leaderboard_schema_version: 1,
+          field_source: 'provider_sync',
+          hash: 'hash123',
+          is_active: true
+        };
+
+        const createdInstance = {
+          ...mockInstance,
+          provider_event_id: 'espn_event_123'
+        };
+
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM contest_templates WHERE id/,
+          mockQueryResponses.single(templateWithProvider)
+        );
+
+        // Mock transaction
+        mockPool.setQueryResponse(/BEGIN/, mockQueryResponses.empty());
+        mockPool.setQueryResponse(
+          /INSERT INTO contest_instances/,
+          mockQueryResponses.single(createdInstance)
+        );
+        mockPool.setQueryResponse(
+          /SELECT \* FROM tournament_configs WHERE provider_event_id/,
+          mockQueryResponses.single(eventConfig)
+        );
+        mockPool.setQueryResponse(
+          /INSERT INTO tournament_configs/,
+          mockQueryResponses.single({ id: 'new-config-id' })
+        );
+        mockPool.setQueryResponse(/COMMIT/, mockQueryResponses.empty());
+
+        const instance = await customContestService.createContestInstance(mockPool, TEST_USER_ID, {
+          template_id: TEST_TEMPLATE_ID,
+          contest_name: 'Test Contest',
+          entry_fee_cents: 2500,
+          payout_structure: { type: 'top_n_split', max_winners: 3 }
+        });
+
+        expect(instance).toBeDefined();
+        expect(instance.provider_event_id).toBe('espn_event_123');
       });
     });
 
