@@ -20,6 +20,36 @@ function formatDateTime(dateString: string | null): string {
   return new Date(dateString).toLocaleString();
 }
 
+// Helper to format date only (e.g., "Mar 8")
+function formatDateShort(dateString: string | null): string {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// Helper to format time only (e.g., "12:15 PM")
+function formatTimeShort(dateString: string | null): string {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+// Helper to check if user is a system user
+function isSystemUser(username: string): boolean {
+  return username.startsWith('platform_') ||
+         username.startsWith('staging_') ||
+         username.includes('system@');
+}
+
+// Helper to calculate entry velocity (entries in last 60 minutes)
+function calculateEntryVelocity(entries: LedgerEntry[]): number {
+  const oneHourAgo = Date.now() - (60 * 60 * 1000);
+  return entries.filter(entry =>
+    entry.entry_type === 'ENTRY_FEE' &&
+    new Date(entry.created_at).getTime() > oneHourAgo
+  ).length;
+}
+
 // Expandable detail panel for user wallet activity
 function UserDetailPanel({ user }: { user: User }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -62,63 +92,81 @@ function UserDetailPanel({ user }: { user: User }) {
       </button>
 
       {isExpanded && (
-        <tr className="bg-gray-50">
-          <td colSpan={8} className="px-6 py-4">
+        <tr className="bg-gray-50 border-t-2 border-gray-200">
+          <td colSpan={6} className="px-6 py-6">
             {isLoading ? (
               <div className="text-sm text-gray-500">Loading...</div>
             ) : error ? (
               <div className="text-sm text-red-600">Error: {error}</div>
             ) : detail ? (
-              <div className="space-y-4">
-                {/* Recent Ledger Entries */}
-                {detail.recent_ledger_entries && detail.recent_ledger_entries.length > 0 && (
-                  <section>
-                    <h4 className="text-sm font-semibold text-gray-900 mb-2">Recent Wallet Activity</h4>
-                    <ul className="space-y-1 text-xs">
-                      {detail.recent_ledger_entries.map((entry: LedgerEntry) => (
-                        <li key={entry.id} className="flex gap-2 text-gray-600">
-                          <span className="w-12">{formatDate(entry.created_at)}</span>
-                          <span className="w-20">{entry.entry_type}</span>
-                          <span className={entry.direction === 'CREDIT' ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Wallet Activity Panel */}
+                <section>
+                  <div className="flex items-baseline gap-2 mb-3">
+                    <h4 className="text-sm font-semibold text-gray-900">Wallet Activity</h4>
+                    {detail.recent_ledger_entries && detail.recent_ledger_entries.length > 0 && (
+                      (() => {
+                        const velocity = calculateEntryVelocity(detail.recent_ledger_entries);
+                        return (
+                          <div className="flex items-center gap-1">
+                            <span className={`text-xs ${velocity >= 3 ? 'text-green-600 font-medium' : 'text-gray-500'}`}>
+                              ⚡ {velocity} entries/hr
+                            </span>
+                            {velocity >= 5 && (
+                              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium">
+                                HOT
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
+                  {detail.recent_ledger_entries && detail.recent_ledger_entries.length > 0 ? (
+                    <ul className="space-y-2">
+                      {detail.recent_ledger_entries.slice(0, 5).map((entry: LedgerEntry) => (
+                        <li key={entry.id} className="grid grid-cols-3 gap-2 text-xs">
+                          <span className="text-gray-500">{formatDateShort(entry.created_at)}</span>
+                          <span className="text-gray-600 col-span-1">{entry.entry_type}</span>
+                          <span className={`text-right font-medium ${entry.direction === 'CREDIT' ? 'text-green-600' : 'text-red-600'}`}>
                             {entry.direction === 'CREDIT' ? '+' : '-'}{formatUSD(entry.amount_cents)}
                           </span>
-                          {entry.contest_status && (
-                            <span className="text-gray-500">{entry.contest_status}</span>
-                          )}
                         </li>
                       ))}
                     </ul>
-                  </section>
-                )}
+                  ) : (
+                    <p className="text-gray-400 text-sm">No wallet activity</p>
+                  )}
+                </section>
 
-                {/* Active Contests */}
-                {detail.contests && detail.contests.length > 0 && (
-                  <section>
-                    <h4 className="text-sm font-semibold text-gray-900 mb-2">Contests</h4>
-                    <ul className="space-y-1 text-xs">
+                {/* Contest Entries Panel */}
+                <section>
+                  <h4 className="text-sm font-semibold text-gray-900 mb-3">Contest Entries</h4>
+                  {detail.contests && detail.contests.length > 0 ? (
+                    <div className="space-y-2">
                       {detail.contests.map((contest: UserContest) => (
-                        <li key={contest.id} className="flex gap-2 text-gray-600">
-                          <span className="font-medium">{contest.contest_name || 'Unknown Contest'}</span>
-                          <span className={`px-2 py-0.5 rounded text-white text-xs ${
-                            contest.status === 'SCHEDULED' ? 'bg-blue-500' :
-                            contest.status === 'LOCKED' ? 'bg-yellow-500' :
-                            contest.status === 'LIVE' ? 'bg-green-500' :
-                            contest.status === 'COMPLETE' ? 'bg-gray-500' :
-                            'bg-gray-400'
-                          }`}>
-                            {contest.status}
-                          </span>
-                          <span className="text-gray-500">Entry: {formatUSD(contest.entry_fee_cents)}</span>
-                        </li>
+                        <div key={contest.id} className="border border-gray-200 rounded p-3 text-xs">
+                          <div className="font-medium text-gray-900 mb-1">{contest.contest_name || 'Unknown Contest'}</div>
+                          <div className="flex items-center justify-between">
+                            <span className={`px-2 py-0.5 rounded text-white text-xs font-medium ${
+                              contest.status === 'SCHEDULED' ? 'bg-blue-500' :
+                              contest.status === 'LOCKED' ? 'bg-yellow-500' :
+                              contest.status === 'LIVE' ? 'bg-green-500' :
+                              contest.status === 'COMPLETE' ? 'bg-gray-500' :
+                              contest.status === 'CANCELLED' ? 'bg-red-500' :
+                              'bg-gray-400'
+                            }`}>
+                              {contest.status}
+                            </span>
+                            <span className="text-gray-600">Entry {formatUSD(contest.entry_fee_cents)}</span>
+                          </div>
+                        </div>
                       ))}
-                    </ul>
-                  </section>
-                )}
-
-                {(!detail.recent_ledger_entries || detail.recent_ledger_entries.length === 0) &&
-                 (!detail.contests || detail.contests.length === 0) && (
-                  <div className="text-sm text-gray-500">No activity</div>
-                )}
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 text-sm">No contest entries</p>
+                  )}
+                </section>
               </div>
             ) : (
               <div className="text-sm text-gray-500">No data available</div>
@@ -134,6 +182,8 @@ export function Users() {
   const [copiedEmailId, setCopiedEmailId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [filterText, setFilterText] = useState('');
+  const [sortColumn, setSortColumn] = useState<'balance' | 'deposits' | 'activity' | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   const copyEmailToClipboard = useCallback(async (email: string, userId: string) => {
     try {
@@ -161,6 +211,17 @@ export function Users() {
     }
   }, []);
 
+  const handleSort = (column: 'balance' | 'deposits' | 'activity') => {
+    if (sortColumn === column) {
+      // Toggle direction if clicking same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to desc
+      setSortColumn(column);
+      setSortDirection('desc');
+    }
+  };
+
   const { data: users, isLoading, error } = useQuery({
     queryKey: ['users'],
     queryFn: getUsers,
@@ -175,6 +236,34 @@ export function Users() {
       if (!matchesUsername && !matchesEmail && !matchesName) return false;
     }
     return true;
+  }).sort((a, b) => {
+    if (!sortColumn) return 0;
+
+    let aVal: number;
+    let bVal: number;
+
+    switch (sortColumn) {
+      case 'balance':
+        aVal = a.wallet_balance_cents;
+        bVal = b.wallet_balance_cents;
+        break;
+      case 'deposits':
+        aVal = a.lifetime_deposits_cents;
+        bVal = b.lifetime_deposits_cents;
+        break;
+      case 'activity':
+        aVal = a.last_wallet_activity_at ? new Date(a.last_wallet_activity_at).getTime() : 0;
+        bVal = b.last_wallet_activity_at ? new Date(b.last_wallet_activity_at).getTime() : 0;
+        break;
+      default:
+        return 0;
+    }
+
+    if (sortDirection === 'asc') {
+      return aVal - bVal;
+    } else {
+      return bVal - aVal;
+    }
   });
 
   if (isLoading) {
@@ -204,13 +293,16 @@ export function Users() {
             Operational dashboard for wallet visibility and contest participation
           </p>
         </div>
-        <div className="mt-4 sm:mt-0">
+        <div className="mt-4 sm:mt-0 relative">
+          <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
           <input
             type="text"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
             placeholder="Filter by username, email, or name..."
-            className="w-80 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-80 pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           />
         </div>
       </div>
@@ -222,12 +314,12 @@ export function Users() {
           <div className="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
             <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
             <table className="min-w-full divide-y divide-gray-300">
-              <thead>
-                <tr>
-                  <th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-0">
+              <thead className="sticky top-0 bg-white">
+                <tr className="border-b border-gray-300">
+                  <th className="py-4 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-0">
                     User
                   </th>
-                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                  <th className="px-3 py-4 text-left text-sm font-semibold text-gray-900">
                     <div className="flex items-center gap-2">
                       Email
                       <button
@@ -254,22 +346,55 @@ export function Users() {
                       </button>
                     </div>
                   </th>
-                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Wallet Balance
+                  <th className="px-3 py-4 text-left text-sm font-semibold text-gray-900">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('balance')}
+                      className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 rounded px-1 -mx-1"
+                      title="Click to sort by wallet balance"
+                    >
+                      Wallet
+                      {sortColumn === 'balance' && (
+                        <span className={`inline-block transform transition-transform ${sortDirection === 'desc' ? '' : 'rotate-180'}`}>
+                          ↓
+                        </span>
+                      )}
+                    </button>
                   </th>
-                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Lifetime Deposits
+                  <th className="px-3 py-4 text-left text-sm font-semibold text-gray-900">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('deposits')}
+                      className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 rounded px-1 -mx-1"
+                      title="Click to sort by lifetime deposits"
+                    >
+                      Deposits
+                      {sortColumn === 'deposits' && (
+                        <span className={`inline-block transform transition-transform ${sortDirection === 'desc' ? '' : 'rotate-180'}`}>
+                          ↓
+                        </span>
+                      )}
+                    </button>
                   </th>
-                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Lifetime Withdrawals
+                  <th className="px-3 py-4 text-left text-sm font-semibold text-gray-900">
+                    Contests
                   </th>
-                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Active Contests
+                  <th className="px-3 py-4 text-left text-sm font-semibold text-gray-900">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('activity')}
+                      className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 rounded px-1 -mx-1"
+                      title="Click to sort by last activity"
+                    >
+                      Last Activity
+                      {sortColumn === 'activity' && (
+                        <span className={`inline-block transform transition-transform ${sortDirection === 'desc' ? '' : 'rotate-180'}`}>
+                          ↓
+                        </span>
+                      )}
+                    </button>
                   </th>
-                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                    Last Wallet Activity
-                  </th>
-                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                  <th className="px-3 py-4 text-left text-sm font-semibold text-gray-900">
                     Actions
                   </th>
                 </tr>
@@ -278,8 +403,15 @@ export function Users() {
                 {displayedUsers?.map((user) => (
                   <>
                     <tr key={user.id}>
-                      <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-0">
-                        {user.username || 'N/A'}
+                      <td className="py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-0">
+                        <div className="flex items-center gap-2">
+                          <span>{user.username || 'N/A'}</span>
+                          {isSystemUser(user.username) && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
+                              SYSTEM
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-4 text-sm text-gray-500">
                         <div className="flex items-center gap-1.5">
@@ -305,22 +437,33 @@ export function Users() {
                           )}
                         </div>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm">
-                        <span className={user.wallet_balance_cents >= 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
-                          {formatUSD(user.wallet_balance_cents)}
-                        </span>
+                      <td className="px-3 py-4 text-sm">
+                        <div>
+                          <span className={user.wallet_balance_cents >= 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                            {formatUSD(user.wallet_balance_cents)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Withdrawals {formatUSD(user.lifetime_withdrawals_cents)}
+                        </div>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm text-green-600 font-medium">
+                      <td className="px-3 py-4 text-sm text-green-600 font-medium">
                         {formatUSD(user.lifetime_deposits_cents)}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm text-red-600 font-medium">
-                        {formatUSD(user.lifetime_withdrawals_cents)}
+                      <td className="px-3 py-4 text-sm">
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                          {user.active_contests_count} Active
+                        </span>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-900 font-medium">
-                        {user.active_contests_count}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                        {formatDateTime(user.last_wallet_activity_at)}
+                      <td className="px-3 py-4 text-sm text-gray-500">
+                        {user.last_wallet_activity_at ? (
+                          <div>
+                            <div>{formatDateShort(user.last_wallet_activity_at)}</div>
+                            <div className="text-xs text-gray-400">{formatTimeShort(user.last_wallet_activity_at)}</div>
+                          </div>
+                        ) : (
+                          'N/A'
+                        )}
                       </td>
                       <td className="px-3 py-4 text-sm font-medium">
                         <UserDetailPanel user={user} />
