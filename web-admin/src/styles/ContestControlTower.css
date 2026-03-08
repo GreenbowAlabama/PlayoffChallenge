@@ -646,6 +646,40 @@
   }
 }
 
+/* Detail Item Full Width */
+.detail-item.full-width {
+  grid-column: 1 / -1;
+  justify-content: center;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* View Ops Button */
+.btn-view-ops {
+  display: inline-block;
+  padding: 0.625rem 1.25rem;
+  background-color: #2563eb;
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: background-color 0.2s, box-shadow 0.2s;
+  white-space: nowrap;
+  cursor: pointer;
+  border: none;
+  text-align: center;
+}
+
+.btn-view-ops:hover {
+  background-color: #1d4ed8;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.btn-view-ops:active {
+  transform: translateY(1px);
+}
+
 /* Accessibility */
 @media (prefers-reduced-motion: reduce) {
   .section-header,

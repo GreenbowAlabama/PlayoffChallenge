@@ -15,6 +15,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getSystemInstances,
@@ -122,6 +123,11 @@ function ContestRow({ contest }: { contest: SystemInstance }) {
             <div className="detail-item">
               <span className="label">Created At:</span>
               <span>{formatTimestamp(contest.created_at)}</span>
+            </div>
+            <div className="detail-item full-width">
+              <Link to={`/contest-ops/${contest.id}`} className="btn-view-ops">
+                View Ops →
+              </Link>
             </div>
           </div>
         </div>

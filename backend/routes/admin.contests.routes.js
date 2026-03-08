@@ -8,6 +8,7 @@
 const express = require('express');
 const router = express.Router();
 const adminContestService = require('../services/adminContestService');
+const contestOpsService = require('../services/contestOpsService');
 
 /**
  * GET /api/admin/contests
@@ -389,6 +390,35 @@ router.get('/:id/audit', async (req, res) => {
     res.json({ audit: result.rows });
   } catch (err) {
     console.error('[Admin Contests] Error fetching audit:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/contests/:id/ops
+ * Get operational snapshot for contest diagnostics
+ *
+ * Returns:
+ * - server_time: Current server timestamp for time-based diagnostics
+ * - contest: Full contest instance details
+ * - template: Contest template
+ * - template_contests: All contests for this template
+ * - contest_tournament_config: Tournament config attached to this contest (single or null)
+ * - tournament_configs: All tournament configs for the same event family
+ * - lifecycle: Contest state transition history
+ * - snapshot_health: Event data snapshot freshness
+ */
+router.get('/:id/ops', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const snapshot = await contestOpsService.getContestOpsSnapshot(pool, req.params.id);
+
+    res.json(snapshot);
+  } catch (err) {
+    if (err.message && err.message.includes('Contest not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    console.error('[Admin Contests Ops] Error fetching snapshot:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
