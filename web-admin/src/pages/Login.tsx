@@ -29,16 +29,30 @@ export function Login() {
 
   // Check for token in URL (from backend redirect after Apple auth)
   useEffect(() => {
+    console.log('[Login] useEffect triggered');
+    console.log('[Login] Current URL:', window.location.href);
+    console.log('[Login] searchParams keys:', Array.from(searchParams.keys()));
+
     const token = searchParams.get('token');
-    console.log('[Login] URL params:', { token: token ? 'present' : 'missing' });
+    console.log('[Login] Token from searchParams:', token ? `present (${token.substring(0, 20)}...)` : 'missing');
 
     if (token) {
-      console.log('[Login] Storing token in localStorage with key: adminToken');
-      localStorage.setItem('adminToken', token);
-      console.log('[Login] Token stored. Navigating to /dashboard');
-      navigate('/dashboard', { replace: true });
+      try {
+        console.log('[Login] Storing token in localStorage with key: adminToken');
+        localStorage.setItem('adminToken', token);
+        console.log('[Login] Token stored successfully');
+        console.log('[Login] localStorage.adminToken now contains:', localStorage.getItem('adminToken') ? 'token' : 'nothing');
+
+        console.log('[Login] Calling navigate(/dashboard, { replace: true })');
+        navigate('/dashboard', { replace: true });
+        console.log('[Login] Navigate called');
+      } catch (err) {
+        console.error('[Login] Error in token handling:', err);
+      }
       return;
     }
+
+    console.log('[Login] No token found in URL');
   }, [searchParams, navigate]);
 
   useEffect(() => {
