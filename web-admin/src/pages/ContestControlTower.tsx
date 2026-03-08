@@ -160,13 +160,16 @@ export const ContestControlTower: React.FC = () => {
     'leaderboard': false,
   });
 
-  // Fetch live and recent contests
+  // Fetch all contests (all statuses)
   const { data: allInstances = [], isLoading: instancesLoading } = useQuery({
     queryKey: ['controlTower', 'instances'],
     queryFn: async () => {
       const live = await getSystemInstances(undefined, 'LIVE');
       const locked = await getSystemInstances(undefined, 'LOCKED');
-      return [...live, ...locked].sort((a, b) =>
+      const scheduled = await getSystemInstances(undefined, 'SCHEDULED');
+      const complete = await getSystemInstances(undefined, 'COMPLETE');
+      const cancelled = await getSystemInstances(undefined, 'CANCELLED');
+      return [...live, ...locked, ...scheduled, ...complete, ...cancelled].sort((a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
     },
@@ -203,9 +206,14 @@ export const ContestControlTower: React.FC = () => {
     }));
   };
 
-  // Calculate live contest stats
-  const liveContests = allInstances.filter(c => c.status === 'LIVE');
-  const lockedContests = allInstances.filter(c => c.status === 'LOCKED');
+  // Calculate contest stats by status
+  const statusCounts = {
+    LIVE: allInstances.filter(c => c.status === 'LIVE').length,
+    LOCKED: allInstances.filter(c => c.status === 'LOCKED').length,
+    SCHEDULED: allInstances.filter(c => c.status === 'SCHEDULED').length,
+    COMPLETE: allInstances.filter(c => c.status === 'COMPLETE').length,
+    CANCELLED: allInstances.filter(c => c.status === 'CANCELLED').length,
+  };
   const totalEntries = allInstances.reduce((sum, c) => sum + c.current_entries, 0);
 
   // Group ingestion events by contest
@@ -258,25 +266,27 @@ export const ContestControlTower: React.FC = () => {
       <div className="quick-stats">
         <div className="stat-card">
           <div className="stat-label">Live Contests</div>
-          <div className="stat-value">{liveContests.length}</div>
+          <div className="stat-value">{statusCounts.LIVE}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Locked Contests</div>
-          <div className="stat-value">{lockedContests.length}</div>
+          <div className="stat-value">{statusCounts.LOCKED}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Scheduled Contests</div>
+          <div className="stat-value">{statusCounts.SCHEDULED}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Complete Contests</div>
+          <div className="stat-value">{statusCounts.COMPLETE}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Total Entries</div>
           <div className="stat-value">{totalEntries}</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">Last Update</div>
-          <div className="stat-value timestamp">
-            {new Date().toLocaleTimeString()}
-          </div>
-        </div>
       </div>
 
-      {/* Section 1: Live Contest Status */}
+      {/* Section 1: All Contests */}
       <div className="tower-section">
         <div
           className="section-header"
@@ -285,14 +295,21 @@ export const ContestControlTower: React.FC = () => {
           <span className="expand-icon">
             {expandedSections['live-contests'] ? '▼' : '▶'}
           </span>
-          <h2>Live Contest Status ✓</h2>
+          <h2>All Contests ✓</h2>
           <span className="section-count">({allInstances.length})</span>
         </div>
         {expandedSections['live-contests'] && (
           <div className="section-content">
             <div className="contests-list">
-              {allInstances.length === 0 ? (
-                <div className="empty-state">No live or locked contests</div>
+              {statusCounts.LIVE === 0 && statusCounts.LOCKED === 0 ? (
+                <div className="empty-state">
+                  <p>No active contests.</p>
+                  {statusCounts.SCHEDULED > 0 && (
+                    <p>
+                      {statusCounts.SCHEDULED} contest{statusCounts.SCHEDULED !== 1 ? 's' : ''} currently scheduled and will appear here after lock time.
+                    </p>
+                  )}
+                </div>
               ) : (
                 allInstances.map(contest => (
                   <ContestRow key={contest.id} contest={contest} />

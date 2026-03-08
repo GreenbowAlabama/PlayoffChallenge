@@ -138,6 +138,60 @@
   word-break: break-all;
 }
 
+/* Status Distribution */
+.status-distribution {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.status-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.status-count.highlight {
+  background: #fef3c7;
+  border-color: #f59e0b;
+}
+
+.count-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1f2937;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.count-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-message {
+  padding: 12px 16px;
+  background: #f0fdf4;
+  border-left: 4px solid #16a34a;
+  border-radius: 4px;
+  color: #166534;
+  font-size: 14px;
+}
+
+.status-message p {
+  margin: 0;
+  line-height: 1.5;
+}
+
 /* Lifecycle Grid */
 .lifecycle-grid {
   display: grid;

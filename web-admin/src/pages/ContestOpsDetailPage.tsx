@@ -223,6 +223,17 @@ export const ContestOpsDetailPage: React.FC = () => {
   const lastLifecycleWorkerRun =
     snapshot.lifecycle.length > 0 ? snapshot.lifecycle[0].created_at : 'Never';
 
+  // Compute status distribution for template contests
+  const statusCounts = {
+    LIVE: snapshot.template_contests.filter((c) => c.status === 'LIVE').length,
+    LOCKED: snapshot.template_contests.filter((c) => c.status === 'LOCKED').length,
+    SCHEDULED: snapshot.template_contests.filter((c) => c.status === 'SCHEDULED').length,
+    COMPLETE: snapshot.template_contests.filter((c) => c.status === 'COMPLETE').length,
+    CANCELLED: snapshot.template_contests.filter((c) => c.status === 'CANCELLED').length,
+  };
+
+  const totalEntries = snapshot.template_contests.reduce((sum, c) => sum + c.current_entries, 0);
+
   return (
     <div className="contest-ops-detail">
       <div className="page-header">
@@ -326,7 +337,44 @@ export const ContestOpsDetailPage: React.FC = () => {
         </div>
       </Panel>
 
-      {/* Panel 3: Integrity Warnings */}
+      {/* Panel 3: Template Contest Status Distribution */}
+      <Panel title="Template Contest Status Distribution">
+        <div className="status-distribution">
+          <div className="status-count">
+            <span className="count-value">{statusCounts.LIVE}</span>
+            <span className="count-label">Live</span>
+          </div>
+          <div className="status-count">
+            <span className="count-value">{statusCounts.LOCKED}</span>
+            <span className="count-label">Locked</span>
+          </div>
+          <div className="status-count">
+            <span className="count-value">{statusCounts.SCHEDULED}</span>
+            <span className="count-label">Scheduled</span>
+          </div>
+          <div className="status-count">
+            <span className="count-value">{statusCounts.COMPLETE}</span>
+            <span className="count-label">Complete</span>
+          </div>
+          <div className="status-count">
+            <span className="count-value">{statusCounts.CANCELLED}</span>
+            <span className="count-label">Cancelled</span>
+          </div>
+          <div className="status-count highlight">
+            <span className="count-value">{totalEntries}</span>
+            <span className="count-label">Total Entries</span>
+          </div>
+        </div>
+        {statusCounts.LIVE === 0 && statusCounts.LOCKED === 0 && (
+          <div className="status-message">
+            <p>
+              No active contests. {statusCounts.SCHEDULED} contest{statusCounts.SCHEDULED !== 1 ? 's' : ''} currently scheduled and will appear here after lock time.
+            </p>
+          </div>
+        )}
+      </Panel>
+
+      {/* Panel 4: Integrity Warnings */}
       {integrityWarnings.length > 0 && (
         <Panel title="Integrity Warnings">
           <div className="warnings-container">
@@ -337,7 +385,7 @@ export const ContestOpsDetailPage: React.FC = () => {
         </Panel>
       )}
 
-      {/* Panel 4: Tournament Config (attached to this contest) */}
+      {/* Panel 5: Tournament Config (attached to this contest) */}
       {snapshot.contest_tournament_config && (
         <Panel title="Tournament Config (Attached to This Contest)">
           <div className="config-grid">
@@ -383,7 +431,7 @@ export const ContestOpsDetailPage: React.FC = () => {
         </Panel>
       )}
 
-      {/* Panel 5: All Tournament Configs (event family) */}
+      {/* Panel 6: All Tournament Configs (event family) */}
       <Panel title="All Tournament Configs (Event Family)">
         {snapshot.tournament_configs.length === 0 ? (
           <p className="no-data">No tournament configs found</p>
@@ -421,7 +469,7 @@ export const ContestOpsDetailPage: React.FC = () => {
         )}
       </Panel>
 
-      {/* Panel 6: Template Contest Instances */}
+      {/* Panel 7: Template Contest Instances */}
       <Panel title="Template Contest Instances">
         {snapshot.template_contests.length === 0 ? (
           <p className="no-data">No contests found for this template</p>
@@ -463,7 +511,7 @@ export const ContestOpsDetailPage: React.FC = () => {
         )}
       </Panel>
 
-      {/* Panel 7: Lifecycle History */}
+      {/* Panel 8: Lifecycle History */}
       <Panel title="Lifecycle History">
         {snapshot.lifecycle.length === 0 ? (
           <p className="no-data">No lifecycle transitions recorded</p>
@@ -497,7 +545,7 @@ export const ContestOpsDetailPage: React.FC = () => {
         )}
       </Panel>
 
-      {/* Panel 8: Snapshot Health */}
+      {/* Panel 9: Snapshot Health */}
       <Panel title="Snapshot Health">
         <div className="health-grid">
           <div className="health-item">
