@@ -80,12 +80,16 @@ describe('systemInvariantService', () => {
     it('should return HEALTHY status when no anomalies', async () => {
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // locked contests
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // live contests
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 0 }] }); // total live
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 0 }] }); // total locked
 
       const result = await systemInvariantService.checkLifecycleInvariant(mockPool);
 
       expect(result.status).toBe('HEALTHY');
       expect(result.details.stuck_locked_count).toBe(0);
       expect(result.details.stuck_live_count).toBe(0);
+      expect(result.details.total_locked_contests).toBe(0);
+      expect(result.details.total_live_contests).toBe(0);
       expect(result.anomalies).toEqual([]);
     });
 
@@ -102,11 +106,15 @@ describe('systemInvariantService', () => {
         }]
       });
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // live contests
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 2 }] }); // total live
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 5 }] }); // total locked
 
       const result = await systemInvariantService.checkLifecycleInvariant(mockPool);
 
       expect(result.status).toBe('STUCK_TRANSITIONS');
       expect(result.details.stuck_locked_count).toBe(1);
+      expect(result.details.total_locked_contests).toBe(5);
+      expect(result.details.total_live_contests).toBe(2);
       expect(result.anomalies).toHaveLength(1);
       expect(result.anomalies[0].problem).toBe('LOCKED_PAST_START');
     });
@@ -123,6 +131,8 @@ describe('systemInvariantService', () => {
           minutes_overdue: 60
         }]
       });
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 3 }] }); // total live
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 0 }] }); // total locked
 
       const result = await systemInvariantService.checkLifecycleInvariant(mockPool);
 
@@ -142,6 +152,8 @@ describe('systemInvariantService', () => {
 
       mockPool.query.mockResolvedValueOnce({ rowCount: 6, rows: stuckContests });
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 1 }] }); // total live
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 10 }] }); // total locked
 
       const result = await systemInvariantService.checkLifecycleInvariant(mockPool);
 

@@ -165,111 +165,186 @@ export const SystemInvariantMonitor: React.FC = () => {
   };
 
   const renderFinancialDetails = (financial: FinancialInvariant) => (
-    <div className="financial-details">
-      <div className="value-row">
-        <span>Wallet Liability:</span>
-        <strong>${(financial.values.wallet_liability_cents / 100).toFixed(2)}</strong>
+    <div className="financial-details space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-blue-50 rounded-md p-3 border border-blue-200">
+          <div className="text-xs text-blue-600 font-medium mb-1">Wallet Liability</div>
+          <div className="text-lg font-semibold text-gray-900">${(financial.values.wallet_liability_cents / 100).toFixed(2)}</div>
+        </div>
+        <div className="bg-purple-50 rounded-md p-3 border border-purple-200">
+          <div className="text-xs text-purple-600 font-medium mb-1">Contest Pools</div>
+          <div className="text-lg font-semibold text-gray-900">${(financial.values.contest_pools_cents / 100).toFixed(2)}</div>
+        </div>
+        <div className="bg-green-50 rounded-md p-3 border border-green-200">
+          <div className="text-xs text-green-600 font-medium mb-1">Deposits</div>
+          <div className="text-lg font-semibold text-gray-900">${(financial.values.deposits_cents / 100).toFixed(2)}</div>
+        </div>
+        <div className="bg-red-50 rounded-md p-3 border border-red-200">
+          <div className="text-xs text-red-600 font-medium mb-1">Withdrawals</div>
+          <div className="text-lg font-semibold text-gray-900">${(financial.values.withdrawals_cents / 100).toFixed(2)}</div>
+        </div>
       </div>
-      <div className="value-row">
-        <span>Contest Pools:</span>
-        <strong>${(financial.values.contest_pools_cents / 100).toFixed(2)}</strong>
-      </div>
-      <div className="value-row">
-        <span>Deposits:</span>
-        <strong>${(financial.values.deposits_cents / 100).toFixed(2)}</strong>
-      </div>
-      <div className="value-row">
-        <span>Withdrawals:</span>
-        <strong>${(financial.values.withdrawals_cents / 100).toFixed(2)}</strong>
-      </div>
-      <div className="equation">
-        {financial.values.wallet_liability_cents + financial.values.contest_pools_cents} = {financial.values.deposits_cents - financial.values.withdrawals_cents}
-        {financial.values.difference_cents > 0 && (
-          <span className="diff"> (diff: {financial.values.difference_cents} cents)</span>
-        )}
+      <div className="bg-gray-50 rounded-md p-3 border border-gray-200">
+        <div className="text-xs text-gray-500 font-medium mb-2">Invariant Equation</div>
+        <div className="font-mono text-sm text-gray-900">
+          {financial.values.wallet_liability_cents + financial.values.contest_pools_cents} = {financial.values.deposits_cents - financial.values.withdrawals_cents}
+          {financial.values.difference_cents > 0 && (
+            <span className="text-red-600"> (diff: {financial.values.difference_cents} cents)</span>
+          )}
+        </div>
       </div>
     </div>
   );
 
   const renderLifecycleDetails = (lifecycle: LifecycleInvariant) => (
-    <div className="lifecycle-details">
-      <div className="value-row">
-        <span>LOCKED contests:</span>
-        <strong>{lifecycle.details.total_locked_contests}</strong>
-        {lifecycle.details.stuck_locked_count > 0 && (
-          <span className="stuck">({lifecycle.details.stuck_locked_count} stuck)</span>
-        )}
+    <div className="lifecycle-details space-y-3">
+      <div className="bg-blue-50 rounded-md p-3 border border-blue-200">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs text-blue-600 font-medium mb-1">LOCKED Contests</div>
+            <div className="text-2xl font-semibold text-gray-900">{lifecycle.details.total_locked_contests}</div>
+          </div>
+          {lifecycle.details.stuck_locked_count > 0 && (
+            <div className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
+              {lifecycle.details.stuck_locked_count} stuck
+            </div>
+          )}
+        </div>
       </div>
-      <div className="value-row">
-        <span>LIVE contests:</span>
-        <strong>{lifecycle.details.total_live_contests}</strong>
-        {lifecycle.details.stuck_live_count > 0 && (
-          <span className="stuck">({lifecycle.details.stuck_live_count} stuck)</span>
-        )}
+      <div className="bg-orange-50 rounded-md p-3 border border-orange-200">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs text-orange-600 font-medium mb-1">LIVE Contests</div>
+            <div className="text-2xl font-semibold text-gray-900">{lifecycle.details.total_live_contests}</div>
+          </div>
+          {lifecycle.details.stuck_live_count > 0 && (
+            <div className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
+              {lifecycle.details.stuck_live_count} stuck
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 
   const renderSettlementDetails = (settlement: SettlementInvariant) => (
-    <div className="settlement-details">
-      <div className="value-row">
-        <span>COMPLETE contests:</span>
-        <strong>{settlement.details.total_complete_contests}</strong>
-      </div>
-      <div className="value-row">
-        <span>Settled:</span>
-        <strong>{settlement.details.total_settled_contests}</strong>
+    <div className="settlement-details space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-gray-50 rounded-md p-3 border border-gray-200">
+          <div className="text-xs text-gray-500 font-medium mb-1">COMPLETE</div>
+          <div className="text-2xl font-semibold text-gray-900">{settlement.details.total_complete_contests}</div>
+        </div>
+        <div className="bg-green-50 rounded-md p-3 border border-green-200">
+          <div className="text-xs text-green-600 font-medium mb-1">Settled</div>
+          <div className="text-2xl font-semibold text-gray-900">{settlement.details.total_settled_contests}</div>
+        </div>
       </div>
       {settlement.details.settlement_lag_minutes > 0 && (
-        <div className="value-row warning">
-          <span>Max lag:</span>
-          <strong>{settlement.details.settlement_lag_minutes} minutes</strong>
+        <div className="bg-amber-50 rounded-md p-3 border border-amber-200">
+          <div className="text-xs text-amber-600 font-medium mb-1">⚠ Max Settlement Lag</div>
+          <div className="text-lg font-semibold text-amber-900">{settlement.details.settlement_lag_minutes} minutes</div>
         </div>
       )}
     </div>
   );
 
+  const getWorkerFreshness = (lastRun: string | null) => {
+    if (!lastRun) return null;
+    const now = new Date();
+    const lastRunDate = new Date(lastRun);
+    const secondsAgo = Math.floor((now.getTime() - lastRunDate.getTime()) / 1000);
+
+    if (secondsAgo < 60) return `${secondsAgo}s ago`;
+    const minutesAgo = Math.floor(secondsAgo / 60);
+    if (minutesAgo < 60) return `${minutesAgo}m ago`;
+    const hoursAgo = Math.floor(minutesAgo / 60);
+    return `${hoursAgo}h ago`;
+  };
+
   const renderPipelineDetails = (pipeline: PipelineInvariant) => (
-    <div className="pipeline-details">
-      <div className="worker-status">
-        <div className="worker">
-          <strong>Discovery Worker:</strong> {pipeline.pipeline_status.discovery_worker.status}
-          {pipeline.pipeline_status.discovery_worker.last_run && (
-            <small>{new Date(pipeline.pipeline_status.discovery_worker.last_run).toLocaleString()}</small>
-          )}
-          {pipeline.pipeline_status.discovery_worker.error_count_1h > 0 && (
-            <span className="error-count">{pipeline.pipeline_status.discovery_worker.error_count_1h} errors</span>
-          )}
+    <div className="pipeline-details space-y-3">
+      <div className="worker border-l-4 border-blue-500 pl-3 py-2">
+        <div className="flex items-center justify-between">
+          <strong className="text-gray-900">Discovery Worker</strong>
+          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+            pipeline.pipeline_status.discovery_worker.status === 'HEALTHY' ? 'bg-green-100 text-green-800' :
+            'bg-gray-100 text-gray-800'
+          }`}>
+            {pipeline.pipeline_status.discovery_worker.status}
+          </span>
         </div>
-        <div className="worker">
-          <strong>Lifecycle Reconciler:</strong> {pipeline.pipeline_status.lifecycle_reconciler.status}
-          {pipeline.pipeline_status.lifecycle_reconciler.last_run && (
-            <small>{new Date(pipeline.pipeline_status.lifecycle_reconciler.last_run).toLocaleString()}</small>
-          )}
+        {pipeline.pipeline_status.discovery_worker.last_run && (
+          <small className="text-gray-500">{getWorkerFreshness(pipeline.pipeline_status.discovery_worker.last_run)}</small>
+        )}
+        {pipeline.pipeline_status.discovery_worker.error_count_1h > 0 && (
+          <div className="text-xs text-red-600 mt-1">⚠ {pipeline.pipeline_status.discovery_worker.error_count_1h} errors in last hour</div>
+        )}
+      </div>
+
+      <div className="worker border-l-4 border-blue-500 pl-3 py-2">
+        <div className="flex items-center justify-between">
+          <strong className="text-gray-900">Lifecycle Reconciler</strong>
+          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+            pipeline.pipeline_status.lifecycle_reconciler.status === 'HEALTHY' ? 'bg-green-100 text-green-800' :
+            'bg-gray-100 text-gray-800'
+          }`}>
+            {pipeline.pipeline_status.lifecycle_reconciler.status}
+          </span>
         </div>
-        <div className="worker">
-          <strong>Ingestion Worker:</strong> {pipeline.pipeline_status.ingestion_worker.status}
-          {pipeline.pipeline_status.ingestion_worker.error_count_1h > 0 && (
-            <span className="error-count">{pipeline.pipeline_status.ingestion_worker.error_count_1h} stuck units</span>
-          )}
+        {pipeline.pipeline_status.lifecycle_reconciler.last_run && (
+          <small className="text-gray-500">{getWorkerFreshness(pipeline.pipeline_status.lifecycle_reconciler.last_run)}</small>
+        )}
+      </div>
+
+      <div className="worker border-l-4 border-blue-500 pl-3 py-2">
+        <div className="flex items-center justify-between">
+          <strong className="text-gray-900">Ingestion Worker</strong>
+          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+            pipeline.pipeline_status.ingestion_worker.status === 'HEALTHY' ? 'bg-green-100 text-green-800' :
+            'bg-gray-100 text-gray-800'
+          }`}>
+            {pipeline.pipeline_status.ingestion_worker.status}
+          </span>
         </div>
+        {pipeline.pipeline_status.ingestion_worker.last_run && (
+          <small className="text-gray-500">{getWorkerFreshness(pipeline.pipeline_status.ingestion_worker.last_run)}</small>
+        )}
+        {pipeline.pipeline_status.ingestion_worker.error_count_1h > 0 && (
+          <div className="text-xs text-red-600 mt-1">⚠ {pipeline.pipeline_status.ingestion_worker.error_count_1h} stuck units</div>
+        )}
       </div>
     </div>
   );
 
   const renderLedgerDetails = (ledger: LedgerInvariant) => (
-    <div className="ledger-details">
-      <div className="value-row">
-        <span>Total entries:</span>
-        <strong>{ledger.details.total_entries}</strong>
+    <div className="ledger-details space-y-3">
+      <div className="bg-gray-50 rounded-md p-3 border border-gray-200">
+        <div className="text-xs text-gray-500 font-medium mb-1">Total Entries</div>
+        <div className="text-2xl font-semibold text-gray-900">{ledger.details.total_entries}</div>
       </div>
-      <div className="value-row">
-        <span>Constraint violations:</span>
-        <strong>{ledger.details.constraint_violations}</strong>
+      <div className={`rounded-md p-3 border ${
+        ledger.details.constraint_violations === 0
+          ? 'bg-green-50 border-green-200'
+          : 'bg-red-50 border-red-200'
+      }`}>
+        <div className={`text-xs font-medium mb-1 ${
+          ledger.details.constraint_violations === 0 ? 'text-green-600' : 'text-red-600'
+        }`}>
+          Constraint Violations
+        </div>
+        <div className={`text-2xl font-semibold ${
+          ledger.details.constraint_violations === 0 ? 'text-green-900' : 'text-red-900'
+        }`}>
+          {ledger.details.constraint_violations}
+        </div>
       </div>
-      <div className="value-row">
-        <span>Balance status:</span>
-        <strong>{ledger.details.balance_status}</strong>
+      <div className={`rounded-md p-3 border bg-green-50 border-green-200`}>
+        <div className={`text-xs font-medium mb-1 text-green-600`}>
+          Balance Status
+        </div>
+        <div className={`text-sm font-semibold text-green-900`}>
+          {ledger.details.balance_status}
+        </div>
       </div>
     </div>
   );
@@ -312,29 +387,37 @@ export const SystemInvariantMonitor: React.FC = () => {
 
       {/* Overall Status Banner */}
       {data && (
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <div className={`status-banner ${data.overall_status.toLowerCase()}`}>
-            <div className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900">Overall Status</h2>
-                  <p className="text-sm text-gray-500 mt-1">Last check: {formatTimestamp(data.last_check_timestamp)}</p>
-                </div>
-                <div className="text-4xl font-bold">
-                  {data.overall_status === 'HEALTHY' && (
-                    <span className="text-green-600">✓</span>
-                  )}
-                  {data.overall_status === 'WARNING' && (
-                    <span className="text-amber-600">⚠</span>
-                  )}
-                  {data.overall_status === 'CRITICAL' && (
-                    <span className="text-red-600">✗</span>
-                  )}
-                </div>
+        <div className="rounded-lg overflow-hidden shadow-lg border-2" style={{
+          borderColor: data.overall_status === 'HEALTHY' ? '#16a34a' : data.overall_status === 'WARNING' ? '#f59e0b' : '#dc2626'
+        }}>
+          <div className="p-8" style={{
+            background: data.overall_status === 'HEALTHY'
+              ? 'linear-gradient(135deg, #dcfce7 0%, #86efac 100%)'
+              : data.overall_status === 'WARNING'
+              ? 'linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%)'
+              : 'linear-gradient(135deg, #fee2e2 0%, #fca5a5 100%)'
+          }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold" style={{
+                  color: data.overall_status === 'HEALTHY' ? '#166534' : data.overall_status === 'WARNING' ? '#92400e' : '#7f1d1d'
+                }}>
+                  {data.overall_status === 'HEALTHY' ? '✓ All Systems Operational' :
+                   data.overall_status === 'WARNING' ? '⚠ Warning: Check Details Below' :
+                   '✗ Critical Issues Detected'}
+                </h2>
+                <p className="text-sm mt-2" style={{
+                  color: data.overall_status === 'HEALTHY' ? '#166534' : data.overall_status === 'WARNING' ? '#92400e' : '#7f1d1d'
+                }}>
+                  Last check: {formatTimestamp(data.last_check_timestamp)} • Execution: {data.execution_time_ms}ms
+                </p>
               </div>
-              <div className="mt-4">
-                <StatusBadge status={data.overall_status.toLowerCase()} />
-                <span className="ml-2 text-xs text-gray-500">Execution: {data.execution_time_ms}ms</span>
+              <div className="text-6xl font-bold" style={{
+                color: data.overall_status === 'HEALTHY' ? '#16a34a' : data.overall_status === 'WARNING' ? '#f59e0b' : '#dc2626'
+              }}>
+                {data.overall_status === 'HEALTHY' && '✓'}
+                {data.overall_status === 'WARNING' && '⚠'}
+                {data.overall_status === 'CRITICAL' && '✗'}
               </div>
             </div>
           </div>

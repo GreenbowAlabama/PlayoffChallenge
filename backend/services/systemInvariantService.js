@@ -275,9 +275,25 @@ async function checkLifecycleInvariant(pool) {
         );
     `);
 
+    // Count TOTAL LIVE contests (not just stuck ones)
+    const totalLiveResult = await pool.query(`
+      SELECT COUNT(*) as total_count
+      FROM contest_instances
+      WHERE status = 'LIVE';
+    `);
+
+    // Count TOTAL LOCKED contests (not just stuck ones)
+    const totalLockedResult = await pool.query(`
+      SELECT COUNT(*) as total_count
+      FROM contest_instances
+      WHERE status = 'LOCKED';
+    `);
+
     const allAnomalies = [];
     const stuckLockedCount = lockedResult.rowCount;
     const stuckLiveCount = liveResult.rowCount;
+    const totalLockedContests = parseInt(totalLockedResult.rows[0].total_count, 10);
+    const totalLiveContests = parseInt(totalLiveResult.rows[0].total_count, 10);
 
     // Add LOCKED anomalies
     lockedResult.rows.forEach(row => {
@@ -322,8 +338,8 @@ async function checkLifecycleInvariant(pool) {
       timestamp: new Date().toISOString(),
       anomalies: allAnomalies,
       details: {
-        total_locked_contests: stuckLockedCount,
-        total_live_contests: stuckLiveCount,
+        total_locked_contests: totalLockedContests,
+        total_live_contests: totalLiveContests,
         stuck_locked_count: stuckLockedCount,
         stuck_live_count: stuckLiveCount
       }
