@@ -38,10 +38,10 @@ export function Login() {
 
     if (token) {
       try {
-        console.log('[Login] Storing token in localStorage with key: adminToken');
-        localStorage.setItem('adminToken', token);
+        console.log('[Login] Storing token in localStorage with key: admin_token');
+        localStorage.setItem('admin_token', token);
         console.log('[Login] Token stored successfully');
-        console.log('[Login] localStorage.adminToken now contains:', localStorage.getItem('adminToken') ? 'token' : 'nothing');
+        console.log('[Login] localStorage.admin_token now contains:', localStorage.getItem('admin_token') ? 'token' : 'nothing');
 
         console.log('[Login] Calling navigate(/dashboard, { replace: true })');
         navigate('/dashboard', { replace: true });
