@@ -18,7 +18,7 @@ const API_BASE = import.meta.env.VITE_REACT_APP_API_URL || 'http://localhost:300
  * Helper: Build headers with optional authorization
  */
 function buildHeaders(): Record<string, string> {
-  const token = localStorage.getItem('adminToken');
+  const token = localStorage.getItem('admin_token');
   return {
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     'Content-Type': 'application/json'
