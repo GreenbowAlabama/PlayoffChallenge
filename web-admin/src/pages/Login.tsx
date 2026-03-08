@@ -30,7 +30,7 @@ export function Login() {
   useEffect(() => {
     const token = searchParams.get('token');
     if (token) {
-      localStorage.setItem('admin_token', token);
+      localStorage.setItem('adminToken', token);
       navigate('/dashboard', { replace: true });
       return;
     }
