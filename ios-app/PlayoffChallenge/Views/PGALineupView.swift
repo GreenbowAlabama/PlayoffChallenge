@@ -177,13 +177,12 @@ struct PGAGolferSlotRow: View {
 
     var body: some View {
         HStack(spacing: DesignTokens.Spacing.md) {
-            // Slot number
-            VStack(alignment: .center) {
-                Text("\(slotNumber)")
-                    .font(.headline)
-                    .foregroundColor(DesignTokens.Color.Brand.primary)
-            }
-            .frame(width: 44, alignment: .center)
+            // Golfer headshot
+            PlayerImageView(
+                imageUrl: slot.imageUrl,
+                size: 48,
+                position: "G"
+            )
 
             // Golfer info
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {

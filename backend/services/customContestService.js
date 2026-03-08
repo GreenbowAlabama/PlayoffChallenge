@@ -26,6 +26,52 @@ const areScoresEqual = (score1, score2, precision = 2) => {
   return score1.toFixed(precision) === score2.toFixed(precision);
 };
 
+/**
+ * Ensure field_selections row exists for a PGA contest.
+ *
+ * Lifecycle invariant: A PGA contest instance MUST have a corresponding field_selections row
+ * immediately upon publication. This prevents "Players not in validated field" errors during
+ * lineup submission.
+ *
+ * Idempotent single-query upsert using JOIN relationships:
+ *   contest_instances → contest_templates → tournament_configs
+ *
+ * Uses ON CONFLICT DO NOTHING to safely handle concurrent operations.
+ *
+ * @param {Object} dbClient - Database client (from transaction)
+ * @param {string} contestInstanceId - UUID of contest_instance
+ * @returns {Promise<void>}
+ */
+async function ensureFieldSelectionsForGolf(dbClient, contestInstanceId) {
+  const result = await dbClient.query(
+    `INSERT INTO field_selections (
+      id,
+      contest_instance_id,
+      tournament_config_id,
+      selection_json,
+      created_at
+    )
+    SELECT
+      gen_random_uuid(),
+      ci.id,
+      tc.id,
+      '{"primary":[],"alternates":[]}'::jsonb,
+      NOW()
+    FROM contest_instances ci
+    JOIN contest_templates ct ON ct.id = ci.template_id
+    JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
+    WHERE ci.id = $1
+      AND ct.sport = 'pga'
+    ON CONFLICT (contest_instance_id) DO NOTHING
+    RETURNING id`,
+    [contestInstanceId]
+  );
+
+  if (result.rows.length > 0) {
+    console.log(`[customContestService] PGA field initialized for contest_instance_id ${contestInstanceId}`);
+  }
+}
+
 // Helper to get raw scores for participants in a contest, then compute ranks in JS
 async function _getLiveStandings(pool, contestInstanceId) {
   const result = await pool.query(
@@ -1273,6 +1319,20 @@ async function publishContestInstance(pool, instanceId, organizerId) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+
+      // Validate contest_instance exists in this transaction
+      const validateResult = await client.query(
+        `SELECT id FROM contest_instances WHERE id = $1`,
+        [instanceId]
+      );
+
+      if (validateResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        throw new Error(`Contest instance not found in transaction: ${instanceId}`);
+      }
+
+      // Lifecycle invariant: Ensure PGA contests have field_selections row
+      await ensureFieldSelectionsForGolf(client, instanceId);
 
       // 1. Extract entry fee (same pattern as joinContest line 1235)
       const entryFeeCents = parseInt(instance.entry_fee_cents, 10);
