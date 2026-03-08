@@ -13,7 +13,8 @@ struct LineupContainerView: View {
     let placeholder: Contest?
 
     var body: some View {
-        if let contest = placeholder, contest.templateType == .pgaTournament {
+        if let contest = placeholder,
+           [.pgaTournament, .pgaBase, .pgaDaily, .golfMajor].contains(contest.templateType) {
             PGALineupView(contestId: contestId, placeholder: contest)
         } else {
             LineupView(contestId: contestId, placeholder: placeholder)

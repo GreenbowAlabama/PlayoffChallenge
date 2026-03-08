@@ -122,6 +122,21 @@ describe('discoverTournament — Marketing Contest Creation', () => {
       expect(contests.rows[0].contest_name).toBe('PGA Marketing Test 2026 - Marketing');
     });
 
+    it('should generate non-null join_token for marketing contest', async () => {
+      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
+      const contests = await pool.query(
+        `SELECT * FROM contest_instances
+         WHERE template_id = $1 AND is_primary_marketing = true`,
+        [result.templateId]
+      );
+
+      const contest = contests.rows[0];
+      expect(contest.join_token).not.toBeNull();
+      expect(contest.join_token).toBeTruthy();
+      expect(typeof contest.join_token).toBe('string');
+      expect(contest.join_token.length).toBeGreaterThan(0);
+    });
+
     it('should NOT create marketing contest on template update (no new contest)', async () => {
       // First discovery: creates template + marketing contest
       const result1 = await discoverTournament(validInput, pool, now, testOrganizerId);

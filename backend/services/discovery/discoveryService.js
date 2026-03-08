@@ -15,6 +15,7 @@
 
 const { validateDiscoveryInput, getErrorDetails } = require('./discoveryValidator');
 const { initializeTournamentField } = require('../ingestionService');
+const { generateJoinToken } = require('../customContestService');
 
 /**
  * Discover tournament and create/update system template
@@ -280,10 +281,12 @@ async function discoverTournament(input, pool, now, organizerId) {
         start_time,
         contest_name,
         max_entries,
+        provider_event_id,
         is_platform_owned,
-        is_primary_marketing
+        is_primary_marketing,
+        join_token
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
       )
       ON CONFLICT DO NOTHING`,
       [
@@ -295,8 +298,10 @@ async function discoverTournament(input, pool, now, organizerId) {
         now, // start_time: injected now
         `${normalized.name} - Marketing`, // contest_name
         100, // max_entries
+        normalized.providerEventId, // provider_event_id: links to tournament data for player resolution
         true, // is_platform_owned
-        true // is_primary_marketing
+        true, // is_primary_marketing
+        generateJoinToken() // join_token: generated token for platform marketing contest
       ]
     );
 

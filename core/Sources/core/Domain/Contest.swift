@@ -13,6 +13,8 @@ public enum ContestTemplateType: String, Codable, Sendable {
     case playoffChallenge = "PLAYOFF_CHALLENGE"
     case pickem = "PICKEM"
     case pgaTournament = "PGA_TOURNAMENT"
+    case pgaBase = "PGA_BASE"
+    case pgaDaily = "PGA_DAILY"
     case golfMajor = "GOLF_MAJOR"
     case unknown = "UNKNOWN"
 }
