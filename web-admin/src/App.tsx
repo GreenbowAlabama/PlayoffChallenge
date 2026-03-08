@@ -15,6 +15,7 @@ import { CreateContestType } from './pages/CreateContestType';
 import StagingCleanup from './pages/StagingCleanup';
 import { AlertCenter } from './pages/AlertCenter';
 import { ContestPoolDiagnostics } from './pages/ContestPoolDiagnostics';
+import { ContestControlTower } from './pages/ContestControlTower';
 import { SystemInvariantMonitor } from './pages/SystemInvariantMonitor';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -55,6 +56,7 @@ function App() {
             <Route path="lineups" element={<Lineups />} />
             <Route path="trends" element={<Trends />} />
             <Route path="discovery" element={<ViewDiscovered />} />
+            <Route path="contest-ops" element={<ContestControlTower />} />
             <Route path="create-contest-type" element={<CreateContestType />} />
             <Route path="staging-cleanup" element={<StagingCleanup />} />
             <Route path="system-invariants" element={<SystemInvariantMonitor />} />
