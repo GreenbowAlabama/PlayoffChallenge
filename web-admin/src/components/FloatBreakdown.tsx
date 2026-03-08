@@ -176,7 +176,7 @@ export function FloatBreakdown({
                   <div className="flex items-center justify-between">
                     <span>Contest pool balance:</span>
                     <span className="font-mono font-semibold text-red-700">
-                      −{formatCents(contestPoolsTotal)}
+                      {formatCents(contestPoolsTotal)}
                     </span>
                   </div>
                   <div className="border-t border-gray-300 pt-2 flex items-center justify-between">
