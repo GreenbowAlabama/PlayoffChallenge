@@ -27,9 +27,9 @@ const areScoresEqual = (score1, score2, precision = 2) => {
 };
 
 /**
- * Ensure field_selections row exists for a PGA contest.
+ * Ensure field_selections row exists for a GOLF contest.
  *
- * Lifecycle invariant: A PGA contest instance MUST have a corresponding field_selections row
+ * Lifecycle invariant: A GOLF contest instance MUST have a corresponding field_selections row
  * immediately upon publication. This prevents "Players not in validated field" errors during
  * lineup submission.
  *
@@ -43,6 +43,8 @@ const areScoresEqual = (score1, score2, precision = 2) => {
  * @returns {Promise<void>}
  */
 async function ensureFieldSelectionsForGolf(dbClient, contestInstanceId) {
+  const SPORTS = require('../domain/sports');
+
   const result = await dbClient.query(
     `INSERT INTO field_selections (
       id,
@@ -61,14 +63,20 @@ async function ensureFieldSelectionsForGolf(dbClient, contestInstanceId) {
     JOIN contest_templates ct ON ct.id = ci.template_id
     JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
     WHERE ci.id = $1
-      AND ct.sport = 'pga'
+      AND ct.sport = $2
     ON CONFLICT (contest_instance_id) DO NOTHING
     RETURNING id`,
-    [contestInstanceId]
+    [contestInstanceId, SPORTS.GOLF]
   );
 
-  if (result.rows.length > 0) {
-    console.log(`[customContestService] PGA field initialized for contest_instance_id ${contestInstanceId}`);
+  // Guard: Log if INSERT affected 0 rows
+  // This can happen if: contest is not GOLF, or field_selections already exists (ON CONFLICT)
+  if (result.rowCount === 0) {
+    console.warn(
+      `[FieldInit] SKIPPED contest=${contestInstanceId} reason=NOT_GOLF_OR_ALREADY_EXISTS`
+    );
+  } else {
+    console.log(`[FieldInit] field_selections created for contest_instance_id ${contestInstanceId}`);
   }
 }
 

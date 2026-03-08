@@ -130,7 +130,7 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   );
 
   if (updateResult.rows.length === 0) {
-    console.warn(`[ingestionService] field_selections not found for ${contestInstanceId}, skipping update`);
+    console.warn(`[ingestionService] FIELD_SELECTION_ROW_MISSING: field_selections row does not exist for contest_instance_id ${contestInstanceId}, skipping field population. This row must be created during contest publish.`);
     return;
   }
 
