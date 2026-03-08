@@ -46,10 +46,10 @@ describe('PGA Contest Lifecycle — Tournament Field Initialization', () => {
 
     // Fund organizer wallet with 10,000 cents for contest publishing
     await pool.query(
-      `INSERT INTO ledger (id, user_id, entry_type, direction, amount_cents, currency, idempotency_key, created_at)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, gen_random_uuid(), NOW())
+      `INSERT INTO ledger (id, user_id, entry_type, direction, amount_cents, currency, reference_type, reference_id, idempotency_key, created_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, gen_random_uuid(), NOW())
        ON CONFLICT (id) DO NOTHING`,
-      [organizerId, 'WALLET_DEPOSIT', 'CREDIT', 10000, 'USD']
+      [organizerId, 'WALLET_DEPOSIT', 'CREDIT', 10000, 'USD', 'WALLET', organizerId]
     );
 
     // Get or create GOLF template

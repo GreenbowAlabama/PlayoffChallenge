@@ -45,6 +45,31 @@ describe('Lifecycle Reconciliation Service', () => {
     } catch (err) {
       throw new Error(`Failed to connect to test database: ${err.message}`);
     }
+
+    // Clean up any stale test data from previous runs (test isolation)
+    // This ensures the first test starts with 0 eligible contests
+    try {
+      await pool.query(`
+        DELETE FROM contest_state_transitions
+        WHERE contest_instance_id IN (
+          SELECT id FROM contest_instances
+          WHERE status IN ('SCHEDULED', 'LOCKED', 'LIVE')
+        )
+      `);
+      await pool.query(`
+        DELETE FROM contest_participants
+        WHERE contest_instance_id IN (
+          SELECT id FROM contest_instances
+          WHERE status IN ('SCHEDULED', 'LOCKED', 'LIVE')
+        )
+      `);
+      await pool.query(`
+        DELETE FROM contest_instances
+        WHERE status IN ('SCHEDULED', 'LOCKED', 'LIVE')
+      `);
+    } catch (err) {
+      // Silently ignore cleanup errors (tables may not exist in some DB states)
+    }
   });
 
   afterAll(async () => {

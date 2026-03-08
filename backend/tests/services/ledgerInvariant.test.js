@@ -24,10 +24,12 @@ describe('Ledger Invariant Enforcement', () => {
           direction,
           amount_cents,
           currency,
+          reference_type,
+          reference_id,
           idempotency_key
-        ) VALUES ($1, $2, $3, $4, $5)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
-      `, ['ENTRY_FEE', 'DEBIT', 1000, 'USD', uuidv4()]);
+      `, ['ENTRY_FEE', 'DEBIT', 1000, 'USD', 'CONTEST', uuidv4(), uuidv4()]);
 
       expect(result.rows.length).toBe(1);
     });
@@ -39,9 +41,11 @@ describe('Ledger Invariant Enforcement', () => {
           direction,
           amount_cents,
           currency,
+          reference_type,
+          reference_id,
           idempotency_key
-        ) VALUES ($1, $2, $3, $4, $5)
-      `, ['ENTRY_FEE', 'CREDIT', 1000, 'USD', uuidv4()]);
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, ['ENTRY_FEE', 'CREDIT', 1000, 'USD', 'CONTEST', uuidv4(), uuidv4()]);
 
       await expect(promise).rejects.toThrow('must have direction=DEBIT');
     });
@@ -54,10 +58,11 @@ describe('Ledger Invariant Enforcement', () => {
           amount_cents,
           currency,
           reference_type,
+          reference_id,
           idempotency_key
-        ) VALUES ($1, $2, $3, $4, $5, $6)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
-      `, ['WALLET_DEPOSIT', 'CREDIT', 1000, 'USD', 'WALLET', uuidv4()]);
+      `, ['WALLET_DEPOSIT', 'CREDIT', 1000, 'USD', 'WALLET', uuidv4(), uuidv4()]);
 
       expect(result.rows.length).toBe(1);
     });

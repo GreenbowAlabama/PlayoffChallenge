@@ -60,10 +60,23 @@ describe('Admin Diagnostics Service - Wallet Aggregates', () => {
     });
 
     async function insertLedgerEntry(userId, entryType, direction, amountCents) {
+      // Determine reference_type based on entry_type
+      // Valid schema values: 'stripe_event', 'CONTEST', 'WALLET'
+      let referenceType;
+      if (entryType === 'WALLET_DEPOSIT' || entryType === 'WALLET_WITHDRAWAL') {
+        referenceType = 'WALLET';
+      } else if (entryType === 'ENTRY_FEE' || entryType === 'ENTRY_FEE_REFUND' || entryType === 'PRIZE_PAYOUT') {
+        referenceType = 'CONTEST';
+      } else {
+        referenceType = 'WALLET';
+      }
+
+      const referenceId = randomUUID();
+
       await pool.query(
-        `INSERT INTO ledger (id, user_id, entry_type, direction, amount_cents, currency, idempotency_key, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-        [randomUUID(), userId, entryType, direction, amountCents, 'USD', randomUUID().toString()]
+        `INSERT INTO ledger (id, user_id, entry_type, direction, amount_cents, currency, reference_type, reference_id, idempotency_key, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+        [randomUUID(), userId, entryType, direction, amountCents, 'USD', referenceType, referenceId, randomUUID().toString()]
       );
     }
 

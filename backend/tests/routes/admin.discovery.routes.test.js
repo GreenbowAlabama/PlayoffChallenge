@@ -309,10 +309,10 @@ describe('Admin Discovery Routes', () => {
       const template1Id = randomUUID();
       const template2Id = randomUUID();
 
-      // Create two templates with different sports to avoid unique constraint
+      // Create two templates with different sports and unique provider IDs to avoid constraint violations
       const templates = [
-        [template1Id, 'Template 1', 'NBA', 'tournament_nba'],
-        [template2Id, 'Template 2', 'NHL', 'tournament_nhl']
+        [template1Id, 'Template 1', 'NBA', `tournament_nba_${randomUUID()}`],
+        [template2Id, 'Template 2', 'NHL', `tournament_nhl_${randomUUID()}`]
       ];
       for (const [id, name, sport, tourny] of templates) {
         await pool.query(

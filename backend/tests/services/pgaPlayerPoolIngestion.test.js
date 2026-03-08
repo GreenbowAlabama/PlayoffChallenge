@@ -33,6 +33,12 @@ describe('PGA Player Pool Ingestion (BOTH Phase)', () => {
   });
 
   beforeEach(async () => {
+    // Clean up any stale test data from previous test runs (test isolation)
+    // This ensures we start with a clean slate for each test
+    await pool.query('DELETE FROM ingestion_runs WHERE contest_instance_id IS NOT NULL');
+    await pool.query('DELETE FROM field_selections WHERE contest_instance_id IS NOT NULL');
+    await pool.query('DELETE FROM tournament_configs WHERE contest_instance_id IS NOT NULL');
+
     // Create test user (organizer)
     const userResult = await pool.query(`
       INSERT INTO users (id, email, username, is_admin)
@@ -54,7 +60,7 @@ describe('PGA Player Pool Ingestion (BOTH Phase)', () => {
         'Test PGA Template ' || gen_random_uuid()::text,
         'GOLF',
         'pga_tour',
-        'pga_scoring_v1',
+        'pga_espn',
         'pga_lock',
         'pga_settlement',
         5000,
@@ -322,27 +328,28 @@ describe('PGA Player Pool Ingestion (BOTH Phase)', () => {
   });
 
   it('should handle empty golfers gracefully', async () => {
-    // Mock empty golfers
-    const pgaEspnIngestion = require('../../services/ingestion/strategies/pgaEspnIngestion');
-    const originalGetWorkUnits = pgaEspnIngestion.getWorkUnits;
+    // Mock the adapter to return no work units
+    const ingestionRegistry = require('../../services/ingestionRegistry');
+    const pgaEspnIngestion = ingestionRegistry.getIngestionStrategy('pga_espn');
+    const getWorkUnitsSpy = jest.spyOn(pgaEspnIngestion, 'getWorkUnits').mockResolvedValue([]);
 
-    pgaEspnIngestion.getWorkUnits = jest.fn().mockResolvedValue([]);
+    try {
+      // Run ingestion with no work units (empty golfers)
+      const summary = await ingestionService.run(contestInstanceId, pool);
 
-    // Run ingestion
-    const summary = await ingestionService.run(contestInstanceId, pool);
+      // Verify no players were ingested
+      expect(summary.processed).toBe(0);
 
-    // Verify no players ingested
-    expect(summary.processed).toBe(0);
-
-    // Verify field_selections unchanged
-    const fsResult = await pool.query(
-      `SELECT selection_json FROM field_selections WHERE contest_instance_id = $1`,
-      [contestInstanceId]
-    );
-    expect(fsResult.rows[0].selection_json.primary).toHaveLength(0);
-
-    // Restore mock
-    pgaEspnIngestion.getWorkUnits = originalGetWorkUnits;
+      // Verify field_selections.primary remains empty
+      const fsResult = await pool.query(
+        `SELECT selection_json FROM field_selections WHERE contest_instance_id = $1`,
+        [contestInstanceId]
+      );
+      expect(fsResult.rows[0].selection_json.primary).toHaveLength(0);
+    } finally {
+      // Restore original implementation
+      getWorkUnitsSpy.mockRestore();
+    }
   });
 
   it('should be idempotent: re-ingestion with same golfers produces no duplicates', async () => {

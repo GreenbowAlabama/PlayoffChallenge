@@ -9,6 +9,8 @@
 
 const request = require('supertest');
 const { v4: uuidv4 } = require('uuid');
+const { getIntegrationApp } = require('../../mocks/testAppFactory');
+const jwt = require('jsonwebtoken');
 
 describe('Financial Reconciliation Routes', () => {
   let app;
@@ -18,8 +20,40 @@ describe('Financial Reconciliation Routes', () => {
   let adminId;
 
   beforeAll(async () => {
-    // Setup will be connected to actual test database
-    // For now, we'll mock the app and auth
+    // Initialize app and pool from test factory
+    const integrationApp = getIntegrationApp();
+    app = integrationApp.app;
+    pool = integrationApp.pool;
+
+    // Create admin user
+    adminId = uuidv4();
+    await pool.query(
+      `INSERT INTO users (id, username, email, is_admin, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, NOW(), NOW())
+       ON CONFLICT (id) DO UPDATE SET is_admin = TRUE`,
+      [adminId, `admin_${adminId.slice(0, 8)}`, `admin_${adminId.slice(0, 8)}@test.com`, true]
+    );
+
+    // Create admin JWT token with required claims for admin middleware
+    const jwtSecret = process.env.ADMIN_JWT_SECRET || 'test-admin-jwt-secret';
+    adminJwt = jwt.sign(
+      {
+        sub: adminId,
+        is_admin: true,
+        role: 'admin'
+      },
+      jwtSecret,
+      { expiresIn: '1h', algorithm: 'HS256' }
+    );
+
+    // Create test user
+    userId = uuidv4();
+    await pool.query(
+      `INSERT INTO users (id, username, email, created_at, updated_at)
+       VALUES ($1, $2, $3, NOW(), NOW())
+       ON CONFLICT (id) DO NOTHING`,
+      [userId, `user_${userId.slice(0, 8)}`, `user_${userId.slice(0, 8)}@test.com`]
+    );
   });
 
   // ============================================================
@@ -114,7 +148,7 @@ describe('Financial Reconciliation Routes', () => {
   describe('POST /api/admin/financial-repair', () => {
     it('requires admin authorization', async () => {
       const response = await request(app)
-        .post('/api/admin/financial-repair')
+        .post('/api/admin/financial-reconciliation/repair')
         .send({
           action: 'repair_orphan_withdrawal',
           params: { ledger_id: uuidv4() },
@@ -127,7 +161,7 @@ describe('Financial Reconciliation Routes', () => {
 
     it('validates action_type is recognized', async () => {
       const response = await request(app)
-        .post('/api/admin/financial-repair')
+        .post('/api/admin/financial-reconciliation/repair')
         .set('Authorization', `Bearer ${adminJwt}`)
         .send({
           action: 'invalid_action',
@@ -141,7 +175,7 @@ describe('Financial Reconciliation Routes', () => {
 
     it('validates reason is not empty', async () => {
       const response = await request(app)
-        .post('/api/admin/financial-repair')
+        .post('/api/admin/financial-reconciliation/repair')
         .set('Authorization', `Bearer ${adminJwt}`)
         .send({
           action: 'repair_orphan_withdrawal',
@@ -159,7 +193,7 @@ describe('Financial Reconciliation Routes', () => {
       // Setup test data in database
 
       const response = await request(app)
-        .post('/api/admin/financial-repair')
+        .post('/api/admin/financial-reconciliation/repair')
         .set('Authorization', `Bearer ${adminJwt}`)
         .send({
           action: 'repair_orphan_withdrawal',
@@ -177,7 +211,7 @@ describe('Financial Reconciliation Routes', () => {
       const ledgerId = uuidv4();
 
       const response = await request(app)
-        .post('/api/admin/financial-repair')
+        .post('/api/admin/financial-reconciliation/repair')
         .set('Authorization', `Bearer ${adminJwt}`)
         .send({
           action: 'repair_orphan_withdrawal',
@@ -190,7 +224,7 @@ describe('Financial Reconciliation Routes', () => {
 
       // Verify audit log was created
       const auditResponse = await request(app)
-        .get('/api/admin/financial-audit-log')
+        .get('/api/admin/financial-reconciliation/audit-log')
         .set('Authorization', `Bearer ${adminJwt}`)
         .expect(200);
 
@@ -204,7 +238,7 @@ describe('Financial Reconciliation Routes', () => {
       const ledgerId = uuidv4();
 
       const response = await request(app)
-        .post('/api/admin/financial-repair')
+        .post('/api/admin/financial-reconciliation/repair')
         .set('Authorization', `Bearer ${adminJwt}`)
         .send({
           action: 'repair_orphan_withdrawal',
@@ -223,7 +257,7 @@ describe('Financial Reconciliation Routes', () => {
 
     it('prevents invalid repair combinations', async () => {
       const response = await request(app)
-        .post('/api/admin/financial-repair')
+        .post('/api/admin/financial-reconciliation/repair')
         .set('Authorization', `Bearer ${adminJwt}`)
         .send({
           action: 'repair_orphan_withdrawal',
@@ -243,7 +277,7 @@ describe('Financial Reconciliation Routes', () => {
   describe('GET /api/admin/financial-audit-log', () => {
     it('requires admin authorization', async () => {
       const response = await request(app)
-        .get('/api/admin/financial-audit-log')
+        .get('/api/admin/financial-reconciliation/audit-log')
         .expect(401);
 
       expect(response.body.error).toBeDefined();
@@ -251,7 +285,7 @@ describe('Financial Reconciliation Routes', () => {
 
     it('returns all admin actions', async () => {
       const response = await request(app)
-        .get('/api/admin/financial-audit-log')
+        .get('/api/admin/financial-reconciliation/audit-log')
         .set('Authorization', `Bearer ${adminJwt}`)
         .expect(200);
 
@@ -261,7 +295,7 @@ describe('Financial Reconciliation Routes', () => {
 
     it('supports filtering by action_type', async () => {
       const response = await request(app)
-        .get('/api/admin/financial-audit-log?action_type=repair_orphan_withdrawal')
+        .get('/api/admin/financial-reconciliation/audit-log?action_type=repair_orphan_withdrawal')
         .set('Authorization', `Bearer ${adminJwt}`)
         .expect(200);
 
@@ -290,7 +324,7 @@ describe('Financial Reconciliation Routes', () => {
 
     it('returns entries in reverse chronological order', async () => {
       const response = await request(app)
-        .get('/api/admin/financial-audit-log')
+        .get('/api/admin/financial-reconciliation/audit-log')
         .set('Authorization', `Bearer ${adminJwt}`)
         .expect(200);
 
@@ -305,7 +339,7 @@ describe('Financial Reconciliation Routes', () => {
 
     it('returns entries with required fields', async () => {
       const response = await request(app)
-        .get('/api/admin/financial-audit-log')
+        .get('/api/admin/financial-reconciliation/audit-log')
         .set('Authorization', `Bearer ${adminJwt}`)
         .expect(200);
 

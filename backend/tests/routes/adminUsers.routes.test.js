@@ -50,7 +50,8 @@ describe('Admin Users Routes', () => {
   });
 
   afterAll(async () => {
-    await pool.end();
+    // Don't call pool.end() — it's a shared cached pool managed by testAppFactory
+    // Calling end() would break other tests using the same pool
   });
 
   describe('GET /api/admin/users/:userId/wallet-ledger', () => {

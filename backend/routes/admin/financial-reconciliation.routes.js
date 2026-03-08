@@ -14,19 +14,14 @@ const {
 
 const router = express.Router();
 
-function requireAdmin(req, res, next) {
-  if (!req.user || !req.user.id || !req.user.scopes || !req.user.scopes.includes('financial_admin')) {
-    return res.status(401).json({ error: 'Unauthorized: financial_admin scope required' });
-  }
-  next();
-}
-
-router.use(requireAdmin);
+// Note: This router is mounted at /api/admin/financial-reconciliation
+// The global requireAdmin middleware is already applied at /api/admin level
+// No additional auth middleware needed here
 
 // GET /api/admin/financial-reconciliation
 router.get('/', async (req, res) => {
   try {
-    const pool = req.app.get('pool');
+    const pool = req.app.locals.pool;
     const reconciliation = await getPlatformReconciliation(pool);
     const invariants = await getFinancialInvariants(pool);
 
@@ -49,7 +44,7 @@ router.get('/', async (req, res) => {
 router.post('/repair', async (req, res) => {
   try {
     const { action, params, reason } = req.body;
-    const pool = req.app.get('pool');
+    const pool = req.app.locals.pool;
     const adminId = req.user.id;
 
     if (!action) return res.status(400).json({ error: 'action is required' });
@@ -120,7 +115,7 @@ router.post('/repair', async (req, res) => {
 // GET /api/admin/financial-audit-log
 router.get('/audit-log', async (req, res) => {
   try {
-    const pool = req.app.get('pool');
+    const pool = req.app.locals.pool;
     const { action_type, from_date, to_date } = req.query;
     const client = await pool.connect();
 

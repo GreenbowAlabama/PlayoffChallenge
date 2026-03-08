@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 
-set -e
-
-PROJECT_ROOT="/Users/iancarter/Documents/workspace/playoff-challenge"
+set -euo pipefail
 
 echo "Launching Claude Architect with 67 Enterprises governance bootstrap..."
+echo "Repository: /Users/iancarter/Documents/workspace/playoff-challenge"
+echo "---------------------------------------------------------------"
+
+if ! command -v claude >/dev/null 2>&1; then
+  echo "ERROR: claude CLI not installed or not in PATH"
+  exit 1
+fi
+
+# Force immediate streaming output (prevents CLI buffering stalls)
+export PYTHONUNBUFFERED=1
 
 claude <<BOOTSTRAP
 
@@ -36,6 +44,9 @@ Read the following files in order:
 2.
 /Users/iancarter/Documents/workspace/playoff-challenge/docs/ai/AI_WORKER_RULES.md
 
+3.
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/ai/CLAUDE_RULES.md
+
 After reading them:
 
 1. Confirm governance context is loaded.
@@ -63,7 +74,7 @@ You are responsible for enforcing:
 • Restricted edit lanes
 • Deterministic architecture compliance
 
-You must reference the same authoritative sources as workers:
+AUTHORITATIVE SOURCES
 
 Schema:
 /Users/iancarter/Documents/workspace/playoff-challenge/backend/db/schema.snapshot.sql
@@ -75,6 +86,12 @@ REPOSITORY ROOT
 
 /Users/iancarter/Documents/workspace/playoff-challenge
 
+SOURCE DIRECTORY
+
+All architectural analysis must inspect the repository source located at:
+
+/Users/iancarter/Documents/workspace/playoff-challenge
+
 When analyzing a task:
 
 1. Inspect the relevant source files inside the repository.
@@ -82,13 +99,18 @@ When analyzing a task:
 3. Identify architectural violations if present.
 4. Produce explicit worker instructions.
 
-Worker instructions must include:
+WORKER INSTRUCTIONS FORMAT
 
-• Exact files to modify
-• Exact paths
-• Required tests
-• Required schema changes if applicable
-• Order of implementation
+All instructions for workers must be structured using the following sections:
+
+WORKER TASK
+
+FILES TO MODIFY
+• absolute paths only
+
+TESTS REQUIRED
+
+ORDER OF IMPLEMENTATION
 
 If a schema change is required you must instruct the worker:
 

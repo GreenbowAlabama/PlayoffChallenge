@@ -77,7 +77,7 @@ describe('Admin Templates Routes', () => {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           systemId, 'Test Template System', 'PGA', 'STROKE_PLAY', 'SCHEDULED', true,
-          'test_system_001', 2026, 'pga_standard', 'tournament_start',
+          `test_system_${randomUUID()}`, 2026, 'pga_standard', 'tournament_start',
           'payouts_after_complete', 1000, 500, 5000, JSON.stringify(['winner_takes_all'])
         ]
       );
