@@ -1,6 +1,6 @@
 /**
  * Financial Reconciliation Dashboard
- *
+ * 
  * Real-time view of platform financial health with repair actions
  * - Reconciliation equation: wallet_liability + contest_pools = deposits - withdrawals
  * - 6 financial invariant checks
