@@ -73,6 +73,10 @@ Source of truth:
 
 /Users/iancarter/Documents/workspace/playoff-challenge/backend/db/schema.snapshot.sql
 
+Quick reference (read first):
+
+/Users/iancarter/Documents/workspace/playoff-challenge/SCHEMA_REFERENCE.md
+
 If a requested change requires schema modification:
 
 Workers must stop and reply only:

@@ -68,16 +68,59 @@ export interface ContestOpsSnapshot {
     created_at: string;
     contest_name: string;
   }>;
-  lifecycle: Array<{
-    from_state: string;
-    to_state: string;
-    triggered_by: string;
-    reason: string | null;
-    created_at: string;
-  }>;
+  lifecycle: {
+    transitions: Array<{
+      from_state: string;
+      to_state: string;
+      triggered_by: string;
+      reason: string | null;
+      created_at: string;
+    }>;
+    aggregated: {
+      current_state: string;
+      last_transition: string | null;
+      transition_count: number;
+    };
+  };
   snapshot_health: {
     snapshot_count: number;
     latest_snapshot: string | null;
+  };
+  capacity: {
+    participants_count: number;
+    max_entries: number | null;
+    remaining_slots: number | null;
+  };
+  tournament: {
+    provider_event_id: string | null;
+    event_start_date: string | null;
+    event_end_date: string | null;
+    is_active: boolean;
+    published_at: string | null;
+  };
+  player_pool: {
+    exists: boolean;
+    player_count: number;
+    created_at: string | null;
+  };
+  ingestion: {
+    latest_runs: Array<{
+      work_unit_key: string;
+      status: string;
+      started_at: string;
+      completed_at: string | null;
+      error_message: string | null;
+    }>;
+  };
+  workers: Array<{
+    worker_name: string;
+    status: string;
+    last_run_at: string | null;
+    error_count: number;
+  }>;
+  joinability: {
+    joinable: boolean;
+    reason: string | null;
   };
 }
 

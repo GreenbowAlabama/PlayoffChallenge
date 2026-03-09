@@ -57,8 +57,8 @@ export function Layout() {
     platform: {
       label: 'Platform',
       items: [
+        { label: 'Control Room', path: '/admin' },
         { label: 'System Health', path: '/system-invariants' },
-        { label: 'Admin', path: '/admin' },
         { label: 'New Type', path: '/create-contest-type' },
       ],
     },

@@ -18,13 +18,17 @@
 /**
  * Get complete operational snapshot for a contest.
  *
- * @param {Object} pool - Database connection pool
+ * @param {Object} pool - Database connection pool or client
  * @param {string} contestId - Contest instance UUID
+ * @param {Object} options - Optional configuration
+ * @param {boolean} options.useProvidedClient - If true, pool is actually a client (for testing)
  * @returns {Promise<Object>} Snapshot object with all operational data
  * @throws {Error} If contest not found or database error
  */
-async function getContestOpsSnapshot(pool, contestId) {
-  const client = await pool.connect();
+async function getContestOpsSnapshot(pool, contestId, options = {}) {
+  const isProvidedClient = options.useProvidedClient === true;
+  const client = isProvidedClient ? pool : await pool.connect();
+  const shouldRelease = !isProvidedClient;
 
   try {
     // 1. Server time (reference point for all time-based diagnostics)
@@ -161,7 +165,12 @@ async function getContestOpsSnapshot(pool, contestId) {
       [contestId]
     );
 
-    const lifecycle = lifecycleResult.rows;
+    const lifecycleTransitions = lifecycleResult.rows;
+    const lifecycleAggregated = {
+      current_state: contest.status,
+      last_transition: lifecycleTransitions.length > 0 ? lifecycleTransitions[0].created_at : null,
+      transition_count: lifecycleTransitions.length
+    };
 
     // 8. Event data snapshots health
     const snapshotHealthResult = await client.query(
@@ -178,6 +187,101 @@ async function getContestOpsSnapshot(pool, contestId) {
       latest_snapshot: null
     };
 
+    // 9. Ingestion runs (latest 5)
+    const ingestionRunsResult = await client.query(
+      `SELECT
+        work_unit_key,
+        status,
+        started_at,
+        completed_at,
+        error_message
+      FROM ingestion_runs
+      WHERE contest_instance_id = $1
+      ORDER BY created_at DESC
+      LIMIT 5`,
+      [contestId]
+    );
+
+    const ingestionRuns = ingestionRunsResult.rows;
+
+    // 10. Worker heartbeats (all relevant workers)
+    const workersResult = await client.query(
+      `SELECT
+        worker_name,
+        status,
+        last_run_at,
+        error_count
+      FROM worker_heartbeats
+      WHERE worker_type IN ('discovery', 'ingestion', 'lifecycle', 'payout', 'reconciliation')
+      ORDER BY last_run_at DESC NULLS LAST`
+    );
+
+    const workers = workersResult.rows;
+
+    // 11. Player pool info (field_selections)
+    const playerPoolResult = await client.query(
+      `SELECT
+        fs.id,
+        fs.created_at,
+        (SELECT COUNT(*) FROM jsonb_array_elements(fs.selection_json)) AS player_count
+      FROM field_selections fs
+      WHERE fs.contest_instance_id = $1`,
+      [contestId]
+    );
+
+    const playerPool = playerPoolResult.rows.length > 0
+      ? {
+          exists: true,
+          player_count: parseInt(playerPoolResult.rows[0].player_count, 10),
+          created_at: playerPoolResult.rows[0].created_at
+        }
+      : {
+          exists: false,
+          player_count: 0,
+          created_at: null
+        };
+
+    // 12. Capacity info
+    const capacity = {
+      participants_count: parseInt(contest.current_entries, 10),
+      max_entries: contest.max_entries ? parseInt(contest.max_entries, 10) : null,
+      remaining_slots: contest.max_entries ? Math.max(0, parseInt(contest.max_entries, 10) - parseInt(contest.current_entries, 10)) : null
+    };
+
+    // 13. Tournament info
+    const tournament = {
+      provider_event_id: contestTournamentConfig?.provider_event_id || null,
+      event_start_date: contestTournamentConfig?.event_start_date || null,
+      event_end_date: contestTournamentConfig?.event_end_date || null,
+      is_active: contestTournamentConfig?.is_active || false,
+      published_at: contestTournamentConfig?.created_at || null
+    };
+
+    // 14. Joinability logic
+    const nowTime = serverTime.getTime();
+    const lockTime = contest.lock_time ? new Date(contest.lock_time).getTime() : null;
+
+    let joinable = false;
+    let reason = 'contest_not_scheduled';
+
+    if (contest.status === 'SCHEDULED') {
+      if (lockTime === null || nowTime < lockTime) {
+        if (contest.max_entries === null || parseInt(contest.current_entries, 10) < parseInt(contest.max_entries, 10)) {
+          joinable = true;
+          reason = null;
+        } else {
+          joinable = false;
+          reason = 'contest_full';
+        }
+      } else {
+        joinable = false;
+        reason = 'contest_locked';
+      }
+    } else if (contest.status === 'LOCKED' || contest.status === 'LIVE' || contest.status === 'COMPLETE' || contest.status === 'CANCELLED') {
+      joinable = false;
+      reason = 'contest_not_scheduled';
+    }
+
     // Return complete snapshot
     return {
       server_time: serverTime,
@@ -186,14 +290,30 @@ async function getContestOpsSnapshot(pool, contestId) {
       template_contests: templateContests,
       contest_tournament_config: contestTournamentConfig,
       tournament_configs: tournamentConfigs,
-      lifecycle,
+      lifecycle: {
+        transitions: lifecycleTransitions,
+        aggregated: lifecycleAggregated
+      },
       snapshot_health: {
         snapshot_count: parseInt(snapshotHealth.snapshot_count, 10),
         latest_snapshot: snapshotHealth.latest_snapshot
+      },
+      capacity,
+      tournament,
+      player_pool: playerPool,
+      ingestion: {
+        latest_runs: ingestionRuns
+      },
+      workers,
+      joinability: {
+        joinable,
+        reason
       }
     };
   } finally {
-    client.release();
+    if (shouldRelease) {
+      client.release();
+    }
   }
 }
 

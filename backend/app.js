@@ -21,6 +21,8 @@ const adminFinancialReconciliationRoutes = require('./routes/admin/financial-rec
 const systemInvariantsRoutes = require('./routes/admin/system-invariants.routes');
 const platformHealthRoutes = require('./routes/admin/platform-health.routes');
 const contestOpsRoutes = require('./routes/admin/contest-ops.routes');
+const playerDataOpsRoutes = require('./routes/admin/player-data-ops.routes');
+const userOpsRoutes = require('./routes/admin/user-ops.routes');
 const customContestRoutes = require('./routes/customContest.routes');
 const customContestTemplatesRoutes = require('./routes/customContestTemplates.routes');
 const contestsRoutes = require('./routes/contests.routes');
@@ -81,6 +83,8 @@ app.use('/api/admin/financial-reconciliation', adminFinancialReconciliationRoute
 app.use('/api/admin/system-invariants', systemInvariantsRoutes);
 app.use('/api/admin/platform-health', platformHealthRoutes);
 app.use('/api/admin/contest-ops', contestOpsRoutes);
+app.use('/api/admin/player-data', playerDataOpsRoutes);
+app.use('/api/admin/users', userOpsRoutes);
 app.use('/api/admin/custom-contests/templates', customContestTemplatesRoutes);
 app.use('/api/custom-contests', customContestRoutes);
 app.use('/api/contests', contestsRoutes);

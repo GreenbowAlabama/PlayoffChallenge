@@ -18,6 +18,11 @@ import { ContestPoolDiagnostics } from './pages/ContestPoolDiagnostics';
 import { ContestControlTower } from './pages/ContestControlTower';
 import ContestOpsDetailPage from './pages/ContestOpsDetailPage';
 import { SystemInvariantMonitor } from './pages/SystemInvariantMonitor';
+import { AdminControlRoomPage } from './pages/admin/AdminControlRoomPage';
+import { PlatformHealthPage } from './pages/admin/platform-health/PlatformHealthPage';
+import { ContestOpsPage } from './pages/admin/contest-ops/ContestOpsPage';
+import { PlayerDataPage } from './pages/admin/player-data/PlayerDataPage';
+import { UserOpsPage } from './pages/admin/user-ops/UserOpsPage';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -47,7 +52,11 @@ function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="funding" element={<Funding />} />
-            <Route path="admin" element={<Admin />} />
+            <Route path="admin" element={<AdminControlRoomPage />} />
+            <Route path="admin/platform-health" element={<PlatformHealthPage />} />
+            <Route path="admin/contest-ops" element={<ContestOpsPage />} />
+            <Route path="admin/player-data" element={<PlayerDataPage />} />
+            <Route path="admin/user-ops" element={<UserOpsPage />} />
             <Route path="alerts" element={<AlertCenter />} />
             <Route path="users" element={<Users />} />
             <Route path="users/wallet-ledger" element={<UserWalletLedger />} />

@@ -77,13 +77,25 @@ Workers must not implement changes that could violate this equation without arch
 
 Workers must treat these files as authoritative.
 
-OpenAPI contract
+## Schema Reference (Start Here)
+
+For faster schema understanding, read this first:
+
+/Users/iancarter/Documents/workspace/playoff-challenge/SCHEMA_REFERENCE.md
+
+This markdown file is organized by domain (contests, financial, scoring, etc.) and is much faster to navigate than the raw snapshot.
+
+## OpenAPI Contract
 
 /Users/iancarter/Documents/workspace/playoff-challenge/backend/contracts/openapi.yaml
 
-Database schema snapshot
+## Database Schema Snapshot
+
+Only read if SCHEMA_REFERENCE.md does not provide sufficient detail:
 
 /Users/iancarter/Documents/workspace/playoff-challenge/backend/db/schema.snapshot.sql
+
+The snapshot is the authoritative source but is large (4200+ lines). Use SCHEMA_REFERENCE.md for most queries.
 
 If schema changes are required, workers must STOP and reply:
 

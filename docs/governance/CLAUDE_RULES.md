@@ -91,11 +91,13 @@ schema.snapshot.sql is authoritative.
 
 Claude:
 - Must NOT assume schema structure.
-- Must request schema.snapshot.sql if database structure matters.
+- Must request SCHEMA_REFERENCE.md first (organized by domain, faster to scan).
+- Must request schema.snapshot.sql if SCHEMA_REFERENCE.md lacks necessary detail.
 - Must not hallucinate columns or constraints.
 
 If database behavior is involved:
-- Ask to inspect schema.snapshot.sql first.
+- Consult SCHEMA_REFERENCE.md first (/Users/iancarter/Documents/workspace/playoff-challenge/SCHEMA_REFERENCE.md)
+- Then inspect schema.snapshot.sql if needed (/Users/iancarter/Documents/workspace/playoff-challenge/backend/db/schema.snapshot.sql)
 - Do not guess.
 
 ---
