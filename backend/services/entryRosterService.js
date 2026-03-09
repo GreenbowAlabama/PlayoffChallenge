@@ -183,11 +183,11 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
     let validatedField = [];
     if (fieldResult.rows.length > 0) {
       const selectionJson = fieldResult.rows[0].selection_json;
-      // Extract primary field - each item has { player_id, name, ... }
+      // Extract primary field - array of player ID strings (from handleFieldBuildIngestion)
       if (selectionJson && Array.isArray(selectionJson.primary)) {
-        validatedField = selectionJson.primary.map(player => ({
+        validatedField = selectionJson.primary.map(playerId => ({
           // Normalize field player IDs to canonical "espn_" format for consistent comparison
-          player_id: normalizePlayerId(player.player_id)
+          player_id: normalizePlayerId(playerId)
         }));
       }
     }
