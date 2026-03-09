@@ -50,9 +50,9 @@ function validateRoster(roster, config, validField) {
     return { valid: false, errors };
   }
 
-  // Roster size validation: must match exactly
-  if (roster.length !== config.roster_size) {
-    errors.push(`Roster size must be exactly ${config.roster_size}, got ${roster.length}`);
+  // Roster size validation: must not exceed maximum
+  if (roster.length > config.roster_size) {
+    errors.push(`Roster size must not exceed ${config.roster_size}, got ${roster.length}`);
   }
 
   // Duplicate detection
