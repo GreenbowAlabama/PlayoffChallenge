@@ -3996,4 +3996,204 @@ describe('Custom Contest Service Unit Tests', () => {
       });
     });
   });
+
+  describe('Contest Instance Creation - Multiple Instances Allowed', () => {
+    describe('createContestInstance - no global uniqueness constraint', () => {
+      it('should allow multiple contests for the same event/template by different organizers', async () => {
+        const org1 = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx';
+        const org2 = 'yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy';
+        const sharedEventId = 'espn_pga_401811937';
+        const sharedTemplateId = TEST_TEMPLATE_ID;
+
+        // Setup: Mock template lookup
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT') && q.includes('contest_templates') && q.includes('WHERE id'),
+          { rows: [mockTemplate], rowCount: 1 }
+        );
+
+        // Setup: Mock tournament_configs lookup
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT') && q.includes('tournament_configs') && q.includes('WHERE provider_event_id'),
+          {
+            rows: [{
+              id: 'config1',
+              provider_event_id: sharedEventId,
+              is_active: true
+            }],
+            rowCount: 1
+          }
+        );
+
+        // Setup: Mock BEGIN transaction
+        mockPool.setQueryResponse(q => q.includes('BEGIN'), { rows: [], rowCount: 0 });
+
+        // Setup: Mock COMMIT transaction
+        mockPool.setQueryResponse(q => q.includes('COMMIT'), { rows: [], rowCount: 0 });
+
+        // Test 1: Org1 creates contest for event/template
+        const instance1 = {
+          id: 'instance-1',
+          template_id: sharedTemplateId,
+          organizer_id: org1,
+          contest_name: 'Org 1 Contest',
+          provider_event_id: sharedEventId,
+          status: 'SCHEDULED'
+        };
+
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO contest_instances'),
+          { rows: [instance1], rowCount: 1 }
+        );
+
+        const result1 = await customContestService.createContestInstance(mockPool, org1, {
+          template_id: sharedTemplateId,
+          contest_name: 'Org 1 Contest',
+          entry_fee_cents: 1000,
+          payout_structure: mockTemplate.allowed_payout_structures[0],
+          max_entries: 20
+        });
+
+        expect(result1.id).toBe('instance-1');
+        expect(result1.organizer_id).toBe(org1);
+
+        // Test 2: Org2 creates contest for SAME event/template (should succeed)
+        mockPool.reset();
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT') && q.includes('contest_templates') && q.includes('WHERE id'),
+          { rows: [mockTemplate], rowCount: 1 }
+        );
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT') && q.includes('tournament_configs') && q.includes('WHERE provider_event_id'),
+          { rows: [{ id: 'config1', provider_event_id: sharedEventId, is_active: true }], rowCount: 1 }
+        );
+        mockPool.setQueryResponse(q => q.includes('BEGIN'), { rows: [], rowCount: 0 });
+        mockPool.setQueryResponse(q => q.includes('COMMIT'), { rows: [], rowCount: 0 });
+
+        const instance2 = {
+          id: 'instance-2',
+          template_id: sharedTemplateId,
+          organizer_id: org2,
+          contest_name: 'Org 2 Contest',
+          provider_event_id: sharedEventId,
+          status: 'SCHEDULED'
+        };
+
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO contest_instances'),
+          { rows: [instance2], rowCount: 1 }
+        );
+
+        const result2 = await customContestService.createContestInstance(mockPool, org2, {
+          template_id: sharedTemplateId,
+          contest_name: 'Org 2 Contest',
+          entry_fee_cents: 1000,
+          payout_structure: mockTemplate.allowed_payout_structures[0],
+          max_entries: 20
+        });
+
+        expect(result2.id).toBe('instance-2');
+        expect(result2.organizer_id).toBe(org2);
+        // GOVERNANCE: Different organizers should have different instances for same event/template
+        expect(result1.id).not.toBe(result2.id);
+        expect(result1.organizer_id).not.toBe(result2.organizer_id);
+      });
+
+      it('should allow the same organizer to create multiple contests for the same event/template', async () => {
+        const org1 = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx';
+        const sharedEventId = 'espn_pga_401811937';
+        const sharedTemplateId = TEST_TEMPLATE_ID;
+
+        // Setup: Mock template lookup
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT') && q.includes('contest_templates') && q.includes('WHERE id'),
+          { rows: [mockTemplate], rowCount: 1 }
+        );
+
+        // Setup: Mock tournament_configs lookup
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT') && q.includes('tournament_configs') && q.includes('WHERE provider_event_id'),
+          {
+            rows: [{
+              id: 'config1',
+              provider_event_id: sharedEventId,
+              is_active: true
+            }],
+            rowCount: 1
+          }
+        );
+
+        // Setup: Mock BEGIN transaction
+        mockPool.setQueryResponse(q => q.includes('BEGIN'), { rows: [], rowCount: 0 });
+
+        // Setup: Mock COMMIT transaction
+        mockPool.setQueryResponse(q => q.includes('COMMIT'), { rows: [], rowCount: 0 });
+
+        // Test 1: First contest by org1
+        const instance1 = {
+          id: 'instance-1',
+          template_id: sharedTemplateId,
+          organizer_id: org1,
+          contest_name: 'Org 1 Contest #1',
+          provider_event_id: sharedEventId,
+          status: 'SCHEDULED'
+        };
+
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO contest_instances'),
+          { rows: [instance1], rowCount: 1 }
+        );
+
+        const result1 = await customContestService.createContestInstance(mockPool, org1, {
+          template_id: sharedTemplateId,
+          contest_name: 'Org 1 Contest #1',
+          entry_fee_cents: 1000,
+          payout_structure: mockTemplate.allowed_payout_structures[0],
+          max_entries: 20
+        });
+
+        expect(result1.id).toBe('instance-1');
+
+        // Test 2: Second contest by SAME org1 for same event/template (should also succeed)
+        mockPool.reset();
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT') && q.includes('contest_templates') && q.includes('WHERE id'),
+          { rows: [mockTemplate], rowCount: 1 }
+        );
+        mockPool.setQueryResponse(
+          q => q.includes('SELECT') && q.includes('tournament_configs') && q.includes('WHERE provider_event_id'),
+          { rows: [{ id: 'config1', provider_event_id: sharedEventId, is_active: true }], rowCount: 1 }
+        );
+        mockPool.setQueryResponse(q => q.includes('BEGIN'), { rows: [], rowCount: 0 });
+        mockPool.setQueryResponse(q => q.includes('COMMIT'), { rows: [], rowCount: 0 });
+
+        const instance2 = {
+          id: 'instance-2',
+          template_id: sharedTemplateId,
+          organizer_id: org1,
+          contest_name: 'Org 1 Contest #2',
+          provider_event_id: sharedEventId,
+          status: 'SCHEDULED'
+        };
+
+        mockPool.setQueryResponse(
+          q => q.includes('INSERT INTO contest_instances'),
+          { rows: [instance2], rowCount: 1 }
+        );
+
+        const result2 = await customContestService.createContestInstance(mockPool, org1, {
+          template_id: sharedTemplateId,
+          contest_name: 'Org 1 Contest #2',
+          entry_fee_cents: 1000,
+          payout_structure: mockTemplate.allowed_payout_structures[0],
+          max_entries: 20
+        });
+
+        expect(result2.id).toBe('instance-2');
+        expect(result2.organizer_id).toBe(org1);
+        // GOVERNANCE: Same organizer should be able to create multiple contests for same event/template
+        expect(result1.id).not.toBe(result2.id);
+        expect(result1.organizer_id).toBe(result2.organizer_id);
+      });
+    });
+  });
 });
