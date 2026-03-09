@@ -238,6 +238,15 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
     }
 
     const baseTemplate = baseResult.rows[0];
+    // NOTE: provider_tournament_id stores the provider EVENT identifier
+    // (e.g., espn_pga_401811935).
+    // Despite the column name, this value represents the canonical event
+    // identity used throughout the ingestion pipeline.
+    // The sport prefix (pga_) is critical for strategy resolution.
+    // This identifier must remain stable across:
+    // Discovery → Contest Templates → Contest Instances → Ingestion → Scoring.
+    // Do not change this value format without updating the ingestion
+    // strategy resolver and tournament discovery logic.
     const providerTournamentId = event.provider_event_id;
     const seasonYear = event.start_time.getFullYear();
     const tournamentName = `PGA — ${event.name} ${seasonYear}`;

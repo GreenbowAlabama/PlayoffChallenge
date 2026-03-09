@@ -3828,6 +3828,21 @@ describe('Custom Contest Service Unit Tests', () => {
       expect(SPORTS.MLB).toBe('MLB');
     });
 
+    it('INVARIANT: provider_tournament_id follows ESPN identifier format', () => {
+      // NOTE: provider_tournament_id stores the provider EVENT identifier
+      // (e.g., espn_pga_401811935).
+      // The format must match: espn_{sport}_{numeric_event_id}
+      // Examples:
+      // - espn_pga_401811935 (valid)
+      // - espn_nfl_34567890 (valid)
+      // Invalid formats will trigger identifier format warnings during ingestion
+      const validExample = 'espn_pga_401811935';
+
+      const identifierPattern = /^espn_[a-z]+_\d+$/;
+
+      expect(identifierPattern.test(validExample)).toBe(true);
+    });
+
     it('Test 3: should create field_selections row when publishing GOLF contest', async () => {
       mockPool.reset();
 

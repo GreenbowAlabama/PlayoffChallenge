@@ -197,6 +197,28 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       throw new Error(`provider_event_id missing for contest ${contestInstanceId}`);
     }
 
+    // Mismatch guard: provider_tournament_id and provider_event_id should be identical
+    // Both store the full provider+sport+event identifier (e.g., "espn_pga_401811935")
+    // provider_tournament_id comes from contest_templates (used for strategy resolution)
+    // provider_event_id comes from tournament_configs (event reference)
+    // If they differ, there's a data consistency issue
+    if (row.provider_tournament_id !== row.provider_event_id) {
+      console.warn(
+        `[Ingestion] TOURNAMENT_ID_MISMATCH: contest_instance_id=${contestInstanceId}, ` +
+        `provider_tournament_id=${row.provider_tournament_id}, ` +
+        `provider_event_id=${row.provider_event_id}`
+      );
+    }
+
+    // NOTE: provider_tournament_id stores the provider EVENT identifier
+    // (e.g., espn_pga_401811935).
+    // Despite the column name, this value represents the canonical event
+    // identity used throughout the ingestion pipeline.
+    // This identifier must remain stable across:
+    // Discovery → Contest Templates → Contest Instances → Ingestion → Scoring.
+    // Do not change this value format without updating the ingestion
+    // strategy resolver and tournament discovery logic.
+
     // Determine ingestion strategy from provider_tournament_id
     // Derives strategy from prefix: espn_pga_* → pga_espn, espn_nfl_* → nfl_espn
     let strategyKey;
@@ -206,6 +228,16 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       await client.query('ROLLBACK');
       throw new Error(
         `Failed to resolve ingestion strategy for contest ${contestInstanceId}: ${err.message}`
+      );
+    }
+
+    // Identifier format guard: warn if malformed identifiers appear
+    const identifierPattern = /^espn_[a-z]+_\d+$/;
+    if (!identifierPattern.test(row.provider_tournament_id)) {
+      console.warn(
+        `[Ingestion] TOURNAMENT_IDENTIFIER_FORMAT_WARNING: ` +
+        `contest_instance_id=${contestInstanceId}, ` +
+        `value=${row.provider_tournament_id}`
       );
     }
 

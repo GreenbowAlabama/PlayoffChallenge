@@ -4,6 +4,11 @@
  * Derives ingestion strategy from provider_tournament_id.
  * No longer relies on sport column.
  *
+ * IMPORTANT: provider_tournament_id contains the full provider EVENT identifier
+ * (e.g., "espn_pga_401811935"), not a tournament series ID.
+ * The field name is semantically confusing but functionally correct.
+ * The sport prefix (pga_, nfl_) is required for strategy resolution.
+ *
  * Mapping:
  * - espn_pga_* → pga_espn
  * - espn_nfl_* → nfl_espn
