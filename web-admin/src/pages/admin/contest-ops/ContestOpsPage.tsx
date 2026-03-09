@@ -105,7 +105,7 @@ function ContestCard({ contest }: { contest: SystemInstance }) {
   );
 }
 
-function ContestSection({ title, status, contests, loading }: { title: string; status: string; contests: SystemInstance[]; loading: boolean }) {
+function ContestSection({ title, status, contests, loading }: { title: React.ReactNode; status: string; contests: SystemInstance[]; loading: boolean }) {
   const [expanded, setExpanded] = useState(status === 'LIVE');
 
   return (

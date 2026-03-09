@@ -8,10 +8,8 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getUserOpsSnapshot } from '../../../api/user-ops';
-import { InfoTooltip } from '../../../components/InfoTooltip';
 import { AdminPanel } from '../../../components/admin/AdminPanel';
 import { RefreshIndicator } from '../../../components/admin/RefreshIndicator';
-import type { UserOpsSnapshot } from '../../../api/user-ops';
 
 function formatCurrency(cents: number): string {
   const dollars = cents / 100;

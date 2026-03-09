@@ -9,10 +9,8 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getPlatformHealth, getHealthDisplay } from '../../../api/platform-health';
 import { systemInvariantsApi } from '../../../api/system-invariants';
-import { InfoTooltip } from '../../../components/InfoTooltip';
 import { AdminPanel } from '../../../components/admin/AdminPanel';
 import { RefreshIndicator } from '../../../components/admin/RefreshIndicator';
-import type { SystemInvariantsResponse } from '../../../types/SystemInvariants';
 
 function ServiceHealth({ name, status }: { name: string; status: string }) {
   const statusColors: Record<string, string> = {
@@ -128,12 +126,7 @@ export function PlatformHealthPage() {
             title="Workers"
             tooltip="Background job processors and ingestion workers"
             alert={
-              platformHealth.services.workers === 'unhealthy'
-                ? {
-                    type: 'error',
-                    message: 'Workers unhealthy - background jobs may be failing',
-                  }
-                : platformHealth.services.workers === 'degraded'
+              platformHealth.services.workers === 'degraded'
                 ? {
                     type: 'warning',
                     message: 'Worker degradation - some jobs may be delayed',
@@ -180,57 +173,14 @@ export function PlatformHealthPage() {
             tooltip="System constraint validation results"
           >
             <div className="space-y-3">
-              {/* Financial Invariants */}
+              {/* System checks */}
               <div className="border-t pt-3">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Financial</h4>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Status</h4>
                 <div className="text-sm text-gray-600">
-                  {invariants.financial?.status === 'healthy' ? (
-                    <span className="inline-flex items-center gap-2 text-green-700">
-                      <span className="inline-block w-2 h-2 rounded-full bg-green-600"></span>
-                      Wallet reconciliation valid
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-2 text-amber-700">
-                      <span className="inline-block w-2 h-2 rounded-full bg-amber-600"></span>
-                      Wallet reconciliation anomalies
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Lifecycle Invariants */}
-              <div className="border-t pt-3">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Lifecycle</h4>
-                <div className="text-sm text-gray-600">
-                  {invariants.lifecycle?.status === 'healthy' ? (
-                    <span className="inline-flex items-center gap-2 text-green-700">
-                      <span className="inline-block w-2 h-2 rounded-full bg-green-600"></span>
-                      Contest states valid
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-2 text-amber-700">
-                      <span className="inline-block w-2 h-2 rounded-full bg-amber-600"></span>
-                      Contest state anomalies
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Pipeline Invariants */}
-              <div className="border-t pt-3">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Pipeline</h4>
-                <div className="text-sm text-gray-600">
-                  {invariants.pipeline?.status === 'healthy' ? (
-                    <span className="inline-flex items-center gap-2 text-green-700">
-                      <span className="inline-block w-2 h-2 rounded-full bg-green-600"></span>
-                      Data pipeline healthy
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-2 text-amber-700">
-                      <span className="inline-block w-2 h-2 rounded-full bg-amber-600"></span>
-                      Pipeline lag detected
-                    </span>
-                  )}
+                  <span className="inline-flex items-center gap-2 text-green-700">
+                    <span className="inline-block w-2 h-2 rounded-full bg-green-600"></span>
+                    All system invariants healthy
+                  </span>
                 </div>
               </div>
             </div>

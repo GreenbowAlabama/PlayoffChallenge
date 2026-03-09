@@ -8,10 +8,8 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getPlayerDataOpsSnapshot } from '../../../api/player-data-ops';
-import { InfoTooltip } from '../../../components/InfoTooltip';
 import { AdminPanel } from '../../../components/admin/AdminPanel';
 import { RefreshIndicator } from '../../../components/admin/RefreshIndicator';
-import type { PlayerDataOpsSnapshot } from '../../../api/player-data-ops';
 
 function formatLagSeconds(seconds: number | null): string {
   if (seconds === null || seconds === undefined) return '—';

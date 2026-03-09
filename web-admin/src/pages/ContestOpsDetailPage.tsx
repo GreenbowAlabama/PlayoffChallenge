@@ -221,7 +221,7 @@ export const ContestOpsDetailPage: React.FC = () => {
 
   // Get timestamp of most recent lifecycle transition
   const lastLifecycleWorkerRun =
-    snapshot.lifecycle.length > 0 ? snapshot.lifecycle[0].created_at : 'Never';
+    snapshot.lifecycle.transitions.length > 0 ? snapshot.lifecycle.transitions[0].created_at : 'Never';
 
   // Compute status distribution for template contests
   const statusCounts = {
@@ -513,7 +513,7 @@ export const ContestOpsDetailPage: React.FC = () => {
 
       {/* Panel 8: Lifecycle History */}
       <Panel title="Lifecycle History">
-        {snapshot.lifecycle.length === 0 ? (
+        {snapshot.lifecycle.transitions.length === 0 ? (
           <p className="no-data">No lifecycle transitions recorded</p>
         ) : (
           <table className="lifecycle-table">
@@ -527,7 +527,7 @@ export const ContestOpsDetailPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {snapshot.lifecycle.map((transition, idx) => (
+              {snapshot.lifecycle.transitions.map((transition, idx) => (
                 <tr key={idx}>
                   <td>{formatTimestamp(transition.created_at)}</td>
                   <td>

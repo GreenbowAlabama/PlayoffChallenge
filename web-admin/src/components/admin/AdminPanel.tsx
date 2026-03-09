@@ -5,7 +5,7 @@
  * Includes title, tooltip, and children rendering.
  */
 
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { InfoTooltip } from '../InfoTooltip';
 
 interface AdminPanelProps {
