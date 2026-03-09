@@ -106,9 +106,6 @@ function ErrorState({ error }: { error: Error }) {
 }
 
 function FinancialOpsContent({ snapshot }: { snapshot: FinancialOpsSnapshot }) {
-  const reconciliationVariant =
-    snapshot.reconciliation.status === 'balanced' ? 'success' : 'error';
-
   return (
     <div className="space-y-8">
       {/* Header with refresh */}
@@ -117,7 +114,7 @@ function FinancialOpsContent({ snapshot }: { snapshot: FinancialOpsSnapshot }) {
           <h1 className="text-3xl font-bold text-gray-900">Financial Ops</h1>
           <p className="text-gray-600 mt-1">Platform financial health monitoring</p>
         </div>
-        <RefreshIndicator timestamp={snapshot.timestamp} refetchInterval={10000} />
+        <RefreshIndicator lastUpdated={snapshot.timestamp} refreshInterval={10000} />
       </div>
 
       {/* Ledger Health */}
@@ -311,7 +308,7 @@ function FinancialOpsContent({ snapshot }: { snapshot: FinancialOpsSnapshot }) {
 }
 
 export function FinancialOpsPage() {
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['financialOps'],
     queryFn: getFinancialOpsSnapshot,
     refetchInterval: 10000,

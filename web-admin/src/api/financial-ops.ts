@@ -4,7 +4,7 @@
  * Provides type-safe access to financial operations snapshot endpoint.
  */
 
-import { apiClient } from './apiClient';
+import { apiRequest } from './client';
 
 export interface LedgerMetrics {
   total_credits_cents: number;
@@ -59,6 +59,5 @@ export interface FinancialOpsSnapshot {
  * @throws Error if API request fails
  */
 export async function getFinancialOpsSnapshot(): Promise<FinancialOpsSnapshot> {
-  const response = await apiClient.get<FinancialOpsSnapshot>('/admin/financial-ops');
-  return response.data;
+  return apiRequest<FinancialOpsSnapshot>('/admin/financial-ops');
 }
