@@ -42,7 +42,6 @@ export function Layout() {
     operations: {
       label: 'Operations',
       items: [
-        { label: 'Contest Ops', path: '/contest-ops' },
         { label: 'Discovery', path: '/discovery' },
         { label: 'Trends', path: '/trends' },
       ],
@@ -58,7 +57,8 @@ export function Layout() {
       label: 'Platform',
       items: [
         { label: 'Control Room', path: '/admin' },
-        { label: 'System Health', path: '/system-invariants' },
+        { label: 'Financial Ops', path: '/admin/financial-ops' },
+        { label: 'Week Management', path: '/admin/operations' },
         { label: 'New Type', path: '/create-contest-type' },
       ],
     },
@@ -133,18 +133,6 @@ export function Layout() {
               </button>
 
               <div className="hidden sm:flex ml-4 space-x-0 sm:ml-6">
-                {/* Dashboard */}
-                <Link
-                  to="/dashboard"
-                  className={`inline-flex flex-shrink-0 items-center border-b-2 px-3 pt-1 text-sm font-medium whitespace-nowrap ${
-                    isActive('/dashboard')
-                      ? 'border-indigo-500 text-gray-900'
-                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                  }`}
-                >
-                  Dashboard
-                </Link>
-
                 {/* Dropdown Groups */}
                 {Object.entries(navGroups).map(([key, group]) => (
                   <div key={key} className="relative group">
@@ -231,19 +219,6 @@ export function Layout() {
             className="space-y-1 px-4 py-3"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Dashboard Link */}
-            <Link
-              to="/dashboard"
-              className={`block rounded-md px-3 py-2 text-base font-medium ${
-                isActive('/dashboard')
-                  ? 'bg-indigo-50 text-indigo-700'
-                  : 'text-gray-700 hover:bg-gray-100'
-              }`}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Dashboard
-            </Link>
-
             {/* Navigation Groups */}
             {Object.entries(navGroups).map(([key, group]) => (
               <div key={key} className="space-y-1">
