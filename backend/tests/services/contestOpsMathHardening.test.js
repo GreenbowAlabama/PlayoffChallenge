@@ -480,13 +480,25 @@ describe('Contest Ops Math Hardening', () => {
         const lockedContestId = randomUUID();
         const scheduledContestId = randomUUID();
 
-        // Create LOCKED contest
+        // Create LOCKED contest (fully filled, 0 missing picks)
         await pool.query(
           `INSERT INTO contest_instances (
             id, template_id, organizer_id, entry_fee_cents, payout_structure,
             status, contest_name, max_entries
-          ) VALUES ($1, $2, $3, 5000, '{}', 'LOCKED', 'Locked Contest', 5)`,
+          ) VALUES ($1, $2, $3, 5000, '{}', 'LOCKED', 'Locked Contest', 2)`,
           [lockedContestId, templateId, organizerId],
+        );
+
+        // Add 2 participants to fill LOCKED contest (0 missing)
+        const user2Id = randomUUID();
+        await pool.query(
+          `INSERT INTO users (id, name, email) VALUES ($1, $2, $3)`,
+          [user2Id, 'Integration User 2b', `int-user2b-${user2Id}@test.com`],
+        );
+        await pool.query(
+          `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at)
+           VALUES ($1, $2, NOW()), ($1, $3, NOW())`,
+          [lockedContestId, user1Id, user2Id],
         );
 
         // Create SCHEDULED contest
@@ -503,6 +515,58 @@ describe('Contest Ops Math Hardening', () => {
 
         expect(Array.isArray(result)).toBe(true);
         expect(result.every(c => c.status === 'LOCKED')).toBe(true);
+
+        // Verify LOCKED contest with 0 missing picks is INCLUDED (for System Health alignment)
+        const lockedContest = result.find(c => c.contest_id === lockedContestId);
+        expect(lockedContest).toBeDefined();
+        expect(lockedContest.missing_picks).toBe(0);
+      });
+
+      it('should include contests with zero missing picks by default (System Health alignment)', async () => {
+        const user1Id = randomUUID();
+        const user2Id = randomUUID();
+
+        await pool.query(
+          `INSERT INTO users (id, name, email) VALUES ($1, $2, $3), ($4, $5, $6)`,
+          [user1Id, 'Zero Missing User 1', `zero-user1-${user1Id}@test.com`, user2Id, 'Zero Missing User 2', `zero-user2-${user2Id}@test.com`],
+        );
+
+        // Create contest with exactly max_entries participants (0 missing)
+        const zeroMissingContestId = randomUUID();
+        await pool.query(
+          `INSERT INTO contest_instances (
+            id, template_id, organizer_id, entry_fee_cents, payout_structure,
+            status, contest_name, max_entries
+          ) VALUES ($1, $2, $3, 5000, '{}', 'LOCKED', 'Zero Missing Contest', 2)`,
+          [zeroMissingContestId, templateId, organizerId],
+        );
+
+        // Add exactly 2 participants
+        await pool.query(
+          `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at)
+           VALUES ($1, $2, NOW()), ($1, $3, NOW())`,
+          [zeroMissingContestId, user1Id, user2Id],
+        );
+
+        // Get with default includeZero=true
+        const resultWithZero = await contestOpsService.getMissingPicks(pool, null, true);
+        const resultDefault = await contestOpsService.getMissingPicks(pool); // default is true
+
+        const contestWithZero = resultWithZero.find(c => c.contest_id === zeroMissingContestId);
+        const contestDefault = resultDefault.find(c => c.contest_id === zeroMissingContestId);
+
+        // Both should include the contest with 0 missing
+        expect(contestWithZero).toBeDefined();
+        expect(contestWithZero.missing_picks).toBe(0);
+        expect(contestDefault).toBeDefined();
+        expect(contestDefault.missing_picks).toBe(0);
+
+        // Get with includeZero=false to filter out zero-missing
+        const resultNoZero = await contestOpsService.getMissingPicks(pool, null, false);
+        const contestNoZero = resultNoZero.find(c => c.contest_id === zeroMissingContestId);
+
+        // Should NOT include the contest with 0 missing when includeZero=false
+        expect(contestNoZero).toBeUndefined();
       });
     });
 

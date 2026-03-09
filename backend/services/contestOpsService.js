@@ -205,9 +205,10 @@ async function getContestOpsSnapshot(pool, contestId) {
  *
  * @param {Object} pool - Database connection pool
  * @param {Array<string>} statuses - Optional filter by contest status (e.g., ['SCHEDULED', 'LOCKED'])
+ * @param {boolean} includeZero - Include contests with zero missing picks (default: true)
  * @returns {Promise<Array>} Array of objects with {contest_id, contest_name, max_entries, participant_count, missing_picks, status}
  */
-async function getMissingPicks(pool, statuses = null) {
+async function getMissingPicks(pool, statuses = null, includeZero = true) {
   let query = `
     SELECT
       ci.id as contest_id,
@@ -232,7 +233,7 @@ async function getMissingPicks(pool, statuses = null) {
 
   const result = await pool.query(query, params);
 
-  return result.rows.map(row => ({
+  const rows = result.rows.map(row => ({
     contest_id: row.contest_id,
     contest_name: row.contest_name,
     status: row.status,
@@ -240,6 +241,9 @@ async function getMissingPicks(pool, statuses = null) {
     participant_count: parseInt(row.participant_count, 10),
     missing_picks: parseInt(row.missing_picks, 10)
   }));
+
+  // Optionally include contests with zero missing picks
+  return includeZero ? rows : rows.filter(c => c.missing_picks > 0);
 }
 
 module.exports = {

@@ -48,7 +48,8 @@ router.get('/missing-picks', async (req, res) => {
       statusArray = statuses.split(',').map(s => s.trim().toUpperCase());
     }
 
-    const missingPicks = await contestOpsService.getMissingPicks(pool, statusArray);
+    // Include contests with zero missing picks so lifecycle counts match System Health page
+    const missingPicks = await contestOpsService.getMissingPicks(pool, statusArray, true);
 
     // Calculate aggregates
     const totalMissingPicks = missingPicks.reduce((sum, c) => sum + c.missing_picks, 0);
