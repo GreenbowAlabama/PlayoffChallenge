@@ -197,6 +197,52 @@ async function getContestOpsSnapshot(pool, contestId) {
   }
 }
 
+/**
+ * Get missing picks aggregation for all contests (or scoped by status).
+ *
+ * Computes per-contest missing picks = max_entries - participant_count.
+ * Useful for Contest Ops dashboard to identify incomplete contests.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {Array<string>} statuses - Optional filter by contest status (e.g., ['SCHEDULED', 'LOCKED'])
+ * @returns {Promise<Array>} Array of objects with {contest_id, contest_name, max_entries, participant_count, missing_picks, status}
+ */
+async function getMissingPicks(pool, statuses = null) {
+  let query = `
+    SELECT
+      ci.id as contest_id,
+      ci.contest_name,
+      ci.status,
+      ci.max_entries,
+      COUNT(DISTINCT cp.user_id) as participant_count,
+      (ci.max_entries - COUNT(DISTINCT cp.user_id)) as missing_picks
+    FROM contest_instances ci
+    LEFT JOIN contest_participants cp ON ci.id = cp.contest_instance_id
+  `;
+
+  const params = [];
+
+  if (statuses && statuses.length > 0) {
+    query += ` WHERE ci.status = ANY($1::text[])`;
+    params.push(statuses);
+  }
+
+  query += ` GROUP BY ci.id, ci.contest_name, ci.status, ci.max_entries
+    ORDER BY missing_picks DESC, ci.created_at DESC`;
+
+  const result = await pool.query(query, params);
+
+  return result.rows.map(row => ({
+    contest_id: row.contest_id,
+    contest_name: row.contest_name,
+    status: row.status,
+    max_entries: parseInt(row.max_entries, 10),
+    participant_count: parseInt(row.participant_count, 10),
+    missing_picks: parseInt(row.missing_picks, 10)
+  }));
+}
+
 module.exports = {
-  getContestOpsSnapshot
+  getContestOpsSnapshot,
+  getMissingPicks
 };

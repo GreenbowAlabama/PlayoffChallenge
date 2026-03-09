@@ -145,6 +145,29 @@ async function getLedgerIntegrity(pool) {
 }
 
 /**
+ * Get total deposits and withdrawals from ledger.
+ *
+ * Deposits = WALLET_DEPOSIT entries (user funding)
+ * Withdrawals = WALLET_WITHDRAWAL entries (user payouts)
+ *
+ * @param {Object} pool - Database pool
+ * @returns {Promise<Object>} Object with {deposits_cents, withdrawals_cents}
+ */
+async function getDepositWithdrawalTotals(pool) {
+  const result = await pool.query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN entry_type = 'WALLET_DEPOSIT' AND direction = 'CREDIT' THEN amount_cents ELSE 0 END), 0) as deposits_cents,
+      COALESCE(SUM(CASE WHEN entry_type = 'WALLET_WITHDRAWAL' AND direction = 'DEBIT' THEN amount_cents ELSE 0 END), 0) as withdrawals_cents
+    FROM ledger
+  `);
+
+  return {
+    deposits_cents: parseInt(result.rows[0].deposits_cents, 10),
+    withdrawals_cents: parseInt(result.rows[0].withdrawals_cents, 10)
+  };
+}
+
+/**
  * Get financial health snapshot
  *
  * Aggregates all financial metrics for operational visibility.
@@ -153,6 +176,7 @@ async function getLedgerIntegrity(pool) {
  * 1. Stripe >= (Wallets + Contests) — we must have sufficient funds
  * 2. Ledger invariant (Credits - Debits = Net) — accounting must be self-consistent
  * 3. Liquidity ratio > 1.05 — healthy buffer (5% cushion)
+ * 4. Reconciliation: (wallet_liability + contest_pools) === (deposits - withdrawals)
  */
 async function getFinancialHealth(pool) {
   // Fetch Stripe balance (available + pending, may throw if API unreachable)
@@ -162,11 +186,16 @@ async function getFinancialHealth(pool) {
   const walletBalance = await getWalletBalance(pool);
   const contestPoolBalance = await getContestPoolBalance(pool);
   const ledger = await getLedgerIntegrity(pool);
+  const depositWithdrawals = await getDepositWithdrawalTotals(pool);
 
   // Compute derived metrics
   const totalLiabilities = walletBalance + contestPoolBalance;
   const platformFloat = stripeBalance - totalLiabilities;
   const liquidityRatio = totalLiabilities > 0 ? stripeBalance / totalLiabilities : 0;
+
+  // Reconciliation check: wallet_liability + contest_pools = deposits - withdrawals
+  const accountingNet = depositWithdrawals.deposits_cents - depositWithdrawals.withdrawals_cents;
+  const reconciled = totalLiabilities === accountingNet;
 
   return {
     stripe_total_balance: stripeBalance,
@@ -174,6 +203,7 @@ async function getFinancialHealth(pool) {
     contest_pool_balance: contestPoolBalance,
     platform_float: platformFloat,
     liquidity_ratio: liquidityRatio,
+    reconciled: reconciled,
     ledger: {
       credits: ledger.credits,
       debits: ledger.debits,
@@ -189,4 +219,5 @@ module.exports = {
   getWalletBalance,
   getContestPoolBalance,
   getLedgerIntegrity,
+  getDepositWithdrawalTotals,
 };
