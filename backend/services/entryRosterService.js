@@ -269,16 +269,16 @@ async function getMyEntry(pool, contestInstanceId, userId) {
       if (playerIds.length > 0) {
         const playersResult = await pool.query(
           `
-          SELECT player_id, name, image_url
+          SELECT id, full_name, image_url
           FROM players
-          WHERE player_id = ANY($1)
+          WHERE id = ANY($1::text[])
           `,
           [playerIds]
         );
 
         availablePlayers = playersResult.rows.map(p => ({
-          player_id: p.player_id,
-          name: p.name,
+          player_id: p.id,
+          name: p.full_name,
           image_url: p.image_url || null
         }));
       }
