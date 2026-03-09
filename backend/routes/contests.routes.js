@@ -3,16 +3,53 @@
  *
  * All endpoints under /api/contests/*
  * Handles user-specific contest queries.
- * Relies on centralized authentication middleware (req.user).
+ * Supports both Bearer token (Authorization header) and X-User-Id header authentication.
  *
  * Routes:
  * - GET /api/contests/my - List "My Contests" (contests user entered + SCHEDULED contests open for entry)
+ * - GET /api/contests/available - List available contests (SCHEDULED, not entered, not full)
  */
 
 const express = require('express');
 const router = express.Router();
 
 const customContestService = require('../services/customContestService');
+
+/**
+ * Middleware to extract user ID and admin flag from request.
+ * Accepts either Bearer token (Authorization header) or X-User-Id header.
+ * Optionally extracts X-User-Is-Admin header to indicate admin status.
+ * Validates UUID format before allowing request to proceed.
+ * Returns 401 if no auth header present.
+ * Returns 400 if auth header present but invalid UUID format.
+ */
+function extractUserId(req, res, next) {
+  let userId;
+  const authHeader = req.headers['authorization'];
+  const xUserId = req.headers['x-user-id'];
+  const xUserIsAdmin = req.headers['x-user-is-admin'];
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    userId = authHeader.substring(7, authHeader.length);
+  } else if (xUserId) {
+    userId = xUserId;
+  } else {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  // Validate UUID format
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(userId)) {
+    return res.status(400).json({ error: 'Invalid user ID format' });
+  }
+
+  if (process.env.LOG_AUTH_DEBUG === 'true') {
+    console.log('[Auth]', req.method, req.originalUrl, 'user_id_suffix:', userId.slice(-6));
+  }
+  req.userId = userId;
+  req.isAdmin = xUserIsAdmin === 'true'; // Extract admin flag, default to false
+  next();
+}
 
 /**
  * GET /api/contests/my
@@ -33,24 +70,19 @@ const customContestService = require('../services/customContestService');
  * Response:
  * - 200: Array of contest objects (ordered by contract rules)
  * - 400: Invalid query parameters
- * - 401: Authentication required (req.user missing)
+ * - 401: Authentication required
  * - 500: Server error
  *
  * Authentication:
- * - Requires req.user (populated by upstream auth middleware)
- * - userId derived from req.user.id
- * - isAdmin derived from req.user.isAdmin === true
+ * - Requires extractUserId middleware (Bearer token or X-User-Id header)
+ * - userId from req.userId (extracted by middleware)
+ * - isAdmin from X-User-Is-Admin header (extracted by middleware, defaults to false)
  */
-router.get('/my', async (req, res) => {
+router.get('/my', extractUserId, async (req, res) => {
   try {
-    // Require authenticated user from centralized auth middleware
-    if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
     const pool = req.app.locals.pool;
-    const userId = req.user.id;
-    const isAdmin = req.user.isAdmin === true; // Fail-closed: default to false
+    const userId = req.userId;
+    const isAdmin = req.isAdmin === true; // Fail-closed: default to false
 
     // Parse and validate pagination parameters
     const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
@@ -88,22 +120,17 @@ router.get('/my', async (req, res) => {
  *
  * Response:
  * - 200: Array of contest objects
- * - 401: Authentication required (req.user missing)
+ * - 401: Authentication required
  * - 500: Server error
  *
  * Authentication:
- * - Requires req.user (populated by upstream auth middleware)
- * - userId derived from req.user.id
+ * - Requires extractUserId middleware (Bearer token or X-User-Id header)
+ * - userId from req.userId (extracted by middleware)
  */
-router.get('/available', async (req, res) => {
+router.get('/available', extractUserId, async (req, res) => {
   try {
-    // Require authenticated user from centralized auth middleware
-    if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
     const pool = req.app.locals.pool;
-    const userId = req.user.id;
+    const userId = req.userId;
 
     const contests = await customContestService.getAvailableContests(pool, userId);
 
