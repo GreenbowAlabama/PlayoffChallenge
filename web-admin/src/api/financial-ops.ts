@@ -59,5 +59,5 @@ export interface FinancialOpsSnapshot {
  * @throws Error if API request fails
  */
 export async function getFinancialOpsSnapshot(): Promise<FinancialOpsSnapshot> {
-  return apiRequest<FinancialOpsSnapshot>('/admin/financial-ops');
+  return apiRequest<FinancialOpsSnapshot>('/api/admin/financial-ops');
 }

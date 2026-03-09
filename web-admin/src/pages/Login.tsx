@@ -43,8 +43,8 @@ export function Login() {
         console.log('[Login] Token stored successfully');
         console.log('[Login] localStorage.admin_token now contains:', localStorage.getItem('admin_token') ? 'token' : 'nothing');
 
-        console.log('[Login] Calling navigate(/dashboard, { replace: true })');
-        navigate('/dashboard', { replace: true });
+        console.log('[Login] Calling navigate(/admin, { replace: true })');
+        navigate('/admin', { replace: true });
         console.log('[Login] Navigate called');
       } catch (err) {
         console.error('[Login] Error in token handling:', err);
