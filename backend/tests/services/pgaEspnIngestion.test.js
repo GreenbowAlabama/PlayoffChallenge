@@ -60,6 +60,31 @@ function createSampleEspnPayload(overrides = {}) {
   };
 }
 
+/**
+ * Create mock golfers for testing (minimum 10 required by competitor count invariant)
+ */
+function createMockGolfers(count = 10) {
+  const names = [
+    { id: '3470', name: 'Rory McIlroy' },
+    { id: '2506', name: 'Tiger Woods' },
+    { id: '5555', name: 'Jon Rahm' },
+    { id: '6666', name: 'Dustin Johnson' },
+    { id: '7777', name: 'Justin Thomas' },
+    { id: '8888', name: 'Collin Morikawa' },
+    { id: '9999', name: 'Bryson DeChambeau' },
+    { id: '10000', name: 'Patrick Cantlay' },
+    { id: '10001', name: 'Tony Finau' },
+    { id: '10002', name: 'Scottie Scheffler' }
+  ];
+  return names.slice(0, count).map((p, i) => ({
+    external_id: p.id,
+    name: p.name,
+    image_url: `https://image${i}.jpg`,
+    sport: 'GOLF',
+    position: 'G'
+  }));
+}
+
 describe('PGA ESPN Ingestion — Batch 1', () => {
   // ─────────────────────────────────────────────────────────────────────────
   // computeIngestionKey tests
@@ -413,10 +438,7 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
     });
 
     it('should generate PLAYER_POOL units with golfer data attached', async () => {
-      const mockGolfers = [
-        { external_id: '3470', name: 'Rory McIlroy', image_url: 'https://...', sport: 'GOLF', position: 'G' },
-        { external_id: '2506', name: 'Tiger Woods', image_url: 'https://...', sport: 'GOLF', position: 'G' }
-      ];
+      const mockGolfers = createMockGolfers(10);
 
       espnPgaPlayerService.fetchTournamentField.mockResolvedValue(mockGolfers);
 
@@ -428,7 +450,7 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
       const units = await adapter.getWorkUnits(ctx);
 
       expect(Array.isArray(units)).toBe(true);
-      expect(units).toHaveLength(2);
+      expect(units).toHaveLength(10);
 
       // Verify golfer data is attached to unit
       expect(units[0]).toEqual({
@@ -446,9 +468,7 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
     });
 
     it('should call fetchTournamentField with correct eventId', async () => {
-      const mockGolfers = [
-        { external_id: '12345', name: 'Golfer', image_url: null, sport: 'GOLF', position: 'G' }
-      ];
+      const mockGolfers = createMockGolfers(10);
 
       espnPgaPlayerService.fetchTournamentField.mockResolvedValue(mockGolfers);
 
@@ -463,11 +483,7 @@ describe('PGA ESPN Ingestion — Batch 1', () => {
     });
 
     it('should ensure each PLAYER_POOL unit includes externalPlayerId and golfer data', async () => {
-      const mockGolfers = [
-        { external_id: '100', name: 'G1', image_url: null, sport: 'GOLF', position: 'G' },
-        { external_id: '200', name: 'G2', image_url: null, sport: 'GOLF', position: 'G' },
-        { external_id: '300', name: 'G3', image_url: null, sport: 'GOLF', position: 'G' }
-      ];
+      const mockGolfers = createMockGolfers(10);
 
       espnPgaPlayerService.fetchTournamentField.mockResolvedValue(mockGolfers);
 

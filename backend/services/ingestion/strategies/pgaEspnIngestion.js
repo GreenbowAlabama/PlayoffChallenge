@@ -304,6 +304,17 @@ async function getWorkUnits(ctx) {
     return [];
   }
 
+  // INVARIANT: Competitor count must exceed minimum threshold
+  // If ESPN returns fewer than 10 competitors, the field is invalid.
+  // This prevents contests from completing with empty or undersized player pools.
+  const competitorCount = golfers.length;
+  if (competitorCount < 10) {
+    throw new Error(
+      `[PGA INGESTION] INVALID_COMPETITOR_COUNT event=${providerEventId} count=${competitorCount} expected_minimum=10`
+    );
+  }
+  console.log(`[PGA INGESTION] Competitor count validation passed: event=${providerEventId} count=${competitorCount}`);
+
   // Emit one unit per golfer
   // Idempotency: each unit with unique externalPlayerId is processed only once
   // (tracked in ingestion_runs table by ingestionService)

@@ -104,6 +104,16 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
     throw err;
   }
 
+  // INVARIANT: Primary field must contain players
+  // An empty primary field is an illegal system state that violates contest structure.
+  // This guard prevents incomplete ingestion from being written to the database.
+  if (!fieldSelection.primary || fieldSelection.primary.length === 0) {
+    throw new Error(
+      `[PGA INGESTION] REFUSING_EMPTY_FIELD contest=${contestInstanceId} players_available=${players.length} primary_count=0`
+    );
+  }
+  console.log(`[PGA INGESTION] contest=${contestInstanceId} players=${players.length} primary=${fieldSelection.primary.length} alternates=${fieldSelection.alternates.length}`);
+
   // Enhance field selection with player details (including image_url from playerImageMap)
   const enhancedField = {
     primary: fieldSelection.primary.map(p => ({
