@@ -60,5 +60,5 @@ export interface PlayerDataOpsSnapshot {
  * @returns Promise containing full player data operational snapshot
  */
 export async function getPlayerDataOpsSnapshot(): Promise<PlayerDataOpsSnapshot> {
-  return apiRequest<PlayerDataOpsSnapshot>('/admin/player-data/ops');
+  return apiRequest<PlayerDataOpsSnapshot>('/api/admin/player-data/ops');
 }

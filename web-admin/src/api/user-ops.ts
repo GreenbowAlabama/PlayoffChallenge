@@ -39,5 +39,5 @@ export interface UserOpsSnapshot {
  * @returns Promise containing full user operations snapshot
  */
 export async function getUserOpsSnapshot(): Promise<UserOpsSnapshot> {
-  return apiRequest<UserOpsSnapshot>('/admin/users/ops');
+  return apiRequest<UserOpsSnapshot>('/api/admin/user-ops/ops');
 }
