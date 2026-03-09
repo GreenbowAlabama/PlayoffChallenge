@@ -324,8 +324,11 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       };
       const workUnitKey = adapter.computeIngestionKey(contestInstanceId, enrichedUnit);
 
-      // Idempotency: try to claim this work unit as RUNNING.
-      // ON CONFLICT DO NOTHING — if a record already exists (RUNNING or COMPLETE) skip.
+      // Set workUnitKey on enrichedUnit so adapter handlers can access it
+      enrichedUnit.workUnitKey = workUnitKey;
+
+      // Atomic claim: try to insert as RUNNING.
+      // ON CONFLICT DO NOTHING ensures idempotency (skip if already exists).
       const insertResult = await client.query(
         `INSERT INTO ingestion_runs
            (id, contest_instance_id, ingestion_strategy_key, work_unit_key, status, started_at)

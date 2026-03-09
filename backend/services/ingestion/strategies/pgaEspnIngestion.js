@@ -334,6 +334,15 @@ async function getWorkUnits(ctx) {
       golfer: golfer  // Attach golfer data to avoid re-fetching
     }));
 
+  // FIELD_BUILD Phase: Add a single unit to construct the contest field
+  // Executes after all PLAYER_POOL units (maintains phase ordering)
+  // Queries the players table and builds field_selections
+  units.push({
+    phase: 'FIELD_BUILD',
+    providerEventId: providerEventId,
+    providerData: null
+  });
+
   return units;
 }
 
@@ -349,6 +358,15 @@ function computeIngestionKey(contestInstanceId, unit) {
   // Validate unit
   if (!unit) {
     throw new Error('unit is required');
+  }
+
+  // FIELD_BUILD phase: unique key per contest instance
+  // FIELD_BUILD is a one-time operation per contest, so key is deterministic
+  if (unit.phase === 'FIELD_BUILD') {
+    if (!unit.providerEventId) {
+      throw new Error('FIELD_BUILD units require providerEventId');
+    }
+    return `field_build:${contestInstanceId}`;
   }
 
   // PLAYER_POOL phase units may not contain providerData
@@ -403,12 +421,14 @@ function computeIngestionKey(contestInstanceId, unit) {
  * Handle PLAYER_POOL phase ingestion: upsert one golfer to players table.
  *
  * The golfer data is already fetched and attached to the unit by getWorkUnits(),
- * so we avoid redundant ESPN API calls. This method only performs the database upsert.
+ * so we avoid redundant ESPN API calls. This method performs two operations:
+ * 1. Upsert golfer to players table
+ * 2. Store external_player_id in ingestion_runs for FIELD_BUILD phase scope isolation
  *
  * @param {Object} ctx - Ingestion context { contestInstanceId, dbClient, ... }
- * @param {Object} unit - PLAYER_POOL unit { externalPlayerId, providerEventId, golfer }
+ * @param {Object} unit - PLAYER_POOL unit { externalPlayerId, workUnitKey, providerEventId, golfer }
  * @returns {Promise<Array>} Empty array (no scores for PLAYER_POOL phase)
- * @throws {Error} If database upsert fails
+ * @throws {Error} If database operations fail
  */
 async function handlePlayerPoolIngestion(ctx, unit) {
   const { contestInstanceId, dbClient } = ctx;
@@ -418,6 +438,11 @@ async function handlePlayerPoolIngestion(ctx, unit) {
 
   if (!golfer) {
     throw new Error('handlePlayerPoolIngestion: unit.golfer is required (must be populated by getWorkUnits)');
+  }
+
+  // Validate unit.workUnitKey is present
+  if (!unit.workUnitKey) {
+    throw new Error('PLAYER_POOL unit missing workUnitKey');
   }
 
   // Upsert single golfer into players table
@@ -463,7 +488,129 @@ async function handlePlayerPoolIngestion(ctx, unit) {
     throw err;
   }
 
+  // Store external_player_id in ingestion_runs for FIELD_BUILD phase scope isolation
+  // This allows FIELD_BUILD to query only golfers ingested for this specific contest
+  try {
+    await dbClient.query(`
+      UPDATE ingestion_runs
+      SET external_player_id = $1
+      WHERE contest_instance_id = $2
+      AND work_unit_key = $3
+    `, [
+      golfer.external_id,
+      contestInstanceId,
+      unit.workUnitKey
+    ]);
+  } catch (err) {
+    console.error(`[pgaEspnIngestion] Failed to update ingestion_runs with external_player_id:`, err.message);
+    throw err;
+  }
+
   // Return empty scores array (PLAYER_POOL phase has no scores)
+  return [];
+}
+
+/**
+ * Handle FIELD_BUILD phase ingestion: construct contest field from contest-specific PLAYER_POOL results.
+ *
+ * CRITICAL: Field is scoped to golfers ingested for this specific contest_instance_id.
+ *
+ * Algorithm:
+ * 1. Get tournament_config_id for this contest
+ * 2. Query ingestion_runs for PLAYER_POOL units (via external_player_id)
+ * 3. Query players table using those espn_ids
+ * 4. Build field_selections with deterministically ordered player ids
+ * 5. Insert/update with idempotent ON CONFLICT
+ *
+ * @param {Object} ctx - Ingestion context { contestInstanceId, dbClient, ... }
+ * @param {Object} unit - FIELD_BUILD unit { phase: 'FIELD_BUILD', workUnitKey, providerEventId }
+ * @returns {Promise<Array>} Empty array (no scores for FIELD_BUILD phase)
+ * @throws {Error} If database operations fail
+ */
+async function handleFieldBuildIngestion(ctx, unit) {
+  const { contestInstanceId, dbClient } = ctx;
+
+  if (!unit.providerEventId) {
+    throw new Error('handleFieldBuildIngestion: unit.providerEventId is required');
+  }
+
+  // Step 1: Get tournament_config_id for this contest
+  const configResult = await dbClient.query(`
+    SELECT id FROM tournament_configs
+    WHERE contest_instance_id = $1
+  `, [contestInstanceId]);
+
+  if (configResult.rows.length === 0) {
+    throw new Error(`handleFieldBuildIngestion: No tournament_config found for contest ${contestInstanceId}`);
+  }
+
+  const tournamentConfigId = configResult.rows[0].id;
+
+  // Step 2: Query ingestion_runs for PLAYER_POOL external_player_ids
+  // Only golfers actually ingested for this contest are included
+  const runsResult = await dbClient.query(`
+    SELECT external_player_id
+    FROM ingestion_runs
+    WHERE contest_instance_id = $1
+    AND external_player_id IS NOT NULL
+    AND status = 'COMPLETE'
+  `, [contestInstanceId]);
+
+  if (runsResult.rows.length === 0) {
+    throw new Error(`handleFieldBuildIngestion: No completed PLAYER_POOL units found for contest ${contestInstanceId}`);
+  }
+
+  // Extract external_player_ids from query results
+  const externalPlayerIds = runsResult.rows.map(row => row.external_player_id);
+
+  // Step 3: Query players table using espn_ids
+  // Results are ordered by ID for deterministic field composition
+  const playersResult = await dbClient.query(`
+    SELECT id
+    FROM players
+    WHERE espn_id = ANY($1)
+    ORDER BY id ASC
+  `, [externalPlayerIds]);
+
+  if (playersResult.rows.length === 0) {
+    throw new Error(`handleFieldBuildIngestion: No players found for external_ids [${externalPlayerIds.join(', ')}]`);
+  }
+
+  const playerIds = playersResult.rows.map(row => row.id);
+
+  // Step 4: Build field selection JSON with primary roster
+  const selectionJson = {
+    primary: playerIds
+  };
+
+  // Step 5: Insert into field_selections with idempotent ON CONFLICT
+  await dbClient.query(`
+    INSERT INTO field_selections (
+      id,
+      contest_instance_id,
+      tournament_config_id,
+      selection_json,
+      created_at
+    ) VALUES (
+      gen_random_uuid(),
+      $1,
+      $2,
+      $3,
+      NOW()
+    )
+    ON CONFLICT (contest_instance_id) DO UPDATE
+    SET
+      selection_json = $3,
+      tournament_config_id = $2
+  `, [
+    contestInstanceId,
+    tournamentConfigId,
+    JSON.stringify(selectionJson)
+  ]);
+
+  console.log(`[pgaEspnIngestion] FIELD_BUILD complete for contest ${contestInstanceId}: ${playerIds.length} golfers selected`);
+
+  // Return empty scores array (FIELD_BUILD phase has no scores)
   return [];
 }
 
@@ -491,6 +638,12 @@ async function ingestWorkUnit(ctx, unit) {
 
   if (!unit) {
     throw new Error('ingestWorkUnit: unit is required');
+  }
+
+  // ── FIELD_BUILD Phase: Detect and handle ────────────────────────────────────
+  if (unit.phase === 'FIELD_BUILD') {
+    // This is a FIELD_BUILD unit: build contest field and insert into field_selections
+    return await handleFieldBuildIngestion(ctx, unit);
   }
 
   // ── PLAYER_POOL Phase: Detect and handle ────────────────────────────────────
