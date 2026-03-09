@@ -31,7 +31,7 @@
 
 const ingestionService = require('../services/ingestionService');
 
-let ingestionInterval = null;
+let ingestionWorkerRunning = false;
 
 /**
  * Run a single ingestion cycle.
@@ -118,7 +118,7 @@ async function runCycle(pool) {
  * Run a single ingestion cycle with heartbeat publishing.
  *
  * @param {Object} pool - Database connection pool
- * @returns {Promise<void>}
+ * @returns {Promise<Object>} cycle result for adaptive backoff
  */
 async function runCycleWithHeartbeat(pool) {
   try {
@@ -149,6 +149,8 @@ async function runCycleWithHeartbeat(pool) {
       console.error('[Ingestion Worker] Heartbeat publish failed:', err.message);
       // Do NOT rethrow — ingestion must remain primary
     }
+
+    return result;
   } catch (err) {
     console.error('[Ingestion Worker] Cycle error with heartbeat:', err.message);
 
@@ -177,50 +179,54 @@ async function runCycleWithHeartbeat(pool) {
       console.error('[Ingestion Worker] Heartbeat error publish failed:', heartbeatErr.message);
       // Do NOT rethrow — ingestion must remain primary
     }
+
+    return { phasesRun: 0, phasesSkipped: 0, failed: 1, contests: 0 };
   }
 }
 
 /**
- * Start the ingestion worker.
+ * Start the ingestion worker with adaptive backoff.
  *
  * @param {Object} pool - Database connection pool
  * @param {Object} options - Configuration options
- * @param {number} options.intervalMs - Interval in milliseconds (default: 60000 = 1 min)
+ * @param {number} options.activeIntervalMs - Interval when work exists (default: 3000 = 3s)
+ * @param {number} options.idleIntervalMs - Interval when no work (default: 60000 = 60s)
  */
-function startIngestionWorker(pool, options = {}) {
-  const intervalMs =
-    options.intervalMs ??
-    (process.env.INGESTION_WORKER_INTERVAL_MS
-      ? parseInt(process.env.INGESTION_WORKER_INTERVAL_MS, 10)
-      : 60000); // 1 minute default
+async function startIngestionWorker(pool, options = {}) {
+  const activeIntervalMs = options.activeIntervalMs ?? 3000;  // 3s when work exists
+  const idleIntervalMs = options.idleIntervalMs ?? 60000;      // 60s when idle
 
-  if (ingestionInterval) {
+  if (ingestionWorkerRunning) {
     console.warn(
       'Ingestion worker already running, ignoring start request'
     );
     return;
   }
 
-  console.log(
-    `[Ingestion Worker] Starting (interval: ${intervalMs}ms)`
-  );
+  ingestionWorkerRunning = true;
+  console.log('[Ingestion Worker] Starting');
 
-  // Run immediately on start
-  runCycleWithHeartbeat(pool);
+  while (ingestionWorkerRunning) {
+    try {
+      const result = await runCycleWithHeartbeat(pool);
 
-  // Then repeat on interval
-  ingestionInterval = setInterval(() => {
-    runCycleWithHeartbeat(pool);
-  }, intervalMs);
+      // Adaptive sleep: if work was processed, sleep briefly; otherwise sleep longer
+      const sleepMs = result.phasesRun > 0 ? activeIntervalMs : idleIntervalMs;
+      await new Promise(resolve => setTimeout(resolve, sleepMs));
+    } catch (err) {
+      console.error('[Ingestion Worker] Unhandled error:', err.message);
+      // Sleep even on error to prevent tight loop
+      await new Promise(resolve => setTimeout(resolve, idleIntervalMs));
+    }
+  }
 }
 
 /**
  * Stop the ingestion worker.
  */
 function stopIngestionWorker() {
-  if (ingestionInterval) {
-    clearInterval(ingestionInterval);
-    ingestionInterval = null;
+  if (ingestionWorkerRunning) {
+    ingestionWorkerRunning = false;
     console.log('[Ingestion Worker] Stopped');
   }
 }

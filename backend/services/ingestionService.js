@@ -340,25 +340,16 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       if (preCheckResult.rows.length > 0) {
         const existingStatus = preCheckResult.rows[0].status;
         if (existingStatus === 'COMPLETE') {
-          console.log(
-            `[IngestionWorker] SKIP_COMPLETE contest=${contestInstanceId} work_unit=${workUnitKey}`
-          );
           skippedWorkUnits.push(workUnitKey);
           summary.skipped++;
           continue;
         }
         if (existingStatus === 'RUNNING') {
-          console.log(
-            `[IngestionWorker] SKIP_RUNNING contest=${contestInstanceId} work_unit=${workUnitKey}`
-          );
           skippedWorkUnits.push(workUnitKey);
           summary.skipped++;
           continue;
         }
         if (existingStatus === 'ERROR') {
-          console.log(
-            `[IngestionWorker] SKIP_ERROR contest=${contestInstanceId} work_unit=${workUnitKey}`
-          );
           skippedWorkUnits.push(workUnitKey);
           summary.skipped++;
           continue;
