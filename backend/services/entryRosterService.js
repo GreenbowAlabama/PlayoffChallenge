@@ -41,6 +41,25 @@ const ERROR_CODES = {
 };
 
 /**
+ * Normalize player IDs to the canonical "espn_" format.
+ *
+ * Accepts both formats from clients:
+ * - "espn_5724" → "espn_5724" (already canonical)
+ * - "5724" → "espn_5724" (normalized)
+ *
+ * Always stores canonical format in database to match existing FK relationships.
+ *
+ * @param {string} playerId - Raw player ID from client
+ * @returns {string} Normalized player ID with "espn_" prefix
+ */
+function normalizePlayerId(playerId) {
+  if (typeof playerId !== 'string') {
+    return playerId;
+  }
+  return playerId.startsWith('espn_') ? playerId : `espn_${playerId}`;
+}
+
+/**
  * Derive roster config from scoring strategy.
  * Falls back to PGA defaults if strategy not found (with warning).
  * MUST return complete config matching OpenAPI RosterConfig schema.
@@ -99,6 +118,10 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // 0. Normalize player IDs to canonical "espn_" format
+    // Accepts both "5724" and "espn_5724" formats from client
+    const normalizedPlayerIds = playerIds.map(normalizePlayerId);
 
     // 1. Lock contest row
     const contestResult = await client.query(
@@ -169,7 +192,8 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
     }
 
     // 7. Validate roster (size, duplicates, field membership)
-    const validationResult = validateRoster(playerIds, rosterConfig, validatedField);
+    // Use normalized IDs for validation
+    const validationResult = validateRoster(normalizedPlayerIds, rosterConfig, validatedField);
     if (!validationResult.valid) {
       throw Object.assign(
         new Error(`Roster validation failed: ${validationResult.errors.join('; ')}`),
@@ -178,20 +202,21 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
     }
 
     // 8. Upsert into entry_rosters
+    // Use normalized IDs for storage
     const upsertResult = await client.query(
       `INSERT INTO entry_rosters (contest_instance_id, user_id, player_ids, submitted_at, updated_at)
        VALUES ($1, $2, $3, now(), now())
        ON CONFLICT (contest_instance_id, user_id)
        DO UPDATE SET player_ids = EXCLUDED.player_ids, updated_at = now()
        RETURNING updated_at`,
-      [contestInstanceId, userId, playerIds]
+      [contestInstanceId, userId, normalizedPlayerIds]
     );
 
     await client.query('COMMIT');
 
     return {
       success: true,
-      player_ids: playerIds,
+      player_ids: normalizedPlayerIds,
       updated_at: new Date(upsertResult.rows[0].updated_at).toISOString()
     };
   } catch (err) {

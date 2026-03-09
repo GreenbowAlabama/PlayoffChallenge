@@ -250,6 +250,11 @@ final class LineupViewModel: ObservableObject {
 
                 // Convert PlayerInfoContract → Player domain model
                 let availablePlayers = entryResponse.availablePlayers ?? []
+
+                // DEBUG: Log actual player IDs from API response
+                let firstPlayerIds = availablePlayers.prefix(5).map { $0.playerId }
+                print("[DEBUG][PGA] first player ids from API:", firstPlayerIds)
+
                 var playersById: [String: Player] = [:]
 
                 var withImages = 0
