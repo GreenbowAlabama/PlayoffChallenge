@@ -578,6 +578,8 @@ final class LineupViewModel: ObservableObject {
                 .filter { !$0.isEmpty }
                 .compactMap { $0.playerId }
 
+            print("[PGA][submit] player_ids: \(playerIds)")
+            print("[PGA][submit] count: \(playerIds.count)")
             print("[MYLINEUP][submitPGAPicks] submitting \(playerIds.count) picks")
 
             let response = try await APIService.shared.submitPicks(
@@ -592,6 +594,7 @@ final class LineupViewModel: ObservableObject {
             showError = false
 
         } catch {
+            print("[PGA][submit] error: \(error)")
             errorMessage = "Failed to save lineup: \(error.localizedDescription)"
             showError = true
             print("[MYLINEUP][submitPGAPicks] error: \(error)")

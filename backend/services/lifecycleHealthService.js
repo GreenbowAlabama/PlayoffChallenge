@@ -79,19 +79,14 @@ async function getLifecycleHealth(pool, now) {
     10
   );
 
-  // Query 5: Settlement failures (if status column exists)
-  let settlementFailures = 0;
-  try {
-    const settlementFailuresResult = await pool.query(
-      `SELECT COUNT(*) as count
-       FROM settlement_records
-       WHERE status = 'FAILED'`
-    );
-    settlementFailures = parseInt(settlementFailuresResult.rows[0].count, 10);
-  } catch (err) {
-    // settlement_records.status may not exist; gracefully skip
-    settlementFailures = null;
-  }
+  // Query 5: Incomplete settlements (missing results or snapshot hash)
+  const incompleteSettlementsResult = await pool.query(
+    `SELECT COUNT(*) as count
+     FROM settlement_records
+     WHERE results IS NULL
+        OR snapshot_hash IS NULL`
+  );
+  const settlementFailures = parseInt(incompleteSettlementsResult.rows[0].count, 10);
 
   // Query 6: Last reconciler run
   let lastReconcilerRun = null;

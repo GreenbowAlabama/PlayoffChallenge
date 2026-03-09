@@ -34,6 +34,61 @@ const ingestionService = require('../services/ingestionService');
 let ingestionWorkerRunning = false;
 
 /**
+ * Polling interval configuration (milliseconds)
+ * Adjusted based on highest contest lifecycle state
+ */
+const POLL_INTERVAL_SCHEDULED = 300000;  // 5 minutes
+const POLL_INTERVAL_LOCKED = 30000;      // 30 seconds
+const POLL_INTERVAL_LIVE = 5000;         // 5 seconds
+const POLL_INTERVAL_IDLE = 60000;        // 60 seconds (no active contests)
+
+/**
+ * Determine the highest lifecycle state of active contest instances.
+ *
+ * Queries for contests with provider_event_id in SCHEDULED/LOCKED/LIVE status
+ * and returns the highest state found to determine polling interval.
+ *
+ * @param {Object} pool - Database connection pool
+ * @returns {Promise<Object>} { status, interval } where status is highest state and interval is sleep ms
+ */
+async function getHighestContestStatus(pool) {
+  try {
+    const result = await pool.query(
+      `SELECT
+         CASE
+           WHEN MAX(CASE WHEN ci.status = 'LIVE' THEN 1 ELSE 0 END) = 1 THEN 'LIVE'
+           WHEN MAX(CASE WHEN ci.status = 'LOCKED' THEN 1 ELSE 0 END) = 1 THEN 'LOCKED'
+           WHEN MAX(CASE WHEN ci.status = 'SCHEDULED' THEN 1 ELSE 0 END) = 1 THEN 'SCHEDULED'
+           ELSE NULL
+         END as highest_status
+       FROM contest_instances ci
+       JOIN tournament_configs tc
+         ON tc.contest_instance_id = ci.id
+       WHERE
+         tc.provider_event_id IS NOT NULL
+         AND ci.status IN ('SCHEDULED','LOCKED','LIVE')`
+    );
+
+    const highestStatus = result.rows[0]?.highest_status;
+
+    switch (highestStatus) {
+      case 'LIVE':
+        return { status: 'LIVE', interval: POLL_INTERVAL_LIVE };
+      case 'LOCKED':
+        return { status: 'LOCKED', interval: POLL_INTERVAL_LOCKED };
+      case 'SCHEDULED':
+        return { status: 'SCHEDULED', interval: POLL_INTERVAL_SCHEDULED };
+      default:
+        return { status: 'IDLE', interval: POLL_INTERVAL_IDLE };
+    }
+  } catch (err) {
+    console.error('[Ingestion Worker] Failed to determine contest status:', err.message);
+    // Default to safe interval on error
+    return { status: 'IDLE', interval: POLL_INTERVAL_IDLE };
+  }
+}
+
+/**
  * Run a single ingestion cycle.
  *
  * Queries for contests with provider_event_id in SCHEDULED/LOCKED/LIVE status,
@@ -185,16 +240,23 @@ async function runCycleWithHeartbeat(pool) {
 }
 
 /**
- * Start the ingestion worker with adaptive backoff.
+ * Start the ingestion worker with lifecycle-based polling throttling.
+ *
+ * Polling intervals adjust based on highest contest lifecycle state:
+ * - LIVE:      5 seconds (frequent updates for active scoring)
+ * - LOCKED:   30 seconds (moderate updates for locked contests)
+ * - SCHEDULED: 5 minutes (infrequent updates for scheduled contests)
+ * - IDLE:     60 seconds (no active contests)
  *
  * @param {Object} pool - Database connection pool
- * @param {Object} options - Configuration options
+ * @param {Object} options - Legacy configuration options (for backward compatibility with tests)
  * @param {number} options.activeIntervalMs - Interval when work exists (default: 3000 = 3s)
  * @param {number} options.idleIntervalMs - Interval when no work (default: 60000 = 60s)
  */
 async function startIngestionWorker(pool, options = {}) {
-  const activeIntervalMs = options.activeIntervalMs ?? 3000;  // 3s when work exists
-  const idleIntervalMs = options.idleIntervalMs ?? 60000;      // 60s when idle
+  // Legacy options for backward compatibility with tests
+  const legacyActiveIntervalMs = options.activeIntervalMs;
+  const legacyIdleIntervalMs = options.idleIntervalMs;
 
   if (ingestionWorkerRunning) {
     console.warn(
@@ -210,13 +272,30 @@ async function startIngestionWorker(pool, options = {}) {
     try {
       const result = await runCycleWithHeartbeat(pool);
 
-      // Adaptive sleep: if work was processed, sleep briefly; otherwise sleep longer
-      const sleepMs = result.phasesRun > 0 ? activeIntervalMs : idleIntervalMs;
+      let sleepMs;
+
+      // Use legacy behavior if options provided (for backward compatibility)
+      if (legacyActiveIntervalMs !== undefined || legacyIdleIntervalMs !== undefined) {
+        const activeIntervalMs = legacyActiveIntervalMs ?? 3000;
+        const idleIntervalMs = legacyIdleIntervalMs ?? 60000;
+        sleepMs = result.phasesRun > 0 ? activeIntervalMs : idleIntervalMs;
+      } else {
+        // Lifecycle-based polling: determine interval based on highest contest status
+        const contestStatus = await getHighestContestStatus(pool);
+        sleepMs = contestStatus.interval;
+
+        if (contestStatus.status !== 'IDLE') {
+          console.log(
+            `[Ingestion Worker] Active contests status: ${contestStatus.status}, next poll in ${sleepMs}ms`
+          );
+        }
+      }
+
       await new Promise(resolve => setTimeout(resolve, sleepMs));
     } catch (err) {
       console.error('[Ingestion Worker] Unhandled error:', err.message);
       // Sleep even on error to prevent tight loop
-      await new Promise(resolve => setTimeout(resolve, idleIntervalMs));
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_IDLE));
     }
   }
 }

@@ -11,6 +11,7 @@ struct AvailableContestsView: View {
     @EnvironmentObject var authService: AuthService
     @ObservedObject var viewModel: AvailableContestsViewModel
     @State private var selectedContest: Contest?
+    @State private var hasLoadedAfterAuth = false
 
     init(viewModel: AvailableContestsViewModel) {
         self.viewModel = viewModel
@@ -77,11 +78,17 @@ struct AvailableContestsView: View {
         .refreshable {
             await viewModel.refresh()
         }
-        .task {
-            // Load contests on initial view appearance.
-            // This ensures fresh data is fetched when user navigates to Available tab.
-            // Pull-to-refresh on this view updates the same data.
-            await viewModel.loadContests()
+        .onChange(of: authService.isAuthenticated) { isAuthenticated in
+            // Load contests only after authentication completes.
+            // This gate ensures we have a valid userId before making API calls.
+            guard isAuthenticated else { return }
+
+            if !hasLoadedAfterAuth {
+                hasLoadedAfterAuth = true
+                Task {
+                    await viewModel.loadContests()
+                }
+            }
         }
     }
 }

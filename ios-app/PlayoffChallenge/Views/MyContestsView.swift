@@ -8,12 +8,14 @@
 import SwiftUI
 
 struct MyContestsView: View {
+    @EnvironmentObject var authService: AuthService
     @ObservedObject var viewModel: MyContestsViewModel
     @State private var selectedContest: Contest?
     @State private var isRefreshing = false
     @State private var pendingDeleteId: UUID?
     @State private var pendingUnjoinId: UUID?
     @State private var showPastContests = false
+    @State private var hasLoadedAfterAuth = false
 
     private func shareURL(for contest: Contest) -> URL? {
         guard let token = contest.shareURLToken else { return nil }
@@ -170,8 +172,17 @@ struct MyContestsView: View {
                 pendingUnjoinId = nil
             }
         }
-        .task {
-            await viewModel.loadMyContests()
+        .onChange(of: authService.isAuthenticated) { isAuthenticated in
+            // Load contests only after authentication completes.
+            // This gate ensures we have a valid userId before making API calls.
+            guard isAuthenticated else { return }
+
+            if !hasLoadedAfterAuth {
+                hasLoadedAfterAuth = true
+                Task {
+                    await viewModel.loadMyContests()
+                }
+            }
         }
         .refreshable {
             isRefreshing = true
