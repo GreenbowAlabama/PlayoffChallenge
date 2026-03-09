@@ -260,15 +260,28 @@ async function getMyEntry(pool, contestInstanceId, userId) {
     [contestInstanceId]
   );
 
-  let availablePlayers = null;
+  let availablePlayers = [];  // Default to empty array (OpenAPI contract requirement)
   if (fieldResult.rows.length > 0) {
     const selectionJson = fieldResult.rows[0].selection_json;
     if (selectionJson && Array.isArray(selectionJson.primary)) {
-      availablePlayers = selectionJson.primary.map(player => ({
-        player_id: player.player_id,
-        name: player.name || 'Unknown',
-        image_url: player.image_url || null
-      }));
+      const playerIds = (selectionJson.primary || []).filter(Boolean);
+
+      if (playerIds.length > 0) {
+        const playersResult = await pool.query(
+          `
+          SELECT player_id, name, image_url
+          FROM players
+          WHERE player_id = ANY($1)
+          `,
+          [playerIds]
+        );
+
+        availablePlayers = playersResult.rows.map(p => ({
+          player_id: p.player_id,
+          name: p.name,
+          image_url: p.image_url || null
+        }));
+      }
     }
   } else if (contestRow.sport) {
     // Fallback: if field_selections is empty, query players table directly
@@ -284,13 +297,13 @@ async function getMyEntry(pool, contestInstanceId, userId) {
         [playerSport]
       );
 
-      if (playersResult.rows.length > 0) {
-        availablePlayers = playersResult.rows.map(player => ({
-          player_id: player.id,
-          name: player.full_name,
-          image_url: player.image_url || null
-        }));
-      }
+      // Map all returned players to response format
+      // If no players found, availablePlayers remains empty array []
+      availablePlayers = playersResult.rows.map(player => ({
+        player_id: player.id,
+        name: player.full_name,
+        image_url: player.image_url || null
+      }));
     }
   }
 

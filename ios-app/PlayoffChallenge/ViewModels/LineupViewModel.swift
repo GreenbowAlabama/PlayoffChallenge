@@ -450,7 +450,7 @@ final class LineupViewModel: ObservableObject {
 
         guard positionCount < limit else { return }
 
-        // PGA: Add player to local state only (auto-submit when all golfers filled)
+        // PGA: Add player and persist immediately
         if contest.templateType == .pgaTournament {
             // Find first empty slot and fill it with new player
             if let emptyIndex = slots.firstIndex(where: { $0.isEmpty }) {
@@ -475,10 +475,8 @@ final class LineupViewModel: ObservableObject {
                 slots[emptyIndex] = filledSlot
             }
 
-            // Check if lineup is now complete (all golfers selected)
-            if isLineupComplete {
-                await submitPGAPicks()
-            }
+            // Persist immediately after updating slots
+            await submitPGAPicks()
             return
         }
 
@@ -513,7 +511,7 @@ final class LineupViewModel: ObservableObject {
     func removeSlot(_ slot: PickV2Slot) async {
         guard let userId = userId else { return }
 
-        // PGA: Remove player from local state only
+        // PGA: Remove player and persist immediately
         if contest.templateType == .pgaTournament {
             if let slotIndex = slots.firstIndex(where: { $0.id == slot.id }) {
                 let clearedSlot = PickV2Slot(
@@ -536,6 +534,9 @@ final class LineupViewModel: ObservableObject {
                 )
                 slots[slotIndex] = clearedSlot
             }
+
+            // Persist immediately after clearing slot
+            await submitPGAPicks()
             return
         }
 
