@@ -9,6 +9,35 @@
  * - Instances reference templates for scoring/lock/settlement strategies
  */
 
+/**
+ * ⚠️  GOVERNANCE GUARDRAIL: AVAILABILITY IS LIFECYCLE-DRIVEN ONLY
+ *
+ * RULE: Contest availability must be determined ONLY by lifecycle status = 'SCHEDULED'.
+ *
+ * FORBIDDEN patterns (they WILL violate the governance rule):
+ * ❌ AND (ci.lock_time IS NULL OR ci.lock_time > NOW())
+ * ❌ AND ci.lock_time > NOW()
+ * ❌ AND ci.start_time > NOW()
+ * ❌ AND ci.tournament_start_time > NOW()
+ * ❌ AND (ci.end_time > NOW() OR ...)
+ *
+ * REQUIRED pattern (for ALL availability queries):
+ * ✅ WHERE ci.status = 'SCHEDULED'
+ * ✅ AND ci.join_token IS NOT NULL
+ *
+ * Functions protected by this rule:
+ * - getAvailableContestInstances()
+ * - getAvailableContests()
+ *
+ * Rationale:
+ * Time-based filters create race conditions and break determinism.
+ * Lock time enforcement belongs in the JOIN operation (joinContest),
+ * NOT in the discovery layer (availability endpoints).
+ *
+ * If a developer or AI worker attempts to reintroduce time-based filtering,
+ * that change VIOLATES this governance rule and must be rejected.
+ */
+
 const crypto = require('crypto');
 const config = require('../config');
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
@@ -1927,18 +1956,23 @@ async function getContestsForUser(pool, userId, isAdmin = false, limit = 50, off
 /**
  * Get Available Contest Instances (publicly joinable)
  *
+ * GOVERNANCE RULE: Availability is LIFECYCLE-DRIVEN ONLY.
+ * Contests are available if and only if status = 'SCHEDULED'.
+ * Time-based filtering (lock_time, start_time comparisons) is FORBIDDEN.
+ *
  * Returns all SCHEDULED contests that are published and publicly joinable.
  * This is infrastructure plumbing for MVP contest discovery.
  *
  * Returns contests where:
- * - status = 'SCHEDULED'
+ * - status = 'SCHEDULED' (ONLY lifecycle determines availability)
  * - join_token IS NOT NULL (published/shareable)
  *
  * Does NOT filter by:
  * - User enrollment (user_has_entered is computed but does not filter)
  * - Capacity (full contests are included)
+ * - Time windows (lock_time, start_time, etc. — these are NOT used for availability)
  *
- * Sorted by: created_at DESC (newest first)
+ * Sorted by: is_platform_owned DESC (platform first), then created_at DESC
  *
  * @param {Object} pool - Database connection pool
  * @param {string|null} userId - UUID of requesting user, or null if unauthenticated
@@ -1998,9 +2032,14 @@ async function getAvailableContestInstances(pool, userId) {
 /**
  * Get Available Contests (SCHEDULED, user hasn't entered, not full)
  *
+ * GOVERNANCE RULE: Availability is LIFECYCLE-DRIVEN ONLY.
+ * Contests are available if and only if status = 'SCHEDULED'.
+ * Time-based filtering (lock_time, start_time comparisons) is FORBIDDEN.
+ *
  * Returns SCHEDULED contests that:
  * - User has NOT entered
  * - Are not full (entries_current < max_entries OR max_entries IS NULL)
+ * - Status = 'SCHEDULED' (ONLY lifecycle determines availability)
  *
  * Ordered by:
  * 1. is_platform_owned DESC (platform contests first)
@@ -2044,7 +2083,6 @@ async function getAvailableContests(pool, userId) {
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.status = 'SCHEDULED'
-    AND (ci.lock_time IS NULL OR ci.lock_time > NOW())
     AND NOT EXISTS (
       SELECT 1
       FROM contest_participants cp2
