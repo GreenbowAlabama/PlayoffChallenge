@@ -1129,7 +1129,7 @@ describe('Custom Contest Routes', () => {
       expect(response.body[0].organizer_name).not.toBe(requestingUserId);
     });
 
-    it('should filter by lock_time in SQL query (regression test)', async () => {
+    it('should enforce lifecycle gating and platform ordering (available contests)', async () => {
       const futureTime = new Date(Date.now() + 3600 * 1000).toISOString();
       mockPool.setQueryResponse(
         /SELECT[\s\S]*FROM contest_instances ci[\s\S]*WHERE ci\.status = 'SCHEDULED'[\s\S]*AND ci\.join_token IS NOT NULL/,
@@ -1139,7 +1139,8 @@ describe('Custom Contest Routes', () => {
           join_token: 'dev_filter_test',
           entry_count: 2,
           user_has_entered: false,
-          lock_time: futureTime
+          lock_time: futureTime,
+          is_platform_owned: true
         }])
       );
 
@@ -1149,7 +1150,7 @@ describe('Custom Contest Routes', () => {
 
       expect(response.status).toBe(200);
 
-      // Assert that the query contains the lock_time filter condition
+      // Assert that the query enforces new lifecycle-driven architecture
       const queryHistory = mockPool.getQueryHistory();
       expect(queryHistory.length).toBeGreaterThan(0);
 
@@ -1158,7 +1159,9 @@ describe('Custom Contest Routes', () => {
         q.sql.includes("WHERE ci.status = 'SCHEDULED'")
       );
       expect(availableQuery).toBeDefined();
-      expect(availableQuery.sql).toMatch(/ci\.lock_time IS NULL OR ci\.lock_time > NOW\(\)/);
+      expect(availableQuery.sql).toMatch(/ci\.status = 'SCHEDULED'/);
+      expect(availableQuery.sql).toMatch(/ci\.join_token IS NOT NULL/);
+      expect(availableQuery.sql).toMatch(/ORDER BY ci\.is_platform_owned DESC/);
     });
 
     it('SCHEMA: all available contests must match ContestListItem schema', async () => {
