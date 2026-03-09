@@ -327,8 +327,47 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       // Set workUnitKey on enrichedUnit so adapter handlers can access it
       enrichedUnit.workUnitKey = workUnitKey;
 
-      // Atomic claim: try to insert as RUNNING.
-      // ON CONFLICT DO NOTHING ensures idempotency (skip if already exists).
+      // ── GUARD 1: Pre-check for existing COMPLETE or RUNNING rows ──────────────
+      // Query before INSERT to detect and skip already-processed work units
+      const preCheckResult = await client.query(
+        `SELECT status
+         FROM ingestion_runs
+         WHERE contest_instance_id = $1 AND work_unit_key = $2
+         LIMIT 1`,
+        [contestInstanceId, workUnitKey]
+      );
+
+      if (preCheckResult.rows.length > 0) {
+        const existingStatus = preCheckResult.rows[0].status;
+        if (existingStatus === 'COMPLETE') {
+          console.log(
+            `[IngestionWorker] SKIP_COMPLETE contest=${contestInstanceId} work_unit=${workUnitKey}`
+          );
+          skippedWorkUnits.push(workUnitKey);
+          summary.skipped++;
+          continue;
+        }
+        if (existingStatus === 'RUNNING') {
+          console.log(
+            `[IngestionWorker] SKIP_RUNNING contest=${contestInstanceId} work_unit=${workUnitKey}`
+          );
+          skippedWorkUnits.push(workUnitKey);
+          summary.skipped++;
+          continue;
+        }
+        if (existingStatus === 'ERROR') {
+          console.log(
+            `[IngestionWorker] SKIP_ERROR contest=${contestInstanceId} work_unit=${workUnitKey}`
+          );
+          skippedWorkUnits.push(workUnitKey);
+          summary.skipped++;
+          continue;
+        }
+      }
+
+      // ── GUARD 2: Atomic RUNNING insert ──────────────────────────────────────
+      // Try to insert as RUNNING.
+      // ON CONFLICT DO NOTHING ensures idempotency (skip if another worker inserted)
       const insertResult = await client.query(
         `INSERT INTO ingestion_runs
            (id, contest_instance_id, ingestion_strategy_key, work_unit_key, status, started_at)
@@ -340,11 +379,19 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       );
 
       if (insertResult.rows.length === 0) {
-        // Record already existed — skip (idempotency guard)
+        // INSERT conflict: another worker already started or completed
+        console.log(
+          `[IngestionWorker] CONFLICT_INSERT contest=${contestInstanceId} work_unit=${workUnitKey}`
+        );
         skippedWorkUnits.push(workUnitKey);
         summary.skipped++;
         continue;
       }
+
+      const runId = insertResult.rows[0].id;
+      console.log(
+        `[IngestionWorker] START contest=${contestInstanceId} work_unit=${workUnitKey} run_id=${runId}`
+      );
 
       // ── Run adapter pipeline ────────────────────────────────────────────────
       try {
@@ -354,8 +401,12 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
         await client.query(
           `UPDATE ingestion_runs
            SET status = 'COMPLETE', completed_at = NOW()
-           WHERE contest_instance_id = $1 AND work_unit_key = $2`,
-          [contestInstanceId, workUnitKey]
+           WHERE id = $1`,
+          [runId]
+        );
+
+        console.log(
+          `[IngestionWorker] COMPLETE contest=${contestInstanceId} work_unit=${workUnitKey} run_id=${runId}`
         );
 
         // Track ingested players for field population (all phases)
@@ -370,8 +421,12 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
         await client.query(
           `UPDATE ingestion_runs
            SET status = 'ERROR', error_message = $1
-           WHERE contest_instance_id = $2 AND work_unit_key = $3`,
-          [unitErr.message.slice(0, 1000), contestInstanceId, workUnitKey]
+           WHERE id = $2`,
+          [unitErr.message.slice(0, 1000), runId]
+        );
+
+        console.error(
+          `[IngestionWorker] ERROR contest=${contestInstanceId} work_unit=${workUnitKey} run_id=${runId} error=${unitErr.message.slice(0, 100)}`
         );
 
         summary.errors.push({ workUnitKey, error: unitErr.message });
