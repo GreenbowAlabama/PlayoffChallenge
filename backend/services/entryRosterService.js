@@ -186,7 +186,8 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
       // Extract primary field - each item has { player_id, name, ... }
       if (selectionJson && Array.isArray(selectionJson.primary)) {
         validatedField = selectionJson.primary.map(player => ({
-          player_id: player.player_id
+          // Normalize field player IDs to canonical "espn_" format for consistent comparison
+          player_id: normalizePlayerId(player.player_id)
         }));
       }
     }
