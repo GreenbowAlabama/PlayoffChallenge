@@ -46,10 +46,33 @@ async function getPlayerDataOpsSnapshot(pool, options = {}) {
 
     const ingestionRuns = ingestionRunsResult.rows;
 
-    // Compute ingestion lag metrics
+    // Compute ingestion lag metrics with fallback to worker heartbeat
+    // When player field is already fully ingested, no new work units run,
+    // so ingestion_runs stops updating. Fall back to worker heartbeat to avoid false lag.
+    const STALE_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
+
+    let lastSuccess = null;
+    let lagSeconds = null;
+
     const lastSuccessRun = ingestionRuns.find(run => run.status === 'COMPLETE');
-    const lastSuccess = lastSuccessRun ? lastSuccessRun.completed_at : null;
-    const lagSeconds = lastSuccess ? Math.floor((serverTime - new Date(lastSuccess)) / 1000) : null;
+    if (lastSuccessRun) {
+      const completedTime = new Date(lastSuccessRun.completed_at);
+      const ageMs = serverTime - completedTime;
+
+      // If ingestion_runs is recent (within 20 minutes), use it
+      if (ageMs <= STALE_THRESHOLD_MS) {
+        lastSuccess = lastSuccessRun.completed_at;
+        lagSeconds = Math.floor(ageMs / 1000);
+      }
+    }
+
+    // If ingestion_runs is stale or missing, fall back to worker heartbeat
+    if (lagSeconds === null) {
+      // Worker heartbeat is fetched below; we'll use it if available
+      // Placeholder: will be updated after workers query
+      lastSuccess = null;
+      lagSeconds = null;
+    }
 
     // 3. Player pool coverage
     // Count contests with player pools (via field_selections)
@@ -130,6 +153,18 @@ async function getPlayerDataOpsSnapshot(pool, options = {}) {
     );
 
     const workers = workersResult.rows;
+
+    // Apply fallback: if ingestion_runs lag is stale or missing,
+    // use worker heartbeat (ingestion_worker) as fallback signal
+    if (lagSeconds === null) {
+      const ingestionWorkerHeartbeat = workers.find(w => w.worker_name === 'ingestion_worker');
+      if (ingestionWorkerHeartbeat && ingestionWorkerHeartbeat.last_run_at) {
+        const workerRunTime = new Date(ingestionWorkerHeartbeat.last_run_at);
+        const ageMs = serverTime - workerRunTime;
+        lastSuccess = ingestionWorkerHeartbeat.last_run_at;
+        lagSeconds = Math.floor(ageMs / 1000);
+      }
+    }
 
     // Return complete snapshot
     return {
