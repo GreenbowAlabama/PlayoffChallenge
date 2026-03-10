@@ -35,6 +35,7 @@ describe('PGA Player Pool Ingestion (BOTH Phase)', () => {
   beforeEach(async () => {
     // Clean up any stale test data from previous test runs (test isolation)
     // This ensures we start with a clean slate for each test
+    await pool.query('DELETE FROM players WHERE sport = \'GOLF\'');
     await pool.query('DELETE FROM ingestion_runs WHERE contest_instance_id IS NOT NULL');
     await pool.query('DELETE FROM field_selections WHERE contest_instance_id IS NOT NULL');
     await pool.query('DELETE FROM tournament_configs WHERE contest_instance_id IS NOT NULL');

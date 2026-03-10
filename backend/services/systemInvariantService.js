@@ -6,9 +6,8 @@
  *
  * Governance Compliance:
  * - All queries are SELECT-only (read-only)
- * - INSERT to system_invariant_runs for monitoring history only
+ * - INSERT to system_invariant_runs for monitoring history only (append-only time-series)
  * - Deterministic queries with no randomization
- * - Idempotent result storage via ON CONFLICT
  * - Financial invariant frozen per CLAUDE_RULES.md § 12
  */
 
@@ -72,7 +71,7 @@ async function runFullInvariantCheck(pool, timestamp = null) {
     };
 
     // Insert into system_invariant_runs (non-blocking, fire-and-forget)
-    // Idempotent via ON CONFLICT on timestamp
+    // Append-only monitoring log (new row per execution)
     insertInvariantRun(pool, {
       overall_status: overallStatus,
       financial_status: financialStatus,
@@ -760,7 +759,7 @@ async function checkLedgerInvariant(pool) {
 }
 
 /**
- * Insert invariant run result into system_invariant_runs (idempotent via ON CONFLICT)
+ * Insert invariant run result into system_invariant_runs (append-only monitoring log)
  */
 async function insertInvariantRun(pool, data) {
   try {
@@ -775,7 +774,6 @@ async function insertInvariantRun(pool, data) {
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
       )
-      ON CONFLICT (created_at) DO NOTHING
     `, [
       data.overall_status, data.financial_status, data.lifecycle_status,
       data.settlement_status, data.pipeline_status, data.ledger_status,
