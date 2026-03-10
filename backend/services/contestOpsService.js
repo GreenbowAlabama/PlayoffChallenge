@@ -339,12 +339,13 @@ async function getMissingPicks(pool, statuses = null, includeZero = true) {
       (ci.max_entries - COUNT(DISTINCT cp.user_id)) as missing_picks
     FROM contest_instances ci
     LEFT JOIN contest_participants cp ON ci.id = cp.contest_instance_id
+    WHERE ci.is_system_generated = true AND ci.is_platform_owned = true
   `;
 
   const params = [];
 
   if (statuses && statuses.length > 0) {
-    query += ` WHERE ci.status = ANY($1::text[])`;
+    query += ` AND ci.status = ANY($1::text[])`;
     params.push(statuses);
   }
 
