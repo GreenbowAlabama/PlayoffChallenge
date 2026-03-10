@@ -322,32 +322,39 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       throw new Error('[Invariant Violation] template_id required before contest instance creation');
     }
 
-    const instanceInsertResult = await client.query(
-      `INSERT INTO contest_instances (
-        template_id, organizer_id, entry_fee_cents, payout_structure,
-        status, contest_name, tournament_start_time, tournament_end_time,
-        lock_time, provider_event_id
-        -- is_platform_owned deliberately omitted: defaults to false (schema authoritative)
-        -- Reason: PGA_BASE contests must be visible to iOS users
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-      )
-      ON CONFLICT (provider_event_id, template_id)
-      DO NOTHING
-      RETURNING id, is_platform_owned`,
-      [
-        tournamentTemplateId,
-        organizerId,
-        baseTemplate.default_entry_fee_cents,
-        JSON.stringify(payoutStructure),
-        'SCHEDULED',
-        `${tournamentName} Contest`,
-        event.start_time,
-        event.end_time,
-        derivedLockTime, // lock_time derived from ESPN data (with fallback)
-        event.provider_event_id
-      ]
-    );
+    let instanceInsertResult;
+    try {
+      instanceInsertResult = await client.query(
+        `INSERT INTO contest_instances (
+          template_id, organizer_id, entry_fee_cents, payout_structure,
+          status, contest_name, tournament_start_time, tournament_end_time,
+          lock_time, provider_event_id
+          -- is_platform_owned deliberately omitted: defaults to false (schema authoritative)
+          -- Reason: PGA_BASE contests must be visible to iOS users
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+        )
+        RETURNING id, is_platform_owned`,
+        [
+          tournamentTemplateId,
+          organizerId,
+          baseTemplate.default_entry_fee_cents,
+          JSON.stringify(payoutStructure),
+          'SCHEDULED',
+          `${tournamentName} Contest`,
+          event.start_time,
+          event.end_time,
+          derivedLockTime, // lock_time derived from ESPN data (with fallback)
+          event.provider_event_id
+        ]
+      );
+    } catch (err) {
+      // Ignore unique constraint violations (partial unique index on provider_event_id, template_id, status != 'CANCELLED')
+      if (err.code !== '23505') {
+        throw err;
+      }
+      instanceInsertResult = { rows: [] };
+    }
 
     if (instanceInsertResult.rows.length > 0) {
       const contestInstanceId = instanceInsertResult.rows[0].id;
@@ -492,30 +499,37 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
       // System-generated discovery contests are published immediately with a generated join_token
       const joinToken = customContestService.generateJoinToken();
 
-      const insertResult = await client.query(
-        `INSERT INTO contest_instances (
-          template_id, organizer_id, entry_fee_cents, payout_structure,
-          status, contest_name, tournament_start_time, tournament_end_time,
-          lock_time, provider_event_id, is_platform_owned, join_token
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        ON CONFLICT (provider_event_id, template_id)
-        DO NOTHING
-        RETURNING id`,
-        [
-          template.id,
-          organizerId,
-          template.default_entry_fee_cents,
-          JSON.stringify(payoutStructure),
-          'SCHEDULED',
-          contestName,
-          event.start_time,
-          event.end_time,
-          derivedLockTime, // lock_time derived from ESPN data (with fallback)
-          event.provider_event_id,
-          isPlatformOwned,
-          joinToken
-        ]
-      );
+      let insertResult;
+      try {
+        insertResult = await client.query(
+          `INSERT INTO contest_instances (
+            template_id, organizer_id, entry_fee_cents, payout_structure,
+            status, contest_name, tournament_start_time, tournament_end_time,
+            lock_time, provider_event_id, is_platform_owned, join_token
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          RETURNING id`,
+          [
+            template.id,
+            organizerId,
+            template.default_entry_fee_cents,
+            JSON.stringify(payoutStructure),
+            'SCHEDULED',
+            contestName,
+            event.start_time,
+            event.end_time,
+            derivedLockTime, // lock_time derived from ESPN data (with fallback)
+            event.provider_event_id,
+            isPlatformOwned,
+            joinToken
+          ]
+        );
+      } catch (err) {
+        // Ignore unique constraint violations (partial unique index on provider_event_id, template_id, status != 'CANCELLED')
+        if (err.code !== '23505') {
+          throw err;
+        }
+        insertResult = { rows: [] };
+      }
 
       if (insertResult.rows.length > 0) {
         created++;
