@@ -151,7 +151,6 @@ async function syncUpcomingPGAContests() {
            NOW()
          )
          ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
-         WHERE provider_event_id IS NOT NULL
          DO NOTHING`,
         [
           newId,

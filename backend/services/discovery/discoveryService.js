@@ -288,7 +288,8 @@ async function discoverTournament(input, pool, now, organizerId) {
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
       )
-      ON CONFLICT DO NOTHING`,
+      ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
+      DO NOTHING`,
       [
         templateId,
         organizerId, // organizer_id: platform user (UUID)
@@ -417,7 +418,8 @@ async function discoverTournament(input, pool, now, organizerId) {
           ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
           )
-          ON CONFLICT DO NOTHING`,
+          ON CONFLICT ON CONSTRAINT uniq_platform_contest_tiers
+          DO NOTHING`,
           [
             newTemplateId, organizerId,
             5000, JSON.stringify({ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }),

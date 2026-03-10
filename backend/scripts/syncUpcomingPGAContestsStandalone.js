@@ -71,22 +71,6 @@ async function syncUpcomingPGAContests() {
 
         // STEP 3: Create all 5 entry-fee contests for this tournament
         for (const fee of ENTRY_FEES) {
-          // Idempotency guard: check if this fee tier already exists for THIS template
-          const existingRes = await tournamentClient.query(
-            `SELECT id FROM contest_instances
-             WHERE provider_event_id = $1
-               AND template_id = $2
-               AND entry_fee_cents = $3
-               AND is_platform_owned = true
-             LIMIT 1`,
-            [baseContest.provider_event_id, baseContest.template_id, fee]
-          );
-
-          if (existingRes.rows.length > 0) {
-            console.log(`    ⊘ Skipping $${(fee/100).toFixed(2)} (already exists)`);
-            continue;
-          }
-
           const newId = crypto.randomUUID();
           const contestName = `${baseContest.contest_name.split('$')[0].trim()} $${(fee/100).toFixed(0)}`;
           const joinToken = `stg_${crypto.randomBytes(16).toString('hex')}`;
@@ -101,6 +85,8 @@ async function syncUpcomingPGAContests() {
              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
                        '{"1":0.7,"2":0.3}'::jsonb,
                        $12,$13,NOW(),NOW())
+             ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
+             DO NOTHING
              RETURNING id`,
             [
               newId,
@@ -118,6 +104,11 @@ async function syncUpcomingPGAContests() {
               joinToken
             ]
           );
+
+          if (insertRes.rows.length === 0) {
+            console.log(`    ⊘ Skipping $${(fee/100).toFixed(2)} (already exists)`);
+            continue;
+          }
 
           const contestInstanceId = insertRes.rows[0].id;
 
