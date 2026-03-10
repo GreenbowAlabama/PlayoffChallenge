@@ -98,16 +98,21 @@ async function getWalletBalance(pool) {
 }
 
 /**
- * Get contest pool balance (entry fees only) in cents
+ * Get contest pool balance in cents
  *
- * Sums all CREDIT - DEBIT ledger entries for contest-domain transactions only:
- * - ENTRY_FEE (user deposit when joining)
- * - ENTRY_FEE_REFUND (refund if applicable)
+ * Sums all ledger entries for contest domain using direction-based accounting:
+ * - CREDIT entries increase pool balance
+ * - DEBIT entries decrease pool balance
  *
- * DOES NOT include PRIZE_PAYOUT or PRIZE_PAYOUT_REVERSAL (settlement domain).
+ * Includes:
+ * - ENTRY_FEE (user deposits when joining)
+ * - ENTRY_FEE_REFUND (refunds if applicable)
+ * - PRIZE_PAYOUT (payouts distributed)
+ * - PRIZE_PAYOUT_REVERSAL (payout reversals)
+ * - ADJUSTMENT (administrative corrections including pool repairs)
  *
- * CRITICAL: This domain must be mutually exclusive with wallet_liability
- * to prevent double-counting refund credits.
+ * This ensures repair adjustments (ADJUSTMENT CREDIT entries) correctly
+ * offset negative pool balances.
  */
 async function getContestPoolBalance(pool) {
   const result = await pool.query(`
@@ -125,7 +130,10 @@ async function getContestPoolBalance(pool) {
     FROM ledger
     WHERE entry_type IN (
       'ENTRY_FEE',
-      'ENTRY_FEE_REFUND'
+      'ENTRY_FEE_REFUND',
+      'PRIZE_PAYOUT',
+      'PRIZE_PAYOUT_REVERSAL',
+      'ADJUSTMENT'
     )
   `);
 

@@ -265,7 +265,7 @@ async function repairContestPools(pool) {
         const referenceId = uuidv5(`pool-repair-${contestId}`, POOL_REPAIR_NAMESPACE);
 
         // Insert compensating ADJUSTMENT entry (CREDIT to offset negative balance)
-        // reference_type='CONTEST' links this adjustment to the contest
+        // reference_type='POOL_REPAIR' marks this as a repair operation
         // metadata_json provides semantic detail about the repair
         await LedgerRepository.insertLedgerEntry(client, {
           contest_instance_id: contestId,
@@ -273,7 +273,7 @@ async function repairContestPools(pool) {
           direction: 'CREDIT',
           amount_cents: negativeAmountCents,
           currency: 'USD',
-          reference_type: 'CONTEST',
+          reference_type: 'POOL_REPAIR',
           reference_id: referenceId,
           idempotency_key: idempotencyKey,
           metadata_json: {
