@@ -278,13 +278,26 @@ describe('Admin Discovery Routes', () => {
       await pool.query(
         `INSERT INTO contest_instances (
           id, template_id, contest_name, status, organizer_id, is_system_generated,
-          entry_fee_cents, max_entries, current_entries, lock_time, tournament_start_time, payout_structure
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          entry_fee_cents, max_entries, lock_time, tournament_start_time, payout_structure
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           instanceId, templateId, 'System Test Contest', 'SCHEDULED', organizerId, true,
-          1000, 100, 5, lockTime, startTime, JSON.stringify({})
+          1000, 100, lockTime, startTime, JSON.stringify({})
         ]
       );
+
+      // Create 5 participants to match expected current_entries count
+      for (let i = 0; i < 5; i++) {
+        const participantId = randomUUID();
+        await pool.query(
+          `INSERT INTO users (id, name, email) VALUES ($1, $2, $3)`,
+          [participantId, `Participant ${i}`, `participant${i}-${randomUUID()}@test.local`]
+        );
+        await pool.query(
+          `INSERT INTO contest_participants (id, contest_instance_id, user_id, joined_at) VALUES ($1, $2, $3, NOW())`,
+          [randomUUID(), instanceId, participantId]
+        );
+      }
 
       const res = await request(app)
         .get('/api/admin/discovery/system-instances')

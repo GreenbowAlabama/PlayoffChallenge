@@ -140,7 +140,7 @@ async function listContests(pool, filters = {}) {
             ct.name as template_name,
             ct.sport as template_sport,
             (
-              SELECT COUNT(*)
+              SELECT COUNT(*)::integer
               FROM contest_participants cp
               WHERE cp.contest_instance_id = ci.id
             ) AS participant_count
@@ -189,7 +189,7 @@ async function getContest(pool, contestId) {
             ct.name as template_name,
             ct.sport as template_sport,
             (
-              SELECT COUNT(*)
+              SELECT COUNT(*)::integer
               FROM contest_participants cp
               WHERE cp.contest_instance_id = ci.id
             ) AS participant_count

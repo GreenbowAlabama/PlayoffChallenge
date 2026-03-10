@@ -67,6 +67,7 @@ router.get('/system-templates', async (req, res) => {
         provider_tournament_id,
         season_year,
         status,
+        is_system_generated,
         created_at,
         updated_at
       FROM contest_templates
@@ -115,7 +116,11 @@ router.get('/system-instances', async (req, res) => {
         ci.provider_event_id,
         ci.entry_fee_cents,
         ci.max_entries,
-        ci.current_entries,
+        (
+          SELECT COUNT(*)::integer
+          FROM contest_participants cp
+          WHERE cp.contest_instance_id = ci.id
+        ) as current_entries,
         ci.lock_time,
         ci.start_time,
         ci.tournament_start_time,
