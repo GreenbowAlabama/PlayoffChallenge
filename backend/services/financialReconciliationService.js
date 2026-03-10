@@ -404,6 +404,49 @@ async function logFinancialAction(poolOrClient, adminId, actionType, reason, det
   }
 }
 
+/**
+ * Get reconciliation history for the last N days.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {number} numDays - Number of days to look back (default 30, max 365)
+ * @returns {Promise<Array>} Reconciliation snapshots ordered by created_at DESC
+ */
+async function getReconciliationHistory(pool, numDays = 30) {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(`
+      SELECT
+        id,
+        timestamp,
+        wallet_liability_cents,
+        contest_pools_cents,
+        deposits_cents,
+        withdrawals_cents,
+        difference_cents,
+        status,
+        created_at
+      FROM financial_reconciliation_snapshots
+      WHERE created_at >= NOW() - INTERVAL '1 day' * $1
+      ORDER BY created_at DESC
+      LIMIT 1000
+    `, [numDays]);
+
+    return result.rows.map(row => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      wallet_liability_cents: parseInt(row.wallet_liability_cents, 10),
+      contest_pools_cents: parseInt(row.contest_pools_cents, 10),
+      deposits_cents: parseInt(row.deposits_cents, 10),
+      withdrawals_cents: parseInt(row.withdrawals_cents, 10),
+      difference_cents: parseInt(row.difference_cents, 10),
+      status: row.status,
+      created_at: row.created_at
+    }));
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   getPlatformReconciliation,
   getFinancialInvariants,
@@ -411,5 +454,6 @@ module.exports = {
   convertIllegalEntryFeeToRefund,
   rollbackNonAtomicJoin,
   freezeNegativeWallet,
-  logFinancialAction
+  logFinancialAction,
+  getReconciliationHistory
 };
