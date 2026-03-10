@@ -17,6 +17,7 @@ import ContestOpsDetailPage from './pages/ContestOpsDetailPage';
 import { AdminControlRoomPage } from './pages/admin/AdminControlRoomPage';
 import { PlatformHealthPage } from './pages/admin/platform-health/PlatformHealthPage';
 import { ContestOpsPage } from './pages/admin/contest-ops/ContestOpsPage';
+import { ContestIntegrityPage } from './pages/admin/contest-integrity/ContestIntegrityPage';
 import { PlayerDataPage } from './pages/admin/player-data/PlayerDataPage';
 import { UserOpsPage } from './pages/admin/user-ops/UserOpsPage';
 import { FinancialOpsPage } from './pages/admin/financial-ops/FinancialOpsPage';
@@ -51,6 +52,7 @@ function App() {
             <Route path="admin" element={<AdminControlRoomPage />} />
             <Route path="admin/platform-health" element={<PlatformHealthPage />} />
             <Route path="admin/contest-ops" element={<ContestOpsPage />} />
+            <Route path="admin/contest-integrity" element={<ContestIntegrityPage />} />
             <Route path="admin/player-data" element={<PlayerDataPage />} />
             <Route path="admin/user-ops" element={<UserOpsPage />} />
             <Route path="admin/financial-ops" element={<FinancialOpsPage />} />

@@ -9,6 +9,7 @@ const express = require('express');
 const router = express.Router();
 const contestOpsService = require('../../services/contestOpsService');
 const financialHealthService = require('../../services/financialHealthService');
+const contestIntegrityService = require('../../services/contestIntegrityService');
 
 /**
  * GET /api/admin/contest-ops/missing-picks
@@ -101,6 +102,51 @@ router.get('/financial-health', async (req, res) => {
   } catch (err) {
     console.error('[Contest Ops - Financial Health] Error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/contest-ops/contest-integrity
+ *
+ * Get all contest integrity diagnostics (read-only operational telemetry).
+ *
+ * Response:
+ * {
+ *   "tier_integrity": [
+ *     { "provider_event_id": "string", "entry_fee_cents": number, "contests": number }
+ *   ],
+ *   "capacity_summary": [
+ *     { "provider_event_id": "string", "contests": number, "total_capacity": number }
+ *   ],
+ *   "player_pool_status": [
+ *     { "provider_event_id": "string", "entry_fee_cents": number, "golfers": number }
+ *   ],
+ *   "duplicate_contests": [
+ *     { "provider_event_id": "string", "entry_fee_cents": number, "duplicates": number }
+ *   ],
+ *   "tournament_timeline": [
+ *     {
+ *       "contest_name": "string",
+ *       "entry_fee_cents": number,
+ *       "max_entries": number,
+ *       "tournament_start_time": "ISO-8601 or null",
+ *       "lock_time": "ISO-8601 or null"
+ *     }
+ *   ],
+ *   "timestamp": "ISO-8601"
+ * }
+ */
+router.get('/contest-integrity', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+
+    const snapshot = await contestIntegrityService.getContestIntegritySnapshot(pool);
+
+    res.json(snapshot);
+  } catch (err) {
+    res.status(500).json({
+      error: 'contest_integrity_unavailable'
+    });
   }
 });
 
