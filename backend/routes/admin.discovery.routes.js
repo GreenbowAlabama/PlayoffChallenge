@@ -121,7 +121,7 @@ router.get('/system-instances', async (req, res) => {
         ci.created_at
       FROM contest_instances ci
       JOIN contest_templates ct ON ct.id = ci.template_id
-      WHERE ci.is_system_generated = true
+      WHERE 1=1
     `;
 
     const params = [];
