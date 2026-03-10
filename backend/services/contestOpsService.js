@@ -223,7 +223,11 @@ async function getContestOpsSnapshot(pool, contestId, options = {}) {
       `SELECT
         fs.id,
         fs.created_at,
-        (SELECT COUNT(*) FROM jsonb_array_elements(fs.selection_json)) AS player_count
+        CASE
+          WHEN jsonb_typeof(fs.selection_json) = 'array'
+          THEN jsonb_array_length(fs.selection_json)
+          ELSE 0
+        END AS player_count
       FROM field_selections fs
       WHERE fs.contest_instance_id = $1`,
       [contestId]
