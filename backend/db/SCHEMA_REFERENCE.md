@@ -2,7 +2,7 @@
 
 Generated from `backend/db/schema.snapshot.sql` for quick lookup and understanding.
 
-**Last Updated:** 2026-03-09
+**Last Updated:** 2026-03-10
 
 ---
 
@@ -33,29 +33,37 @@ Generated from `backend/db/schema.snapshot.sql` for quick lookup and understandi
 | entry_fee_cents | integer | **IMMUTABLE after publish** |
 | payout_structure | jsonb | Structure cannot change after LOCKED |
 | status | text | SCHEDULED, LOCKED, LIVE, COMPLETE, CANCELLED, ERROR |
-| contest_name | text | Contest display name |
-| join_token | text | UNIQUE, required for phase 1 join |
-| max_entries | integer | Capacity (default 20, NULL = unlimited) |
 | start_time | timestamp | When contest goes LIVE |
 | lock_time | timestamp | When lineups lock |
-| lock_at | timestamp | Alternative lock timestamp |
-| settle_time | timestamp | When settlement runs |
-| end_time | timestamp | Contest ends |
-| tournament_start_time | timestamp | Tournament begins |
-| tournament_end_time | timestamp | Tournament ends |
-| is_platform_owned | boolean | Platform-created vs user-created |
-| is_primary_marketing | boolean | Featured on homepage |
-| is_system_generated | boolean | System-created (not user) |
-| provider_event_id | text | External provider reference |
-| current_entries | integer | Active participant count |
 | created_at | timestamp | NOT NULL DEFAULT now() |
 | updated_at | timestamp | NOT NULL DEFAULT now() |
+| join_token | text | UNIQUE, required for phase 1 join |
+| max_entries | integer | Capacity (default 20, NULL = unlimited) |
+| lock_at | timestamp | Alternative lock timestamp |
+| contest_name | text | Contest display name |
+| end_time | timestamp | Contest ends |
+| settle_time | timestamp | When settlement runs |
+| is_platform_owned | boolean | Platform-created vs user-created |
+| tournament_start_time | timestamp | Tournament begins |
+| tournament_end_time | timestamp | Tournament ends |
+| is_primary_marketing | boolean | Featured on homepage |
+| provider_event_id | text | External provider reference |
+| is_system_generated | boolean | System-created (not user) |
 
 **Constraints:**
 - `entry_fee_cents >= 0`
 - `max_entries > 0` (if not NULL)
 - status must be one of valid values
 - join_token is UNIQUE
+
+**Entry Count Derivation:**
+Entry counts are NOT stored in this table. The source of truth for contest entries is the `contest_participants` table.
+Entry counts must always be derived dynamically via:
+```sql
+SELECT COUNT(*)
+FROM contest_participants
+WHERE contest_instance_id = ?
+```
 
 ---
 
