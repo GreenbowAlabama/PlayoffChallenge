@@ -36,6 +36,7 @@ async function getContestOpsSnapshot(pool, contestId, options = {}) {
     const serverTime = serverTimeResult.rows[0].server_time;
 
     // 2. Contest instance (includes updated_at for ops visibility)
+    //    Do NOT select current_entries — it's stale; compute dynamically in capacity section
     const contestResult = await client.query(
       `SELECT
         id,
@@ -44,7 +45,6 @@ async function getContestOpsSnapshot(pool, contestId, options = {}) {
         status,
         entry_fee_cents,
         max_entries,
-        current_entries,
         lock_time,
         start_time,
         tournament_start_time,
@@ -85,22 +85,25 @@ async function getContestOpsSnapshot(pool, contestId, options = {}) {
     const template = templateResult.rows[0] || null;
 
     // 4. All contest instances for this template (null-safe ordering)
+    //    Compute entry counts dynamically from contest_participants instead of using stale current_entries
     const templateContestsResult = await client.query(
       `SELECT
-        id,
-        contest_name,
-        status,
-        lock_time,
-        entry_fee_cents,
-        max_entries,
-        current_entries,
-        organizer_id,
-        is_platform_owned,
-        is_system_generated,
-        is_primary_marketing
-      FROM contest_instances
-      WHERE template_id = $1
-      ORDER BY lock_time NULLS LAST, created_at`,
+        ci.id,
+        ci.contest_name,
+        ci.status,
+        ci.lock_time,
+        ci.entry_fee_cents,
+        ci.max_entries,
+        COUNT(cp.id) as current_entries,
+        ci.organizer_id,
+        ci.is_platform_owned,
+        ci.is_system_generated,
+        ci.is_primary_marketing
+      FROM contest_instances ci
+      LEFT JOIN contest_participants cp ON ci.id = cp.contest_instance_id
+      WHERE ci.template_id = $1
+      GROUP BY ci.id, ci.contest_name, ci.status, ci.lock_time, ci.entry_fee_cents, ci.max_entries, ci.organizer_id, ci.is_platform_owned, ci.is_system_generated, ci.is_primary_marketing
+      ORDER BY ci.lock_time NULLS LAST, ci.created_at`,
       [templateId]
     );
 
@@ -245,11 +248,18 @@ async function getContestOpsSnapshot(pool, contestId, options = {}) {
           created_at: null
         };
 
-    // 12. Capacity info
+    // 12. Capacity info — compute participant count dynamically from contest_participants
+    //     Do NOT use stale contest_instances.current_entries column
+    const capacityResult = await client.query(
+      `SELECT COUNT(*) as participant_count FROM contest_participants WHERE contest_instance_id = $1`,
+      [contestId]
+    );
+    const participantCount = parseInt(capacityResult.rows[0].participant_count, 10);
+
     const capacity = {
-      participants_count: parseInt(contest.current_entries, 10),
+      participants_count: participantCount,
       max_entries: contest.max_entries ? parseInt(contest.max_entries, 10) : null,
-      remaining_slots: contest.max_entries ? Math.max(0, parseInt(contest.max_entries, 10) - parseInt(contest.current_entries, 10)) : null
+      remaining_slots: contest.max_entries ? Math.max(0, parseInt(contest.max_entries, 10) - participantCount) : null
     };
 
     // 13. Tournament info
@@ -270,7 +280,7 @@ async function getContestOpsSnapshot(pool, contestId, options = {}) {
 
     if (contest.status === 'SCHEDULED') {
       if (lockTime === null || nowTime < lockTime) {
-        if (contest.max_entries === null || parseInt(contest.current_entries, 10) < parseInt(contest.max_entries, 10)) {
+        if (contest.max_entries === null || participantCount < parseInt(contest.max_entries, 10)) {
           joinable = true;
           reason = null;
         } else {

@@ -424,6 +424,73 @@ describe('contestOpsService', () => {
         client.release();
       }
     });
+
+    it('should compute participant count dynamically from contest_participants, not stale current_entries', async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        const userRes = await client.query(
+          `INSERT INTO users (id) VALUES (gen_random_uuid()) RETURNING id`
+        );
+        const organizerId = userRes.rows[0].id;
+
+        const user1Res = await client.query(
+          `INSERT INTO users (id) VALUES (gen_random_uuid()) RETURNING id`
+        );
+        const userId1 = user1Res.rows[0].id;
+
+        const user2Res = await client.query(
+          `INSERT INTO users (id) VALUES (gen_random_uuid()) RETURNING id`
+        );
+        const userId2 = user2Res.rows[0].id;
+
+        const templateRes = await client.query(
+          `INSERT INTO contest_templates (
+            name, sport, template_type, scoring_strategy_key, lock_strategy_key,
+            settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
+            allowed_entry_fee_max_cents, allowed_payout_structures, is_active
+          ) VALUES (
+            'Dynamic Count Test', 'PGA', 'test_type', 'pga-scoring', 'default-lock',
+            'pga-settlement', 5000, 0, 50000, '[]'::jsonb, false
+          ) RETURNING id`,
+        );
+        const templateId = templateRes.rows[0].id;
+
+        // Create contest with current_entries = 0 (stale)
+        const contestRes = await client.query(
+          `INSERT INTO contest_instances (
+            template_id, organizer_id, entry_fee_cents, payout_structure,
+            status, contest_name, max_entries, current_entries
+          ) VALUES (
+            $1, $2, 5000, '[]'::jsonb,
+            'SCHEDULED', 'Dynamic Count Test', 20, 0
+          ) RETURNING id`,
+          [templateId, organizerId],
+        );
+        const contestId = contestRes.rows[0].id;
+
+        // Manually add 2 participants (simulating stale current_entries)
+        await client.query(
+          `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at)
+           VALUES ($1, $2, NOW()), ($1, $3, NOW())`,
+          [contestId, userId1, userId2]
+        );
+
+        await client.query('COMMIT');
+
+        // Fetch snapshot
+        const snapshot = await contestOpsService.getContestOpsSnapshot(pool, contestId);
+
+        // Verify capacity uses dynamic count from contest_participants, not stale current_entries
+        expect(snapshot.capacity.participants_count).toBe(2);
+        expect(snapshot.capacity.max_entries).toBe(20);
+        expect(snapshot.capacity.remaining_slots).toBe(18);
+      } finally {
+        await client.query('ROLLBACK');
+        client.release();
+      }
+    });
   });
 
   describe('getMissingPicks', () => {

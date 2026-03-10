@@ -477,6 +477,14 @@ struct ContestDetailViewInner: View {
         }
         .onAppear {
             viewModel.configure(currentUserId: authService.currentUser?.id)
+
+            // Set callback to refresh available contests list after join/unjoin
+            viewModel.onContestJoinStateChanged = {
+                Task {
+                    await availableContestsVM.loadContests(forceRefresh: true)
+                }
+            }
+
             if !viewModel.isFetching {
                 viewModel.fetchContestDetailDetached()
             }

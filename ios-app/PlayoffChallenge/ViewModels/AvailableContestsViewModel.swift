@@ -27,81 +27,17 @@ final class AvailableContestsViewModel: ObservableObject {
 
     // MARK: - Computed Properties
 
-    var featuredContests: [Contest] {
+    /// All scheduled contests, sorted by lock time (upcoming first).
+    /// Single source of truth for Home tab display.
+    var scheduledContests: [Contest] {
         contests
-            .filter { $0.isPlatformOwned == true }
-            .filter { $0.status != .complete && $0.status != .cancelled }
-            .filter { contest in
-                // PRESENTATION ONLY: Hide scheduled contests that have passed lock_time from
-                // featured display. This is a display-freshness filter, not a join gate.
-                // Join eligibility is determined exclusively by backend actions.canJoin.
-                // Backend re-validates all join constraints on every join attempt.
-                if contest.status == .scheduled,
-                   let lockTime = contest.lockTime,
-                   Date.now > lockTime {
-                    return false
-                }
-                return true
-            }
+            .filter { $0.status == .scheduled }
             .sorted { lhs, rhs in
-                if lhs.status == .live && rhs.status != .live { return true }
-                if lhs.status != .live && rhs.status == .live { return false }
-
-                guard let l = lhs.lockTime, let r = rhs.lockTime else {
-                    return false
-                }
-
-                return l < r
-            }
-    }
-
-    var regularContests: [Contest] {
-        contests
-            .filter { $0.isPlatformOwned != true }
-            .filter { $0.status != .complete && $0.status != .cancelled }
-            .sorted { lhs, rhs in
-                // Live first, then by remaining time for scheduled
-                if lhs.status == .live && rhs.status != .live { return true }
-                if lhs.status != .live && rhs.status == .live { return false }
-
-                // For scheduled contests, sort by remaining time (upcoming first)
-                let lhsUpcoming = lhs.status == .scheduled && isUpcomingScheduled(lhs)
-                let rhsUpcoming = rhs.status == .scheduled && isUpcomingScheduled(rhs)
-
-                if lhsUpcoming && rhsUpcoming {
-                    let remaining1 = remainingTimeUntilLock(lhs)
-                    let remaining2 = remainingTimeUntilLock(rhs)
-                    return remaining1 < remaining2
-                }
-
-                // Upcoming scheduled comes before expired
-                if lhsUpcoming && !rhsUpcoming { return true }
-                if !lhsUpcoming && rhsUpcoming { return false }
-
-                // Both expired or non-scheduled: sort by lock time
                 guard let l = lhs.lockTime, let r = rhs.lockTime else {
                     return false
                 }
                 return l < r
             }
-    }
-
-    private func isUpcomingScheduled(_ contest: Contest) -> Bool {
-        guard contest.status == .scheduled, let lockTime = contest.lockTime else {
-            return false
-        }
-        return Date.now < lockTime
-    }
-
-    private func remainingTimeUntilLock(_ contest: Contest) -> TimeInterval {
-        guard let lockTime = contest.lockTime else {
-            return .infinity
-        }
-        return lockTime.timeIntervalSince(Date.now)
-    }
-
-    var showFeaturedSection: Bool {
-        !featuredContests.isEmpty
     }
 
     // MARK: - Dependencies
@@ -137,24 +73,35 @@ final class AvailableContestsViewModel: ObservableObject {
     // MARK: - Actions
 
     func loadContests(forceRefresh: Bool = false) async {
-        // Guard: Prevent duplicate initial load, unless forceRefresh is true
-        guard (forceRefresh || !hasLoaded) && !isLoading else {
+        // Guard 1: Prevent concurrent fetches
+        guard !isLoading else {
             print("[AvailableContestsViewModel] Load already in progress, skipping duplicate")
             return
         }
 
-        hasLoaded = true
+        // Guard 2: Prevent duplicate initial load, unless forceRefresh is true
+        guard forceRefresh || !hasLoaded else {
+            print("[AvailableContestsViewModel] Already loaded and no forceRefresh requested")
+            return
+        }
+
         isLoading = true
         errorMessage = nil
+
+        // CRITICAL: Always reset loading state, even on early return or cancellation
+        defer {
+            isLoading = false
+        }
 
         do {
             let domainContests = try await service.fetchAvailableContests()
             print("[AvailableContestsViewModel] Loaded \(domainContests.count) domain objects from backend")
 
-            // Use Domain objects directly.
+            // Use Domain objects directly. Always replace, never merge.
             // Backend handles filtering, capacity, sorting, and user_has_entered (via actions.isJoined if applicable).
             // Client does NOT filter, sort, or modify entry counts.
             contests = domainContests
+            hasLoaded = true  // Set after successful fetch, not before
 
             print("[AvailableContestsViewModel] Loaded \(contests.count) Contest objects")
             for (index, contest) in contests.enumerated() {
@@ -163,22 +110,14 @@ final class AvailableContestsViewModel: ObservableObject {
 
             errorMessage = nil
         } catch {
-            // GOVERNANCE: Suppress NSURLErrorDomain Code -999 (cancelled).
-            // These are expected during SwiftUI lifecycle transitions.
-            if let urlError = error as? URLError,
-               urlError.code == .cancelled {
-                print("[AvailableContestsViewModel] Request cancelled — ignoring.")
-                return
-            }
-
             print("[AvailableContestsViewModel] ERROR loading contests: \(error)")
 
-            // Only mutate state for real failures
-            contests = []
+            // On pull-to-refresh, keep existing contests; on initial load, clear
+            if !hasLoaded {
+                contests = []
+            }
             errorMessage = error.localizedDescription
         }
-
-        isLoading = false
     }
 
     func refresh() async {

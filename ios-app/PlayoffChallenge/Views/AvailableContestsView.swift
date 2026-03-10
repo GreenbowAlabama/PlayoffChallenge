@@ -34,14 +34,14 @@ struct AvailableContestsView: View {
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                } else if viewModel.regularContests.isEmpty {
+                } else if viewModel.scheduledContests.isEmpty {
                     Text("No contests available")
                         .foregroundColor(.secondary)
                         .onAppear {
                             print("[AvailableContestsView] No contests to display. Loading: \(viewModel.isLoading), Error: \(viewModel.errorMessage ?? "none")")
                         }
                 } else {
-                    ForEach(viewModel.regularContests) { contest in
+                    ForEach(viewModel.scheduledContests) { contest in
                         // Payout display: only show "Settled" for complete contests.
                         // Backend-computed payouts available in payout_table at settlement.
                         // Client does not compute pot/payout (no rake/rounding/tie logic).

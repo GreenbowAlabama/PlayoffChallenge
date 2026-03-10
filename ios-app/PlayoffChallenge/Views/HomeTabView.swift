@@ -16,95 +16,36 @@ enum HomeTabRoute: Hashable {
 
 struct HomeTabView: View {
     @EnvironmentObject var availableVM: AvailableContestsViewModel
-    @EnvironmentObject var myVM: MyContestsViewModel
-    @StateObject private var viewModel = HomeTabViewModel()
 
     @State private var navigationPath: [HomeTabRoute] = []
-    @State private var isRefreshing = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            ScrollView {
-                VStack(spacing: DesignTokens.Spacing.lg) {
-                    // Featured Hero Section
-                    if let featured = viewModel.featuredContests.first {
-                        FeaturedContestHeroView(contest: featured) {
-                            navigationPath.append(.detail(featured.id, featured))
+            List {
+                ForEach(
+                    availableVM.contests
+                        .filter { $0.status == .scheduled }
+                        .sorted { lhs, rhs in
+                            guard let l = lhs.lockTime, let r = rhs.lockTime else { return false }
+                            return l < r
                         }
-                        .padding(.horizontal, DesignTokens.Spacing.lg)
+                ) { contest in
+                    NavigationLink(value: HomeTabRoute.detail(contest.id, contest)) {
+                        ContestRowView(
+                            contestName: contest.contestName,
+                            isJoined: contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true,
+                            entryCountText: "\(contest.entryCount)/\(contest.maxEntries ?? 0)",
+                            statusText: contest.status.displayName,
+                            lockText: nil,
+                            entryFeeText: contest.entryFeeCents > 0 ? String(format: "$%.0f Entry", Double(contest.entryFeeCents) / 100.0) : nil,
+                            payoutText: contest.status == .complete ? "Settled" : nil,
+                            shareURL: nil
+                        )
                     }
-
-                    // Open Contests Section (limited to 5)
-                    if viewModel.hasOpenContests {
-                        VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                            Text("Open Contests")
-                                .font(.headline)
-                                .padding(.horizontal, DesignTokens.Spacing.lg)
-
-                            VStack(spacing: DesignTokens.Spacing.md) {
-                                ForEach(viewModel.openContests.prefix(5)) { contest in
-                                    ContestCardView(
-                                        contest: contest,
-                                        style: .standard,
-                                        onTap: {
-                                            navigationPath.append(.detail(contest.id, contest))
-                                        }
-                                    )
-                                }
-                            }
-                            .padding(.horizontal, DesignTokens.Spacing.lg)
-                        }
-                    }
-
-                    // My Active Contests Section
-                    // Displays all SCHEDULED contests sorted chronologically by start_time.
-                    // This section shows contests the user has created or joined, in order of when they start.
-                    if !viewModel.scheduledContests.isEmpty {
-                        VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                            Text("My Active Contests")
-                                .font(.headline)
-                                .padding(.horizontal, DesignTokens.Spacing.lg)
-
-                            VStack(spacing: DesignTokens.Spacing.md) {
-                                ForEach(viewModel.scheduledContests) { contest in
-                                    ContestCardView(
-                                        contest: contest,
-                                        style: .standard,
-                                        onTap: {
-                                            navigationPath.append(.detail(contest.id, contest))
-                                        }
-                                    )
-                                }
-                            }
-                            .padding(.horizontal, DesignTokens.Spacing.lg)
-                        }
-                    }
-
-                    // Empty State
-                    if !viewModel.hasAnyContent && !viewModel.isLoading {
-                        VStack(spacing: DesignTokens.Spacing.md) {
-                            Image(systemName: "calendar.badge.plus")
-                                .font(.system(size: 44))
-                                .foregroundColor(DesignTokens.Color.Brand.primary)
-
-                            Text("No Contests Available")
-                                .font(.headline)
-                                .foregroundColor(DesignTokens.Color.Text.primary)
-
-                            Text("New contests will appear here as they become available.")
-                                .font(.subheadline)
-                                .foregroundColor(DesignTokens.Color.Text.secondary)
-                                .multilineTextAlignment(.center)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(DesignTokens.Spacing.xl)
-                    }
-
-                    Spacer(minLength: DesignTokens.Spacing.section)
                 }
-                .padding(.vertical, DesignTokens.Spacing.lg)
             }
-            .navigationTitle("67 Games")
+            .listStyle(.plain)
+            .navigationTitle("'67 Games")
             .navigationDestination(for: HomeTabRoute.self) { route in
                 switch route {
                 case .detail(let contestId, let contest):
@@ -112,33 +53,17 @@ struct HomeTabView: View {
                 }
             }
             .refreshable {
-                // Pull-to-refresh: reload both contest sources
-                isRefreshing = true
-                await availableVM.refresh()
-                await myVM.loadMyContests()
-                isRefreshing = false
+                await availableVM.loadContests(forceRefresh: true)
             }
-        }
-        .onChange(of: availableVM.contests) { _, available in
-            viewModel.updateSections(from: available, and: myVM.myContests)
-        }
-        .onChange(of: myVM.myContests) { _, mine in
-            viewModel.updateSections(from: availableVM.contests, and: mine)
-        }
-        .onChange(of: availableVM.isLoading) { _, loading in
-            viewModel.updateLoadingState(
-                availableIsLoading: loading,
-                myIsLoading: myVM.isLoading
-            )
-        }
-        .onChange(of: myVM.isLoading) { _, loading in
-            viewModel.updateLoadingState(
-                availableIsLoading: availableVM.isLoading,
-                myIsLoading: loading
-            )
         }
         .onAppear {
             print("[HomeTabView] Appeared")
+            // Only fetch if contests haven't loaded yet
+            if availableVM.contests.isEmpty {
+                Task {
+                    await availableVM.loadContests()
+                }
+            }
         }
     }
 
@@ -146,47 +71,8 @@ struct HomeTabView: View {
 
 // MARK: - Previews
 
-#Preview("Home Tab with Featured and Active") {
-    let available = [
-        MockContest.fixture(
-            name: "NFL Playoffs 2026",
-            status: .scheduled,
-            lockTime: Calendar.current.date(byAdding: .hour, value: 2, to: Date()),
-            isPlatformOwned: true
-        ),
-        MockContest.fixture(
-            name: "Regular Season Challenge",
-            status: .scheduled,
-            isPlatformOwned: false
-        ),
-    ]
-
-    let mine = [
-        MockContest.fixture(
-            name: "My Weekly Pick",
-            status: .live,
-            isPlatformOwned: false
-        ),
-    ]
-
-    let homeVM = HomeTabViewModel()
-    homeVM.updateSections(from: available, and: mine)
-    homeVM.updateLoadingState(availableIsLoading: false, myIsLoading: false)
-
-    return HomeTabView()
+#Preview("Home Tab") {
+    HomeTabView()
         .environmentObject(AvailableContestsViewModel())
-        .environmentObject(MyContestsViewModel())
-        .environmentObject(homeVM)
-        .background(DesignTokens.Color.Brand.background)
-}
-
-#Preview("Home Tab - Empty") {
-    let homeVM = HomeTabViewModel()
-    homeVM.updateLoadingState(availableIsLoading: false, myIsLoading: false)
-
-    return HomeTabView()
-        .environmentObject(AvailableContestsViewModel())
-        .environmentObject(MyContestsViewModel())
-        .environmentObject(homeVM)
         .background(DesignTokens.Color.Brand.background)
 }

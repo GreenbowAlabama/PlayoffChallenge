@@ -40,6 +40,11 @@ final class ContestDetailViewModel: ObservableObject {
     private var hasFetched = false
     private var refreshTask: Task<Void, Never>?
 
+    // MARK: - Callbacks
+
+    /// Callback to refresh the available contests list after join/unjoin
+    var onContestJoinStateChanged: (() -> Void)?
+
     // MARK: - Initialization
 
     init(
@@ -275,6 +280,9 @@ final class ContestDetailViewModel: ObservableObject {
             // Refetch contest detail from backend to get accurate join state and other fields
             await fetchContestDetailForRefresh()
             print("🔥 [VM] Refetch completed")
+
+            // Notify available contests list to refresh
+            onContestJoinStateChanged?()
         } catch let error as JoinLinkError {
             print("❌ [VM] joinContest() JoinLinkError: \(error)")
             handleJoinError(error)
@@ -338,11 +346,17 @@ final class ContestDetailViewModel: ObservableObject {
             await fetchContestDetailForRefresh()
             await walletRefresher?.refreshWallet()
             print("UNJOIN: Refetch completed")
+
+            // Notify available contests list to refresh
+            onContestJoinStateChanged?()
         } catch APIError.notFound {
             // 404 — idempotent (already unjoined), still refresh state
             print("UNJOIN: 404 (idempotent), refetching contest detail and wallet...")
             await fetchContestDetailForRefresh()
             await walletRefresher?.refreshWallet()
+
+            // Notify available contests list to refresh
+            onContestJoinStateChanged?()
         } catch APIError.restrictedState(let reason) {
             // 403 — cannot leave in current state
             print("UNJOIN 403: \(reason)")
