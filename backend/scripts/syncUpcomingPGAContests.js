@@ -10,6 +10,7 @@
 
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const { getExistingContestInstance } = require('../repositories/contestInstanceRepository');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -76,19 +77,17 @@ async function syncUpcomingPGAContests() {
     const createdContestIds = [];
 
     for (const fee of entryFeesToCreate) {
-      const { rows: existingRows } = await client.query(
-        `SELECT id, join_token
-         FROM contest_instances
-         WHERE is_platform_owned = true
-           AND template_id = $1
-           AND entry_fee_cents = $2
-           AND status IN ('SCHEDULED','LOCKED','LIVE','COMPLETE')
-         LIMIT 1`,
-        [correctTemplateId, fee]
+      // Check if contest already exists using correct business key:
+      // (provider_event_id, template_id, entry_fee_cents)
+      // Note: Includes cancelled contests (financial exposure)
+      const existingContest = await getExistingContestInstance(
+        client,
+        baseContest.provider_event_id,
+        correctTemplateId,
+        fee
       );
 
-      if (existingRows.length > 0) {
-        const existingContest = existingRows[0];
+      if (existingContest) {
 
         if (!existingContest.join_token) {
           const token = `stg_${crypto.randomUUID().replace(/-/g, '')}`;
