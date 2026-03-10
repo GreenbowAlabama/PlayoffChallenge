@@ -322,6 +322,9 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       throw new Error('[Invariant Violation] template_id required before contest instance creation');
     }
 
+    // Create savepoint for contest instance insert to allow recovery from unique constraint violations
+    await client.query('SAVEPOINT contest_insert_sp');
+
     let instanceInsertResult;
     try {
       instanceInsertResult = await client.query(
@@ -349,11 +352,13 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
         ]
       );
     } catch (err) {
-      // Ignore unique constraint violations (partial unique index on provider_event_id, template_id, status != 'CANCELLED')
-      if (err.code !== '23505') {
+      // Unique constraint violation: roll back only this insert, keep transaction valid
+      if (err.code === '23505') {
+        await client.query('ROLLBACK TO SAVEPOINT contest_insert_sp');
+        instanceInsertResult = { rows: [] };
+      } else {
         throw err;
       }
-      instanceInsertResult = { rows: [] };
     }
 
     if (instanceInsertResult.rows.length > 0) {
@@ -499,6 +504,9 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
       // System-generated discovery contests are published immediately with a generated join_token
       const joinToken = customContestService.generateJoinToken();
 
+      // Create savepoint for this template's contest insert to allow recovery from unique constraint violations
+      await client.query('SAVEPOINT contest_insert_sp');
+
       let insertResult;
       try {
         insertResult = await client.query(
@@ -524,11 +532,13 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
           ]
         );
       } catch (err) {
-        // Ignore unique constraint violations (partial unique index on provider_event_id, template_id, status != 'CANCELLED')
-        if (err.code !== '23505') {
+        // Unique constraint violation: roll back only this insert, keep transaction valid
+        if (err.code === '23505') {
+          await client.query('ROLLBACK TO SAVEPOINT contest_insert_sp');
+          insertResult = { rows: [] };
+        } else {
           throw err;
         }
-        insertResult = { rows: [] };
       }
 
       if (insertResult.rows.length > 0) {
