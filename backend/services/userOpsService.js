@@ -54,7 +54,9 @@ async function getUserOpsSnapshot(pool, options = {}) {
     const usersCreatedLast7Days = parseInt(usersCreatedLast7DaysResult.rows[0]?.users_created_last_7_days || 0, 10);
 
     // 5. Wallet signals - compute from ledger
-    // Calculate user balances: SUM(CREDIT entries) - SUM(DEBIT entries)
+    // Calculate user balances using ONLY wallet-domain ledger entries:
+    // WALLET_DEPOSIT, WALLET_WITHDRAWAL, WALLET_WITHDRAWAL_REVERSAL, WALLET_DEBIT
+    // Excludes: ENTRY_FEE, ENTRY_FEE_REFUND, PRIZE_PAYOUT, ADJUSTMENT
     const userWalletBalancesResult = await client.query(
       `SELECT
         user_id,
@@ -62,6 +64,7 @@ async function getUserOpsSnapshot(pool, options = {}) {
         SUM(CASE WHEN direction = 'DEBIT' THEN amount_cents ELSE 0 END) AS balance_cents
        FROM ledger
        WHERE user_id IS NOT NULL
+       AND entry_type IN ('WALLET_DEPOSIT', 'WALLET_WITHDRAWAL', 'WALLET_WITHDRAWAL_REVERSAL', 'WALLET_DEBIT')
        GROUP BY user_id`
     );
 

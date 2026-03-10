@@ -202,10 +202,11 @@ async function getDepositWithdrawalTotals(pool) {
  * Aggregates all financial metrics for operational visibility.
  *
  * Key invariants being monitored:
- * 1. Stripe >= (Wallets + Contests) — we must have sufficient funds
+ * 1. Stripe >= Wallets — we must have sufficient funds for wallet liability
  * 2. Ledger invariant (Credits - Debits = Net) — accounting must be self-consistent
  * 3. Liquidity ratio > 1.05 — healthy buffer (5% cushion)
- * 4. Reconciliation: (wallet_liability + contest_pools) === (deposits - withdrawals)
+ * 4. Reconciliation: wallet_liability === (deposits - withdrawals)
+ * 5. Contest pools are informational only and not included in platform float
  */
 async function getFinancialHealth(pool) {
   // Fetch Stripe balance (available + pending, may throw if API unreachable)
@@ -218,13 +219,15 @@ async function getFinancialHealth(pool) {
   const depositWithdrawals = await getDepositWithdrawalTotals(pool);
 
   // Compute derived metrics
-  const totalLiabilities = walletBalance + contestPoolBalance;
-  const platformFloat = stripeBalance - totalLiabilities;
-  const liquidityRatio = totalLiabilities > 0 ? stripeBalance / totalLiabilities : 0;
+  // Platform float = Stripe - wallet_liability only
+  // Contest pools are informational and not subtracted from platform float
+  const platformFloat = stripeBalance - walletBalance;
+  // Liquidity ratio uses wallet liability only (contest pools are separate domain)
+  const liquidityRatio = walletBalance > 0 ? stripeBalance / walletBalance : 0;
 
-  // Reconciliation check: wallet_liability + contest_pools = deposits - withdrawals
+  // Reconciliation check: wallet_liability = deposits - withdrawals
   const accountingNet = depositWithdrawals.deposits_cents - depositWithdrawals.withdrawals_cents;
-  const reconciled = totalLiabilities === accountingNet;
+  const reconciled = walletBalance === accountingNet;
 
   return {
     stripe_total_balance: stripeBalance,
