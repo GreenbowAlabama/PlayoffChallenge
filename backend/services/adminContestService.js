@@ -139,12 +139,14 @@ async function listContests(pool, filters = {}) {
             ci.updated_at,
             ct.name as template_name,
             ct.sport as template_sport,
-            COUNT(cp.id) as participant_count
+            (
+              SELECT COUNT(*)
+              FROM contest_participants cp
+              WHERE cp.contest_instance_id = ci.id
+            ) AS participant_count
      FROM contest_instances ci
      LEFT JOIN contest_templates ct ON ci.template_id = ct.id
-     LEFT JOIN contest_participants cp ON ci.id = cp.contest_instance_id
      ${where}
-     GROUP BY ci.id, ct.name, ct.sport
      ORDER BY ci.created_at DESC
      LIMIT $${idx++} OFFSET $${idx++}`,
     params
@@ -186,12 +188,14 @@ async function getContest(pool, contestId) {
             ci.updated_at,
             ct.name as template_name,
             ct.sport as template_sport,
-            COUNT(cp.id) as participant_count
+            (
+              SELECT COUNT(*)
+              FROM contest_participants cp
+              WHERE cp.contest_instance_id = ci.id
+            ) AS participant_count
      FROM contest_instances ci
      LEFT JOIN contest_templates ct ON ci.template_id = ct.id
-     LEFT JOIN contest_participants cp ON ci.id = cp.contest_instance_id
-     WHERE ci.id = $1
-     GROUP BY ci.id, ct.name, ct.sport`,
+     WHERE ci.id = $1`,
     [contestId]
   );
   return result.rows[0] || null;

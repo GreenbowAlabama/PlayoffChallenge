@@ -28,7 +28,7 @@ describe('Admin Contest Service', () => {
   describe('listContests', () => {
     it('should list contests with no filters', async () => {
       mockPool.setQueryResponse(
-        /SELECT ci\.id[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN/,
+        /SELECT ci\.id[\s\S]*SELECT COUNT\(\*\)[\s\S]*FROM contest_participants cp/,
         mockQueryResponses.multiple([
           { id: TEST_CONTEST_ID, status: 'open', participant_count: '3' }
         ])
@@ -41,7 +41,7 @@ describe('Admin Contest Service', () => {
 
     it('should filter by status', async () => {
       mockPool.setQueryResponse(
-        /SELECT ci\.id[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN/,
+        /SELECT ci\.id[\s\S]*SELECT COUNT\(\*\)[\s\S]*FROM contest_participants cp/,
         mockQueryResponses.multiple([
           { id: TEST_CONTEST_ID, status: 'open', participant_count: '2' }
         ])
@@ -55,7 +55,7 @@ describe('Admin Contest Service', () => {
   describe('getContest', () => {
     it('should return contest with participant count', async () => {
       mockPool.setQueryResponse(
-        /SELECT ci\.id[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN[\s\S]*WHERE ci\.id/,
+        /SELECT ci\.id[\s\S]*SELECT COUNT\(\*\)[\s\S]*FROM contest_participants cp[\s\S]*WHERE ci\.id/,
         mockQueryResponses.single({
           id: TEST_CONTEST_ID,
           status: 'open',
@@ -71,7 +71,7 @@ describe('Admin Contest Service', () => {
 
     it('should return null if not found', async () => {
       mockPool.setQueryResponse(
-        /SELECT ci\.id[\s\S]*FROM contest_instances ci[\s\S]*LEFT JOIN[\s\S]*WHERE ci\.id/,
+        /SELECT ci\.id[\s\S]*SELECT COUNT\(\*\)[\s\S]*FROM contest_participants cp[\s\S]*WHERE ci\.id/,
         mockQueryResponses.empty()
       );
 
