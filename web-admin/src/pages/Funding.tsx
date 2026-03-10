@@ -166,7 +166,10 @@ function RepairPoolsModal({ isOpen, onConfirm, onClose }: RepairPoolsModalProps)
         <div className="px-6 py-4 space-y-4">
           <div className="bg-blue-50 border border-blue-200 rounded p-3">
             <p className="text-sm text-blue-800">
-              This will insert compensating ledger entries to restore contest pool accounting.
+              This will insert compensating ledger entries to restore contest pool accounting for active contests (SCHEDULED, LOCKED, LIVE, COMPLETE).
+              <br />
+              <br />
+              Cancelled contests are excluded as they are financially closed.
               <br />
               <br />
               Historical ledger rows will not be modified.

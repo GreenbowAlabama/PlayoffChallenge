@@ -69,7 +69,7 @@ async function getNegativePoolContests(pool) {
         END as root_cause
       FROM contest_ledger_summary
       WHERE pool_balance_cents < 0
-        AND NOT (status = 'CANCELLED' AND participant_count = 0)
+        AND status IN ('SCHEDULED','LOCKED','LIVE','COMPLETE')
     )
     SELECT
       id as contest_id,

@@ -428,6 +428,75 @@ describe('Contest Pool Diagnostics Service', () => {
       expect(activeContest).toBeDefined();
       expect(activeContest.pool_balance_cents).toBeLessThan(0);
     });
+
+    test('excludes ALL CANCELLED contests regardless of participant count', async () => {
+      const organizerId = randomUUID();
+      await pool.query(
+        `INSERT INTO users (id, name, email) VALUES ($1, $2, $3)`,
+        [organizerId, 'Test Org', `org-${organizerId}@test.com`]
+      );
+
+      // Create a CANCELLED contest with participants and negative pool
+      const cancelledWithParticipantsId = randomUUID();
+      await pool.query(
+        `INSERT INTO contest_instances (
+          id, template_id, organizer_id, status, contest_name,
+          entry_fee_cents, payout_structure, max_entries
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [cancelledWithParticipantsId, templateId, organizerId, 'CANCELLED', 'Cancelled With Participants',
+          10000, JSON.stringify({ '1': 50000 }), 10]
+      );
+
+      // Add participants to CANCELLED contest
+      await pool.query(
+        `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at)
+         VALUES ($1, $2, NOW()), ($1, $3, NOW())`,
+        [cancelledWithParticipantsId, user1Id, user2Id]
+      );
+
+      // Add entry fees (both users joined)
+      await pool.query(
+        `INSERT INTO ledger (
+          contest_instance_id, user_id, entry_type, direction, amount_cents,
+          currency, reference_type, reference_id, idempotency_key, metadata_json, created_at
+        ) VALUES
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()),
+          ($1, $11, $3, $4, $5, $6, $7, $8, $12, $10, NOW())`,
+        [
+          cancelledWithParticipantsId, user1Id, 'ENTRY_FEE', 'DEBIT', 10000,
+          'USD', 'CONTEST', cancelledWithParticipantsId,
+          `wallet_debit:${cancelledWithParticipantsId}:${user1Id}`,
+          JSON.stringify({}),
+          user2Id,
+          `wallet_debit:${cancelledWithParticipantsId}:${user2Id}`
+        ]
+      );
+
+      // Add refunds (contest was cancelled, both refunded)
+      await pool.query(
+        `INSERT INTO ledger (
+          contest_instance_id, user_id, entry_type, direction, amount_cents,
+          currency, reference_type, reference_id, idempotency_key, metadata_json, created_at
+        ) VALUES
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()),
+          ($1, $11, $3, $4, $5, $6, $7, $8, $12, $10, NOW())`,
+        [
+          cancelledWithParticipantsId, user1Id, 'ENTRY_FEE_REFUND', 'CREDIT', 5000,
+          'USD', 'CONTEST', cancelledWithParticipantsId,
+          `refund:${cancelledWithParticipantsId}:${user1Id}`,
+          JSON.stringify({}),
+          user2Id,
+          `refund:${cancelledWithParticipantsId}:${user2Id}`
+        ]
+      );
+
+      const result = await contestPoolDiagnosticsService.getNegativePoolContests(pool);
+
+      // CANCELLED contest with participants should NOT appear in anomalies
+      // (even though it has 2 participants and a negative pool)
+      const cancelledContest = result.find(c => c.contest_id === cancelledWithParticipantsId);
+      expect(cancelledContest).toBeUndefined();
+    });
   });
 
   describe('getContestPoolDetails', () => {
