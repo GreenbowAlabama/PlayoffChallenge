@@ -136,10 +136,14 @@ describe('ingestionService.run — adapter dispatch', () => {
 
     expect(mockAdapter.getWorkUnits).toHaveBeenCalledTimes(1);
     // computeIngestionKey now receives enriched unit with providerEventId injected from context
-    expect(mockAdapter.computeIngestionKey).toHaveBeenCalledWith('ci-1', {
-      weekNumber: 19,
-      providerEventId: 'espn_nfl_test_event'
-    });
+    // Use toMatchObject to ignore workUnitKey and other fields added during enrichment
+    expect(mockAdapter.computeIngestionKey).toHaveBeenCalledWith(
+      'ci-1',
+      expect.objectContaining({
+        weekNumber: 19,
+        providerEventId: 'espn_nfl_test_event'
+      })
+    );
     expect(mockAdapter.ingestWorkUnit).toHaveBeenCalledTimes(1);
     expect(mockAdapter.upsertScores).toHaveBeenCalledTimes(1);
     expect(summary.processed).toBe(1);

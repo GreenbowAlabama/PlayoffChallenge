@@ -391,7 +391,7 @@ async function discoverTournament(input, pool, now, organizerId) {
             'auto_discovery', 'pga_settlement',
             5000, 1000, 50000,
             JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
-            false, // is_active: false to avoid constraint violation
+            false, // is_active: false to avoid constraint violation (activate via setup.js)
             normalized.provider_tournament_id, normalized.season_year,
             true, normalized.status
           ]
@@ -402,11 +402,20 @@ async function discoverTournament(input, pool, now, organizerId) {
         // Still create marketing contest for this template
         await clientRetry.query(
           `INSERT INTO contest_instances (
-            template_id, organizer_id, entry_fee_cents, payout_structure,
-            status, start_time, contest_name, max_entries,
-            is_platform_owned, is_primary_marketing
+            template_id,
+            organizer_id,
+            entry_fee_cents,
+            payout_structure,
+            status,
+            start_time,
+            contest_name,
+            max_entries,
+            provider_event_id,
+            is_platform_owned,
+            is_primary_marketing,
+            join_token
           ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
           )
           ON CONFLICT DO NOTHING`,
           [
@@ -414,7 +423,9 @@ async function discoverTournament(input, pool, now, organizerId) {
             5000, JSON.stringify({ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }),
             normalized.status, now,
             `${normalized.name} - Marketing`, 100,
-            true, true
+            normalized.providerEventId,
+            true, true,
+            generateJoinToken()
           ]
         );
 

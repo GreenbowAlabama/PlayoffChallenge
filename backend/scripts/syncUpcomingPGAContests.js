@@ -113,7 +113,7 @@ async function syncUpcomingPGAContests() {
 
       const payoutStructure = baseContest.payout_structure;
 
-      await client.query(
+      const result = await client.query(
         `INSERT INTO contest_instances (
            id,
            template_id,
@@ -150,7 +150,10 @@ async function syncUpcomingPGAContests() {
            $11,
            NOW(),
            NOW()
-         )`,
+         )
+         ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
+         WHERE provider_event_id IS NOT NULL
+         DO NOTHING`,
         [
           newId,
           correctTemplateId,
@@ -166,8 +169,12 @@ async function syncUpcomingPGAContests() {
         ]
       );
 
-      createdContestIds.push(newId);
-      console.log(`  ✓ Created: THE PLAYERS Championship $${(fee / 100).toFixed(0)}`);
+      if (result.rowCount === 0) {
+        console.log(`  ⊘ Already exists: THE PLAYERS Championship $${(fee / 100).toFixed(0)}`);
+      } else {
+        createdContestIds.push(newId);
+        console.log(`  ✓ Created: THE PLAYERS Championship $${(fee / 100).toFixed(0)}`);
+      }
     }
 
     await client.query('COMMIT');

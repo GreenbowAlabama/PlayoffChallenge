@@ -5,10 +5,11 @@
  * contest pools, settlement pipeline, and payout execution.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { getFinancialOpsSnapshot, type FinancialOpsSnapshot } from '../../../api/financial-ops';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { getFinancialOpsSnapshot, runFinancialDiagnostics, type FinancialOpsSnapshot, type DiagnosticsReport } from '../../../api/financial-ops';
 import { InfoTooltip } from '../../../components/InfoTooltip';
 import { RefreshIndicator } from '../../../components/admin/RefreshIndicator';
+import { useState } from 'react';
 
 function formatCurrency(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -233,7 +234,7 @@ function FinancialOpsContent({ snapshot }: { snapshot: FinancialOpsSnapshot }) {
                 {formatCurrency(snapshot.reconciliation.expected_cents)}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                Wallet liability + Contest pools
+                Ledger net (all credits - debits)
               </p>
               <div className="mt-4 space-y-2 border-t pt-4">
                 <div className="flex justify-between text-xs">
@@ -259,7 +260,7 @@ function FinancialOpsContent({ snapshot }: { snapshot: FinancialOpsSnapshot }) {
                 {formatCurrency(snapshot.reconciliation.actual_cents)}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                Deposits minus withdrawals
+                Stripe net (deposits - withdrawals)
               </p>
               <div className="mt-4 space-y-2 border-t pt-4">
                 <div className="flex justify-between text-xs">
@@ -289,8 +290,8 @@ function FinancialOpsContent({ snapshot }: { snapshot: FinancialOpsSnapshot }) {
               {snapshot.reconciliation.difference_cents !== 0 && (
                 <p className="text-xs text-red-600 mt-1">
                   {snapshot.reconciliation.difference_cents > 0
-                    ? 'Actual less than expected'
-                    : 'Actual more than expected'}
+                    ? 'Ledger exceeds Stripe net'
+                    : 'Stripe net exceeds ledger'}
                 </p>
               )}
             </div>
@@ -299,11 +300,190 @@ function FinancialOpsContent({ snapshot }: { snapshot: FinancialOpsSnapshot }) {
         </div>
       </section>
 
+      {/* Diagnostics Section */}
+      <DiagnosticsSection />
+
       {/* Footer */}
       <div className="text-center text-xs text-gray-500 pt-4 border-t">
         <p>Last updated: {formatTimestamp(snapshot.timestamp)}</p>
       </div>
     </div>
+  );
+}
+
+/**
+ * Diagnostics Section Component
+ *
+ * Provides a button to run full reconciliation diagnostics.
+ * Shows detailed breakdown of Stripe funding, wallet balances, and contest pools.
+ */
+function DiagnosticsSection() {
+  const [diagnosticsData, setDiagnosticsData] = useState<DiagnosticsReport | null>(null);
+
+  const diagnosticsMutation = useMutation({
+    mutationFn: runFinancialDiagnostics,
+    onSuccess: (data) => {
+      setDiagnosticsData(data);
+    },
+    onError: (error) => {
+      console.error('Diagnostics error:', error);
+    }
+  });
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-900">Reconciliation Diagnostics</h2>
+        <button
+          onClick={() => diagnosticsMutation.mutate()}
+          disabled={diagnosticsMutation.isPending}
+          className={`px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors ${
+            diagnosticsMutation.isPending
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-indigo-600 hover:bg-indigo-700'
+          }`}
+        >
+          {diagnosticsMutation.isPending ? 'Running...' : 'Run Diagnostics'}
+        </button>
+      </div>
+
+      {diagnosticsMutation.isError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 mb-4">
+          <p className="text-sm font-semibold text-red-800">Diagnostics failed</p>
+          <p className="text-xs text-red-700 mt-1">
+            {(diagnosticsMutation.error as Error)?.message || 'Unknown error'}
+          </p>
+        </div>
+      )}
+
+      {diagnosticsData && (
+        <div className="space-y-4">
+          {/* Financial Summary */}
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Financial Summary</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-gray-600">Stripe Net</p>
+                <p className="text-lg font-bold text-gray-900">
+                  {formatCurrency(diagnosticsData.financial_summary.stripe_net_cents)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-600">Ledger Net</p>
+                <p className="text-lg font-bold text-gray-900">
+                  {formatCurrency(diagnosticsData.financial_summary.ledger_net_cents)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-600">Difference</p>
+                <p className={`text-lg font-bold ${
+                  diagnosticsData.financial_summary.difference_cents === 0
+                    ? 'text-green-900'
+                    : 'text-red-900'
+                }`}>
+                  {formatCurrency(diagnosticsData.financial_summary.difference_cents)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-600">Status</p>
+                <div className="mt-1">
+                  <StatusBadge status={diagnosticsData.financial_summary.is_balanced ? 'balanced' : 'drift'} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Stripe Funding Details */}
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Stripe Funding Details</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Deposits (WALLET_DEPOSIT):</span>
+                <span className="text-gray-900 font-mono">
+                  {formatCurrency(diagnosticsData.stripe_funding.deposits_cents)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Withdrawals (WALLET_WITHDRAWAL):</span>
+                <span className="text-gray-900 font-mono">
+                  {formatCurrency(diagnosticsData.stripe_funding.withdrawals_cents)}
+                </span>
+              </div>
+              <div className="border-t pt-2 mt-2 flex justify-between font-semibold">
+                <span className="text-gray-900">Stripe Net:</span>
+                <span className="text-gray-900 font-mono">
+                  {formatCurrency(diagnosticsData.stripe_funding.net_cents)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Contest Pool Details */}
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Contest Pool Details</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Entry Fees (ENTRY_FEE):</span>
+                <span className="text-gray-900 font-mono">
+                  {formatCurrency(diagnosticsData.contest_pools.entry_fees_cents)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Refunds (ENTRY_FEE_REFUND):</span>
+                <span className="text-gray-900 font-mono">
+                  {formatCurrency(diagnosticsData.contest_pools.refunds_cents)}
+                </span>
+              </div>
+              <div className="border-t pt-2 mt-2 flex justify-between font-semibold">
+                <span className="text-gray-900">Contest Pool Net:</span>
+                <span className="text-gray-900 font-mono">
+                  {formatCurrency(diagnosticsData.contest_pools.net_cents)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Wallet Balances */}
+          {diagnosticsData.wallet_balances.by_user.length > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                Wallet Balances by User ({diagnosticsData.wallet_balances.total_user_count} users)
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-xs">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-gray-600 font-semibold">User ID</th>
+                      <th className="px-4 py-2 text-right text-gray-600 font-semibold">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {diagnosticsData.wallet_balances.by_user.slice(0, 10).map((wallet) => (
+                      <tr key={wallet.user_id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 text-gray-900 font-mono">{wallet.user_id}</td>
+                        <td className="px-4 py-2 text-right text-gray-900 font-mono">
+                          {formatCurrency(wallet.balance_cents)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {diagnosticsData.wallet_balances.by_user.length > 10 && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Showing top 10 of {diagnosticsData.wallet_balances.total_user_count} users
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Diagnostics Timestamp */}
+          <div className="text-xs text-gray-500 text-center pt-2">
+            <p>Diagnostics run: {formatTimestamp(diagnosticsData.timestamp)}</p>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

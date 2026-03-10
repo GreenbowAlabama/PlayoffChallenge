@@ -27,6 +27,15 @@ describe('Player Data Ops Service - getPlayerDataOpsSnapshot', () => {
     client = await pool.connect();
     await client.query('BEGIN');
 
+    // Deactivate any existing active templates for this sport/type to prevent unique constraint violations
+    await client.query(
+      `UPDATE contest_templates
+       SET is_active = false
+       WHERE sport = 'PGA'
+         AND template_type = 'standard'
+         AND is_active = true`
+    );
+
     // Create test user
     testUserId = uuidv4();
     await client.query(
@@ -35,15 +44,15 @@ describe('Player Data Ops Service - getPlayerDataOpsSnapshot', () => {
       [testUserId, `${testPrefix}_user`, `${testPrefix}_user@example.com`]
     );
 
-    // Create test template
+    // Create test template (with is_active = true to represent real production state)
     testTemplateId = uuidv4();
     await client.query(
       `INSERT INTO contest_templates (
          id, name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
          default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
-         allowed_payout_structures, is_system_generated
+         allowed_payout_structures, is_system_generated, is_active
        ) VALUES ($1, $2, 'PGA', 'standard', 'pga_strokes', 'lock_at_tournament_start', 'pga_settlement',
-         5000, 1000, 50000, '[]'::jsonb, false)`,
+         5000, 1000, 50000, '[]'::jsonb, false, true)`,
       [testTemplateId, `${testPrefix}_template`]
     );
 

@@ -59,6 +59,23 @@ describe('Contest Lifecycle Transitions - SCHEDULED → LOCKED', () => {
   });
 
   beforeEach(async () => {
+    // Isolation guard: Neutralize lifecycle-eligible contaminating contests
+    // Only affects contests the worker would actually transition
+    await pool.query(
+      `UPDATE contest_instances
+       SET status = 'COMPLETE'
+       WHERE (
+             status = 'SCHEDULED'
+             AND lock_time IS NOT NULL
+             AND lock_time <= NOW()
+       )
+       OR (
+             status = 'LOCKED'
+             AND tournament_start_time IS NOT NULL
+             AND tournament_start_time <= NOW()
+       )`
+    );
+
     // Generate unique IDs per test
     templateId = crypto.randomUUID();
     organizerId = crypto.randomUUID();
@@ -534,6 +551,23 @@ describe('Contest Lifecycle Transitions - LOCKED → LIVE', () => {
   });
 
   beforeEach(async () => {
+    // Isolation guard: Neutralize lifecycle-eligible contaminating contests
+    // Only affects contests the worker would actually transition
+    await pool.query(
+      `UPDATE contest_instances
+       SET status = 'COMPLETE'
+       WHERE (
+             status = 'SCHEDULED'
+             AND lock_time IS NOT NULL
+             AND lock_time <= NOW()
+       )
+       OR (
+             status = 'LOCKED'
+             AND tournament_start_time IS NOT NULL
+             AND tournament_start_time <= NOW()
+       )`
+    );
+
     // Generate unique IDs per test
     templateId = crypto.randomUUID();
     organizerId = crypto.randomUUID();

@@ -142,9 +142,18 @@ async function getFinancialOpsSnapshot(pool, options = {}) {
       10
     );
 
-    // 12. Platform reconciliation (REUSE existing service results)
-    // Use service results directly - no duplication
-    const expectedCents = walletBalance + contestPoolBalance;
+    // 12. Platform reconciliation
+    // CRITICAL INVARIANT:
+    // ledger_net = deposits - withdrawals
+    //
+    // The ledger is the source of truth. All ledger entries must net to the
+    // actual Stripe cash flow (deposits - withdrawals). If this invariant holds,
+    // the platform is solvent and balanced.
+    //
+    // Wallet liability and contest pools are derived domains used for observability
+    // only. They must remain mutually exclusive to prevent double-counting refunds.
+    // They are NOT used for reconciliation.
+    const expectedCents = ledgerIntegrity.net;
     const actualCents =
       depositWithdrawals.deposits_cents -
       depositWithdrawals.withdrawals_cents;

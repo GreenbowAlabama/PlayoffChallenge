@@ -3,13 +3,29 @@
  *
  * Read-only observability for financial reconciliation.
  *
+ * CRITICAL INVARIANT:
+ * ledger_net = deposits - withdrawals
+ *
+ * The ledger is the authoritative source of truth. All ledger entries must net to
+ * the actual Stripe cash flow (deposits - withdrawals). If this invariant holds,
+ * the platform is solvent and balanced.
+ *
+ * Wallet liability and contest pools are derived domains used for observability only.
+ * They must remain mutually exclusive to prevent double-counting refund credits.
+ * They are NOT used for reconciliation.
+ *
+ * Domain separation:
+ * - wallet_liability: WALLET_DEPOSIT, WALLET_WITHDRAWAL, WALLET_WITHDRAWAL_REVERSAL, WALLET_DEBIT
+ * - contest_pools: ENTRY_FEE, ENTRY_FEE_REFUND
+ * - adjustments: Any other entry types (not used in reconciliation)
+ *
  * Monitors:
  * - Stripe balance (real bank balance)
  * - Wallet balances (derived from ledger)
- * - Contest pools (entry fees + prizes, derived from ledger)
+ * - Contest pools (entry fees only, derived from ledger)
  * - Platform float (Stripe - liabilities)
  * - Liquidity coverage (Stripe / liabilities)
- * - Ledger integrity (credits = debits + net)
+ * - Ledger integrity (credits - debits = net)
  *
  * All queries are read-only and deterministic.
  */
@@ -47,7 +63,14 @@ async function getStripeBalance() {
 /**
  * Get total wallet balance (user funds) in cents
  *
- * Sums all CREDIT - DEBIT ledger entries where reference_type = 'WALLET'
+ * Sums all CREDIT - DEBIT ledger entries for wallet-domain transactions only:
+ * - WALLET_DEPOSIT (user funding)
+ * - WALLET_WITHDRAWAL (user payouts)
+ * - WALLET_WITHDRAWAL_REVERSAL (reversal of payouts)
+ * - WALLET_DEBIT (atomic debit when joining contest)
+ *
+ * CRITICAL: Uses entry_type, NOT reference_type, to prevent double-counting
+ * ENTRY_FEE_REFUND credits that appear in both wallet and contest domains.
  */
 async function getWalletBalance(pool) {
   const result = await pool.query(`
@@ -63,20 +86,28 @@ async function getWalletBalance(pool) {
         0
       ) as balance_cents
     FROM ledger
-    WHERE reference_type = 'WALLET'
+    WHERE entry_type IN (
+      'WALLET_DEPOSIT',
+      'WALLET_WITHDRAWAL',
+      'WALLET_WITHDRAWAL_REVERSAL',
+      'WALLET_DEBIT'
+    )
   `);
 
   return parseInt(result.rows[0].balance_cents, 10);
 }
 
 /**
- * Get contest pool balance (entry fees + prize distribution) in cents
+ * Get contest pool balance (entry fees only) in cents
  *
- * Sums all CREDIT - DEBIT ledger entries for contest-related transactions:
+ * Sums all CREDIT - DEBIT ledger entries for contest-domain transactions only:
  * - ENTRY_FEE (user deposit when joining)
  * - ENTRY_FEE_REFUND (refund if applicable)
- * - PRIZE_PAYOUT (settlement distribution)
- * - PRIZE_PAYOUT_REVERSAL (if applicable)
+ *
+ * DOES NOT include PRIZE_PAYOUT or PRIZE_PAYOUT_REVERSAL (settlement domain).
+ *
+ * CRITICAL: This domain must be mutually exclusive with wallet_liability
+ * to prevent double-counting refund credits.
  */
 async function getContestPoolBalance(pool) {
   const result = await pool.query(`
@@ -94,9 +125,7 @@ async function getContestPoolBalance(pool) {
     FROM ledger
     WHERE entry_type IN (
       'ENTRY_FEE',
-      'ENTRY_FEE_REFUND',
-      'PRIZE_PAYOUT',
-      'PRIZE_PAYOUT_REVERSAL'
+      'ENTRY_FEE_REFUND'
     )
   `);
 

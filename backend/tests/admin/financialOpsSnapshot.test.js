@@ -102,13 +102,13 @@ describe('Financial Ops Service', () => {
       const snapshot = await financialOpsService.getFinancialOpsSnapshot(pool);
       const { reconciliation } = snapshot;
 
-      // Expected = wallet_liability + contest_pools
-      const computedExpected =
-        snapshot.wallets.wallet_liability_cents +
-        snapshot.contest_pools.contest_pools_cents;
+      // Expected = ledger_net (the source of truth)
+      // This is the sum of all CREDIT - DEBIT entries across all domains
+      const computedExpected = snapshot.ledger.net_cents;
       expect(reconciliation.expected_cents).toBe(computedExpected);
 
-      // Actual = deposits - withdrawals
+      // Actual = deposits - withdrawals (Stripe net)
+      // This is WALLET_DEPOSIT - WALLET_WITHDRAWAL only
       const computedActual =
         reconciliation.deposits_cents - reconciliation.withdrawals_cents;
       expect(reconciliation.actual_cents).toBe(computedActual);
@@ -119,6 +119,7 @@ describe('Financial Ops Service', () => {
       expect(reconciliation.difference_cents).toBe(computedDifference);
 
       // Status should be balanced if difference is 0, drift otherwise
+      // Platform is balanced when ledger_net == deposits - withdrawals
       const expectedStatus = reconciliation.difference_cents === 0 ? 'balanced' : 'drift';
       expect(reconciliation.status).toBe(expectedStatus);
     });

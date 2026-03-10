@@ -61,3 +61,65 @@ export interface FinancialOpsSnapshot {
 export async function getFinancialOpsSnapshot(): Promise<FinancialOpsSnapshot> {
   return apiRequest<FinancialOpsSnapshot>('/api/admin/financial-ops');
 }
+
+/**
+ * Financial Reconciliation Diagnostics Types
+ */
+
+export interface StripeNetMetrics {
+  deposits_cents: number;
+  withdrawals_cents: number;
+  net_cents: number;
+}
+
+export interface WalletBalanceByUser {
+  user_id: string;
+  balance_cents: number;
+}
+
+export interface ContestPoolDetails {
+  entry_fees_cents: number;
+  refunds_cents: number;
+  net_cents: number;
+}
+
+export interface WalletBalancesReport {
+  by_user: WalletBalanceByUser[];
+  total_user_count: number;
+}
+
+export interface FinancialSummary {
+  stripe_net_cents: number;
+  ledger_net_cents: number;
+  difference_cents: number;
+  is_balanced: boolean;
+}
+
+export interface ReconciliationResult {
+  status: 'balanced' | 'drift';
+  expected_funding_cents: number;
+  actual_funding_cents: number;
+  difference_cents: number;
+}
+
+export interface DiagnosticsReport {
+  timestamp: string;
+  financial_summary: FinancialSummary;
+  stripe_funding: StripeNetMetrics;
+  wallet_balances: WalletBalancesReport;
+  contest_pools: ContestPoolDetails;
+  reconciliation: ReconciliationResult;
+}
+
+/**
+ * Run financial reconciliation diagnostics.
+ *
+ * Executes all diagnostic queries needed for the reconciliation runbook.
+ * Read-only operation (no mutations).
+ *
+ * @returns Promise resolving to diagnostics report
+ * @throws Error if API request fails
+ */
+export async function runFinancialDiagnostics(): Promise<DiagnosticsReport> {
+  return apiRequest<DiagnosticsReport>('/api/admin/financial-reconciliation/diagnostics');
+}

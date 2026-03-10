@@ -147,6 +147,34 @@ beforeAll(() => {
   }
 });
 
+beforeEach(async () => {
+  // Global lifecycle isolation guard: neutralize stale lifecycle-eligible contests
+  // This ensures all integration tests run in a clean lifecycle state
+  // without interference from previous test runs or pending lifecycle transitions
+  try {
+    const { pool } = require('../db');
+    if (pool && typeof pool.query === 'function') {
+      await pool.query(`
+        UPDATE contest_instances
+        SET status = 'COMPLETE'
+        WHERE (
+          status = 'SCHEDULED'
+          AND lock_time IS NOT NULL
+          AND lock_time <= NOW()
+        )
+        OR (
+          status = 'LOCKED'
+          AND tournament_start_time IS NOT NULL
+          AND tournament_start_time <= NOW()
+        )
+      `);
+    }
+  } catch (err) {
+    // Non-critical: only log if pool is available
+    // Some test contexts may not have pool initialized yet
+  }
+});
+
 afterAll(async () => {
   console.log = originalLog;
   console.error = originalError;

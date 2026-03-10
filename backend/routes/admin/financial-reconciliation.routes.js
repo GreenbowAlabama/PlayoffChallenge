@@ -112,6 +112,104 @@ router.post('/repair', async (req, res) => {
   }
 });
 
+// GET /api/admin/financial-reconciliation/diagnostics
+// Runs full reconciliation diagnostics for Web Admin UI
+// Returns all diagnostic queries needed for reconciliation runbook
+router.get('/diagnostics', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const client = await pool.connect();
+
+    try {
+      // 1. Stripe funding (deposits and withdrawals)
+      const stripeFundingResult = await client.query(`
+        SELECT
+          SUM(CASE WHEN entry_type='WALLET_DEPOSIT' THEN amount_cents ELSE 0 END) AS deposits,
+          SUM(CASE WHEN entry_type='WALLET_WITHDRAWAL' THEN amount_cents ELSE 0 END) AS withdrawals
+        FROM ledger
+      `);
+
+      const { deposits = 0, withdrawals = 0 } = stripeFundingResult.rows[0];
+      const stripe_net = parseInt(deposits, 10) - parseInt(withdrawals, 10);
+
+      // 2. Ledger net (total credits - debits)
+      const ledgerNetResult = await client.query(`
+        SELECT
+          SUM(CASE WHEN direction='CREDIT' THEN amount_cents ELSE -amount_cents END) AS ledger_net
+        FROM ledger
+      `);
+
+      const ledger_net = parseInt(ledgerNetResult.rows[0].ledger_net || 0, 10);
+
+      // 3. Wallet balances by user
+      const walletBalancesResult = await client.query(`
+        SELECT
+          user_id,
+          SUM(CASE WHEN direction='CREDIT' THEN amount_cents ELSE -amount_cents END) AS balance
+        FROM ledger
+        WHERE entry_type IN ('WALLET_DEPOSIT', 'WALLET_WITHDRAWAL', 'WALLET_WITHDRAWAL_REVERSAL', 'WALLET_DEBIT')
+        GROUP BY user_id
+        ORDER BY balance DESC
+      `);
+
+      const wallet_balances = walletBalancesResult.rows.map(row => ({
+        user_id: row.user_id,
+        balance_cents: parseInt(row.balance, 10)
+      }));
+
+      // 4. Contest pool net (entry fees - refunds)
+      const contestPoolResult = await client.query(`
+        SELECT
+          SUM(CASE WHEN entry_type='ENTRY_FEE' THEN amount_cents ELSE 0 END) AS entry_fees,
+          SUM(CASE WHEN entry_type='ENTRY_FEE_REFUND' THEN amount_cents ELSE 0 END) AS refunds
+        FROM ledger
+      `);
+
+      const { entry_fees = 0, refunds = 0 } = contestPoolResult.rows[0];
+      const contest_pool_net = parseInt(refunds, 10) - parseInt(entry_fees, 10);
+
+      // Calculate reconciliation
+      const difference = ledger_net - stripe_net;
+      const is_balanced = difference === 0;
+
+      return res.status(200).json({
+        timestamp: new Date().toISOString(),
+        financial_summary: {
+          stripe_net_cents: stripe_net,
+          ledger_net_cents: ledger_net,
+          difference_cents: difference,
+          is_balanced
+        },
+        stripe_funding: {
+          deposits_cents: parseInt(deposits, 10),
+          withdrawals_cents: parseInt(withdrawals, 10),
+          net_cents: stripe_net
+        },
+        wallet_balances: {
+          by_user: wallet_balances,
+          total_user_count: wallet_balances.length
+        },
+        contest_pools: {
+          entry_fees_cents: parseInt(entry_fees, 10),
+          refunds_cents: parseInt(refunds, 10),
+          net_cents: contest_pool_net
+        },
+        reconciliation: {
+          status: is_balanced ? 'balanced' : 'drift',
+          expected_funding_cents: ledger_net,
+          actual_funding_cents: stripe_net,
+          difference_cents: difference
+        }
+      });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('[Financial Diagnostics] Error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/admin/financial-audit-log
 router.get('/audit-log', async (req, res) => {
   try {
