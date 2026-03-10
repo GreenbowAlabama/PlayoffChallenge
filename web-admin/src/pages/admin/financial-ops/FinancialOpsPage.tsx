@@ -297,6 +297,21 @@ function FinancialOpsContent({ snapshot }: { snapshot: FinancialOpsSnapshot }) {
             </div>
             <StatusBadge status={snapshot.reconciliation.status} />
           </div>
+
+          {/* Financial Model Helper */}
+          <div className="border-t mt-6 pt-6">
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+                Platform Financial Model
+              </p>
+              <p className="text-sm text-gray-700 font-mono text-center">
+                Deposits − Withdrawals = Wallet Liability + Contest Pools
+              </p>
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                Ledger net (left side) must equal domain totals (right side) for reconciliation
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
