@@ -133,5 +133,5 @@ export interface ContestOpsSnapshot {
 export async function getContestOpsSnapshot(
   contestId: string
 ): Promise<ContestOpsSnapshot> {
-  return apiRequest<ContestOpsSnapshot>(`/admin/contests/${contestId}/ops`);
+  return apiRequest<ContestOpsSnapshot>(`/api/admin/contests/${contestId}/ops`);
 }
