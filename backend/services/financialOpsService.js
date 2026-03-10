@@ -252,6 +252,13 @@ async function repairContestPools(pool) {
       const contestId = contest.contest_id;
       const negativeAmountCents = Math.abs(contest.pool_balance_cents);
 
+      // Debug: confirm repair loop execution and amounts
+      console.log('[POOL_REPAIR]', {
+        contest: contestId,
+        pool_balance: contest.pool_balance_cents,
+        repair_amount: negativeAmountCents
+      });
+
       // Generate deterministic idempotency key
       // Format: pool-repair-{contest_id}
       const idempotencyKey = `pool-repair-${contestId}`;
