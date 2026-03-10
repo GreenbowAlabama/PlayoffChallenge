@@ -11,7 +11,6 @@ import { getContestIntegrity } from '../../../api/contest-integrity';
 import { AdminPanel } from '../../../components/admin/AdminPanel';
 import { RefreshIndicator } from '../../../components/admin/RefreshIndicator';
 import type {
-  ContestIntegrityResponse,
   TierIntegrityRecord,
   CapacitySummaryRecord,
   PlayerPoolStatusRecord,
