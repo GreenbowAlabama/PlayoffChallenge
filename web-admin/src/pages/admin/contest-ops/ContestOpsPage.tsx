@@ -76,7 +76,7 @@ function ContestCard({ contest }: { contest: SystemInstance }) {
         </div>
         <div className="flex justify-between items-center text-xs">
           <span className="text-gray-600">Start Time:</span>
-          <span className="text-gray-900 font-mono">{formatTimestamp(contest.start_time)}</span>
+          <span className="text-gray-900 font-mono">{formatTimestamp(contest.start_time ?? contest.tournament_start_time)}</span>
         </div>
         {contest.template_name && (
           <div className="flex justify-between items-center text-xs">
