@@ -151,36 +151,24 @@ function ContestSection({ title, status, contests, loading }: { title: React.Rea
 export function ContestOpsPage() {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
-  // Fetch contests by status
-  const { data: liveContests = [], isLoading: liveLoading } = useQuery({
-    queryKey: ['contests', 'LIVE'],
-    queryFn: () => getSystemInstances(undefined, 'LIVE'),
+  // Fetch all contests in a single snapshot
+  const { data: contests = [], isLoading } = useQuery({
+    queryKey: ['systemInstances'],
+    queryFn: () => getSystemInstances(),
     refetchInterval: 10000,
   });
 
-  const { data: lockedContests = [], isLoading: lockedLoading } = useQuery({
-    queryKey: ['contests', 'LOCKED'],
-    queryFn: () => getSystemInstances(undefined, 'LOCKED'),
-    refetchInterval: 10000,
-  });
-
-  const { data: scheduledContests = [], isLoading: scheduledLoading } = useQuery({
-    queryKey: ['contests', 'SCHEDULED'],
-    queryFn: () => getSystemInstances(undefined, 'SCHEDULED'),
-    refetchInterval: 10000,
-  });
-
-  const { data: completeContests = [], isLoading: completeLoading } = useQuery({
-    queryKey: ['contests', 'COMPLETE'],
-    queryFn: () => getSystemInstances(undefined, 'COMPLETE'),
-    refetchInterval: 10000,
-  });
+  // Group contests by status in memory
+  const liveContests = contests.filter(c => c.status === 'LIVE');
+  const lockedContests = contests.filter(c => c.status === 'LOCKED');
+  const scheduledContests = contests.filter(c => c.status === 'SCHEDULED');
+  const completeContests = contests.filter(c => c.status === 'COMPLETE');
 
   useEffect(() => {
-    if (liveContests || lockedContests || scheduledContests || completeContests) {
+    if (contests.length > 0) {
       setLastUpdated(new Date().toLocaleString());
     }
-  }, [liveContests, lockedContests, scheduledContests, completeContests]);
+  }, [contests]);
 
   const totalContests = liveContests.length + lockedContests.length + scheduledContests.length + completeContests.length;
 
@@ -221,28 +209,28 @@ export function ContestOpsPage() {
           title={<div className="flex items-center gap-2">Live Contests <InfoTooltip text="Contests currently accepting entries or in progress" /></div>}
           status="LIVE"
           contests={liveContests}
-          loading={liveLoading}
+          loading={isLoading}
         />
 
         <ContestSection
           title={<div className="flex items-center gap-2">Locked Contests <InfoTooltip text="Contests locked but not yet completed" /></div>}
           status="LOCKED"
           contests={lockedContests}
-          loading={lockedLoading}
+          loading={isLoading}
         />
 
         <ContestSection
           title={<div className="flex items-center gap-2">Scheduled Contests <InfoTooltip text="Contests scheduled for future start" /></div>}
           status="SCHEDULED"
           contests={scheduledContests}
-          loading={scheduledLoading}
+          loading={isLoading}
         />
 
         <ContestSection
           title={<div className="flex items-center gap-2">Complete Contests <InfoTooltip text="Contests that have finished and been settled" /></div>}
           status="COMPLETE"
           contests={completeContests}
-          loading={completeLoading}
+          loading={isLoading}
         />
       </div>
 
