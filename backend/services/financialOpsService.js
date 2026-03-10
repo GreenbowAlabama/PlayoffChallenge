@@ -252,13 +252,6 @@ async function repairContestPools(pool) {
       const contestId = contest.contest_id;
       const negativeAmountCents = Math.abs(contest.pool_balance_cents);
 
-      // Debug: confirm repair loop execution and amounts
-      console.log('[POOL_REPAIR]', {
-        contest: contestId,
-        pool_balance: contest.pool_balance_cents,
-        repair_amount: negativeAmountCents
-      });
-
       // Generate deterministic idempotency key
       // Format: pool-repair-{contest_id}
       const idempotencyKey = `pool-repair-${contestId}`;
@@ -272,15 +265,15 @@ async function repairContestPools(pool) {
         const referenceId = uuidv5(`pool-repair-${contestId}`, POOL_REPAIR_NAMESPACE);
 
         // Insert compensating ADJUSTMENT entry (CREDIT to offset negative balance)
-        // reference_type='POOL_REPAIR' marks this as a repair operation
-        // metadata_json provides semantic detail about the repair
+        // reference_type='CONTEST' links this to the contest instance
+        // metadata_json provides semantic detail about the repair reason
         await LedgerRepository.insertLedgerEntry(client, {
           contest_instance_id: contestId,
           entry_type: 'ADJUSTMENT',
           direction: 'CREDIT',
           amount_cents: negativeAmountCents,
           currency: 'USD',
-          reference_type: 'POOL_REPAIR',
+          reference_type: 'CONTEST',
           reference_id: referenceId,
           idempotency_key: idempotencyKey,
           metadata_json: {
