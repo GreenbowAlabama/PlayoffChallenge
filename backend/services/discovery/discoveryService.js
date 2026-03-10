@@ -418,7 +418,7 @@ async function discoverTournament(input, pool, now, organizerId) {
           ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
           )
-          ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
+          ON CONFLICT ON CONSTRAINT contest_instances_provider_template_fee_unique
           DO NOTHING`,
           [
             newTemplateId, organizerId,
