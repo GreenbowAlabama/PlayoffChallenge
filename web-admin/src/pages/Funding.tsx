@@ -16,6 +16,8 @@ import {
   getFinancialHealth,
   getFinancialReconciliationHistory,
   repairContestPools,
+  resetFinancialState,
+  seedTestWallets,
   type FinancialHealthResponse,
 } from '../api/admin';
 import {
@@ -34,6 +36,7 @@ import {
   type AffectedUser,
   type CaseNote,
 } from '../api/orphaned-funds';
+import { ConfirmationModal } from '../components/ConfirmationModal';
 
 // ============================================
 // FORMATTING UTILITIES
@@ -995,6 +998,12 @@ export function Funding() {
   const [orphanedLoading, setOrphanedLoading] = useState(true);
   const [orphanedError, setOrphanedError] = useState<string | null>(null);
 
+  // Operator Tools
+  const [resetFinancialModalOpen, setResetFinancialModalOpen] = useState(false);
+  const [seedWalletsModalOpen, setSeedWalletsModalOpen] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [seedLoading, setSeedLoading] = useState(false);
+
   // Load orphaned funds on mount
   const loadOrphanedFunds = async () => {
     try {
@@ -1059,6 +1068,46 @@ export function Funding() {
     await refetchHealth();
   };
 
+  // Handle financial state reset
+  const handleResetFinancialState = async () => {
+    setResetLoading(true);
+    try {
+      const result = await resetFinancialState();
+      console.log('Financial state reset successful:', result);
+      setResetFinancialModalOpen(false);
+      // Refresh all financial data
+      await Promise.all([
+        refetchHealth(),
+        queryClient.invalidateQueries({ queryKey: ['contestPools', 'negative'] }),
+        loadOrphanedFunds()
+      ]);
+    } catch (err) {
+      console.error('Financial state reset failed:', err);
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  // Handle test wallet seeding
+  const handleSeedTestWallets = async () => {
+    setSeedLoading(true);
+    try {
+      const result = await seedTestWallets();
+      console.log('Test wallets seeded successfully:', result);
+      setSeedWalletsModalOpen(false);
+      // Refresh all financial data
+      await Promise.all([
+        refetchHealth(),
+        queryClient.invalidateQueries({ queryKey: ['contestPools', 'negative'] }),
+        loadOrphanedFunds()
+      ]);
+    } catch (err) {
+      console.error('Test wallet seeding failed:', err);
+    } finally {
+      setSeedLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1068,6 +1117,60 @@ export function Funding() {
           Complete financial operations, anomalies, and reconciliation view
         </p>
       </div>
+
+      {/* System Financial Invariant */}
+      {healthData && (
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+            <h2 className="text-lg font-medium text-gray-900">System Financial Invariant</h2>
+            <p className="text-sm text-gray-500">Platform fund custody verification</p>
+          </div>
+          <div className="px-4 py-5">
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div>
+                <p className="text-sm text-gray-600">Stripe Balance</p>
+                <p className="text-xl font-semibold text-gray-900">
+                  {formatCurrency(healthData.stripe_total_balance)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Wallet Liability</p>
+                <p className="text-xl font-semibold text-gray-900">
+                  {formatCurrency(healthData.wallet_balance)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Contest Pools</p>
+                <p className="text-xl font-semibold text-gray-900">
+                  {formatCurrency(healthData.contest_pool_balance)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Platform Float</p>
+                <p className={`text-xl font-semibold ${healthData.platform_float >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                  {formatCurrency(healthData.platform_float)}
+                </p>
+              </div>
+            </div>
+            <div className="border-t border-gray-200 pt-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700">Invariant Status:</span>
+                {healthData.invariant_status === 'HEALTHY' ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
+                    <span className="h-2 w-2 rounded-full bg-green-600"></span>
+                    HEALTHY
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-800">
+                    <span className="h-2 w-2 rounded-full bg-red-600"></span>
+                    MISMATCH
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Section 1: Financial Summary */}
       <FinancialSummary
@@ -1143,6 +1246,55 @@ export function Funding() {
           </div>
         </div>
       )}
+
+      {/* Section 5: Operator Tools */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+          <h2 className="text-lg font-medium text-gray-900">Operator Tools</h2>
+          <p className="text-sm text-gray-500">Administrative recovery actions for staging finance</p>
+        </div>
+        <div className="px-4 py-5 flex gap-3">
+          <button
+            disabled={resetLoading || seedLoading}
+            onClick={() => setResetFinancialModalOpen(true)}
+            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Reset Financial State
+          </button>
+          <button
+            disabled={resetLoading || seedLoading}
+            onClick={() => setSeedWalletsModalOpen(true)}
+            className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Seed Test Wallets
+          </button>
+        </div>
+      </div>
+
+      {/* Reset Financial State Modal */}
+      <ConfirmationModal
+        isOpen={resetFinancialModalOpen}
+        onClose={() => setResetFinancialModalOpen(false)}
+        onConfirm={handleResetFinancialState}
+        title="Reset Financial State"
+        description="This will insert compensating ledger entries to neutralize wallet liability and contest pools. Ledger history will not be deleted."
+        confirmText="Confirm Reset"
+        confirmationPhrase="RESET_FINANCIAL_STATE"
+        isLoading={resetLoading}
+        preserveMessage="All ledger history is preserved. This only neutralizes current balances."
+      />
+
+      {/* Seed Test Wallets Modal */}
+      <ConfirmationModal
+        isOpen={seedWalletsModalOpen}
+        onClose={() => setSeedWalletsModalOpen(false)}
+        onConfirm={handleSeedTestWallets}
+        title="Seed Test Wallets"
+        description="This will fund test users with $100 each for staging testing."
+        confirmText="Seed Wallets"
+        confirmationPhrase="SEED_TEST_WALLETS"
+        isLoading={seedLoading}
+      />
     </div>
   );
 }

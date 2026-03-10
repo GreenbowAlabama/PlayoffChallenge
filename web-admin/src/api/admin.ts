@@ -9,6 +9,7 @@ export interface FinancialHealthResponse {
   wallet_balance: number;
   contest_pool_balance: number;
   platform_float: number;
+  invariant_status: 'HEALTHY' | 'MISMATCH';
   liquidity_ratio: number;
   ledger: {
     credits: number;
@@ -527,6 +528,53 @@ export interface RepairContestPoolsResponse {
  */
 export async function repairContestPools(): Promise<RepairContestPoolsResponse> {
   return apiRequest<RepairContestPoolsResponse>('/api/admin/financial-ops/repair-contest-pools', {
+    method: 'POST',
+  });
+}
+
+// ============================================
+// FINANCIAL RESET & SEED ENDPOINTS
+// ============================================
+
+export interface ResetFinancialStateResponse {
+  success: boolean;
+  wallet_reset_cents: number;
+  contest_pool_reset_cents: number;
+  error?: string;
+}
+
+/**
+ * Reset staging financial state by inserting compensating ledger entries.
+ *
+ * Neutralizes wallet liability and contest pool balances without deleting history.
+ * Uses append-only ADJUSTMENT entries to zero out both domains.
+ *
+ * Idempotent: running twice produces same result (no duplicate entries).
+ * This is an ADMIN-ONLY action for staging environments.
+ */
+export async function resetFinancialState(): Promise<ResetFinancialStateResponse> {
+  return apiRequest<ResetFinancialStateResponse>('/api/admin/financial-ops/reset-financial-state', {
+    method: 'POST',
+  });
+}
+
+export interface SeedTestWalletsResponse {
+  users_seeded: number;
+  total_seeded_cents: number;
+  error?: string;
+}
+
+/**
+ * Seed test wallets with $100 each.
+ *
+ * Identifies test users (email LIKE '%test%') and inserts WALLET_DEPOSIT
+ * entries to fund them for staging testing.
+ *
+ * Idempotent: running twice does not double-seed (uses idempotency keys).
+ * This is an ADMIN-ONLY action for staging environments.
+ */
+export async function seedTestWallets(): Promise<SeedTestWalletsResponse> {
+  return apiRequest<SeedTestWalletsResponse>('/api/admin/financial-ops/seed-test-wallets', {
     method: 'POST',
   });
 }

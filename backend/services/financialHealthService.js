@@ -219,9 +219,12 @@ async function getFinancialHealth(pool) {
   const depositWithdrawals = await getDepositWithdrawalTotals(pool);
 
   // Compute derived metrics
-  // Platform float = Stripe - wallet_liability only
-  // Contest pools are informational and not subtracted from platform float
-  const platformFloat = stripeBalance - walletBalance;
+  // System Financial Invariant: stripe_balance = wallet_liability + contest_pools
+  // platform_float = stripe_balance - wallet_liability - contest_pools
+  // If abs(platform_float) < $1 (100 cents), system is balanced
+  const platformFloat = stripeBalance - walletBalance - contestPoolBalance;
+  const invariantStatus = Math.abs(platformFloat) < 100 ? 'HEALTHY' : 'MISMATCH';
+
   // Liquidity ratio uses wallet liability only (contest pools are separate domain)
   const liquidityRatio = walletBalance > 0 ? stripeBalance / walletBalance : 0;
 
@@ -234,6 +237,7 @@ async function getFinancialHealth(pool) {
     wallet_balance: walletBalance,
     contest_pool_balance: contestPoolBalance,
     platform_float: platformFloat,
+    invariant_status: invariantStatus,
     liquidity_ratio: liquidityRatio,
     reconciled: reconciled,
     ledger: {

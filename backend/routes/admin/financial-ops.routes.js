@@ -9,6 +9,7 @@
 const express = require('express');
 const router = express.Router();
 const financialOpsService = require('../../services/financialOpsService');
+const financialResetService = require('../../services/financialResetService');
 
 /**
  * GET /api/admin/financial-ops
@@ -103,6 +104,74 @@ router.post('/repair-contest-pools', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to repair contest pools'
+    });
+  }
+});
+
+/**
+ * POST /api/admin/financial-ops/reset-financial-state
+ *
+ * Reset staging financial state by inserting compensating ledger entries.
+ * Neutralizes wallet liability and contest pool balances.
+ *
+ * Ledger governance:
+ * - Append-only: inserts only, no deletions
+ * - Uses ADJUSTMENT entry type with DEBIT direction
+ * - Idempotent: running twice produces no additional entries
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "wallet_reset_cents": number,
+ *   "contest_pool_reset_cents": number
+ * }
+ */
+router.post('/reset-financial-state', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+
+    const result = await financialResetService.resetFinancialState(pool);
+
+    res.json(result);
+  } catch (err) {
+    console.error('[Financial Ops] Reset error:', err.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reset financial state'
+    });
+  }
+});
+
+/**
+ * POST /api/admin/financial-ops/seed-test-wallets
+ *
+ * Seed test wallets with $100 each.
+ * Identifies test users (email LIKE '%test%') and inserts WALLET_DEPOSIT entries.
+ *
+ * Ledger governance:
+ * - Append-only: inserts only, no mutations
+ * - Entry type: WALLET_DEPOSIT
+ * - Direction: CREDIT (increases user balance)
+ * - Idempotent: running twice does not double-seed
+ *
+ * Response:
+ * {
+ *   "users_seeded": number,
+ *   "total_seeded_cents": number
+ * }
+ */
+router.post('/seed-test-wallets', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+
+    const result = await financialResetService.seedTestWallets(pool);
+
+    res.json(result);
+  } catch (err) {
+    console.error('[Financial Ops] Seed error:', err.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to seed test wallets'
     });
   }
 });
