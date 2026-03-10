@@ -335,6 +335,8 @@ async function getMissingPicks(pool, statuses = null, includeZero = true) {
       ci.contest_name,
       ci.status,
       ci.max_entries,
+      ci.tournament_start_time,
+      ci.tournament_end_time,
       COUNT(DISTINCT cp.user_id) as participant_count,
       (ci.max_entries - COUNT(DISTINCT cp.user_id)) as missing_picks
     FROM contest_instances ci
@@ -349,7 +351,7 @@ async function getMissingPicks(pool, statuses = null, includeZero = true) {
     params.push(statuses);
   }
 
-  query += ` GROUP BY ci.id, ci.contest_name, ci.status, ci.max_entries
+  query += ` GROUP BY ci.id, ci.contest_name, ci.status, ci.max_entries, ci.tournament_start_time, ci.tournament_end_time
     ORDER BY missing_picks DESC, ci.created_at DESC`;
 
   const result = await pool.query(query, params);
@@ -360,7 +362,9 @@ async function getMissingPicks(pool, statuses = null, includeZero = true) {
     status: row.status,
     max_entries: parseInt(row.max_entries, 10),
     participant_count: parseInt(row.participant_count, 10),
-    missing_picks: parseInt(row.missing_picks, 10)
+    missing_picks: parseInt(row.missing_picks, 10),
+    start_time: row.tournament_start_time,
+    end_time: row.tournament_end_time
   }));
 
   // Optionally include contests with zero missing picks
