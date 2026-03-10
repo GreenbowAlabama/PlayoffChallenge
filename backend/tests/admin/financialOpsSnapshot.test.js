@@ -83,14 +83,15 @@ describe('Financial Ops Service', () => {
       expect(['balanced', 'drift']).toContain(snapshot.reconciliation.status);
     });
 
-    test('should have non-negative values for all aggregates', async () => {
+    test('should have non-negative values for all counts and ledger totals', async () => {
       const snapshot = await financialOpsService.getFinancialOpsSnapshot(pool);
 
       expect(snapshot.ledger.total_credits_cents).toBeGreaterThanOrEqual(0);
       expect(snapshot.ledger.total_debits_cents).toBeGreaterThanOrEqual(0);
       expect(snapshot.wallets.wallet_liability_cents).toBeGreaterThanOrEqual(0);
       expect(snapshot.wallets.users_with_positive_balance).toBeGreaterThanOrEqual(0);
-      expect(snapshot.contest_pools.contest_pools_cents).toBeGreaterThanOrEqual(0);
+      // Contest pools can be negative (this is what repairContestPools fixes)
+      expect(typeof snapshot.contest_pools.contest_pools_cents).toBe('number');
       expect(snapshot.contest_pools.negative_pool_contests).toBeGreaterThanOrEqual(0);
       expect(snapshot.settlement.pending_settlement_contests).toBeGreaterThanOrEqual(0);
       expect(snapshot.settlement.settlement_failures).toBeGreaterThanOrEqual(0);
@@ -152,6 +153,95 @@ describe('Financial Ops Service', () => {
       expect(snapshot1.contest_pools.contest_pools_cents).toBe(snapshot2.contest_pools.contest_pools_cents);
       expect(snapshot1.reconciliation.deposits_cents).toBe(snapshot2.reconciliation.deposits_cents);
       expect(snapshot1.reconciliation.withdrawals_cents).toBe(snapshot2.reconciliation.withdrawals_cents);
+    });
+  });
+
+  describe('repairContestPools', () => {
+    test('should return result object with correct shape', async () => {
+      const result = await financialOpsService.repairContestPools(pool);
+
+      expect(result).toBeDefined();
+      expect(typeof result.contests_scanned).toBe('number');
+      expect(typeof result.contests_repaired).toBe('number');
+      expect(typeof result.total_adjusted_cents).toBe('number');
+      expect(result.contests_scanned).toBeGreaterThanOrEqual(0);
+      expect(result.contests_repaired).toBeGreaterThanOrEqual(0);
+      expect(result.total_adjusted_cents).toBeGreaterThanOrEqual(0);
+    });
+
+    test('should be idempotent: running twice produces same result and no additional entries', async () => {
+      // Get baseline ledger state
+      const ledgerBefore = await pool.query('SELECT COUNT(*) as count FROM ledger');
+      const countBefore = parseInt(ledgerBefore.rows[0].count, 10);
+
+      // Run repair first time
+      const result1 = await financialOpsService.repairContestPools(pool);
+
+      // Get ledger state after first repair
+      const ledgerAfter1 = await pool.query('SELECT COUNT(*) as count FROM ledger');
+      const countAfter1 = parseInt(ledgerAfter1.rows[0].count, 10);
+
+      // Run repair second time
+      const result2 = await financialOpsService.repairContestPools(pool);
+
+      // Get ledger state after second repair
+      const ledgerAfter2 = await pool.query('SELECT COUNT(*) as count FROM ledger');
+      const countAfter2 = parseInt(ledgerAfter2.rows[0].count, 10);
+
+      // Both runs should have scanned the same number of contests
+      expect(result1.contests_scanned).toBe(result2.contests_scanned);
+
+      // After second repair, no new entries should be added (idempotency)
+      // Only new entries would be from first repair
+      expect(countAfter2).toBe(countAfter1);
+
+      // Verify idempotency key prevents duplicates
+      const repairEntries = await pool.query(
+        "SELECT COUNT(*) as count FROM ledger WHERE entry_type = 'ADJUSTMENT' AND reference_type = 'POOL_REPAIR'"
+      );
+      // Should have at most one ADJUSTMENT per contest, not duplicates
+      const repairCount = parseInt(repairEntries.rows[0].count, 10);
+      expect(repairCount).toBeLessThanOrEqual(result1.contests_repaired);
+    });
+
+    test('should create ADJUSTMENT entries only for contests with negative pools', async () => {
+      const result = await financialOpsService.repairContestPools(pool);
+
+      if (result.contests_repaired > 0) {
+        // Verify ADJUSTMENT entries were created
+        const adjustments = await pool.query(
+          "SELECT * FROM ledger WHERE entry_type = 'ADJUSTMENT' AND reference_type = 'CONTEST' AND idempotency_key LIKE 'pool-repair-%' ORDER BY created_at DESC LIMIT 10"
+        );
+
+        expect(adjustments.rowCount).toBeGreaterThan(0);
+
+        // Verify all adjustments are CREDIT direction (to offset negative balances)
+        adjustments.rows.forEach(entry => {
+          expect(entry.direction).toBe('CREDIT');
+          expect(entry.amount_cents).toBeGreaterThan(0);
+        });
+      }
+    });
+
+    test('should use deterministic idempotency keys', async () => {
+      const result = await financialOpsService.repairContestPools(pool);
+
+      if (result.contests_repaired > 0) {
+        // Get repair entries
+        const repairs = await pool.query(
+          "SELECT idempotency_key FROM ledger WHERE entry_type = 'ADJUSTMENT' AND reference_type = 'CONTEST' AND idempotency_key LIKE 'pool-repair-%'"
+        );
+
+        // All keys should follow the pattern: pool-repair-{contest_id}
+        repairs.rows.forEach(entry => {
+          expect(entry.idempotency_key).toMatch(/^pool-repair-/);
+        });
+
+        // No duplicate keys (unique constraint should prevent this)
+        const keys = repairs.rows.map(r => r.idempotency_key);
+        const uniqueKeys = new Set(keys);
+        expect(keys.length).toBe(uniqueKeys.size);
+      }
     });
   });
 });

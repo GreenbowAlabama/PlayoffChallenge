@@ -21,9 +21,13 @@
  * CRITICAL: Reuses existing services. No business logic duplication.
  */
 
+const { v5: uuidv5 } = require('uuid');
 const financialHealthService = require('./financialHealthService');
 const contestPoolDiagnosticsService = require('./contestPoolDiagnosticsService');
 const PayoutJobsRepository = require('../repositories/PayoutJobsRepository');
+
+// Namespace for deterministic UUID v5 generation
+const POOL_REPAIR_NAMESPACE = '550e8400-e29b-41d4-a716-446655440000';
 
 /**
  * Get complete operational snapshot for platform finances.
@@ -206,6 +210,109 @@ async function getFinancialOpsSnapshot(pool, options = {}) {
   }
 }
 
+/**
+ * Repair contest pools with negative balances.
+ *
+ * Scans for contests with negative pools and inserts compensating ADJUSTMENT
+ * ledger entries. Uses existing contestPoolDiagnosticsService logic to identify
+ * which contests need repair and compute the adjustment amounts.
+ *
+ * Repairs are idempotent: running twice produces no additional ledger entries.
+ * Uses deterministic idempotency_key based on contest_id.
+ *
+ * Ledger governance:
+ * - Append-only: inserts only, no mutations of existing rows
+ * - Entry type: ADJUSTMENT (existing schema type for general corrections)
+ * - Direction: CREDIT (to offset negative balance)
+ * - Reference type: POOL_REPAIR (links to the repair operation)
+ * - Idempotency key: pool-repair-{contest_id} (deterministic across runs)
+ *
+ * @param {Object} pool - Database connection pool
+ * @returns {Promise<Object>} { contests_scanned, contests_repaired, total_adjusted_cents }
+ * @throws {Error} If database error occurs
+ */
+async function repairContestPools(pool) {
+  const client = await pool.connect();
+  const shouldRelease = true;
+
+  try {
+    // Start transaction for atomic repair
+    await client.query('BEGIN');
+
+    // 1. Scan for all contests with negative pools
+    // Reuse existing diagnostic service - same logic as Financial Ops page
+    const negativePoolContests = await contestPoolDiagnosticsService.getNegativePoolContests(client);
+
+    const LedgerRepository = require('../repositories/LedgerRepository');
+    let contestsRepaired = 0;
+    let totalAdjustedCents = 0;
+
+    // 2. For each negative pool contest, insert compensating ADJUSTMENT entry
+    for (const contest of negativePoolContests) {
+      const contestId = contest.contest_id;
+      const negativeAmountCents = Math.abs(contest.pool_balance_cents);
+
+      // Generate deterministic idempotency key
+      // Format: pool-repair-{contest_id}
+      const idempotencyKey = `pool-repair-${contestId}`;
+
+      // Check if repair already exists (idempotency)
+      const existingRepair = await LedgerRepository.findByIdempotencyKey(client, idempotencyKey);
+
+      if (!existingRepair) {
+        // Generate deterministic reference_id using UUID v5
+        // This ensures the same contest always gets the same reference_id
+        const referenceId = uuidv5(`pool-repair-${contestId}`, POOL_REPAIR_NAMESPACE);
+
+        // Insert compensating ADJUSTMENT entry (CREDIT to offset negative balance)
+        // reference_type='CONTEST' links this adjustment to the contest
+        // metadata_json provides semantic detail about the repair
+        await LedgerRepository.insertLedgerEntry(client, {
+          contest_instance_id: contestId,
+          entry_type: 'ADJUSTMENT',
+          direction: 'CREDIT',
+          amount_cents: negativeAmountCents,
+          currency: 'USD',
+          reference_type: 'CONTEST',
+          reference_id: referenceId,
+          idempotency_key: idempotencyKey,
+          metadata_json: {
+            repair_operation: 'pool_repair',
+            repair_reason: 'Negative pool correction',
+            original_balance_cents: contest.pool_balance_cents,
+            root_cause: contest.root_cause
+          }
+        });
+
+        contestsRepaired++;
+        totalAdjustedCents += negativeAmountCents;
+      }
+    }
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    return {
+      contests_scanned: negativePoolContests.length,
+      contests_repaired: contestsRepaired,
+      total_adjusted_cents: totalAdjustedCents
+    };
+  } catch (err) {
+    // Rollback on error
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      console.error('[FinancialOps] Rollback error:', rollbackErr.message);
+    }
+    throw err;
+  } finally {
+    if (shouldRelease) {
+      client.release();
+    }
+  }
+}
+
 module.exports = {
-  getFinancialOpsSnapshot
+  getFinancialOpsSnapshot,
+  repairContestPools
 };

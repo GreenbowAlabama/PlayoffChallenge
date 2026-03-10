@@ -11,10 +11,11 @@
  */
 
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getFinancialHealth,
   getFinancialReconciliationHistory,
+  repairContestPools,
   type FinancialHealthResponse,
 } from '../api/admin';
 import {
@@ -123,6 +124,74 @@ function StatusBadge({ status, label }: StatusBadgeProps) {
       {status === 'critical' && <span className="h-2 w-2 rounded-full bg-red-600 mr-1.5"></span>}
       {label}
     </span>
+  );
+}
+
+// ============================================
+// REPAIR CONTEST POOLS MODAL
+// ============================================
+
+interface RepairPoolsModalProps {
+  isOpen: boolean;
+  onConfirm: () => Promise<void>;
+  onClose: () => void;
+}
+
+function RepairPoolsModal({ isOpen, onConfirm, onClose }: RepairPoolsModalProps) {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleConfirm = async () => {
+    setIsLoading(true);
+    try {
+      await onConfirm();
+      onClose();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">Repair Contest Pools</h3>
+          <p className="text-sm text-gray-600 mt-1">Restore accounting for contests with negative balances</p>
+        </div>
+
+        <div className="px-6 py-4 space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded p-3">
+            <p className="text-sm text-blue-800">
+              This will insert compensating ledger entries to restore contest pool accounting.
+              <br />
+              <br />
+              Historical ledger rows will not be modified.
+              <br />
+              <br />
+              This operation is idempotent and safe to run multiple times.
+            </p>
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            disabled={isLoading}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={isLoading}
+            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {isLoading ? 'Repairing...' : 'Confirm Repair'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -436,6 +505,7 @@ interface AnomaliesSectionProps {
   error: Error | null;
   totalCount: number;
   breakdown: RootCauseBreakdown;
+  onRepairComplete?: () => Promise<void>;
 }
 
 function AnomaliesSection({
@@ -444,20 +514,49 @@ function AnomaliesSection({
   error,
   totalCount,
   breakdown,
+  onRepairComplete,
 }: AnomaliesSectionProps) {
   const [expandedContestId, setExpandedContestId] = useState<string | null>(null);
+  const [repairModalOpen, setRepairModalOpen] = useState(false);
+  const [repairResult, setRepairResult] = useState<{ contests_scanned: number; contests_repaired: number; total_adjusted_cents: number } | null>(null);
+  const [repairError, setRepairError] = useState<string | null>(null);
+  const [showRepairSuccess, setShowRepairSuccess] = useState(false);
+
   const { data: details, isLoading: detailsLoading } = useQuery({
     queryKey: ['contestPoolDetails', expandedContestId],
     queryFn: () => (expandedContestId ? getContestPoolDetails(expandedContestId) : null),
     enabled: !!expandedContestId,
   });
 
+  const handleRepair = async () => {
+    setRepairError(null);
+    try {
+      const result = await repairContestPools();
+      setRepairResult(result);
+      setShowRepairSuccess(true);
+      // Refresh financial data after repair
+      await onRepairComplete?.();
+    } catch (err) {
+      setRepairError(err instanceof Error ? err.message : 'Failed to repair contest pools');
+    }
+  };
+
   return (
     <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
       <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
-        <h2 className="text-lg font-medium text-gray-900">
-          Anomalies ({totalCount} contests with negative pools)
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-medium text-gray-900">
+            Anomalies ({totalCount} contests with negative pools)
+          </h2>
+          {totalCount > 0 && (
+            <button
+              onClick={() => setRepairModalOpen(true)}
+              className="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded hover:bg-indigo-700"
+            >
+              Repair Contest Pools
+            </button>
+          )}
+        </div>
       </div>
 
       {isLoading ? (
@@ -591,6 +690,60 @@ function AnomaliesSection({
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Repair Modal */}
+      <RepairPoolsModal
+        isOpen={repairModalOpen}
+        onConfirm={handleRepair}
+        onClose={() => {
+          setRepairModalOpen(false);
+          setRepairResult(null);
+          setRepairError(null);
+        }}
+      />
+
+      {/* Repair Success Message */}
+      {showRepairSuccess && repairResult && (
+        <div className="mx-4 my-4 rounded-lg border border-green-200 bg-green-50 p-4">
+          <div className="flex items-start">
+            <div className="flex-1">
+              <h4 className="font-medium text-green-900">Repair Complete</h4>
+              <p className="text-sm text-green-700 mt-1">
+                Scanned {repairResult.contests_scanned} contests, repaired {repairResult.contests_repaired} with negative pools
+              </p>
+              {repairResult.total_adjusted_cents > 0 && (
+                <p className="text-sm text-green-700 mt-1">
+                  Total adjustments: {formatCurrency(repairResult.total_adjusted_cents)}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => setShowRepairSuccess(false)}
+              className="text-green-700 hover:text-green-900"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Repair Error Message */}
+      {repairError && (
+        <div className="mx-4 my-4 rounded-lg border border-red-200 bg-red-50 p-4">
+          <div className="flex items-start">
+            <div className="flex-1">
+              <h4 className="font-medium text-red-900">Repair Failed</h4>
+              <p className="text-sm text-red-700 mt-1">{repairError}</p>
+            </div>
+            <button
+              onClick={() => setRepairError(null)}
+              className="text-red-700 hover:text-red-900"
+            >
+              ✕
+            </button>
           </div>
         </div>
       )}
@@ -812,6 +965,8 @@ function OrphanedFundsSection({
 // ============================================
 
 export function Funding() {
+  const queryClient = useQueryClient();
+
   // Financial Health
   const { data: healthData, isLoading: healthLoading, refetch: refetchHealth, isFetching: healthFetching } = useQuery({
     queryKey: ['admin', 'financial-health'],
@@ -896,6 +1051,14 @@ export function Funding() {
     await Promise.all([refetchHealth(), loadOrphanedFunds()]);
   };
 
+  // Handle repair completion (refresh both pools and financial data)
+  const handleRepairComplete = async () => {
+    // Invalidate negative pools query to trigger refetch
+    await queryClient.invalidateQueries({ queryKey: ['contestPools', 'negative'] });
+    // Refresh financial health data
+    await refetchHealth();
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -927,6 +1090,7 @@ export function Funding() {
           REFUNDED_ENTRIES_WITH_PAYOUTS: 0,
           MIXED: 0,
         }}
+        onRepairComplete={handleRepairComplete}
       />
 
       {/* Section 3: Orphaned Funds */}

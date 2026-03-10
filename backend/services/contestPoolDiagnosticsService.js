@@ -22,17 +22,28 @@ async function getNegativePoolContests(pool) {
         ci.status,
         ci.created_at,
         (SELECT COUNT(DISTINCT user_id) FROM contest_participants WHERE contest_instance_id = ci.id) as participant_count,
-        -- Entry fee calculations
+        -- Pool balance: canonical formula using ledger direction
+        -- DEBIT = positive (deducted from pool), CREDIT = negative (credited to pool)
+        COALESCE(
+          SUM(
+            CASE
+              WHEN l.direction = 'DEBIT' THEN l.amount_cents
+              WHEN l.direction = 'CREDIT' THEN -l.amount_cents
+              ELSE 0
+            END
+          ),
+          0
+        ) as pool_balance_cents,
+        -- Ledger breakdown for root cause analysis
         COALESCE(SUM(CASE WHEN l.entry_type = 'ENTRY_FEE' AND l.direction = 'DEBIT' THEN l.amount_cents ELSE 0 END), 0) as entry_fee_debits_cents,
         COALESCE(SUM(CASE WHEN l.entry_type = 'ENTRY_FEE_REFUND' AND l.direction = 'CREDIT' THEN l.amount_cents ELSE 0 END), 0) as entry_fee_refunds_cents,
-        -- Prize payout calculations
         COALESCE(SUM(CASE WHEN l.entry_type = 'PRIZE_PAYOUT' AND l.direction = 'CREDIT' THEN l.amount_cents ELSE 0 END), 0) as prize_payout_cents,
         COALESCE(SUM(CASE WHEN l.entry_type = 'PRIZE_PAYOUT_REVERSAL' AND l.direction = 'DEBIT' THEN l.amount_cents ELSE 0 END), 0) as prize_reversal_cents
       FROM contest_instances ci
       LEFT JOIN ledger l ON ci.id = l.contest_instance_id
       GROUP BY ci.id, ci.contest_name, ci.status, ci.created_at
     ),
-    pool_calculations AS (
+    classified_pools AS (
       SELECT
         id,
         contest_name,
@@ -45,35 +56,19 @@ async function getNegativePoolContests(pool) {
         prize_payout_cents,
         prize_reversal_cents,
         (prize_payout_cents - prize_reversal_cents) as prize_net_cents,
-        (entry_fee_debits_cents - entry_fee_refunds_cents) - (prize_payout_cents - prize_reversal_cents) as pool_balance_cents
-      FROM contest_ledger_summary
-    ),
-    classified_pools AS (
-      SELECT
-        id,
-        contest_name,
-        status,
-        created_at,
-        participant_count,
-        entry_fee_debits_cents,
-        entry_fee_refunds_cents,
-        entry_fee_net_cents,
-        prize_payout_cents,
-        prize_reversal_cents,
-        prize_net_cents,
         pool_balance_cents,
         CASE
           -- Payouts exist but no entry fees collected (most specific)
-          WHEN entry_fee_net_cents = 0 AND prize_net_cents > 0 THEN 'NO_ENTRIES_WITH_PAYOUTS'
+          WHEN entry_fee_debits_cents = 0 AND prize_payout_cents > 0 THEN 'NO_ENTRIES_WITH_PAYOUTS'
           -- Entry fees were refunded but payouts still exist
-          WHEN entry_fee_refunds_cents > 0 AND prize_net_cents > 0 THEN 'REFUNDED_ENTRIES_WITH_PAYOUTS'
+          WHEN entry_fee_refunds_cents > 0 AND prize_payout_cents > 0 THEN 'REFUNDED_ENTRIES_WITH_PAYOUTS'
           -- Payouts exceed available entry fees
-          WHEN prize_net_cents > entry_fee_net_cents THEN 'PAYOUTS_EXCEED_ENTRIES'
+          WHEN prize_payout_cents > entry_fee_debits_cents THEN 'PAYOUTS_EXCEED_ENTRIES'
           -- Multiple issues
           ELSE 'MIXED'
         END as root_cause
-      FROM pool_calculations
-      WHERE (entry_fee_debits_cents - entry_fee_refunds_cents) - (prize_payout_cents - prize_reversal_cents) < 0
+      FROM contest_ledger_summary
+      WHERE pool_balance_cents < 0
         AND NOT (status = 'CANCELLED' AND participant_count = 0)
     )
     SELECT

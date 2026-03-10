@@ -49,6 +49,11 @@ const financialOpsService = require('../../services/financialOpsService');
  *   }
  * }
  */
+/**
+ * GET /api/admin/financial-ops
+ *
+ * Get complete operational snapshot for platform finances.
+ */
 router.get('/', async (req, res) => {
   try {
     const pool = req.app.locals.pool;
@@ -62,6 +67,43 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('[Financial Ops] Error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/financial-ops/repair-contest-pools
+ *
+ * Repair all contests with negative pool balances.
+ *
+ * Scans for contests flagged with negative pools (using same logic as
+ * Financial Ops dashboard) and inserts compensating ADJUSTMENT ledger
+ * entries to restore pool accounting.
+ *
+ * Repairs are idempotent: running twice produces no additional entries.
+ *
+ * Response:
+ * {
+ *   "contests_scanned": number,
+ *   "contests_repaired": number,
+ *   "total_adjusted_cents": number
+ * }
+ */
+router.post('/repair-contest-pools', async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+
+    const result = await financialOpsService.repairContestPools(pool);
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    console.error('[Financial Ops] Repair error:', err.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to repair contest pools'
+    });
   }
 });
 

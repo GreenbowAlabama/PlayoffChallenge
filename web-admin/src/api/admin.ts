@@ -501,3 +501,32 @@ export async function getFinancialReconciliationHistory(
     `/api/admin/financial-reconciliation-history?days=${days}`
   );
 }
+
+// ============================================
+// CONTEST POOL REPAIR ENDPOINT
+// ============================================
+
+export interface RepairContestPoolsResponse {
+  success: boolean;
+  contests_scanned: number;
+  contests_repaired: number;
+  total_adjusted_cents: number;
+  error?: string;
+}
+
+/**
+ * Repair all contests with negative pool balances
+ *
+ * Scans for contests flagged with negative pools and inserts compensating
+ * ADJUSTMENT ledger entries to restore contest pool accounting.
+ *
+ * Repairs are idempotent: running twice produces no additional ledger entries.
+ * Uses deterministic idempotency keys based on contest_id.
+ *
+ * This is an ADMIN-ONLY action that requires operator confirmation.
+ */
+export async function repairContestPools(): Promise<RepairContestPoolsResponse> {
+  return apiRequest<RepairContestPoolsResponse>('/api/admin/financial-ops/repair-contest-pools', {
+    method: 'POST',
+  });
+}
