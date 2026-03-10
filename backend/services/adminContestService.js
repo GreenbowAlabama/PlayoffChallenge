@@ -115,13 +115,36 @@ async function listContests(pool, filters = {}) {
   params.push(limit, offset);
 
   const result = await pool.query(
-    `SELECT ci.*,
+    `SELECT ci.id,
+            ci.template_id,
+            ci.organizer_id,
+            ci.entry_fee_cents,
+            ci.payout_structure,
+            ci.status,
+            ci.contest_name,
+            ci.join_token,
+            ci.max_entries,
+            ci.start_time,
+            ci.lock_time,
+            ci.lock_at,
+            ci.settle_time,
+            ci.end_time,
+            ci.tournament_start_time,
+            ci.tournament_end_time,
+            ci.is_platform_owned,
+            ci.is_primary_marketing,
+            ci.is_system_generated,
+            ci.provider_event_id,
+            ci.created_at,
+            ci.updated_at,
             ct.name as template_name,
             ct.sport as template_sport,
-            (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id) as participant_count
+            COUNT(cp.id) as participant_count
      FROM contest_instances ci
-     JOIN contest_templates ct ON ci.template_id = ct.id
+     LEFT JOIN contest_templates ct ON ci.template_id = ct.id
+     LEFT JOIN contest_participants cp ON ci.id = cp.contest_instance_id
      ${where}
+     GROUP BY ci.id, ct.name, ct.sport
      ORDER BY ci.created_at DESC
      LIMIT $${idx++} OFFSET $${idx++}`,
     params
@@ -139,13 +162,36 @@ async function listContests(pool, filters = {}) {
  */
 async function getContest(pool, contestId) {
   const result = await pool.query(
-    `SELECT ci.*,
+    `SELECT ci.id,
+            ci.template_id,
+            ci.organizer_id,
+            ci.entry_fee_cents,
+            ci.payout_structure,
+            ci.status,
+            ci.contest_name,
+            ci.join_token,
+            ci.max_entries,
+            ci.start_time,
+            ci.lock_time,
+            ci.lock_at,
+            ci.settle_time,
+            ci.end_time,
+            ci.tournament_start_time,
+            ci.tournament_end_time,
+            ci.is_platform_owned,
+            ci.is_primary_marketing,
+            ci.is_system_generated,
+            ci.provider_event_id,
+            ci.created_at,
+            ci.updated_at,
             ct.name as template_name,
             ct.sport as template_sport,
-            (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id) as participant_count
+            COUNT(cp.id) as participant_count
      FROM contest_instances ci
-     JOIN contest_templates ct ON ci.template_id = ct.id
-     WHERE ci.id = $1`,
+     LEFT JOIN contest_templates ct ON ci.template_id = ct.id
+     LEFT JOIN contest_participants cp ON ci.id = cp.contest_instance_id
+     WHERE ci.id = $1
+     GROUP BY ci.id, ct.name, ct.sport`,
     [contestId]
   );
   return result.rows[0] || null;
