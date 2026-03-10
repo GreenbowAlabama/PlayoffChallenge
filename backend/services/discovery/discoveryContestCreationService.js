@@ -488,7 +488,7 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
           status, contest_name, tournament_start_time, tournament_end_time,
           lock_time, provider_event_id, is_platform_owned, join_token
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        ON CONFLICT ON CONSTRAINT uniq_platform_contest_tiers
+        ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
         DO NOTHING
         RETURNING id`,
         [
