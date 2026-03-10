@@ -166,8 +166,8 @@ function FinancialOpsContent({ snapshot }: { snapshot: FinancialOpsSnapshot }) {
           <MetricCard
             title="Total Pool Balance"
             value={formatCurrency(snapshot.contest_pools.contest_pools_cents)}
-            label="Entry fees minus payouts"
-            tooltip="Sum of entry fees (debits) minus refunds and payouts (credits)"
+            label="Internal contest accounting (informational)"
+            tooltip="Sum of entry fees (debits) minus refunds and payouts (credits). Separate domain from wallet liability."
           />
           <MetricCard
             title="Negative Pool Contests"
