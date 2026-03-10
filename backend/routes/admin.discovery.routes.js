@@ -117,6 +117,7 @@ router.get('/system-instances', async (req, res) => {
         ci.max_entries,
         ci.current_entries,
         ci.lock_time,
+        ci.start_time,
         ci.tournament_start_time,
         ci.created_at
       FROM contest_instances ci
