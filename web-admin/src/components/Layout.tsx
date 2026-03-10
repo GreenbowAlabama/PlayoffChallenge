@@ -49,6 +49,7 @@ export function Layout() {
     finance: {
       label: 'Finance',
       items: [
+        { label: 'Financial Ops', path: '/admin/financial-ops' },
         { label: 'Funding', path: '/funding' },
         { label: 'Wallet Ledger', path: '/users/wallet-ledger' },
       ],
@@ -57,7 +58,6 @@ export function Layout() {
       label: 'Platform',
       items: [
         { label: 'Control Room', path: '/admin' },
-        { label: 'Financial Ops', path: '/admin/financial-ops' },
         { label: 'Week Management', path: '/admin/operations' },
         { label: 'New Type', path: '/create-contest-type' },
       ],

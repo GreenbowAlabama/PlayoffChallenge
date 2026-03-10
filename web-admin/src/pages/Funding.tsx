@@ -1,24 +1,23 @@
 /**
- * Funding Page — Financial Consolidation
+ * Funding Page — Administrative Recovery and Staging Tools
  *
- * Single source of truth for all financial operations and anomalies.
+ * Manual intervention console for contest pool repair and financial state management.
+ * Monitoring dashboards moved to Finance → Financial Ops.
  *
  * Sections:
- * 1. Financial Summary — Stripe balance, wallets, contest pools, platform float, liquidity coverage
- * 2. Anomalies — Contests with negative pools + orphaned/stranded funds
- * 3. Ledger Drill-Down — Click to see full ledger breakdown per contest
- * 4. Reconciliation History — Last 30 days trend graph
+ * 1. System Snapshot — Quick view of ledger net, wallet liability, contest pools
+ * 2. Repair Contest Pools — Restore accounting for contests with negative balances
+ * 3. Orphaned Funds — Identify and refund stranded funds from contests
+ * 4. Operator Tools — Reset financial state, seed test wallets
  */
 
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getFinancialHealth,
-  getFinancialReconciliationHistory,
   repairContestPools,
   resetFinancialState,
   seedTestWallets,
-  type FinancialHealthResponse,
 } from '../api/admin';
 import {
   getNegativePoolContests,
@@ -45,10 +44,6 @@ import { ConfirmationModal } from '../components/ConfirmationModal';
 function formatCurrency(cents: number): string {
   const dollars = (cents / 100).toFixed(2);
   return `$${dollars}`;
-}
-
-function formatPercent(ratio: number): string {
-  return `${(ratio * 100).toFixed(1)}%`;
 }
 
 // ============================================
@@ -100,32 +95,6 @@ function RootCauseBadge({ cause }: { cause: string }) {
       title={config.label}
     >
       {config.shortLabel}
-    </span>
-  );
-}
-
-// ============================================
-// STATUS BADGE
-// ============================================
-
-interface StatusBadgeProps {
-  status: 'healthy' | 'warning' | 'critical';
-  label: string;
-}
-
-function StatusBadge({ status, label }: StatusBadgeProps) {
-  const colors: Record<string, string> = {
-    healthy: 'bg-green-100 text-green-800',
-    warning: 'bg-yellow-100 text-yellow-800',
-    critical: 'bg-red-100 text-red-800',
-  };
-
-  return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${colors[status]}`}>
-      {status === 'healthy' && <span className="h-2 w-2 rounded-full bg-green-600 mr-1.5"></span>}
-      {status === 'warning' && <span className="h-2 w-2 rounded-full bg-yellow-600 mr-1.5"></span>}
-      {status === 'critical' && <span className="h-2 w-2 rounded-full bg-red-600 mr-1.5"></span>}
-      {label}
     </span>
   );
 }
@@ -398,111 +367,7 @@ function CaseNotesPanel({ issueType, issueContestId, issueUserId }: CaseNotesPan
 }
 
 // ============================================
-// SECTION 1: FINANCIAL SUMMARY
-// ============================================
-
-interface FinancialSummaryProps {
-  data: FinancialHealthResponse | undefined;
-  isLoading: boolean;
-  healthStatus: 'healthy' | 'warning' | 'critical';
-  onRefresh: () => Promise<void>;
-  isFetching: boolean;
-}
-
-function FinancialSummary({ data, isLoading, healthStatus, onRefresh, isFetching }: FinancialSummaryProps) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-      <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div>
-              <h2 className="text-lg font-medium text-gray-900">Financial Summary</h2>
-              <p className="text-sm text-gray-500">Platform funds reconciliation and liquidity</p>
-            </div>
-            {data && (
-              <StatusBadge
-                status={healthStatus}
-                label={healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Warning' : 'Critical'}
-              />
-            )}
-          </div>
-          <button
-            onClick={onRefresh}
-            disabled={isFetching}
-            className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
-          >
-            {isFetching ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-      </div>
-
-      {isLoading ? (
-        <div className="px-4 py-8 text-center text-gray-600">Loading financial data...</div>
-      ) : data ? (
-        <div className="space-y-4 px-4 py-5">
-          {/* 3-Box Summary */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="rounded border border-gray-200 bg-gray-50 p-3">
-              <dt className="text-xs font-semibold text-gray-600 uppercase">Stripe Balance</dt>
-              <dd className="mt-1 text-2xl font-semibold text-gray-900">{formatCurrency(data.stripe_total_balance)}</dd>
-            </div>
-            <div className="rounded border border-gray-200 bg-gray-50 p-3">
-              <dt className="text-xs font-semibold text-gray-600 uppercase">User Wallets</dt>
-              <dd className="mt-1 text-2xl font-semibold text-gray-900">{formatCurrency(data.wallet_balance)}</dd>
-            </div>
-            <div className="rounded border border-gray-200 bg-gray-50 p-3">
-              <dt className="text-xs font-semibold text-gray-600 uppercase">Contest Pools</dt>
-              <dd className="mt-1 text-2xl font-semibold text-gray-900">{formatCurrency(data.contest_pool_balance)}</dd>
-            </div>
-          </div>
-
-          {/* Liquidity & Ledger Status */}
-          <div className="grid grid-cols-2 gap-4 border-t border-gray-200 pt-4">
-            <div>
-              <dt className="text-sm font-medium text-gray-600">Platform Float</dt>
-              <dd className="mt-1 text-lg font-semibold text-gray-900">{formatCurrency(data.platform_float)}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-600">Liquidity Coverage Ratio</dt>
-              <dd className={`mt-1 text-lg font-semibold ${data.liquidity_ratio >= 1.0 ? 'text-green-700' : 'text-red-700'}`}>
-                {formatPercent(data.liquidity_ratio)}
-              </dd>
-            </div>
-          </div>
-
-          {/* Ledger Integrity */}
-          <div className="border-t border-gray-200 pt-4">
-            <dt className="text-sm font-medium text-gray-600 mb-2">Ledger Integrity</dt>
-            <div className="grid grid-cols-3 gap-3 text-sm">
-              <div>
-                <span className="text-gray-600">Credits:</span>
-                <span className="ml-2 font-semibold text-gray-900">{formatCurrency(data.ledger.credits)}</span>
-              </div>
-              <div>
-                <span className="text-gray-600">Debits:</span>
-                <span className="ml-2 font-semibold text-gray-900">{formatCurrency(data.ledger.debits)}</span>
-              </div>
-              <div>
-                <span className="text-gray-600">Net:</span>
-                <span className="ml-2 font-semibold text-gray-900">{formatCurrency(data.ledger.net)}</span>
-              </div>
-            </div>
-            <div className="mt-2">
-              {data.ledger.balanced ? (
-                <StatusBadge status="healthy" label="Ledger Balanced" />
-              ) : (
-                <StatusBadge status="critical" label="Ledger Imbalanced" />
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-// ============================================
-// SECTION 2: ANOMALIES (Negative Pools)
+// SECTION 1: ANOMALIES (Negative Pools)
 // ============================================
 
 interface AnomaliesSectionProps {
@@ -758,7 +623,7 @@ function AnomaliesSection({
 }
 
 // ============================================
-// SECTION 3: ORPHANED FUNDS
+// SECTION 2: ORPHANED FUNDS
 // ============================================
 
 interface OrphanedFundsSectionProps {
@@ -974,17 +839,10 @@ export function Funding() {
   const queryClient = useQueryClient();
 
   // Financial Health
-  const { data: healthData, isLoading: healthLoading, refetch: refetchHealth, isFetching: healthFetching } = useQuery({
+  const { data: healthData, refetch: refetchHealth } = useQuery({
     queryKey: ['admin', 'financial-health'],
     queryFn: getFinancialHealth,
     refetchInterval: 60000,
-  });
-
-  // Reconciliation History
-  const { data: historyData } = useQuery({
-    queryKey: ['admin', 'financial-reconciliation-history'],
-    queryFn: () => getFinancialReconciliationHistory(30),
-    refetchInterval: 300000,
   });
 
   // Negative Pool Contests
@@ -1028,22 +886,6 @@ export function Funding() {
     loadOrphanedFunds();
   }, []);
 
-  // Determine health status
-  const getHealthStatus = (data: FinancialHealthResponse): 'healthy' | 'warning' | 'critical' => {
-    const ledgerBalanced = data.ledger.balanced;
-    const liquidityGood = data.liquidity_ratio >= 1.05;
-
-    if (!ledgerBalanced || data.liquidity_ratio < 1.0) {
-      return 'critical';
-    }
-    if (!liquidityGood) {
-      return 'warning';
-    }
-    return 'healthy';
-  };
-
-  const healthStatus = healthData ? getHealthStatus(healthData) : 'critical';
-
   // Handle refunds
   const handleRefund = async (contestId: string) => {
     const reason = prompt('Enter reason for refund:');
@@ -1056,11 +898,6 @@ export function Funding() {
     } catch (err) {
       alert(`Refund failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  };
-
-  // Handle refresh all
-  const handleRefreshAll = async () => {
-    await Promise.all([refetchHealth(), loadOrphanedFunds()]);
   };
 
   // Handle repair completion (refresh both pools and financial data)
@@ -1117,72 +954,40 @@ export function Funding() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Funding</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Complete financial operations, anomalies, and reconciliation view
+          Administrative recovery and staging tools
         </p>
       </div>
 
-      {/* System Financial Invariant */}
+      {/* System Snapshot */}
       {healthData && (
         <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
-            <h2 className="text-lg font-medium text-gray-900">System Financial Invariant</h2>
-            <p className="text-sm text-gray-500">Platform fund custody verification</p>
+            <h2 className="text-lg font-medium text-gray-900">System Snapshot</h2>
           </div>
           <div className="px-4 py-5">
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-3 gap-4">
               <div>
-                <p className="text-sm text-gray-600">Stripe Balance</p>
-                <p className="text-xl font-semibold text-gray-900">
-                  {formatCurrency(healthData.stripe_total_balance)}
+                <p className="text-xs font-semibold text-gray-600 uppercase">Ledger Net Balance</p>
+                <p className="text-xl font-semibold text-gray-900 mt-1">
+                  {formatCurrency(healthData.ledger.net)}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Wallet Liability</p>
-                <p className="text-xl font-semibold text-gray-900">
+                <p className="text-xs font-semibold text-gray-600 uppercase">Wallet Liability</p>
+                <p className="text-xl font-semibold text-gray-900 mt-1">
                   {formatCurrency(healthData.wallet_balance)}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Contest Pools</p>
-                <p className="text-xl font-semibold text-gray-900">
+                <p className="text-xs font-semibold text-gray-600 uppercase">Contest Pools</p>
+                <p className="text-xl font-semibold text-gray-900 mt-1">
                   {formatCurrency(healthData.contest_pool_balance)}
                 </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Platform Float</p>
-                <p className={`text-xl font-semibold ${healthData.platform_float >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
-                  {formatCurrency(healthData.platform_float)}
-                </p>
-              </div>
-            </div>
-            <div className="border-t border-gray-200 pt-4">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-700">Invariant Status:</span>
-                {healthData.invariant_status === 'HEALTHY' ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
-                    <span className="h-2 w-2 rounded-full bg-green-600"></span>
-                    HEALTHY
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-800">
-                    <span className="h-2 w-2 rounded-full bg-red-600"></span>
-                    MISMATCH
-                  </span>
-                )}
               </div>
             </div>
           </div>
         </div>
       )}
-
-      {/* Section 1: Financial Summary */}
-      <FinancialSummary
-        data={healthData}
-        isLoading={healthLoading}
-        healthStatus={healthStatus}
-        onRefresh={handleRefreshAll}
-        isFetching={healthFetching}
-      />
 
       {/* Section 2: Anomalies (Negative Pools) */}
       <AnomaliesSection
@@ -1209,48 +1014,7 @@ export function Funding() {
         onRefund={handleRefund}
       />
 
-      {/* Section 4: Reconciliation History */}
-      {historyData && historyData.records && historyData.records.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
-            <h2 className="text-lg font-medium text-gray-900">Reconciliation History</h2>
-            <p className="text-sm text-gray-500">Last 30 days of financial reconciliation records</p>
-          </div>
-          <div className="overflow-x-auto px-4 py-5">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left px-3 py-2 font-medium text-gray-700">Date</th>
-                  <th className="text-left px-3 py-2 font-medium text-gray-700">Status</th>
-                  <th className="text-right px-3 py-2 font-medium text-gray-700">Difference</th>
-                  <th className="text-left px-3 py-2 font-medium text-gray-700">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {historyData.records.map((record: any, idx: number) => (
-                  <tr key={idx} className="hover:bg-gray-50">
-                    <td className="px-3 py-2 text-gray-900">
-                      {new Date(record.created_at).toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusBadge
-                        status={record.status === 'HEALTHY' ? 'healthy' : record.status === 'WARNING' ? 'warning' : 'critical'}
-                        label={record.status}
-                      />
-                    </td>
-                    <td className={`px-3 py-2 text-right font-medium ${record.difference === 0 ? 'text-green-700' : 'text-red-700'}`}>
-                      {formatCurrency(record.difference)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">{record.notes || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Section 5: Operator Tools */}
+      {/* Section 3: Operator Tools */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
           <h2 className="text-lg font-medium text-gray-900">Operator Tools</h2>
