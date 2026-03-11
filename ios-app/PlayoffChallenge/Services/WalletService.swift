@@ -48,11 +48,10 @@ final class WalletService: WalletFetching, @unchecked Sendable {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Add Authorization header using current user's ID as bearer token
+        // Add X-User-Id header
         if let userId = authService.currentUser?.id {
-            let bearerToken = userId.uuidString
-            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-            print("[WalletService] Added Authorization header for userId: \(bearerToken)")
+            request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
+            print("[WalletService] Added X-User-Id header for userId: \(userId.uuidString)")
         } else {
             print("[WalletService] No authenticated user available - request will likely fail with 401")
         }
@@ -114,11 +113,10 @@ final class WalletService: WalletFetching, @unchecked Sendable {
 
         print("[WalletService:Fund] Headers added: Content-Type=application/json, Idempotency-Key=\(idempotencyKey)")
 
-        // Add Authorization header
+        // Add X-User-Id header
         if let userId = authService.currentUser?.id {
-            let bearerToken = userId.uuidString
-            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-            print("[WalletService:Fund] Authorization header added: Bearer \(bearerToken.prefix(20))...")
+            request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
+            print("[WalletService:Fund] X-User-Id header added: \(userId.uuidString)")
         } else {
             print("[WalletService:Fund] ERROR: No authenticated user available")
             throw APIError.unauthorized
@@ -194,11 +192,10 @@ final class WalletService: WalletFetching, @unchecked Sendable {
 
         print("[WalletService:Withdraw] Headers added: Content-Type=application/json, Idempotency-Key=\(idempotencyKey)")
 
-        // Add Authorization header
+        // Add X-User-Id header
         if let userId = authService.currentUser?.id {
-            let bearerToken = userId.uuidString
-            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-            print("[WalletService:Withdraw] Authorization header added: Bearer \(bearerToken.prefix(20))...")
+            request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
+            print("[WalletService:Withdraw] X-User-Id header added: \(userId.uuidString)")
         } else {
             print("[WalletService:Withdraw] ERROR: No authenticated user available")
             throw APIError.unauthorized
@@ -268,11 +265,10 @@ final class WalletService: WalletFetching, @unchecked Sendable {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Add Authorization header using current user's ID as bearer token
+        // Add X-User-Id header
         if let userId = authService.currentUser?.id {
-            let bearerToken = userId.uuidString
-            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-            print("[WalletService] Added Authorization header for userId: \(bearerToken)")
+            request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
+            print("[WalletService] Added X-User-Id header for userId: \(userId.uuidString)")
         } else {
             print("[WalletService] No authenticated user available - request will likely fail with 401")
             throw APIError.unauthorized
