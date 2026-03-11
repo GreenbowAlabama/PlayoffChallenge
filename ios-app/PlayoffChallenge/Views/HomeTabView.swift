@@ -45,13 +45,13 @@ struct HomeTabView: View {
                     Section {
                         NavigationLink(value: HomeTabRoute.detail(featuredContest.id, featuredContest)) {
                             FeaturedContestHeroView(
-                                contest: featuredContest,
-                                onTap: {}
+                                contest: featuredContest
                             )
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
                         }
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .tint(.clear)
                     }
                 }
 
@@ -59,7 +59,9 @@ struct HomeTabView: View {
                 if !remainingContests.isEmpty {
                     Section {
                         ForEach(remainingContests) { contest in
-                            NavigationLink(value: HomeTabRoute.detail(contest.id, contest)) {
+                            Button(action: {
+                                navigationPath.append(HomeTabRoute.detail(contest.id, contest))
+                            }) {
                                 ContestRowView(
                                     contestName: contest.contestName,
                                     isJoined: contest.actions?.canEditEntry == true || contest.actions?.canUnjoin == true,
@@ -71,6 +73,7 @@ struct HomeTabView: View {
                                     shareURL: nil
                                 )
                             }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                 }

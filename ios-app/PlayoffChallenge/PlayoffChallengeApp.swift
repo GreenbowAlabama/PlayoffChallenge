@@ -17,6 +17,7 @@ struct PlayoffChallengeApp: App {
     }
 
     @StateObject private var authService = AuthService.shared
+    @StateObject private var walletVM = UserWalletViewModel()
     @StateObject private var deepLinkCoordinator = DeepLinkCoordinator(
         joinLinkResolver: JoinLinkService(),
         pendingJoinStore: PendingJoinManager()
@@ -28,6 +29,7 @@ struct PlayoffChallengeApp: App {
         WindowGroup {
             rootView
                 .environmentObject(authService)
+                .environmentObject(walletVM)
                 .environmentObject(deepLinkCoordinator)
                 .environmentObject(availableContestsVM)
                 .environmentObject(myContestsVM)
@@ -69,6 +71,7 @@ struct PlayoffChallengeApp: App {
                                 }
                         }
                         .environmentObject(authService)
+                        .environmentObject(walletVM)
                         .environmentObject(availableContestsVM)
                         .environmentObject(myContestsVM)
                     }

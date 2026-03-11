@@ -507,28 +507,90 @@ async function handlePayoutPaid(pool, payout) {
 /**
  * Webhook handler: payout.failed event
  *
- * Idempotent: UPDATE only if status = 'PROCESSING'
- * No ledger reversal in Phase 1 (funds remain debited).
+ * Atomic transaction:
+ * 1. Lock withdrawal row (FOR UPDATE)
+ * 2. Insert ledger reversal credit
+ * 3. Mark withdrawal as FAILED
+ * 4. Commit atomically
+ *
+ * Financial invariant: If payout fails, funds are restored to wallet via reversal entry.
  *
  * @param {Object} pool - Database connection pool
  * @param {Object} payout - Stripe payout object
- * @returns {Promise<Object>} { updated: true/false }
+ * @returns {Promise<Object>} { updated: true/false, withdrawal_id: string|null }
  */
 async function handlePayoutFailed(pool, payout) {
   const failureReason = payout.failure_reason || payout.failure_code || 'Unknown failure';
 
-  const result = await pool.query(
-    `UPDATE wallet_withdrawals
-     SET status = 'FAILED', failure_reason = $2, stripe_payout_id = $1, updated_at = NOW()
-     WHERE stripe_payout_id = $1 AND status = 'PROCESSING'
-     RETURNING id, status`,
-    [payout.id, failureReason]
-  );
+  const client = await pool.connect();
 
-  return {
-    updated: result.rowCount > 0,
-    withdrawal_id: result.rows[0]?.id || null
-  };
+  try {
+    await client.query('BEGIN');
+
+    // Lock withdrawal row
+    const withdrawalResult = await client.query(
+      `SELECT id, user_id, amount_cents, status
+       FROM wallet_withdrawals
+       WHERE stripe_payout_id = $1
+       FOR UPDATE`,
+      [payout.id]
+    );
+
+    if (withdrawalResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return { updated: false, withdrawal_id: null };
+    }
+
+    const withdrawal = withdrawalResult.rows[0];
+
+    if (withdrawal.status !== 'PROCESSING') {
+      await client.query('ROLLBACK');
+      return { updated: false, withdrawal_id: withdrawal.id };
+    }
+
+    const reversalIdempotencyKey =
+      `wallet_withdrawal_reversal:${withdrawal.id.toLowerCase()}`;
+
+    // Insert reversal credit
+    await client.query(
+      `INSERT INTO ledger (
+         user_id, entry_type, direction, amount_cents, reference_type,
+         reference_id, idempotency_key, created_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+       ON CONFLICT (idempotency_key) DO NOTHING`,
+      [
+        withdrawal.user_id,
+        'WALLET_WITHDRAWAL_REVERSAL',
+        'CREDIT',
+        withdrawal.amount_cents,
+        'WALLET',
+        withdrawal.id,
+        reversalIdempotencyKey
+      ]
+    );
+
+    // Mark withdrawal failed
+    const result = await client.query(
+      `UPDATE wallet_withdrawals
+       SET status='FAILED', failure_reason=$2, updated_at=NOW()
+       WHERE id=$1 AND status='PROCESSING'
+       RETURNING id`,
+      [withdrawal.id, failureReason]
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      updated: result.rowCount > 0,
+      withdrawal_id: result.rows[0]?.id || null
+    };
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**

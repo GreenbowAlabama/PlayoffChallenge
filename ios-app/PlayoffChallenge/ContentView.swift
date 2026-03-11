@@ -27,11 +27,10 @@ struct AuthenticatedRootView: View {
 
     @EnvironmentObject var availableVM: AvailableContestsViewModel
     @EnvironmentObject var myVM: MyContestsViewModel
-    @StateObject private var walletVM = UserWalletViewModel()
+    @EnvironmentObject var walletVM: UserWalletViewModel
 
     var body: some View {
         MainTabView()
-            .environmentObject(walletVM)
             .onAppear { print("AuthenticatedRootView appear") }
             .task {
                 // Load both contest sources in parallel

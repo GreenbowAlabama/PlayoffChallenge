@@ -37,6 +37,10 @@ struct ContestDetailView: View {
             contestJoiner: contestJoiner ?? ContestJoinService(),
             walletRefresher: walletVM
         )
+        .onAppear {
+            // Diagnostic: Log presentation path and wallet refresher availability
+            print("[ContestDetailView] onAppear — walletVM present: \(walletVM != nil)")
+        }
     }
 }
 

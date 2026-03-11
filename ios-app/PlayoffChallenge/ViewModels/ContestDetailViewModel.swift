@@ -282,7 +282,13 @@ final class ContestDetailViewModel: ObservableObject {
             print("🔥 [VM] Refetch completed")
 
             // Refresh wallet after join
-            await walletRefresher?.refreshWallet()
+            if walletRefresher != nil {
+                print("[Wallet] Starting refresh after join")
+                await walletRefresher?.refreshWallet()
+                print("[Wallet] Refresh completed after join")
+            } else {
+                print("[Wallet] WARNING: walletRefresher is nil — wallet will not refresh")
+            }
 
             // Notify available contests list to refresh
             onContestJoinStateChanged?()
@@ -347,7 +353,13 @@ final class ContestDetailViewModel: ObservableObject {
             // Success — refresh contest detail and wallet
             print("UNJOIN: Success, refetching contest detail and wallet...")
             await fetchContestDetailForRefresh()
-            await walletRefresher?.refreshWallet()
+            if walletRefresher != nil {
+                print("[Wallet] Starting refresh after unjoin")
+                await walletRefresher?.refreshWallet()
+                print("[Wallet] Refresh completed after unjoin")
+            } else {
+                print("[Wallet] WARNING: walletRefresher is nil — wallet will not refresh")
+            }
             print("UNJOIN: Refetch completed")
 
             // Notify available contests list to refresh
@@ -356,7 +368,13 @@ final class ContestDetailViewModel: ObservableObject {
             // 404 — idempotent (already unjoined), still refresh state
             print("UNJOIN: 404 (idempotent), refetching contest detail and wallet...")
             await fetchContestDetailForRefresh()
-            await walletRefresher?.refreshWallet()
+            if walletRefresher != nil {
+                print("[Wallet] Starting refresh after unjoin (idempotent)")
+                await walletRefresher?.refreshWallet()
+                print("[Wallet] Refresh completed after unjoin (idempotent)")
+            } else {
+                print("[Wallet] WARNING: walletRefresher is nil — wallet will not refresh")
+            }
 
             // Notify available contests list to refresh
             onContestJoinStateChanged?()

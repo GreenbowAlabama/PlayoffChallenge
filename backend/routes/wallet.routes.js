@@ -10,6 +10,7 @@
 
 const express = require('express');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 const LedgerRepository = require('../repositories/LedgerRepository');
 const withdrawalService = require('../services/withdrawalService');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
@@ -26,9 +27,12 @@ function isValidUUID(str) {
 
 /**
  * Middleware to extract user ID from request.
- * Supports Authorization Bearer token and X-User-Id header.
+ * Supports:
+ * - Authorization Bearer token (JWT with 'sub' claim)
+ * - X-User-Id header (raw UUID)
  *
- * Validates UUID format to prevent invalid IDs from reaching database queries.
+ * For JWT tokens, decodes (without verifying) and extracts the 'sub' claim as the user ID.
+ * For X-User-Id header, uses value directly as the user ID.
  */
 function extractUserId(req, res, next) {
   let userId;
@@ -36,7 +40,16 @@ function extractUserId(req, res, next) {
   const xUserId = req.headers['x-user-id'];
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    userId = authHeader.substring(7, authHeader.length);
+    const token = authHeader.substring(7);
+
+    // Decode JWT without verifying (auth already handled upstream)
+    const decoded = jwt.decode(token, { complete: false });
+
+    if (!decoded || !decoded.sub) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
+
+    userId = decoded.sub;
   } else if (xUserId) {
     userId = xUserId;
   } else {

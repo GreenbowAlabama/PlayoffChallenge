@@ -11,7 +11,6 @@ import Core
 
 struct FeaturedContestHeroView: View {
     let contest: Contest
-    let onTap: () -> Void
 
     private var feeDisplay: String {
         contest.entryFeeCents == 0 ? "Free" : "$\(contest.entryFeeCents / 100)"
@@ -66,99 +65,96 @@ struct FeaturedContestHeroView: View {
     }
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                // Featured Badge
-                HStack {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Color.white)
-                            .frame(width: 6, height: 6)
-                        Text("FEATURED")
-                            .font(.caption2.bold())
-                    }
-                    .padding(.horizontal, DesignTokens.Spacing.sm)
-                    .padding(.vertical, DesignTokens.Spacing.xxs)
-                    .background(Color.white.opacity(0.2))
-                    .foregroundColor(.white)
-                    .cornerRadius(DesignTokens.Radius.sm)
-
-                    Spacer()
-
-                    shareButton
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+            // Featured Badge
+            HStack {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 6, height: 6)
+                    Text("FEATURED")
+                        .font(.caption2.bold())
                 }
-                
-                // Contest Name
-                Text(contest.contestName)
-                    .font(.title3)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, DesignTokens.Spacing.sm)
+                .padding(.vertical, DesignTokens.Spacing.xxs)
+                .background(Color.white.opacity(0.2))
+                .foregroundColor(.white)
+                .cornerRadius(DesignTokens.Radius.sm)
 
-                // Event Start Time: Priority logic (tournamentStartTime > startTime > lockTime)
-                if let eventDisplay = formatContestEventStartTime(
-                    tournamentStartTime: contest.tournamentStartTime,
-                    startTime: contest.startTime,
-                    lockTime: contest.lockTime
-                ) {
-                    Text(eventDisplay)
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.8))
-                }
+                Spacer()
 
-                // Fee and Payout Text (capacity displayed in CapacityBarView below)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("$\(contest.entryFeeCents / 100) entry")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white.opacity(0.9))
-
-                    if let payout = payoutDisplay {
-                        Text(payout)
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
-                }
-                
-                // Capacity Bar
-                CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
-                
-                // Lock Time
-                if let countdown = formatLockCountdown(contest.lockTime) {
-                    Text(countdown)
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.9))
-                }
-                
-                // CTA Button
-                Text(ctaText)
-                    .font(.headline)
-                    .foregroundColor(DesignTokens.Color.Brand.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, DesignTokens.Spacing.md)
-                    .background(Color.white)
-                    .cornerRadius(DesignTokens.Radius.md)
-                    .padding(.top, DesignTokens.Spacing.md)
+                shareButton
             }
-            .padding(DesignTokens.Spacing.xxl)
-            .background(
-                LinearGradient(
-                    gradient: Gradient(colors: [DesignTokens.Color.Brand.primary, DesignTokens.Color.Brand.secondary]),
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .cornerRadius(DesignTokens.Radius.lg)
-            .shadow(
-                color: DesignTokens.Shadow.elevatedColor,
-                radius: DesignTokens.Shadow.elevatedRadius,
-                x: 0,
-                y: DesignTokens.Shadow.elevatedY
-            )
+
+            // Contest Name
+            Text(contest.contestName)
+                .font(.title3)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Event Start Time: Priority logic (tournamentStartTime > startTime > lockTime)
+            if let eventDisplay = formatContestEventStartTime(
+                tournamentStartTime: contest.tournamentStartTime,
+                startTime: contest.startTime,
+                lockTime: contest.lockTime
+            ) {
+                Text(eventDisplay)
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.8))
+            }
+
+            // Fee and Payout Text (capacity displayed in CapacityBarView below)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("$\(contest.entryFeeCents / 100) entry")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white.opacity(0.9))
+
+                if let payout = payoutDisplay {
+                    Text(payout)
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+            }
+
+            // Capacity Bar
+            CapacityBarView(entryCount: contest.entryCount, maxEntries: contest.maxEntries)
+
+            // Lock Time
+            if let countdown = formatLockCountdown(contest.lockTime) {
+                Text(countdown)
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.9))
+            }
+
+            // CTA Button
+            Text(ctaText)
+                .font(.headline)
+                .foregroundColor(DesignTokens.Color.Brand.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DesignTokens.Spacing.md)
+                .background(Color.white)
+                .cornerRadius(DesignTokens.Radius.md)
+                .padding(.top, DesignTokens.Spacing.md)
         }
-        .buttonStyle(PlainButtonStyle())
+        .padding(DesignTokens.Spacing.xxl)
+        .background(
+            LinearGradient(
+                gradient: Gradient(colors: [DesignTokens.Color.Brand.primary, DesignTokens.Color.Brand.secondary]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .cornerRadius(DesignTokens.Radius.lg)
+        .shadow(
+            color: DesignTokens.Shadow.elevatedColor,
+            radius: DesignTokens.Shadow.elevatedRadius,
+            x: 0,
+            y: DesignTokens.Shadow.elevatedY
+        )
     }
 }
 
@@ -172,8 +168,7 @@ struct FeaturedContestHeroView: View {
                     name: "NFL Playoffs 2026",
                     status: .scheduled,
                     isPlatformOwned: true
-                ),
-                onTap: {}
+                )
             )
 
             FeaturedContestHeroView(
@@ -181,8 +176,7 @@ struct FeaturedContestHeroView: View {
                     name: "Super Bowl LXI Challenge",
                     status: .live,
                     isPlatformOwned: true
-                ),
-                onTap: {}
+                )
             )
         }
         .padding()
