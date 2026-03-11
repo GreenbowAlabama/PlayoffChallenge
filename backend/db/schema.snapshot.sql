@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict UUpfqzHfqFckdLBNKnaS22o7cEIf0B5CJfBkGiCnF9fTdGyP3J8PyUukRoA0Qsp
+\restrict hHcOneknZvQrIhmzKdagqp8BlyFspWDlUrfNLa6xwvItQRmN0aSQOyTPtJsB6Hm
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -2685,13 +2685,6 @@ CREATE UNIQUE INDEX api_contract_snapshots_unique ON public.api_contract_snapsho
 
 
 --
--- Name: contest_instances_event_template_fee_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX contest_instances_event_template_fee_unique ON public.contest_instances USING btree (provider_event_id, template_id, entry_fee_cents) WHERE (provider_event_id IS NOT NULL);
-
-
---
 -- Name: contest_state_transitions_contest_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2794,13 +2787,6 @@ CREATE INDEX idx_case_notes_csa ON public.case_notes USING btree (csa_user_id);
 --
 
 CREATE INDEX idx_case_notes_user ON public.case_notes USING btree (issue_user_id);
-
-
---
--- Name: idx_contest_instances_event_fee; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX idx_contest_instances_event_fee ON public.contest_instances USING btree (provider_event_id, entry_fee_cents) WHERE ((is_platform_owned = true) AND (status = 'SCHEDULED'::text));
 
 
 --
@@ -3588,17 +3574,17 @@ CREATE UNIQUE INDEX uniq_platform_contest_tiers ON public.contest_instances USIN
 
 
 --
--- Name: unique_active_template_per_type; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX unique_active_template_per_type ON public.contest_templates USING btree (sport, template_type) WHERE (is_active = true);
-
-
---
 -- Name: unique_espn_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX unique_espn_id ON public.players USING btree (espn_id);
+
+
+--
+-- Name: uq_active_template_per_tournament; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_active_template_per_tournament ON public.contest_templates USING btree (provider_tournament_id, template_type, season_year) WHERE (is_active = true);
 
 
 --
@@ -4259,5 +4245,5 @@ ALTER TABLE ONLY public.wallet_withdrawals
 -- PostgreSQL database dump complete
 --
 
-\unrestrict UUpfqzHfqFckdLBNKnaS22o7cEIf0B5CJfBkGiCnF9fTdGyP3J8PyUukRoA0Qsp
+\unrestrict hHcOneknZvQrIhmzKdagqp8BlyFspWDlUrfNLa6xwvItQRmN0aSQOyTPtJsB6Hm
 

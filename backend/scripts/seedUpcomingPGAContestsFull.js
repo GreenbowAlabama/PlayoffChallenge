@@ -12,7 +12,7 @@
 const { pool } = require('../server');
 const crypto = require('crypto');
 
-const PLATFORM_SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000043';
+const PLATFORM_SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 async function seedUpcomingPGAContestsFull() {
   const client = await pool.connect();

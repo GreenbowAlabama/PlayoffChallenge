@@ -461,12 +461,17 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
     );
     const derivedLockTime = lockTimeDerivation.lockTime;
 
-    // Find all active system-generated templates
+    // Find all active system-generated templates for this specific tournament
+    // Tournament scope: provider_tournament_id + season_year (matches event)
+    const seasonYear = event.start_time.getFullYear();
     const templatesResult = await client.query(
       `SELECT id, name, default_entry_fee_cents, allowed_payout_structures, is_system_generated
        FROM contest_templates
-       WHERE is_system_generated = true
-       AND is_active = true`
+       WHERE provider_tournament_id = $1
+       AND season_year = $2
+       AND is_system_generated = true
+       AND is_active = true`,
+      [event.provider_event_id, seasonYear]
     );
 
     for (const template of templatesResult.rows) {
@@ -484,17 +489,19 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
 
       const insertResult = await client.query(
         `INSERT INTO contest_instances (
-          template_id, organizer_id, entry_fee_cents, payout_structure,
+          template_id, organizer_id, entry_fee_cents, max_entries, payout_structure,
           status, contest_name, tournament_start_time, tournament_end_time,
           lock_time, provider_event_id, is_platform_owned, join_token
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        ON CONFLICT ON CONSTRAINT contest_instances_provider_template_fee_unique
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
+        WHERE is_platform_owned = true
         DO NOTHING
         RETURNING id`,
         [
           template.id,
           organizerId,
           template.default_entry_fee_cents,
+          100,  // max_entries default
           JSON.stringify(payoutStructure),
           'SCHEDULED',
           contestName,

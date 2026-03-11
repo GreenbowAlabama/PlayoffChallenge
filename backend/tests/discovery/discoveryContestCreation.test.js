@@ -397,6 +397,136 @@ describe('discoveryContestCreationService', () => {
       expect(audit.to_status).toBe('SCHEDULED');
       expect(audit.payload.provider_event_id).toBe(testEvent.provider_event_id);
     });
+
+    it('should NOT create contests for Event A template when processing Event B', async () => {
+      // TEST: Verifies tournament-scoped template filtering in createContestsForEvent.
+      //
+      // SCHEMA: After migration, contest_templates has tournament-scoped unique constraint:
+      //   UNIQUE (provider_tournament_id, template_type, season_year) WHERE is_active = true
+      // This allows multiple active PGA_DAILY templates across different tournaments.
+      //
+      // BUG (before fix): createContestsForEvent retrieved ALL active templates regardless of tournament.
+      // RESULT: Processing Event B would incorrectly create contests using Template A.
+      //
+      // FIX: Filter templates by provider_tournament_id + season_year.
+      // RESULT: Event B retrieves only its own template.
+
+      const testRunId = `cross_event_test_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const providerEventA = `test_pga_event_a_${testRunId}`;
+      const providerEventB = `test_pga_event_b_${testRunId}`;
+
+      const eventA = {
+        provider_event_id: providerEventA,
+        name: 'Test Arnold Palmer Event',
+        start_time: new Date('2026-03-05T05:00Z'),
+        end_time: new Date('2026-03-08T05:00Z')
+      };
+
+      const eventB = {
+        provider_event_id: providerEventB,
+        name: 'Test PLAYERS Event',
+        start_time: new Date('2026-03-12T04:00Z'),
+        end_time: new Date('2026-03-15T04:00Z')
+      };
+
+      // Season year extracted from event start_time (used by createContestsForEvent query)
+      const seasonYear = 2026;
+
+      // Template A: Tournament 1 (Event A)
+      const templateAResult = await pool.query(
+        `INSERT INTO contest_templates (
+          name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
+          default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
+          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id, season_year
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+        )
+        RETURNING id`,
+        [
+          `Test PGA Template A ${testRunId}`,
+          'GOLF',
+          'PGA_DAILY',
+          'pga_standard_v1',
+          'auto_discovery',
+          'pga_settlement',
+          5000,
+          1000,
+          50000,
+          JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
+          true,   // ACTIVE
+          true,   // is_system_generated
+          providerEventA,
+          seasonYear
+        ]
+      );
+
+      // Template B: Tournament 2 (Event B)
+      // Schema now allows both to be active because they're scoped to different tournaments
+      const templateBResult = await pool.query(
+        `INSERT INTO contest_templates (
+          name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
+          default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
+          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id, season_year
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+        )
+        RETURNING id`,
+        [
+          `Test PGA Template B ${testRunId}`,
+          'GOLF',
+          'PGA_DAILY',
+          'pga_standard_v1',
+          'auto_discovery',
+          'pga_settlement',
+          5000,
+          1000,
+          50000,
+          JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
+          true,   // ACTIVE (allowed because different tournament)
+          true,   // is_system_generated
+          providerEventB,
+          seasonYear
+        ]
+      );
+
+      const templateAId = templateAResult.rows[0].id;
+      const templateBId = templateBResult.rows[0].id;
+
+      // Step 1: Process Event A
+      const resultA = await createContestsForEvent(pool, eventA, now, organizerId);
+      expect(resultA.success).toBe(true);
+      expect(resultA.created).toBeGreaterThanOrEqual(1);
+
+      const contestsA = await pool.query(
+        `SELECT * FROM contest_instances WHERE provider_event_id = $1`,
+        [eventA.provider_event_id]
+      );
+      expect(contestsA.rows.length).toBeGreaterThanOrEqual(1);
+      for (const contest of contestsA.rows) {
+        expect(contest.template_id).toBe(templateAId);
+      }
+
+      // Step 2: Process Event B
+      // Before fix: Would retrieve Template A (all active templates)
+      //   → Would create contests: "Template A - Event B" (BUG)
+      // After fix: Retrieves only Template B (filtered by provider_tournament_id + season_year)
+      //   → Creates contests: "Template B - Event B" (CORRECT)
+      const resultB = await createContestsForEvent(pool, eventB, now, organizerId);
+      expect(resultB.success).toBe(true);
+      expect(resultB.created).toBeGreaterThanOrEqual(1);
+
+      const contestsB = await pool.query(
+        `SELECT * FROM contest_instances WHERE provider_event_id = $1`,
+        [eventB.provider_event_id]
+      );
+      expect(contestsB.rows.length).toBeGreaterThanOrEqual(1);
+
+      // CRITICAL: Verify no cross-contamination (only Template B, not Template A)
+      for (const contest of contestsB.rows) {
+        expect(contest.template_id).toBe(templateBId);
+        expect(contest.template_id).not.toBe(templateAId);
+      }
+    });
   });
 
   describe('runDiscoveryCycle', () => {

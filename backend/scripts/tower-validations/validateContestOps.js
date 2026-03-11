@@ -9,11 +9,13 @@ const pool = new Pool({
 
 async function writeOutput(filename, serverTime, metrics) {
   const outputDir = path.join(__dirname, 'output');
+
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
   const outputFile = path.join(outputDir, filename);
+
   fs.writeFileSync(
     outputFile,
     JSON.stringify(
@@ -34,9 +36,13 @@ async function writeOutput(filename, serverTime, metrics) {
 
 async function main() {
   const client = await pool.connect();
+
   try {
     // 0. Server time (for timezone and lag detection)
-    const serverTimeResult = await client.query('SELECT NOW() as server_time');
+    const serverTimeResult = await client.query(
+      'SELECT NOW() as server_time'
+    );
+
     const serverTime = serverTimeResult.rows[0].server_time;
 
     // 1. Contest status distribution
@@ -55,17 +61,35 @@ async function main() {
       CANCELLED: 0,
       ERROR: 0
     };
+
     statusResult.rows.forEach(row => {
       if (contests_by_status.hasOwnProperty(row.status)) {
         contests_by_status[row.status] = parseInt(row.count, 10);
       }
     });
 
-    // 2. All contests with key fields (includes entry_fee_cents and lock_time for tower UI display)
+    // 2. All contests with computed entry counts
     const contestsResult = await client.query(`
-      SELECT id, contest_name, status, max_entries, current_entries, entry_fee_cents, lock_time
-      FROM contest_instances
-      ORDER BY created_at DESC
+      SELECT
+        ci.id,
+        ci.contest_name,
+        ci.status,
+        ci.max_entries,
+        COUNT(cp.id) AS current_entries,
+        ci.entry_fee_cents,
+        ci.lock_time
+      FROM contest_instances ci
+      LEFT JOIN contest_participants cp
+        ON cp.contest_instance_id = ci.id
+      GROUP BY
+        ci.id,
+        ci.contest_name,
+        ci.status,
+        ci.max_entries,
+        ci.entry_fee_cents,
+        ci.lock_time,
+        ci.created_at
+      ORDER BY ci.created_at DESC
     `);
 
     const contests = contestsResult.rows.map(row => ({
@@ -86,6 +110,7 @@ async function main() {
         SELECT DISTINCT contest_instance_id FROM field_selections
       )
     `);
+
     const contests_without_field_selections = parseInt(
       noFieldSelectionsResult.rows[0].count,
       10
@@ -96,10 +121,12 @@ async function main() {
       SELECT COUNT(*) as count
       FROM contest_instances ci
       WHERE NOT EXISTS (
-        SELECT 1 FROM contest_participants
+        SELECT 1
+        FROM contest_participants
         WHERE contest_instance_id = ci.id
       )
     `);
+
     const contests_without_entries = parseInt(
       noEntriesResult.rows[0].count,
       10
@@ -112,7 +139,11 @@ async function main() {
       contests_without_entries
     };
 
-    await writeOutput('contest-ops.expected.json', serverTime, metrics);
+    await writeOutput(
+      'contest-ops.expected.json',
+      serverTime,
+      metrics
+    );
   } finally {
     client.release();
     await pool.end();
