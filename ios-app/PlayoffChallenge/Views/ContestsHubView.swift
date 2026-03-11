@@ -46,16 +46,6 @@ struct ContestsHubView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .navigationTitle("67 Games — Contests")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        path.append(.create)
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title3)
-                    }
-                }
-            }
             .navigationDestination(for: ContestsHubRoute.self) { route in
                 switch route {
                 case .create:

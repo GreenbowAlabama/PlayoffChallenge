@@ -33,11 +33,10 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
 
     // MARK: - Available Contests
 
-    /// Fetches available contests from backend.
-    /// Backend handles all filtering (status=SCHEDULED, not full, user hasn't joined),
-    /// capacity logic, sorting, and user_has_entered flag.
-    /// Client must NOT re-implement any of this logic.
-    func fetchAvailableContests() async throws -> [Contest] {
+    /// Fetch available contests with presentation metadata for ViewModel state derivation.
+    /// Returns both decoded DTOs (with presentation metadata like isPrimaryMarketing) and mapped domain objects.
+    /// Used by ViewModel to resolve presentation concerns before passing domain objects to View.
+    func fetchAvailableContestsWithPresentationMetadata() async throws -> (dtos: [Core.ContestListItemDTO], contests: [Contest]) {
         // Retrieve userId from persistence before building request
         guard let userIdString = UserDefaults.standard.string(forKey: "userId"),
               let userId = UUID(uuidString: userIdString) else {
@@ -84,7 +83,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
 
                 print("🟢 Successfully decoded \(contests.count) contests")
 
-                return contests
+                return (dtos: dtos, contests: contests)
 
             } catch {
                 print("🔴 DECODE ERROR:", error)
@@ -151,6 +150,14 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         default:
             throw CustomContestError.serverError(message: "Server returned \(httpResponse.statusCode)")
         }
+    }
+
+    /// Public interface: Fetch available contests as domain objects only.
+    /// Conforms to ContestServiceing protocol.
+    /// For presentation state derivation, use fetchAvailableContestsWithPresentationMetadata() instead.
+    func fetchAvailableContests() async throws -> [Contest] {
+        let (_, contests) = try await fetchAvailableContestsWithPresentationMetadata()
+        return contests
     }
 
     // MARK: - My Contests (Created + Joined)

@@ -1169,6 +1169,8 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
       ci.max_entries,
       ci.contest_name,
       ci.settle_time,
+      ci.is_platform_owned,
+      ci.is_primary_marketing,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
       cct.name AS template_name,
       cct.sport AS template_sport,
@@ -1999,6 +2001,7 @@ async function getAvailableContestInstances(pool, userId) {
       ci.contest_name,
       ci.settle_time,
       ci.is_platform_owned,
+      ci.is_primary_marketing,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
       cct.name AS template_name,
       cct.sport AS template_sport,
@@ -2013,7 +2016,7 @@ async function getAvailableContestInstances(pool, userId) {
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.status = 'SCHEDULED'
     AND ci.join_token IS NOT NULL
-    ORDER BY ci.is_platform_owned DESC, ci.created_at DESC`,
+    ORDER BY ci.is_primary_marketing DESC, ci.is_platform_owned DESC, ci.created_at DESC`,
     [userId]
   );
 
@@ -2071,6 +2074,7 @@ async function getAvailableContests(pool, userId) {
       ci.contest_name,
       ci.settle_time,
       ci.is_platform_owned,
+      ci.is_primary_marketing,
       COALESCE(u.username, u.name, 'Unknown') as organizer_name,
       cct.name AS template_name,
       cct.sport AS template_sport,
@@ -2108,6 +2112,7 @@ async function getAvailableContests(pool, userId) {
       ci.contest_name,
       ci.settle_time,
       ci.is_platform_owned,
+      ci.is_primary_marketing,
       u.id,
       u.username,
       u.name,
@@ -2119,6 +2124,7 @@ async function getAvailableContests(pool, userId) {
       ci.max_entries IS NULL
       OR COUNT(cp.id) < ci.max_entries
     ORDER BY
+      ci.is_primary_marketing DESC,
       ci.is_platform_owned DESC,
       ci.created_at DESC
     `,

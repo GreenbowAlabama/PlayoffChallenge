@@ -145,6 +145,7 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
     created_at: contestRow.created_at,
     updated_at: contestRow.updated_at,
     is_platform_owned: contestRow.is_platform_owned,
+    is_primary_marketing: contestRow.is_primary_marketing,
 
     // Derived Fields (GAP-11)
     status: effectiveStatus, // Derived temporal state, not persisted
@@ -270,6 +271,7 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
     created_at: contestRow.created_at,
     updated_at: contestRow.updated_at,
     is_platform_owned: contestRow.is_platform_owned,
+    is_primary_marketing: contestRow.is_primary_marketing,
     template_name: contestRow.template_name,
     template_sport: contestRow.template_sport,
     template_type: contestRow.template_type,

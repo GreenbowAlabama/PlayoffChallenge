@@ -37,6 +37,7 @@ struct ContestListItemDTO: Decodable {
     let endTime: Date?
     let joinToken: String?
     let isPlatformOwned: Bool?
+    let isPrimaryMarketing: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -53,6 +54,7 @@ struct ContestListItemDTO: Decodable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case isPlatformOwned = "is_platform_owned"
+        case isPrimaryMarketing = "is_primary_marketing"
         case templateName = "template_name"
         case templateSport = "template_sport"
         case templateType = "template_type"
@@ -103,5 +105,6 @@ struct ContestListItemDTO: Decodable {
         endTime = try c.decodeIfPresent(Date.self, forKey: .endTime)
         joinToken = try c.decodeIfPresent(String.self, forKey: .joinToken)
         isPlatformOwned = try c.decodeIfPresent(Bool.self, forKey: .isPlatformOwned)
+        isPrimaryMarketing = try c.decodeIfPresent(Bool.self, forKey: .isPrimaryMarketing)
     }
 }

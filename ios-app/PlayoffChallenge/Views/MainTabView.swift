@@ -10,7 +10,7 @@ import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject var authService: AuthService
-    @StateObject private var walletVM = UserWalletViewModel()
+    @EnvironmentObject var walletVM: UserWalletViewModel
 
     var body: some View {
         TabView {

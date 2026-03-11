@@ -9,15 +9,28 @@ import Combine
 import Foundation
 import Core
 
+/// Presentation state for available contests screen
+/// Separates featured contest (marketing flag) from remaining contests
+struct AvailableContestsScreenState {
+    let featuredContest: Contest?
+    let contests: [Contest]
+}
+
 /// ViewModel for the Available Contests screen.
 /// Loads and manages the list of joinable contests from backend.
 /// Backend is authoritative for filtering, capacity, sorting, and user_has_entered.
+/// Resolves DTO presentation metadata (isPrimaryMarketing) into screen state.
 @MainActor
 final class AvailableContestsViewModel: ObservableObject {
 
     // MARK: - Published State
 
-    @Published private(set) var contests: [Contest] = []
+    @Published private(set) var screenState: AvailableContestsScreenState = AvailableContestsScreenState(featuredContest: nil, contests: [])
+
+    /// For backward compatibility
+    var contests: [Contest] {
+        screenState.contests
+    }
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
@@ -66,7 +79,7 @@ final class AvailableContestsViewModel: ObservableObject {
 
     private func resetCacheForNewAuth() {
         hasLoaded = false
-        contests = []
+        screenState = AvailableContestsScreenState(featuredContest: nil, contests: [])
         errorMessage = nil
     }
 
@@ -94,16 +107,25 @@ final class AvailableContestsViewModel: ObservableObject {
         }
 
         do {
-            let domainContests = try await service.fetchAvailableContests()
-            print("[AvailableContestsViewModel] Loaded \(domainContests.count) domain objects from backend")
+            // Fetch DTOs and domain objects from service for presentation state derivation
+            let (dtos, contests) = try await service.fetchAvailableContestsWithPresentationMetadata()
+            print("[AvailableContestsViewModel] Loaded \(contests.count) domain objects from backend")
 
-            // Use Domain objects directly. Always replace, never merge.
-            // Backend handles filtering, capacity, sorting, and user_has_entered (via actions.isJoined if applicable).
-            // Client does NOT filter, sort, or modify entry counts.
-            contests = domainContests
+            // Derive presentation state from DTOs
+            let featuredDTO = dtos.first { $0.isPrimaryMarketing == true }
+            let featuredContest = featuredDTO.map { Contest.from($0) }
+
+            // Update screen state with featured and remaining contests
+            screenState = AvailableContestsScreenState(
+                featuredContest: featuredContest,
+                contests: contests
+            )
             hasLoaded = true  // Set after successful fetch, not before
 
             print("[AvailableContestsViewModel] Loaded \(contests.count) Contest objects")
+            if let featured = featuredContest {
+                print("[AvailableContestsViewModel] Featured: \(featured.contestName)")
+            }
             for (index, contest) in contests.enumerated() {
                 print("[AvailableContestsViewModel] Contest \(index): \(contest.contestName) (status: \(contest.status), entries: \(contest.entryCount))")
             }
@@ -112,9 +134,9 @@ final class AvailableContestsViewModel: ObservableObject {
         } catch {
             print("[AvailableContestsViewModel] ERROR loading contests: \(error)")
 
-            // On pull-to-refresh, keep existing contests; on initial load, clear
+            // On pull-to-refresh, keep existing state; on initial load, clear
             if !hasLoaded {
-                contests = []
+                screenState = AvailableContestsScreenState(featuredContest: nil, contests: [])
             }
             errorMessage = error.localizedDescription
         }

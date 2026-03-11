@@ -9,25 +9,25 @@ import SwiftUI
 import UIKit
 
 /// Thin outer wrapper that passes dependencies to inner view.
-/// Accepts walletRefresher as explicit parameter (not via environment).
+/// Gets walletVM from environment and passes it to inner view for constructor injection.
 struct ContestDetailView: View {
+    @EnvironmentObject var walletVM: UserWalletViewModel
+
     let contestId: UUID
     let placeholder: Contest?
     let contestJoiner: ContestJoining?
-    let walletRefresher: WalletRefreshing?
 
     /// Primary initializer — contestId is the source of truth, placeholder is optional.
-    init(contestId: UUID, placeholder: Contest? = nil, contestJoiner: ContestJoining? = nil, walletRefresher: WalletRefreshing? = nil) {
+    init(contestId: UUID, placeholder: Contest? = nil, contestJoiner: ContestJoining? = nil) {
         self.contestId = contestId
         self.placeholder = placeholder
         self.contestJoiner = contestJoiner
-        self.walletRefresher = walletRefresher
     }
 
     /// Convenience initializer for callers that have a full Contest.
     /// contestId is extracted from the contest; the contest is used as placeholder only.
-    init(contest: Contest, contestJoiner: ContestJoining? = nil, walletRefresher: WalletRefreshing? = nil) {
-        self.init(contestId: contest.id, placeholder: contest, contestJoiner: contestJoiner, walletRefresher: walletRefresher)
+    init(contest: Contest, contestJoiner: ContestJoining? = nil) {
+        self.init(contestId: contest.id, placeholder: contest, contestJoiner: contestJoiner)
     }
 
     var body: some View {
@@ -35,7 +35,7 @@ struct ContestDetailView: View {
             contestId: contestId,
             placeholder: placeholder,
             contestJoiner: contestJoiner ?? ContestJoinService(),
-            walletRefresher: walletRefresher
+            walletRefresher: walletVM
         )
     }
 }
@@ -47,6 +47,7 @@ struct ContestDetailViewInner: View {
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var availableContestsVM: AvailableContestsViewModel
     @EnvironmentObject var myContestsVM: MyContestsViewModel
+    @EnvironmentObject var walletVM: UserWalletViewModel
     @Environment(\.dismiss) var dismiss
     @State private var navigateToLeaderboard = false
     @State private var navigateToLineup = false

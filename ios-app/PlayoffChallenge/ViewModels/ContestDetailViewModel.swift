@@ -35,7 +35,7 @@ final class ContestDetailViewModel: ObservableObject {
     let contestId: UUID
     private let contestJoiner: ContestJoining
     private let detailFetcher: ContestDetailFetching
-    private let walletRefresher: WalletRefreshing?
+    var walletRefresher: WalletRefreshing?
     private var currentUserId: UUID?
     private var hasFetched = false
     private var refreshTask: Task<Void, Never>?
@@ -280,6 +280,9 @@ final class ContestDetailViewModel: ObservableObject {
             // Refetch contest detail from backend to get accurate join state and other fields
             await fetchContestDetailForRefresh()
             print("🔥 [VM] Refetch completed")
+
+            // Refresh wallet after join
+            await walletRefresher?.refreshWallet()
 
             // Notify available contests list to refresh
             onContestJoinStateChanged?()

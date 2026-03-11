@@ -36,6 +36,7 @@ public struct ContestListItemDTO: Decodable, Identifiable {
     public let rosterConfig: RosterConfigContract?
     public let templateType: String?
     public let isPlatformOwned: Bool?
+    public let isPrimaryMarketing: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -58,6 +59,7 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         case rosterConfig = "roster_config"
         case templateType = "template_type"
         case isPlatformOwned = "is_platform_owned"
+        case isPrimaryMarketing = "is_primary_marketing"
     }
 
     public init(
@@ -80,7 +82,8 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         payoutTable: [PayoutTierContract]?,
         rosterConfig: RosterConfigContract?,
         templateType: String?,
-        isPlatformOwned: Bool?
+        isPlatformOwned: Bool?,
+        isPrimaryMarketing: Bool? = nil
     ) {
         self.id = id
         self.organizerId = organizerId
@@ -102,5 +105,6 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         self.rosterConfig = rosterConfig
         self.templateType = templateType
         self.isPlatformOwned = isPlatformOwned
+        self.isPrimaryMarketing = isPrimaryMarketing
     }
 }
