@@ -118,23 +118,26 @@ async function findByIdempotencyKey(pool, idempotency_key) {
 /**
  * Get wallet balance for a user.
  *
- * Sums all CREDIT and DEBIT entries for this user across all entry types.
+ * Sums all CREDIT and DEBIT entries for this user across ALL entry types.
  * Balance is user-scoped and direction-based: CREDIT increases, DEBIT decreases.
- * Reference_type is metadata, not a filter for balance.
+ * No entry_type filtering: includes contest fees, wallet transactions, payouts, and reversals.
  *
- * Includes:
- * - ENTRY_FEE (DEBIT on join)
+ * Includes ALL entry types:
+ * - ENTRY_FEE (DEBIT on contest join)
  * - ENTRY_FEE_REFUND (CREDIT on refund)
+ * - CONTEST_PAYOUT (CREDIT on settlement)
  * - PAYOUT_COMPLETED (CREDIT on settlement)
  * - WALLET_DEPOSIT (CREDIT)
  * - WALLET_WITHDRAWAL (DEBIT)
+ * - WALLET_WITHDRAWAL_REVERSAL (CREDIT on failed payout)
  *
  * Read-only query. Safe under concurrent inserts (uses SUM aggregate).
  * Returns 0 if no entries exist.
+ * Balance = total credits - total debits.
  *
  * @param {Object} pool - Database connection pool
  * @param {string} userId - UUID of user
- * @returns {Promise<number>} Balance in cents (can be 0 or negative)
+ * @returns {Promise<number>} Balance in cents (can be 0, positive, or negative)
  */
 async function getWalletBalance(pool, userId) {
   if (!userId) {
