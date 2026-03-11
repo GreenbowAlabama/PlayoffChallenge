@@ -454,12 +454,54 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
   try {
     await client.query('BEGIN');
 
+    // GUARD 1: Prevent contest creation for events that have already started
+    const nowUtc = new Date(now);
+    const eventStartTime = new Date(event.start_time);
+
+    if (eventStartTime <= nowUtc) {
+      await client.query('ROLLBACK');
+      console.info('[Discovery] Skipping event that has already started', {
+        provider_event_id: event.provider_event_id,
+        event_name: event.name,
+        start_time: event.start_time,
+        now: nowUtc
+      });
+
+      return {
+        success: true,
+        created: 0,
+        skipped: 1,
+        errors: [],
+        reason: 'event_already_started',
+        message: `Event ${event.provider_event_id} has already started. Skipping contest creation.`
+      };
+    }
+
     // Derive lock_time once for all contests from this event (immutable after creation)
     const lockTimeDerivation = await deriveLockTimeForCreation(
       event.provider_event_id,
       event.start_time
     );
     const derivedLockTime = lockTimeDerivation.lockTime;
+
+    // GUARD 2: Prevent contest creation if lock time has already passed
+    if (derivedLockTime <= nowUtc) {
+      await client.query('ROLLBACK');
+      console.info('[Discovery] Skipping contest creation because lock time has passed', {
+        provider_event_id: event.provider_event_id,
+        lock_time: derivedLockTime,
+        now: nowUtc
+      });
+
+      return {
+        success: true,
+        created: 0,
+        skipped: 1,
+        errors: [],
+        reason: 'lock_time_passed',
+        message: `Lock time has already passed for event ${event.provider_event_id}. Skipping contest creation.`
+      };
+    }
 
     // Find all active system-generated templates for this specific tournament
     // Tournament scope: provider_tournament_id + season_year (matches event)
@@ -474,88 +516,96 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
       [event.provider_event_id, seasonYear]
     );
 
+    // Entry fee tiers (in cents): $5, $10, $20, $50, $100
+    const entryFeeTiers = [500, 1000, 2000, 5000, 10000];
+
     for (const template of templatesResult.rows) {
       const payoutStructure = Array.isArray(template.allowed_payout_structures)
         ? template.allowed_payout_structures[0]
         : template.allowed_payout_structures;
 
-      const contestName = `${template.name} - ${event.name}`;
-
       // Contests are platform-owned if the template is system-generated
       const isPlatformOwned = template.is_system_generated;
 
-      // System-generated discovery contests are published immediately with a generated join_token
-      const joinToken = customContestService.generateJoinToken();
+      // Generate contests for each entry fee tier
+      for (const entryFeeCents of entryFeeTiers) {
+        const entryFeeDollars = entryFeeCents / 100;
+        const contestName = `${event.name} — $${entryFeeDollars}`;
 
-      const insertResult = await client.query(
-        `INSERT INTO contest_instances (
-          template_id, organizer_id, entry_fee_cents, max_entries, payout_structure,
-          status, contest_name, tournament_start_time, tournament_end_time,
-          lock_time, provider_event_id, is_platform_owned, join_token
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-        ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
-        WHERE is_platform_owned = true
-        DO NOTHING
-        RETURNING id`,
-        [
-          template.id,
-          organizerId,
-          template.default_entry_fee_cents,
-          100,  // max_entries default
-          JSON.stringify(payoutStructure),
-          'SCHEDULED',
-          contestName,
-          event.start_time,
-          event.end_time,
-          derivedLockTime, // lock_time derived from ESPN data (with fallback)
-          event.provider_event_id,
-          isPlatformOwned,
-          joinToken
-        ]
-      );
+        // System-generated discovery contests are published immediately with a generated join_token
+        const joinToken = customContestService.generateJoinToken();
 
-      if (insertResult.rows.length > 0) {
-        created++;
-        const contestInstanceId = insertResult.rows[0].id;
+        const insertResult = await client.query(
+          `INSERT INTO contest_instances (
+            template_id, organizer_id, entry_fee_cents, max_entries, payout_structure,
+            status, contest_name, tournament_start_time, tournament_end_time,
+            lock_time, provider_event_id, is_platform_owned, join_token
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
+          WHERE is_platform_owned = true
+          DO NOTHING
+          RETURNING id`,
+          [
+            template.id,
+            organizerId,
+            entryFeeCents,
+            100,  // max_entries default
+            JSON.stringify(payoutStructure),
+            'SCHEDULED',
+            contestName,
+            event.start_time,
+            event.end_time,
+            derivedLockTime, // lock_time derived from ESPN data (with fallback)
+            event.provider_event_id,
+            isPlatformOwned,
+            joinToken
+          ]
+        );
 
-        console.log(`  ✓ Created: ${contestName} ($${template.default_entry_fee_cents / 100})`);
+        if (insertResult.rows.length > 0) {
+          created++;
+          const contestInstanceId = insertResult.rows[0].id;
 
-        // Initialize tournament field for GOLF contests (non-blocking)
-        try {
-          await initializeTournamentField(pool, contestInstanceId);
-        } catch (err) {
-          console.warn(
-            `[Discovery] Tournament field initialization failed for ${contestInstanceId}: ${err.message}`
-          );
+          console.log(`  ✓ Created: ${contestName}`);
+
+          // Initialize tournament field for GOLF contests (non-blocking)
+          try {
+            await initializeTournamentField(pool, contestInstanceId);
+          } catch (err) {
+            console.warn(
+              `[Discovery] Tournament field initialization failed for ${contestInstanceId}: ${err.message}`
+            );
+          }
+
+          // Audit logging (non-blocking)
+          try {
+            await client.query(
+              `INSERT INTO admin_contest_audit (
+                contest_instance_id, admin_user_id, action, reason,
+                from_status, to_status, payload
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [
+                contestInstanceId,
+                organizerId,
+                'AUTO_CREATE',
+                'Auto-created by discovery service for upcoming PGA event',
+                'NONE',
+                'SCHEDULED',
+                JSON.stringify({
+                  provider_event_id: event.provider_event_id,
+                  template_id: template.id,
+                  event_name: event.name,
+                  entry_fee_cents: entryFeeCents
+                })
+              ]
+            );
+          } catch (auditErr) {
+            console.warn(`[Discovery] Audit log failed: ${auditErr.message}`);
+          }
+        } else {
+          skipped++;
+          console.log(`  ⊘ Skipping ${contestName} (already exists)`);
         }
-
-        // Audit logging (non-blocking)
-        try {
-          await client.query(
-            `INSERT INTO admin_contest_audit (
-              contest_instance_id, admin_user_id, action, reason,
-              from_status, to_status, payload
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [
-              contestInstanceId,
-              organizerId,
-              'AUTO_CREATE',
-              'Auto-created by discovery service for upcoming PGA event',
-              'NONE',
-              'SCHEDULED',
-              JSON.stringify({
-                provider_event_id: event.provider_event_id,
-                template_id: template.id,
-                event_name: event.name
-              })
-            ]
-          );
-        } catch (auditErr) {
-          console.warn(`[Discovery] Audit log failed: ${auditErr.message}`);
-        }
-      } else {
-        skipped++;
-        console.log(`  ⊘ Skipping $${template.default_entry_fee_cents / 100} (already exists)`);
       }
     }
 
