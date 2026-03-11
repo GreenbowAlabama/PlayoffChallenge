@@ -349,9 +349,12 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       ]
     );
 
+    let createdContestId = null;
+    let isPlatformOwned = false;
+
     if (instanceInsertResult.rows.length > 0) {
-      const contestInstanceId = instanceInsertResult.rows[0].id;
-      const isPlatformOwned = instanceInsertResult.rows[0].is_platform_owned;
+      createdContestId = instanceInsertResult.rows[0].id;
+      isPlatformOwned = instanceInsertResult.rows[0].is_platform_owned;
       instance_created = true;
 
       console.log(
@@ -360,16 +363,7 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
 
       if (isPlatformOwned === true) {
         console.warn(
-          `[Discovery] ⚠️  GOVERNANCE ALERT: Contest ${contestInstanceId} has is_platform_owned=true. Expected false for iOS visibility.`
-        );
-      }
-
-      // Initialize tournament field for GOLF contests (non-blocking)
-      try {
-        await initializeTournamentField(pool, contestInstanceId);
-      } catch (err) {
-        console.warn(
-          `[Discovery] Tournament field initialization failed for ${contestInstanceId}: ${err.message}`
+          `[Discovery] ⚠️  GOVERNANCE ALERT: Contest ${createdContestId} has is_platform_owned=true. Expected false for iOS visibility.`
         );
       }
 
@@ -381,7 +375,7 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
             from_status, to_status, payload
           ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
-            contestInstanceId,
+            createdContestId,
             organizerId,
             'AUTO_CREATE',
             'Auto-created by discovery service for upcoming PGA event',
@@ -400,7 +394,7 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
       } catch (auditErr) {
         // Audit logging failure is non-blocking
         console.warn(
-          `[Discovery] Audit log failed for contest ${contestInstanceId}: ${auditErr.message}`
+          `[Discovery] Audit log failed for contest ${createdContestId}: ${auditErr.message}`
         );
       }
     } else {
@@ -410,6 +404,20 @@ async function processEventDiscovery(pool, event, now = new Date(), organizerId)
     }
 
     await client.query('COMMIT');
+
+    // CRITICAL: Initialize tournament field AFTER transaction commit.
+    // This ensures the contest_instances row is visible to the initialization query.
+    // If a contest was created, initialize it now with a fresh pool connection.
+    if (createdContestId) {
+      try {
+        await initializeTournamentField(pool, createdContestId);
+      } catch (err) {
+        console.warn(
+          `[Discovery] Tournament field initialization failed for ${createdContestId}: ${err.message}`
+        );
+      }
+    }
+
     return {
       success: true,
       template_created,
@@ -450,6 +458,7 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
   let created = 0;
   let skipped = 0;
   const errors = [];
+  const createdContestIds = []; // Collect IDs for post-commit initialization
 
   try {
     await client.query('BEGIN');
@@ -565,17 +574,9 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
         if (insertResult.rows.length > 0) {
           created++;
           const contestInstanceId = insertResult.rows[0].id;
+          createdContestIds.push(contestInstanceId); // Collect for post-commit initialization
 
           console.log(`  ✓ Created: ${contestName}`);
-
-          // Initialize tournament field for GOLF contests (non-blocking)
-          try {
-            await initializeTournamentField(pool, contestInstanceId);
-          } catch (err) {
-            console.warn(
-              `[Discovery] Tournament field initialization failed for ${contestInstanceId}: ${err.message}`
-            );
-          }
 
           // Audit logging (non-blocking)
           try {
@@ -610,6 +611,20 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
     }
 
     await client.query('COMMIT');
+
+    // CRITICAL: Initialize tournament field AFTER transaction commit.
+    // This ensures contest_instances rows are visible to the initialization query.
+    // Each call gets a fresh connection from the pool and reads committed data.
+    for (const contestInstanceId of createdContestIds) {
+      try {
+        await initializeTournamentField(pool, contestInstanceId);
+      } catch (err) {
+        console.warn(
+          `[Discovery] Tournament field initialization failed for ${contestInstanceId}: ${err.message}`
+        );
+      }
+    }
+
     return { success: true, created, skipped, errors };
   } catch (err) {
     await client.query('ROLLBACK');

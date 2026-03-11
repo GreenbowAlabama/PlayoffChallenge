@@ -7,11 +7,17 @@
 
 const { Pool } = require('pg');
 const { runDiscoveryCycle, createContestsForEvent } = require('../../services/discovery/discoveryContestCreationService');
+const { initializeTournamentField: mockInitializeTournamentField } = require('../../services/ingestionService');
 
 // Mock ESPN fetcher to prevent network calls in tests
 jest.mock('../../services/discovery/espnDataFetcher', () => ({
   fetchEspnSummary: jest.fn().mockResolvedValue(null), // Always return null (ESPN unavailable)
   extractEspnEventId: jest.requireActual('../../services/discovery/espnDataFetcher').extractEspnEventId
+}));
+
+// Mock initializeTournamentField to track calls and verify post-commit execution
+jest.mock('../../services/ingestionService', () => ({
+  initializeTournamentField: jest.fn().mockResolvedValue(undefined)
 }));
 
 describe('discoveryContestCreationService', () => {
@@ -399,6 +405,71 @@ describe('discoveryContestCreationService', () => {
       expect(audit.from_status).toBe('NONE');
       expect(audit.to_status).toBe('SCHEDULED');
       expect(audit.payload.provider_event_id).toBe(testEvent.provider_event_id);
+    });
+
+    it('should initialize tournament field AFTER transaction commit', async () => {
+      // CRITICAL: Verify that initializeTournamentField is called AFTER the transaction commits.
+      // This ensures contest_instances rows are visible when field initialization queries them.
+      //
+      // Bug scenario: if initializeTournamentField is called inside the transaction,
+      // it may not see the inserted rows due to isolation levels.
+      //
+      // Fix: collect created IDs during transaction, commit, then call initializeTournamentField
+      // for each created ID after commit.
+
+      mockInitializeTournamentField.mockClear();
+
+      const uniqueTestId = `post_commit_init_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const testEvent = {
+        ...upcomingEvent,
+        provider_event_id: `espn_pga_${uniqueTestId}`
+      };
+
+      const templateResult = await pool.query(
+        `INSERT INTO contest_templates (
+          name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
+          default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
+          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id, season_year
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+        )
+        RETURNING id`,
+        [
+          `Post-Commit Init Test ${testRunId}`,
+          'GOLF',
+          'PGA_DAILY',
+          'pga_standard_v1',
+          'auto_discovery',
+          'pga_settlement',
+          5000,
+          1000,
+          50000,
+          JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
+          true,
+          true,
+          `espn_pga_${uniqueTestId}`,
+          2026
+        ]
+      );
+
+      const result = await createContestsForEvent(pool, testEvent, now, organizerId);
+
+      // Verify contests were created
+      expect(result.success).toBe(true);
+      expect(result.created).toBeGreaterThanOrEqual(1);
+
+      // Verify initializeTournamentField was called for each created contest
+      expect(mockInitializeTournamentField.mock.calls.length).toBe(result.created);
+
+      // Verify each call received a contest ID that exists in the database
+      for (const call of mockInitializeTournamentField.mock.calls) {
+        const contestId = call[1]; // Second parameter is contestInstanceId
+        const contestResult = await pool.query(
+          `SELECT id FROM contest_instances WHERE id = $1`,
+          [contestId]
+        );
+        expect(contestResult.rows.length).toBe(1);
+      }
     });
 
     it('should NOT create contests for Event A template when processing Event B', async () => {
