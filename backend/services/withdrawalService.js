@@ -326,56 +326,7 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
       };
     }
 
-    // 5. Insert ledger DEBIT (atomic with status update)
-    const idempotencyKey = `wallet_debit:${withdrawalId}:${userId}`;
-
-    const debitResult = await client.query(
-      `INSERT INTO ledger (
-         user_id, entry_type, direction, amount_cents, reference_type,
-         reference_id, idempotency_key, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (idempotency_key) DO NOTHING
-       RETURNING id, entry_type, direction, amount_cents`,
-      [userId, 'WALLET_WITHDRAWAL', 'DEBIT', withdrawal.amount_cents, 'WALLET', withdrawalId, idempotencyKey]
-    );
-
-    // If debit was inserted, rowCount > 0
-    // If debit already exists (idempotent), rowCount = 0
-    if (debitResult.rowCount === 0) {
-      // Verify existing debit matches expected values
-      const existingDebitResult = await client.query(
-        `SELECT entry_type, direction, amount_cents, reference_type, reference_id
-         FROM ledger WHERE idempotency_key = $1`,
-        [idempotencyKey]
-      );
-
-      if (existingDebitResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        throw new Error(`Invariant violation: debit with idempotency_key ${idempotencyKey} was reported as conflicted but not found`);
-      }
-
-      const existingDebit = existingDebitResult.rows[0];
-
-      // Verify fields match
-      const fieldsMatch = (
-        existingDebit.entry_type === 'WALLET_WITHDRAWAL' &&
-        existingDebit.direction === 'DEBIT' &&
-        parseInt(existingDebit.amount_cents, 10) === withdrawal.amount_cents &&
-        existingDebit.reference_type === 'WALLET' &&
-        existingDebit.reference_id === withdrawalId
-      );
-
-      if (!fieldsMatch) {
-        await client.query('ROLLBACK');
-        throw new Error(
-          `Invariant violation: WALLET_WITHDRAWAL with idempotency_key ${idempotencyKey} exists but fields mismatch. ` +
-          `Expected: WALLET_WITHDRAWAL, DEBIT, ${withdrawal.amount_cents}, WALLET, ${withdrawalId}. ` +
-          `Found: ${JSON.stringify(existingDebit)}`
-        );
-      }
-    }
-
-    // 6. Update status to PROCESSING
+    // 5. Update status to PROCESSING (do NOT write ledger debit yet)
     const updateResult = await client.query(
       `UPDATE wallet_withdrawals
        SET status = 'PROCESSING', processed_at = NOW(), updated_at = NOW()
@@ -389,7 +340,7 @@ async function processWithdrawal(pool, withdrawalId, stripeAccount) {
 
     await client.query('COMMIT');
 
-    return { success: true, withdrawal: updatedWithdrawal, ledger_debit_inserted: debitResult.rowCount > 0 };
+    return { success: true, withdrawal: updatedWithdrawal };
 
   } catch (err) {
     try {
@@ -483,37 +434,90 @@ async function callStripePayout(pool, withdrawalId, stripeAccount) {
 /**
  * Webhook handler: payout.paid event
  *
- * Idempotent: UPDATE only if status = 'PROCESSING'
+ * Atomic transaction:
+ * 1. Fetch withdrawal in PROCESSING state
+ * 2. Insert ledger WALLET_WITHDRAWAL DEBIT (idempotent)
+ * 3. Update withdrawal status to PAID
+ *
+ * Ledger debit is only written when Stripe confirms payout success.
  *
  * @param {Object} pool - Database connection pool
  * @param {Object} payout - Stripe payout object
- * @returns {Promise<Object>} { updated: true/false }
+ * @returns {Promise<Object>} { updated: true/false, withdrawal_id: string|null }
  */
 async function handlePayoutPaid(pool, payout) {
-  const result = await pool.query(
-    `UPDATE wallet_withdrawals
-     SET status = 'PAID', stripe_payout_id = $1, updated_at = NOW()
-     WHERE stripe_payout_id = $1 AND status = 'PROCESSING'
-     RETURNING id, status`,
-    [payout.id]
-  );
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
 
-  return {
-    updated: result.rowCount > 0,
-    withdrawal_id: result.rows[0]?.id || null
-  };
+    // 1. Fetch withdrawal that is in PROCESSING state
+    const withdrawalResult = await client.query(
+      `SELECT id, user_id, amount_cents
+       FROM wallet_withdrawals
+       WHERE stripe_payout_id = $1 AND status = 'PROCESSING'
+       FOR UPDATE`,
+      [payout.id]
+    );
+
+    if (withdrawalResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return {
+        updated: false,
+        withdrawal_id: null
+      };
+    }
+
+    const withdrawal = withdrawalResult.rows[0];
+
+    // 2. Insert ledger WALLET_WITHDRAWAL DEBIT (only on successful payout)
+    const idempotencyKey = `wallet_withdrawal:${withdrawal.id}`;
+    await client.query(
+      `INSERT INTO ledger (
+         user_id, entry_type, direction, amount_cents, reference_type,
+         reference_id, idempotency_key, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (idempotency_key) DO NOTHING`,
+      [withdrawal.user_id, 'WALLET_WITHDRAWAL', 'DEBIT', withdrawal.amount_cents, 'WALLET', withdrawal.id, idempotencyKey]
+    );
+
+    // 3. Update withdrawal status to PAID
+    const updateResult = await client.query(
+      `UPDATE wallet_withdrawals
+       SET status = 'PAID', updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, status`,
+      [withdrawal.id]
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      updated: updateResult.rowCount > 0,
+      withdrawal_id: updateResult.rows[0]?.id || null
+    };
+
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      // Ignore rollback error
+    }
+    throw err;
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
 }
 
 /**
  * Webhook handler: payout.failed event
  *
- * Atomic transaction:
- * 1. Lock withdrawal row (FOR UPDATE)
- * 2. Insert ledger reversal credit
- * 3. Mark withdrawal as FAILED
- * 4. Commit atomically
- *
- * Financial invariant: If payout fails, funds are restored to wallet via reversal entry.
+ * Marks withdrawal as FAILED. No ledger reversal needed because:
+ * - Ledger DEBIT is only written when payout succeeds (in handlePayoutPaid)
+ * - If payout fails, no debit was ever written
+ * - Wallet balance remains unchanged
  *
  * @param {Object} pool - Database connection pool
  * @param {Object} payout - Stripe payout object
@@ -529,7 +533,7 @@ async function handlePayoutFailed(pool, payout) {
 
     // Lock withdrawal row
     const withdrawalResult = await client.query(
-      `SELECT id, user_id, amount_cents, status
+      `SELECT id, status
        FROM wallet_withdrawals
        WHERE stripe_payout_id = $1
        FOR UPDATE`,
@@ -547,27 +551,6 @@ async function handlePayoutFailed(pool, payout) {
       await client.query('ROLLBACK');
       return { updated: false, withdrawal_id: withdrawal.id };
     }
-
-    const reversalIdempotencyKey =
-      `wallet_withdrawal_reversal:${withdrawal.id.toLowerCase()}`;
-
-    // Insert reversal credit
-    await client.query(
-      `INSERT INTO ledger (
-         user_id, entry_type, direction, amount_cents, reference_type,
-         reference_id, idempotency_key, created_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
-       ON CONFLICT (idempotency_key) DO NOTHING`,
-      [
-        withdrawal.user_id,
-        'WALLET_WITHDRAWAL_REVERSAL',
-        'CREDIT',
-        withdrawal.amount_cents,
-        'WALLET',
-        withdrawal.id,
-        reversalIdempotencyKey
-      ]
-    );
 
     // Mark withdrawal failed
     const result = await client.query(
