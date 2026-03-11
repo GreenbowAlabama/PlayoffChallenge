@@ -100,22 +100,25 @@ struct WalletDetailView: View {
             }
             .disabled(viewModel.isDepositing || viewModel.isWithdrawing)
 
-            // Withdraw button
-            Button(action: {
-                print("[WalletDetailView] Withdraw button tapped")
-                showWithdrawSheet = true
-            }) {
-                HStack {
-                    Image(systemName: "arrow.up.circle.fill")
-                    Text("Withdraw")
+            // TEMP: Withdraw UI hidden for TestFlight while withdrawal pipeline is hardened.
+            // Re-enable after withdrawal flow is finalized.
+            if false {
+                Button(action: {
+                    print("[WalletDetailView] Withdraw button tapped")
+                    showWithdrawSheet = true
+                }) {
+                    HStack {
+                        Image(systemName: "arrow.up.circle.fill")
+                        Text("Withdraw")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(DesignTokens.Spacing.md)
+                    .background(Color.orange)
+                    .foregroundColor(.white)
+                    .cornerRadius(DesignTokens.Radius.md)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(DesignTokens.Spacing.md)
-                .background(Color.orange)
-                .foregroundColor(.white)
-                .cornerRadius(DesignTokens.Radius.md)
+                .disabled(viewModel.isWithdrawing || viewModel.isDepositing)
             }
-            .disabled(viewModel.isWithdrawing || viewModel.isDepositing)
         }
     }
 

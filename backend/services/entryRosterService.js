@@ -183,13 +183,28 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
     let validatedField = [];
     if (fieldResult.rows.length > 0) {
       const selectionJson = fieldResult.rows[0].selection_json;
-      // Extract primary field - array of player ID strings (from handleFieldBuildIngestion)
+      // Extract primary field - array of player IDs (may be strings or objects with player_id property)
       if (selectionJson && Array.isArray(selectionJson.primary)) {
-        validatedField = selectionJson.primary.map(playerId => ({
-          // Normalize field player IDs to canonical "espn_" format for consistent comparison
-          player_id: normalizePlayerId(playerId)
-        }));
+        validatedField = selectionJson.primary.map(item => {
+          // Handle both formats:
+          // - String IDs from legacy/test data: "p1" or "espn_5724"
+          // - Objects from ingestion with player_id property: { player_id: "espn_5724", name: "..." }
+          const playerId = typeof item === 'string' ? item : item.player_id;
+          return {
+            // Normalize field player IDs to canonical "espn_" format for consistent comparison
+            player_id: normalizePlayerId(playerId)
+          };
+        });
       }
+    }
+
+    // GUARD: Reject if validatedField is empty (contest field not initialized)
+    // This prevents submission before ingestion populates the player pool
+    if (!validatedField || validatedField.length === 0) {
+      throw Object.assign(
+        new Error('Contest field not initialized'),
+        ERROR_CODES.CONTEST_NOT_SCHEDULED
+      );
     }
 
     // 7. Validate roster (size, duplicates, field membership)

@@ -64,7 +64,8 @@ describe('Entry Roster Service', () => {
       const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
 
       expect(result.success).toBe(true);
-      expect(result.player_ids).toEqual(playerIds);
+      // Service normalizes player IDs to canonical "espn_" format
+      expect(result.player_ids).toEqual(playerIds.map(id => `espn_${id}`));
       expect(result.updated_at).toBeDefined();
     });
 
@@ -175,17 +176,22 @@ describe('Entry Roster Service', () => {
         }
       );
 
+      // Provide populated field_selections so size validation occurs
       pool.setQueryResponse(
         q => q.includes('field_selections'),
         {
-          rows: [],
-          rowCount: 0
+          rows: [{
+            selection_json: {
+              primary: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10'].map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
         }
       );
 
       await expect(
         entryRosterService.submitPicks(pool, contestId, userId, playerIds)
-      ).rejects.toThrow('Roster size must be exactly 7');
+      ).rejects.toThrow('Roster size must not exceed 7');
     });
 
     it('rejects picks with duplicates', async () => {
@@ -335,6 +341,193 @@ describe('Entry Roster Service', () => {
       const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
       expect(result.success).toBe(true);
     });
+
+    it('rejects submission when field_selections.primary is empty', async () => {
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+      const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      // field_selections row exists but primary field is empty
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: []  // Empty field
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      await expect(
+        entryRosterService.submitPicks(pool, contestId, userId, playerIds)
+      ).rejects.toThrow('Contest field not initialized');
+    });
+
+    it('rejects submission when field_selections.primary is null', async () => {
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+      const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      // field_selections row exists but primary field is null
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: null  // Null field
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      await expect(
+        entryRosterService.submitPicks(pool, contestId, userId, playerIds)
+      ).rejects.toThrow('Contest field not initialized');
+    });
+
+    it('accepts submission when field_selections.primary is populated', async () => {
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+      const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      // field_selections with populated primary field
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('INSERT'),
+        {
+          rows: [{ updated_at: new Date().toISOString() }],
+          rowCount: 1
+        }
+      );
+
+      const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects player not in validated field', async () => {
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+      const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p99']; // p99 not in field
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      // field_selections with only p1-p7, not p99
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'].map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      await expect(
+        entryRosterService.submitPicks(pool, contestId, userId, playerIds)
+      ).rejects.toThrow('Players not in validated field');
+    });
   });
 
   describe('getMyEntry', () => {
@@ -376,7 +569,7 @@ describe('Entry Roster Service', () => {
 
       expect(result.player_ids).toEqual([]);
       expect(result.can_edit).toBe(true);
-      expect(result.available_players).toBeNull();
+      expect(result.available_players).toEqual([]);
     });
 
     it('returns existing picks for user with entry', async () => {
