@@ -3452,12 +3452,13 @@ describe('Custom Contest Service Unit Tests', () => {
     it('Test 1: should insert field_selections with sport=GOLF filter during publish', async () => {
       mockPool.reset();
 
+      const generatedToken = 'dev_token_' + Math.random().toString(36).substr(2, 9);
       const instance = {
         id: GOLF_INSTANCE_ID,
         template_id: GOLF_TEMPLATE_ID,
         organizer_id: TEST_USER_ID,
         status: 'SCHEDULED',
-        join_token: null,
+        join_token: null,  // Start as null so UPDATE sets the token and triggers ensureFieldSelectionsForGolf
         entry_fee_cents: 5000,
         payout_structure: { type: 'winner_take_all', max_winners: 1 },
         provider_event_id: 'espn_golf_1',
@@ -3480,19 +3481,23 @@ describe('Custom Contest Service Unit Tests', () => {
           return { rows: [{ id: 'field-1' }], rowCount: 1 };
         }
         if (sql.includes('UPDATE') && sql.includes('join_token') && sql.includes('IS NULL')) {
-          return { rows: [{ ...instance, join_token: 'dev_token_xyz' }], rowCount: 1 };
+          // UPDATE succeeds: return instance with newly set token
+          return { rows: [{ ...instance, join_token: generatedToken }], rowCount: 1 };
+        }
+        if (sql.includes('SELECT id FROM contest_instances WHERE id')) {
+          return { rows: [{ id: GOLF_INSTANCE_ID }], rowCount: 1 };
         }
         if (sql.includes('SELECT') && sql.includes('contest_instances') && !sql.includes('LEFT JOIN') && !sql.includes('JOIN')) {
           return { rows: [instance], rowCount: 1 };
         }
         if (sql.includes('SELECT') && sql.includes('JOIN') && sql.includes('ct.sport')) {
-          return { rows: [{ ...instance, sport: 'GOLF' }], rowCount: 1 };
+          return { rows: [{ ...instance, join_token: generatedToken, sport: 'GOLF' }], rowCount: 1 };
         }
         if (sql.includes('SELECT') && sql.includes('tournament_configs')) {
           return { rows: [{ id: 'config-1', contest_instance_id: GOLF_INSTANCE_ID }], rowCount: 1 };
         }
-        if (sql.includes('SELECT COALESCE(SUM')) {
-          return { rows: [{ balance: 100000 }], rowCount: 1 };
+        if (/SELECT\s+COALESCE\s*\(\s*SUM/i.test(sql)) {
+          return { rows: [{ balance_cents: 100000 }], rowCount: 1 };
         }
         if (sql.includes('INSERT INTO contest_participants')) {
           return { rows: [{ id: 'part-1' }], rowCount: 1 };
@@ -3502,9 +3507,6 @@ describe('Custom Contest Service Unit Tests', () => {
         }
         if (sql.includes('BEGIN') || sql.includes('COMMIT')) {
           return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes('UPDATE contest_instances') && sql.includes('status')) {
-          return { rows: [{ ...instance, status: 'PUBLISHED', join_token: 'dev_token_xyz' }], rowCount: 1 };
         }
 
         return { rows: [], rowCount: 0 };
@@ -3517,12 +3519,12 @@ describe('Custom Contest Service Unit Tests', () => {
       );
 
       expect(result).toBeDefined();
-      expect(result.status).toBe('PUBLISHED');
+      expect(result.status).toBe('SCHEDULED');
 
       // Assert field_selections INSERT was called with GOLF sport filter
       const fieldSelectionsQuery = queriesCaptured.find(q => q.includes('INSERT INTO field_selections'));
       expect(fieldSelectionsQuery).toBeDefined();
-      expect(fieldSelectionsQuery).toContain("ct.sport = 'GOLF'");
+      expect(fieldSelectionsQuery).toContain('ct.sport = $2');  // Parameterized form
       expect(fieldSelectionsQuery).toContain('ON CONFLICT (contest_instance_id) DO NOTHING');
     });
 
@@ -3656,31 +3658,55 @@ describe('Custom Contest Service Unit Tests', () => {
     it('Test 2: should handle field_selections ON CONFLICT idempotently', async () => {
       mockPool.reset();
 
+      const generatedToken = 'dev_token_' + Math.random().toString(36).substr(2, 9);
+      const instance = {
+        id: GOLF_INSTANCE_ID,
+        template_id: GOLF_TEMPLATE_ID,
+        organizer_id: TEST_USER_ID,
+        status: 'SCHEDULED',
+        join_token: null,  // Start as null so UPDATE sets the token and triggers ensureFieldSelectionsForGolf
+        entry_fee_cents: 5000,
+        payout_structure: { type: 'winner_take_all', max_winners: 1 },
+        entry_count: 0,
+        user_has_entered: false,
+        contest_name: 'Test Contest'
+      };
+
       let fieldSelectionsCallCount = 0;
 
       mockPool.query = jest.fn(async (sql, params) => {
+        // getContestInstance query (with LEFT JOIN and COUNT)
+        if (sql.includes('LEFT JOIN') && sql.includes('COUNT(*)')) {
+          return { rows: [instance], rowCount: 1 };
+        }
+
         if (sql.includes('INSERT INTO field_selections')) {
           fieldSelectionsCallCount++;
           // First call succeeds, second would return 0 rows (ON CONFLICT DO NOTHING)
           if (fieldSelectionsCallCount === 1) {
             return { rows: [{ id: 'field-1' }], rowCount: 1 };
           }
+          return { rows: [], rowCount: 0 };
         }
 
         if (sql.includes('UPDATE') && sql.includes('join_token') && sql.includes('IS NULL')) {
-          return { rows: [{ id: GOLF_INSTANCE_ID, join_token: 'token-1' }], rowCount: 1 };
+          // UPDATE succeeds: return instance with newly set token
+          return { rows: [{ ...instance, join_token: generatedToken }], rowCount: 1 };
+        }
+        if (sql.includes('SELECT id FROM contest_instances WHERE id')) {
+          return { rows: [{ id: GOLF_INSTANCE_ID }], rowCount: 1 };
         }
         if (sql.includes('SELECT') && sql.includes('contest_instances') && !sql.includes('JOIN')) {
-          return { rows: [{ id: GOLF_INSTANCE_ID, organizer_id: TEST_USER_ID, status: 'SCHEDULED', join_token: null }], rowCount: 1 };
+          return { rows: [instance], rowCount: 1 };
         }
         if (sql.includes('SELECT') && sql.includes('JOIN') && sql.includes('ct.sport')) {
-          return { rows: [{ id: GOLF_INSTANCE_ID, sport: 'GOLF' }], rowCount: 1 };
+          return { rows: [{ ...instance, join_token: generatedToken, sport: 'GOLF' }], rowCount: 1 };
         }
         if (sql.includes('SELECT') && sql.includes('tournament_configs')) {
-          return { rows: [{ id: 'config-1' }], rowCount: 1 };
+          return { rows: [{ id: 'config-1', contest_instance_id: GOLF_INSTANCE_ID }], rowCount: 1 };
         }
-        if (sql.includes('SELECT COALESCE(SUM')) {
-          return { rows: [{ balance: 100000 }], rowCount: 1 };
+        if (/SELECT\s+COALESCE\s*\(\s*SUM/i.test(sql)) {
+          return { rows: [{ balance_cents: 100000 }], rowCount: 1 };
         }
         if (sql.includes('INSERT INTO contest_participants')) {
           return { rows: [{ id: 'part-1' }], rowCount: 1 };
@@ -3690,9 +3716,6 @@ describe('Custom Contest Service Unit Tests', () => {
         }
         if (sql.includes('BEGIN') || sql.includes('COMMIT')) {
           return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes('UPDATE contest_instances') && sql.includes('status')) {
-          return { rows: [{ id: GOLF_INSTANCE_ID, status: 'PUBLISHED' }], rowCount: 1 };
         }
 
         return { rows: [], rowCount: 0 };
@@ -3846,28 +3869,51 @@ describe('Custom Contest Service Unit Tests', () => {
     it('Test 3: should create field_selections row when publishing GOLF contest', async () => {
       mockPool.reset();
 
+      const generatedToken = 'dev_token_' + Math.random().toString(36).substr(2, 9);
+      const instance = {
+        id: GOLF_INSTANCE_ID,
+        template_id: GOLF_TEMPLATE_ID,
+        organizer_id: TEST_USER_ID,
+        status: 'SCHEDULED',
+        join_token: null,  // Start as null so UPDATE sets the token and triggers ensureFieldSelectionsForGolf
+        entry_fee_cents: 5000,
+        payout_structure: { type: 'winner_take_all', max_winners: 1 },
+        entry_count: 0,
+        user_has_entered: false,
+        contest_name: 'Test Contest'
+      };
+
       let fieldSelectionsInserted = false;
 
       mockPool.query = jest.fn(async (sql, params) => {
+        // getContestInstance query (with LEFT JOIN and COUNT)
+        if (sql.includes('LEFT JOIN') && sql.includes('COUNT(*)')) {
+          return { rows: [instance], rowCount: 1 };
+        }
+
         if (sql.includes('INSERT INTO field_selections')) {
           fieldSelectionsInserted = true;
           return { rows: [{ id: 'field-1' }], rowCount: 1 };
         }
 
         if (sql.includes('UPDATE') && sql.includes('join_token') && sql.includes('IS NULL')) {
-          return { rows: [{ id: GOLF_INSTANCE_ID, join_token: 'token-xyz' }], rowCount: 1 };
+          // UPDATE succeeds: return instance with newly set token
+          return { rows: [{ ...instance, join_token: generatedToken }], rowCount: 1 };
+        }
+        if (sql.includes('SELECT id FROM contest_instances WHERE id')) {
+          return { rows: [{ id: GOLF_INSTANCE_ID }], rowCount: 1 };
         }
         if (sql.includes('SELECT') && sql.includes('contest_instances') && !sql.includes('JOIN')) {
-          return { rows: [{ id: GOLF_INSTANCE_ID, organizer_id: TEST_USER_ID, status: 'SCHEDULED', join_token: null }], rowCount: 1 };
+          return { rows: [instance], rowCount: 1 };
         }
         if (sql.includes('SELECT') && sql.includes('JOIN') && sql.includes('ct.sport')) {
-          return { rows: [{ id: GOLF_INSTANCE_ID, sport: 'GOLF' }], rowCount: 1 };
+          return { rows: [{ ...instance, join_token: generatedToken, sport: 'GOLF' }], rowCount: 1 };
         }
         if (sql.includes('SELECT') && sql.includes('tournament_configs')) {
-          return { rows: [{ id: 'config-1' }], rowCount: 1 };
+          return { rows: [{ id: 'config-1', contest_instance_id: GOLF_INSTANCE_ID }], rowCount: 1 };
         }
-        if (sql.includes('SELECT COALESCE(SUM')) {
-          return { rows: [{ balance: 100000 }], rowCount: 1 };
+        if (/SELECT\s+COALESCE\s*\(\s*SUM/i.test(sql)) {
+          return { rows: [{ balance_cents: 100000 }], rowCount: 1 };
         }
         if (sql.includes('INSERT INTO contest_participants')) {
           return { rows: [{ id: 'part-1' }], rowCount: 1 };
@@ -3877,9 +3923,6 @@ describe('Custom Contest Service Unit Tests', () => {
         }
         if (sql.includes('BEGIN') || sql.includes('COMMIT')) {
           return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes('UPDATE contest_instances') && sql.includes('status')) {
-          return { rows: [{ id: GOLF_INSTANCE_ID, status: 'PUBLISHED' }], rowCount: 1 };
         }
 
         return { rows: [], rowCount: 0 };

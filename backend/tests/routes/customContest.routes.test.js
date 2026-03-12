@@ -39,7 +39,8 @@ const mockTemplate = {
     { type: 'top_n_split', max_winners: 3 },
     { type: 'winner_take_all', max_winners: 1 }
   ],
-  is_active: true
+  is_active: true,
+  provider_tournament_id: 'nfl_2026_playoffs'
 };
 
 const mockInstance = {
@@ -466,6 +467,10 @@ describe('Custom Contest Routes', () => {
         mockQueryResponses.single(mockTemplate)
       );
       mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM tournament_configs[\s\S]*provider_event_id/,
+        mockQueryResponses.single({ id: 'config-1', contest_instance_id: null, is_active: true })
+      );
+      mockPool.setQueryResponse(
         /INSERT INTO contest_instances/,
         mockQueryResponses.single(scheduledInstance)
       );
@@ -567,6 +572,10 @@ describe('Custom Contest Routes', () => {
           mockQueryResponses.single(mockTemplate)
         );
         mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM tournament_configs[\s\S]*provider_event_id/,
+          mockQueryResponses.single({ id: 'config-1', contest_instance_id: null, is_active: true })
+        );
+        mockPool.setQueryResponse(
           /INSERT INTO contest_instances/,
           mockQueryResponses.single(scheduledInstance)
         );
@@ -588,6 +597,10 @@ describe('Custom Contest Routes', () => {
         mockPool.setQueryResponse(
           /SELECT[\s\S]*FROM contest_templates WHERE id/,
           mockQueryResponses.single(mockTemplate)
+        );
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM tournament_configs[\s\S]*provider_event_id/,
+          mockQueryResponses.single({ id: 'config-1', contest_instance_id: null, is_active: true })
         );
         mockPool.setQueryResponse(
           /INSERT INTO contest_instances/,
@@ -625,6 +638,10 @@ describe('Custom Contest Routes', () => {
         mockPool.setQueryResponse(
           /SELECT[\s\S]*FROM contest_templates WHERE id/,
           mockQueryResponses.single(mockTemplate)
+        );
+        mockPool.setQueryResponse(
+          /SELECT[\s\S]*FROM tournament_configs[\s\S]*provider_event_id/,
+          mockQueryResponses.single({ id: 'config-1', contest_instance_id: null, is_active: true })
         );
         mockPool.setQueryResponse(
           /INSERT INTO contest_instances/,

@@ -112,4 +112,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-module.exports = { app };
+// Export both patterns for compatibility
+// 1. Direct export for supertest (require('app'))
+// 2. Named export for server.js (const { app } = require('app'))
+module.exports = app;
+module.exports.app = app;

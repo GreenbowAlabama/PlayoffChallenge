@@ -191,7 +191,7 @@ describe('Entry Roster Service', () => {
 
       await expect(
         entryRosterService.submitPicks(pool, contestId, userId, playerIds)
-      ).rejects.toThrow('Roster size must not exceed 7');
+      ).rejects.toThrow('Roster size must be exactly 7');
     });
 
     it('rejects picks with duplicates', async () => {
@@ -437,7 +437,7 @@ describe('Entry Roster Service', () => {
       const pool = createMockPool();
       const contestId = 'test-contest-id';
       const userId = 'test-user-id';
-      const playerIds = ['espn_123', 'espn_456'];
+      const playerIds = ['espn_123', 'espn_456', 'espn_789', 'espn_111', 'espn_222', 'espn_333', 'espn_444'];
 
       pool.setQueryResponse(
         q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
@@ -469,7 +469,12 @@ describe('Entry Roster Service', () => {
             selection_json: {
               primary: [
                 { player_id: 'espn_123', name: 'Player One', image_url: null },
-                { player_id: 'espn_456', name: 'Player Two', image_url: null }
+                { player_id: 'espn_456', name: 'Player Two', image_url: null },
+                { player_id: 'espn_789', name: 'Player Three', image_url: null },
+                { player_id: 'espn_111', name: 'Player Four', image_url: null },
+                { player_id: 'espn_222', name: 'Player Five', image_url: null },
+                { player_id: 'espn_333', name: 'Player Six', image_url: null },
+                { player_id: 'espn_444', name: 'Player Seven', image_url: null }
               ]
             }
           }],
@@ -487,7 +492,7 @@ describe('Entry Roster Service', () => {
 
       const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
       expect(result.success).toBe(true);
-      expect(result.player_ids).toEqual(['espn_123', 'espn_456']);
+      expect(result.player_ids).toEqual(playerIds);
     });
 
     it('accepts submission when field_selections.primary is populated', async () => {

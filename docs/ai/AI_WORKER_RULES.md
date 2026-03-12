@@ -159,11 +159,85 @@ Required order:
 
 Workers must never:
 
-• remove tests  
-• weaken assertions  
-• bypass failing tests  
+• remove tests
+• weaken assertions
+• bypass failing tests
 
 If tests fail, fix the implementation.
+
+---
+
+# Test Stabilization Execution Protocol
+
+When stabilizing failing tests, workers must follow the targeted repair loop.
+
+Workers MUST NOT repeatedly execute the entire test suite.
+
+Instead the worker must stabilize tests one failing suite at a time.
+
+## Mandatory Process
+
+1. Run the FIRST failing test file from the provided failure list.
+
+Example:
+
+```
+npm test -- tests/discovery/discoveryContestCreation.test.js
+```
+
+2. Identify the failing assertion.
+
+3. Fix the root cause.
+
+Allowed fixes include:
+
+• adjusting mocks
+• repairing mockPool query predicates
+• correcting deterministic time usage
+• fixing implementation bugs
+• adding missing fixtures
+• correcting incorrect test expectations
+• repairing transaction handling
+
+4. Re-run the SAME test file.
+
+Repeat the loop:
+
+fix → run → fix → run
+
+until the file passes 100%.
+
+5. Once the file passes, run the full suite for that file only.
+
+Example:
+
+```
+npm test -- tests/discovery/discoveryContestCreation.test.js
+```
+
+6. Confirm:
+
+• all tests in that file pass
+• no regressions were introduced
+
+7. Move to the next failing test suite in the failure list.
+
+## Strict Prohibitions
+
+Workers must NOT:
+
+• run the full test suite during stabilization loops
+• modify financial systems
+• modify ledger computation
+• modify wallet balance queries
+• modify schema snapshot
+• modify OpenAPI contracts
+
+If a test failure requires modifying frozen primitives, workers must STOP and escalate.
+
+## Goal
+
+Stabilize failing test suites sequentially while minimizing regression risk and execution time.
 
 ---
 
@@ -208,11 +282,29 @@ cd /Users/iancarter/Documents/workspace/playoff-challenge/ios-app/PlayoffChallen
 
 Workers must never:
 
-• run git commands  
-• scan the repository  
-• modify schema without approval  
-• edit files outside allowed lanes  
-• introduce business logic into SwiftUI Views  
+• run git commands
+• scan the repository
+• modify schema without approval
+• edit files outside allowed lanes
+• introduce business logic into SwiftUI Views
+
+---
+
+# Architecture Awareness — Authentication Middleware
+
+**Current State:** Authentication extraction (`extractUserId`, `extractOptionalUserId`) is currently duplicated across multiple route files:
+- backend/routes/customContest.routes.js
+- backend/routes/wallet.routes.js
+- backend/routes/contests.routes.js
+- backend/routes/payments.js
+
+**Worker Guidance:** Do NOT refactor this duplication during test stabilization or launch preparation.
+
+Centralization is scheduled as a **Fast Follower** task (Phase 2) after launch.
+
+**Reason:** Large refactors increase regression risk during stabilization. Minor patches (like the test mode UUID bypass) are acceptable to restore test compatibility.
+
+**See:** `docs/production-readiness/FAST_FOLLOWERS.md` (Centralize Authentication Middleware)
 
 ---
 

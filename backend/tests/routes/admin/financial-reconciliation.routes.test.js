@@ -191,6 +191,31 @@ describe('Financial Reconciliation Routes', () => {
       // Insert a test orphan withdrawal
       const ledgerId = uuidv4();
       // Setup test data in database
+      await pool.query(
+        `
+        INSERT INTO ledger (
+          id,
+          user_id,
+          entry_type,
+          direction,
+          amount_cents,
+          reference_type,
+          reference_id,
+          idempotency_key,
+          created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        `,
+        [
+          ledgerId,
+          userId,
+          'WALLET_WITHDRAWAL',
+          'DEBIT',
+          10000,
+          'WALLET',
+          ledgerId,
+          `test-orphan-withdrawal-${ledgerId}`
+        ]
+      );
 
       const response = await request(app)
         .post('/api/admin/financial-reconciliation/repair')
@@ -209,6 +234,32 @@ describe('Financial Reconciliation Routes', () => {
 
     it('creates audit log entry', async () => {
       const ledgerId = uuidv4();
+
+      await pool.query(
+        `
+        INSERT INTO ledger (
+          id,
+          user_id,
+          entry_type,
+          direction,
+          amount_cents,
+          reference_type,
+          reference_id,
+          idempotency_key,
+          created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        `,
+        [
+          ledgerId,
+          userId,
+          'WALLET_WITHDRAWAL',
+          'DEBIT',
+          10000,
+          'WALLET',
+          ledgerId,
+          `test-audit-log-${ledgerId}`
+        ]
+      );
 
       const response = await request(app)
         .post('/api/admin/financial-reconciliation/repair')
@@ -236,6 +287,32 @@ describe('Financial Reconciliation Routes', () => {
 
     it('returns success with details', async () => {
       const ledgerId = uuidv4();
+
+      await pool.query(
+        `
+        INSERT INTO ledger (
+          id,
+          user_id,
+          entry_type,
+          direction,
+          amount_cents,
+          reference_type,
+          reference_id,
+          idempotency_key,
+          created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        `,
+        [
+          ledgerId,
+          userId,
+          'WALLET_WITHDRAWAL',
+          'DEBIT',
+          10000,
+          'WALLET',
+          ledgerId,
+          `test-repair-details-${ledgerId}`
+        ]
+      );
 
       const response = await request(app)
         .post('/api/admin/financial-reconciliation/repair')
@@ -310,7 +387,7 @@ describe('Financial Reconciliation Routes', () => {
       const toDate = new Date().toISOString();
 
       const response = await request(app)
-        .get(`/api/admin/financial-audit-log?from_date=${fromDate}&to_date=${toDate}`)
+        .get(`/api/admin/financial-reconciliation/audit-log?from_date=${fromDate}&to_date=${toDate}`)
         .set('Authorization', `Bearer ${adminJwt}`)
         .expect(200);
 

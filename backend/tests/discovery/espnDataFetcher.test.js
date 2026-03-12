@@ -73,7 +73,8 @@ describe('ESPN Data Fetcher', () => {
       expect(result.events[0].competitions).toBeDefined();
     });
 
-    it('should select the first event regardless of eventId parameter', async () => {
+    it('should select the matching eventId from scoreboard', async () => {
+      const requestedEventId = '401811938';
       const mockScoreboardResponse = {
         events: [
           {
@@ -82,7 +83,7 @@ describe('ESPN Data Fetcher', () => {
             competitions: [{ competitors: [] }]
           },
           {
-            id: '401811938',
+            id: requestedEventId,
             name: 'Event 2',
             competitions: [{ competitors: [{ startTime: '2026-03-16T08:00:00Z' }] }]
           },
@@ -99,13 +100,13 @@ describe('ESPN Data Fetcher', () => {
         json: jest.fn().mockResolvedValueOnce(mockScoreboardResponse)
       });
 
-      // Pass a different eventId that is not the first event
-      const result = await fetchEspnSummary('401811938');
+      // Pass eventId to fetch
+      const result = await fetchEspnSummary(requestedEventId);
 
-      // Should return the first event in scoreboard, not the requested ID
+      // Should return the event matching the requested eventId
       expect(result).toBeDefined();
-      expect(result.events[0].id).toBe('401811937');
-      expect(result.events[0].name).toBe('Event 1');
+      expect(result.events[0].id).toBe(requestedEventId);
+      expect(result.events[0].name).toBe('Event 2');
     });
 
     it('should return null if no events in scoreboard', async () => {

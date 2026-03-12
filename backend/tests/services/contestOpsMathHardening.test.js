@@ -449,8 +449,8 @@ describe('Contest Ops Math Hardening', () => {
         await pool.query(
           `INSERT INTO contest_instances (
             id, template_id, organizer_id, entry_fee_cents, payout_structure,
-            status, contest_name, max_entries
-          ) VALUES ($1, $2, $3, 5000, '{}', 'SCHEDULED', 'Service Test Contest', 5)`,
+            status, contest_name, max_entries, is_platform_owned, is_system_generated
+          ) VALUES ($1, $2, $3, 5000, '{}', 'SCHEDULED', 'Service Test Contest', 5, true, true)`,
           [contest1Id, templateId, organizerId],
         );
 
@@ -484,8 +484,8 @@ describe('Contest Ops Math Hardening', () => {
         await pool.query(
           `INSERT INTO contest_instances (
             id, template_id, organizer_id, entry_fee_cents, payout_structure,
-            status, contest_name, max_entries
-          ) VALUES ($1, $2, $3, 5000, '{}', 'LOCKED', 'Locked Contest', 2)`,
+            status, contest_name, max_entries, is_platform_owned, is_system_generated
+          ) VALUES ($1, $2, $3, 5000, '{}', 'LOCKED', 'Locked Contest', 2, true, true)`,
           [lockedContestId, templateId, organizerId],
         );
 
@@ -505,8 +505,8 @@ describe('Contest Ops Math Hardening', () => {
         await pool.query(
           `INSERT INTO contest_instances (
             id, template_id, organizer_id, entry_fee_cents, payout_structure,
-            status, contest_name, max_entries
-          ) VALUES ($1, $2, $3, 5000, '{}', 'SCHEDULED', 'Scheduled Contest', 5)`,
+            status, contest_name, max_entries, is_platform_owned, is_system_generated
+          ) VALUES ($1, $2, $3, 5000, '{}', 'SCHEDULED', 'Scheduled Contest', 5, true, true)`,
           [scheduledContestId, templateId, organizerId],
         );
 
@@ -536,8 +536,8 @@ describe('Contest Ops Math Hardening', () => {
         await pool.query(
           `INSERT INTO contest_instances (
             id, template_id, organizer_id, entry_fee_cents, payout_structure,
-            status, contest_name, max_entries
-          ) VALUES ($1, $2, $3, 5000, '{}', 'LOCKED', 'Zero Missing Contest', 2)`,
+            status, contest_name, max_entries, is_platform_owned, is_system_generated
+          ) VALUES ($1, $2, $3, 5000, '{}', 'LOCKED', 'Zero Missing Contest', 2, true, true)`,
           [zeroMissingContestId, templateId, organizerId],
         );
 

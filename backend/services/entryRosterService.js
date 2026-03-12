@@ -20,12 +20,13 @@ const { getStrategy } = require('./scoringStrategyRegistry');
 
 /**
  * Sport mapping layer: convert template sport to player sport
- * contest_templates.sport uses lowercase (nfl, pga)
+ * contest_templates.sport can be lowercase (nfl, pga) or uppercase (GOLF)
  * players.sport uses uppercase (NFL, GOLF)
  */
 const SPORT_PLAYER_MAP = {
   nfl: 'NFL',
-  pga: 'GOLF'
+  pga: 'GOLF',
+  golf: 'GOLF'
 };
 
 /**
@@ -306,33 +307,28 @@ async function getMyEntry(pool, contestInstanceId, userId) {
     [contestInstanceId]
   );
 
-  let availablePlayers = [];  // Default to empty array (OpenAPI contract requirement)
-  if (fieldResult.rows.length > 0) {
+  let availablePlayers = [];  // Always initialize to array (never null per OpenAPI contract)
+
+  // Determine if we should use field_selections or fallback to players table
+  const shouldUseFieldSelections = fieldResult.rows.length > 0;
+  const hasValidPrimarySelection = shouldUseFieldSelections &&
+    fieldResult.rows[0].selection_json &&
+    Array.isArray(fieldResult.rows[0].selection_json.primary) &&
+    (fieldResult.rows[0].selection_json.primary || []).filter(Boolean).length > 0;
+
+  if (hasValidPrimarySelection) {
+    // Use the explicitly configured players from field_selections.primary
     const selectionJson = fieldResult.rows[0].selection_json;
-    if (selectionJson && Array.isArray(selectionJson.primary)) {
-      const playerIds = (selectionJson.primary || []).filter(Boolean);
+    const playerList = (selectionJson.primary || []).filter(Boolean);
 
-      if (playerIds.length > 0) {
-        const playersResult = await pool.query(
-          `
-          SELECT id, full_name, image_url
-          FROM players
-          WHERE id = ANY($1::text[])
-          `,
-          [playerIds]
-        );
-
-        availablePlayers = playersResult.rows.map(p => ({
-          player_id: p.id,
-          name: p.full_name,
-          image_url: p.image_url || null
-        }));
-      }
-    }
-  } else if (contestRow.sport) {
-    // Fallback: if field_selections is empty, query players table directly
-    // This is the primary path for PGA contests where players are global and not event-scoped
-    const playerSport = SPORT_PLAYER_MAP[contestRow.sport.toLowerCase()];
+    availablePlayers = playerList.map(p => ({
+      player_id: p.player_id,
+      name: p.name,
+      image_url: p.image_url || null
+    }));
+  } else {
+    // Fallback to players table: use when field_selections is missing or empty
+    const playerSport = contestRow.sport ? SPORT_PLAYER_MAP[contestRow.sport.toLowerCase()] : null;
     if (playerSport) {
       const playersResult = await pool.query(
         `SELECT id, full_name, image_url
@@ -343,14 +339,13 @@ async function getMyEntry(pool, contestInstanceId, userId) {
         [playerSport]
       );
 
-      // Map all returned players to response format
-      // If no players found, availablePlayers remains empty array []
       availablePlayers = playersResult.rows.map(player => ({
         player_id: player.id,
         name: player.full_name,
         image_url: player.image_url || null
       }));
     }
+    // Otherwise availablePlayers stays as []
   }
 
   return {

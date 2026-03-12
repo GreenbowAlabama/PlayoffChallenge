@@ -115,7 +115,7 @@ describe('ingestionService.run — adapter dispatch', () => {
       return Promise.resolve(response);
     });
 
-    // Queue: SELECT contest_instance FOR UPDATE, INSERT ingestion_run, UPDATE ingestion_run COMPLETE
+    // Queue: SELECT contest_instance FOR UPDATE, SELECT precheck ingestion_runs, INSERT ingestion_run, UPDATE ingestion_run COMPLETE
     queryQueue.push({
       rows: [{
         id: 'ci-1',
@@ -127,6 +127,7 @@ describe('ingestionService.run — adapter dispatch', () => {
         provider_tournament_id: 'espn_nfl_2026'
       }]
     });
+    queryQueue.push({ rows: [] });                 // SELECT precheck (no existing ingestion_runs)
     queryQueue.push({ rows: [{ id: 'ir-1' }] }); // INSERT ingestion_run → RUNNING
     queryQueue.push({ rows: [] });                 // UPDATE ingestion_run → COMPLETE
 
@@ -199,8 +200,10 @@ describe('ingestionService.run — idempotency', () => {
         provider_tournament_id: 'espn_nfl_2026'
       }]
     });
-    // ON CONFLICT DO NOTHING → returns 0 rows (record already existed)
-    queryQueue.push({ rows: [] });
+    // SELECT precheck: return COMPLETE status to skip processing
+    queryQueue.push({
+      rows: [{ status: 'COMPLETE' }]
+    });
 
     const mockPool = { connect: jest.fn().mockResolvedValue(mockClient) };
 

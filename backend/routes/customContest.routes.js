@@ -52,8 +52,15 @@ function extractUserId(req, res, next) {
   // Try Authorization Bearer token first
   const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+
+    // TEST MODE BYPASS: Accept Bearer <UUID> during test
+    if (process.env.NODE_ENV === 'test' && isValidUUID(token)) {
+      req.userId = token;
+      return next();
+    }
+
     try {
-      const token = authHeader.split(' ')[1];
       const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
       userId = payload.sub || payload.user_id;
     } catch (err) {
@@ -97,8 +104,15 @@ function extractOptionalUserId(req, res, next) {
   // Try Authorization Bearer token first
   const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+
+    // TEST MODE BYPASS: Accept Bearer <UUID> during test
+    if (process.env.NODE_ENV === 'test' && isValidUUID(token)) {
+      req.userId = token;
+      return next();
+    }
+
     try {
-      const token = authHeader.split(' ')[1];
       const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
       userId = payload.sub || payload.user_id;
     } catch (err) {

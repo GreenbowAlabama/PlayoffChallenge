@@ -157,8 +157,8 @@ describe('Entry Roster Service — PGA Player Selection Bug', () => {
     // Call the actual service
     const entry = await entryRosterService.getMyEntry(pool, contestInstanceId, userId);
 
-    // BUG: available_players is null because field_selections is empty
-    expect(entry.available_players).toBeNull();
+    // FIXED: available_players is now an array (fallback from players table when field_selections is empty)
+    expect(Array.isArray(entry.available_players)).toBe(true);
     expect(entry.player_ids).toEqual([]);
     expect(entry.can_edit).toBe(true);
     expect(entry.lock_time).toBeNull();

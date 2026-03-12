@@ -185,19 +185,33 @@ async function repairOrphanWithdrawal(pool, ledgerId, adminId, reason) {
     } else {
       adjustmentLedgerId = uuidv4();
       await client.query(
-        `INSERT INTO ledger (id, entry_type, direction, amount_cents, reference_type, reference_id, idempotency_key, created_at)
-         VALUES ($1, 'ADJUSTMENT', 'CREDIT', $2, 'WALLET', NULL, $3, NOW())`,
-        [adjustmentLedgerId, ledger.amount_cents, `orphan_reversal:${ledgerId}`]
+        `INSERT INTO ledger (
+           id,
+           entry_type,
+           direction,
+           amount_cents,
+           reference_type,
+           reference_id,
+           idempotency_key,
+           created_at
+         )
+         VALUES ($1,'ADJUSTMENT','CREDIT',$2,'WALLET',$3,$4,NOW())`,
+        [
+          adjustmentLedgerId,
+          ledger.amount_cents,
+          ledger.id,
+          `orphan_reversal:${ledgerId}`
+        ]
       );
     }
 
-    const auditLogId = await logFinancialAction(client, adminId, 'repair_orphan_withdrawal', reason);
+    const auditLog = await logFinancialAction(client, adminId, 'repair_orphan_withdrawal', reason, {}, ledgerId);
 
     await client.query('COMMIT');
     return {
       success: true,
       adjustment_ledger_id: adjustmentLedgerId,
-      audit_log_id: auditLogId,
+      audit_log_id: auditLog.log_id,
       message: `Orphaned withdrawal reversed with ADJUSTMENT CREDIT ${ledger.amount_cents} cents`
     };
   } catch (error) {
@@ -257,14 +271,14 @@ async function convertIllegalEntryFeeToRefund(pool, ledgerId, adminId, reason) {
       );
     }
 
-    const auditLogId = await logFinancialAction(client, adminId, 'convert_entry_fee_credit', reason);
+    const auditLog = await logFinancialAction(client, adminId, 'convert_entry_fee_credit', reason, {}, ledgerId);
     await client.query('COMMIT');
 
     return {
       success: true,
       refund_ledger_id: refundLedgerId,
       adjustment_ledger_id: adjustmentLedgerId,
-      audit_log_id: auditLogId,
+      audit_log_id: auditLog.log_id,
       message: `Illegal ENTRY_FEE CREDIT converted`
     };
   } catch (error) {
@@ -319,13 +333,13 @@ async function rollbackNonAtomicJoin(pool, ledgerId, adminId, reason) {
       );
     }
 
-    const auditLogId = await logFinancialAction(client, adminId, 'rollback_non_atomic_join', reason);
+    const auditLog = await logFinancialAction(client, adminId, 'rollback_non_atomic_join', reason, {}, ledgerId);
     await client.query('COMMIT');
 
     return {
       success: true,
       reversal_ledger_id: reversalLedgerId,
-      audit_log_id: auditLogId,
+      audit_log_id: auditLog.log_id,
       message: `Non-atomic join rolled back`
     };
   } catch (error) {
@@ -451,12 +465,13 @@ async function repairIllegalRefundDebit(pool, refundLedgerId, adminId, reason) {
       );
     }
 
-    const auditLogId = await logFinancialAction(
+    const auditLog = await logFinancialAction(
       client,
       adminId,
       'repair_illegal_refund_debit',
       reason,
-      { refund_ledger_id: refundLedgerId }
+      { refund_ledger_id: refundLedgerId },
+      refundLedgerId
     );
 
     await client.query('COMMIT');
@@ -464,7 +479,7 @@ async function repairIllegalRefundDebit(pool, refundLedgerId, adminId, reason) {
     return {
       success: true,
       adjustment_ledger_id: adjustmentLedgerId,
-      audit_log_id: auditLogId
+      audit_log_id: auditLog.log_id
     };
 
   } catch (err) {
@@ -475,12 +490,12 @@ async function repairIllegalRefundDebit(pool, refundLedgerId, adminId, reason) {
   }
 }
 
-async function logFinancialAction(poolOrClient, adminId, actionType, reason, details = {}) {
+async function logFinancialAction(poolOrClient, adminId, actionType, reason, details = {}, ledgerId = null) {
   if (!adminId) return { success: false, error: 'admin_id is required', log_id: null, timestamp: null };
   if (!actionType) return { success: false, error: 'action_type is required', log_id: null, timestamp: null };
   if (!reason || reason.trim() === '') return { success: false, error: 'reason is required and cannot be empty', log_id: null, timestamp: null };
 
-  const isClient = poolOrClient.query && !poolOrClient.connect;
+  const isClient = typeof poolOrClient.release === 'function';
   const client = isClient ? poolOrClient : await poolOrClient.connect();
 
   try {
@@ -488,9 +503,27 @@ async function logFinancialAction(poolOrClient, adminId, actionType, reason, det
     const now = new Date();
 
     await client.query(
-      `INSERT INTO financial_admin_actions (id, admin_id, action_type, amount_cents, reason, status, reference_id, details, created_at)
-       VALUES ($1, $2, $3, 0, $4, 'completed', NULL, $5, $6)`,
-      [logId, adminId, actionType, reason, JSON.stringify(details), now]
+      `INSERT INTO financial_admin_actions (
+         id,
+         admin_id,
+         action_type,
+         ledger_id,
+         amount_cents,
+         reason,
+         status,
+         result_message,
+         created_at,
+         completed_at
+       ) VALUES ($1,$2,$3,$4,0,$5,'completed',$6,$7,$7)`,
+      [
+        logId,
+        adminId,
+        actionType,
+        ledgerId,
+        reason,
+        JSON.stringify(details),
+        now
+      ]
     );
 
     return { success: true, log_id: logId, timestamp: now.toISOString() };

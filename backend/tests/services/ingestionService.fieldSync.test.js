@@ -532,7 +532,7 @@ describe('Field Synchronization — RC1, RC2, RC3', () => {
 
       await expect(
         ingestionService.initializeTournamentField(mockPool, contestInstanceId)
-      ).rejects.toThrow('sport must be GOLF');
+      ).rejects.toThrow('unsupported sport');
 
       expect(mockClient.release).toHaveBeenCalled();
     });

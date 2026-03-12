@@ -15,6 +15,8 @@ const { Pool } = require('pg');
 let app;
 let pool;
 let adminToken;
+const adminUserId = '33333333-3333-3333-3333-333333333333';
+const organizerId = '11111111-1111-1111-1111-111111111111';
 
 describe('GET /api/admin/contests/:id/ops', () => {
   beforeAll(async () => {
@@ -25,16 +27,40 @@ describe('GET /api/admin/contests/:id/ops', () => {
       ssl: false,
     });
 
+    // Inject pool into app for middleware and routes to use
+    app.locals.pool = pool;
+
+    // Create users in database for auth and FK constraints
+    await pool.query(
+      `INSERT INTO users (id, email, is_admin) VALUES ($1, $2, $3), ($4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET is_admin = EXCLUDED.is_admin`,
+      [adminUserId, 'admin@test.com', true, organizerId, 'organizer@test.com', false]
+    );
+
     // Generate admin token for testing
     const jwt = require('jsonwebtoken');
     adminToken = jwt.sign(
-      { userId: 'test-admin', role: 'admin' },
+      {
+        sub: adminUserId,
+        is_admin: true,
+        role: 'admin',
+        email: 'admin@test.com'
+      },
       process.env.ADMIN_JWT_SECRET || 'test-admin-jwt-secret',
     );
   });
 
   afterAll(async () => {
-    await pool.end();
+    // Clean up in correct FK order: instances → templates → users
+    try {
+      // Delete only contest instances created by this organizer
+      await pool.query('DELETE FROM contest_instances WHERE organizer_id = $1', [organizerId]);
+      // No template cleanup needed - templates may be referenced by other tests
+      // Finally delete users
+      await pool.query('DELETE FROM users WHERE id = $1 OR id = $2', [adminUserId, organizerId]);
+    } finally {
+      await pool.end();
+    }
   });
 
   it('should return 401 when not authenticated', async () => {
@@ -130,10 +156,10 @@ describe('GET /api/admin/contests/:id/ops', () => {
       const contestRes = await client.query(
         `INSERT INTO contest_instances (
           template_id, organizer_id, entry_fee_cents, payout_structure,
-          status, contest_name, max_entries, current_entries, is_system_generated
+          status, contest_name, max_entries, is_system_generated
         ) VALUES (
           $1, '11111111-1111-1111-1111-111111111111', 10000, '[]'::jsonb,
-          'LOCKED', 'Route Test Contest 2', 50, 25, true
+          'LOCKED', 'Route Test Contest 2', 50, true
         ) RETURNING id`,
         [templateId],
       );
@@ -155,10 +181,10 @@ describe('GET /api/admin/contests/:id/ops', () => {
     expect(contest.contest_name).toBe('Route Test Contest 2');
     expect(contest.status).toBe('LOCKED');
     expect(contest.entry_fee_cents).toBe(10000);
-    expect(contest.current_entries).toBe(25);
     expect(contest.max_entries).toBe(50);
     expect(contest.is_system_generated).toBe(true);
     expect(contest).toHaveProperty('updated_at');
+    // current_entries is computed in template_contests list, not in contest field
   });
 
   it('should return correct snapshot health stats', async () => {

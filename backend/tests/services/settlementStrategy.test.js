@@ -709,6 +709,7 @@ describe('Settlement Strategy', () => {
         }) // nflSettlementFn: get scores
         ._queueResponse({ rows: [{ id: 'settlement-123', contest_instance_id: 'contest-id' }] }) // insert settlement
         ._queueResponse({ rows: [] }) // update scoring_run_id
+        ._queueResponse({ rows: [] }) // insert ledger (payout 1)
         ._queueResponse({ rows: [{ id: 'contest-id' }] }) // update contest_instances (RETURNING id)
         ._queueResponse({ rows: [] }) // INSERT contest_state_transitions
         ._queueResponse({ rows: [] }); // INSERT admin_contest_audit
@@ -868,6 +869,7 @@ describe('Settlement Strategy', () => {
         }) // nflSettlementFn: get scores
         ._queueResponse({ rows: [{ id: 'settlement-123', contest_instance_id: 'contest-id' }] }) // insert settlement
         ._queueResponse({ rows: [] }) // update scoring_run_id
+        ._queueResponse({ rows: [] }) // insert ledger (payout 1)
         ._queueResponse({ rows: [{ id: 'contest-id' }] }) // update contest_instances (RETURNING id)
         ._queueResponse({ rows: [] }) // INSERT contest_state_transitions
         ._queueResponse({ rows: [] }); // INSERT admin_contest_audit

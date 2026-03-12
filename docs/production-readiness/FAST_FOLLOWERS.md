@@ -4,6 +4,53 @@ Status: Post-Launch Improvements
 
 ---
 
+## Centralize Authentication Middleware
+
+**Status:** Post-Launch Fast Follower
+
+**Priority:** Architecture Improvements
+
+**Current State:**
+- `extractUserId` and `extractOptionalUserId` are implemented inline in multiple route files
+- Duplication across: customContest.routes.js, wallet.routes.js, contests.routes.js, payments.js
+- Test mode UUID bypass added to customContest.routes.js during stabilization
+
+**Issue:**
+Authentication logic is scattered across route files, creating:
+- Code duplication (four copies of the same logic)
+- Future maintenance risk (auth changes require edits to multiple locations)
+- Inconsistent implementations across different routes
+
+**Improvement:**
+Centralize authentication extraction into a shared middleware module.
+
+**Target Architecture:**
+```
+backend/middleware/userAuth.js
+  ├── exports extractUserId()
+  ├── exports extractOptionalUserId()
+  └── exports isValidUUID()
+```
+
+All routes should import from the centralized module instead of defining logic inline.
+
+**Scope of Work:**
+1. Create `backend/middleware/userAuth.js` with consolidated extraction logic
+2. Add test mode UUID bypass support (NODE_ENV === 'test')
+3. Update route files to import from the module
+4. Verify all tests pass after migration
+
+**Impact:** Reduced code duplication, simplified future auth changes, consistent test handling across all routes
+
+**Timeline:** Post-Launch Fast Follower (Phase 2)
+
+**Notes:**
+- This improvement does NOT affect the frozen authentication contract
+- Bearer token format (JWT in production, UUID in test) remains unchanged
+- Intentionally deferred during launch stabilization to minimize risk
+
+---
+
 ## API Contract Drift Guard (CI Enforcement)
 
 **Status:** Governance frozen, CI implementation pending

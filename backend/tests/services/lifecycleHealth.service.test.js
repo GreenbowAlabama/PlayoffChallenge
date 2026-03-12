@@ -107,20 +107,20 @@ describe('Lifecycle Health Service', () => {
       expect(health.completeWithoutSettlement).toBe(1);
     });
 
-    it('handles missing settlement_records.status gracefully', async () => {
+    it('handles missing settlement_records gracefully', async () => {
       const now = new Date('2026-03-01T12:00:00Z');
 
       pool.query
-        .mockResolvedValueOnce({ rows: [{ count: '0' }] })
-        .mockResolvedValueOnce({ rows: [{ count: '0' }] })
-        .mockResolvedValueOnce({ rows: [{ count: '0' }] })
-        .mockResolvedValueOnce({ rows: [{ count: '0' }] })
-        .mockRejectedValueOnce(new Error('column "status" does not exist')) // settlement failures fails
-        .mockResolvedValueOnce({ rows: [] });
+        .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // SCHEDULED past lock
+        .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // LOCKED past start
+        .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // LIVE past end
+        .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // COMPLETE without settlement
+        .mockResolvedValueOnce({ rows: [{ count: '2' }] }) // Incomplete settlements exist
+        .mockResolvedValueOnce({ rows: [] });               // Last reconciler run
 
       const health = await getLifecycleHealth(pool, now);
 
-      expect(health.settlementFailures).toBeNull();
+      expect(health.settlementFailures).toBe(2);
     });
 
     it('returns last reconciler run timestamp and count', async () => {

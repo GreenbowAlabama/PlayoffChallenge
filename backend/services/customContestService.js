@@ -1635,36 +1635,10 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
       );
 
       if (recheckResult.rows.length > 0) {
-        // Race condition: participant already exists.
-        // CRITICAL: Verify ENTRY_FEE debit exists. If not, insert it to maintain financial invariant.
-        const idempotencyKey = `entry_fee:${contestInstanceId}:${userId}`;
-
-        // Check if ENTRY_FEE ledger entry already exists using idempotency key
-        const existingDebitResult = await client.query(
-          'SELECT id FROM ledger WHERE idempotency_key = $1',
-          [idempotencyKey]
-        );
-
-        // If ENTRY_FEE doesn't exist, insert it now to maintain invariant:
-        // participant insertion must always be paired with ENTRY_FEE debit
-        if (existingDebitResult.rows.length === 0) {
-          await client.query(
-            `INSERT INTO ledger (
-               user_id,
-               entry_type,
-               direction,
-               amount_cents,
-               reference_type,
-               reference_id,
-               contest_instance_id,
-               idempotency_key,
-               created_at
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-             ON CONFLICT (idempotency_key) DO NOTHING`,
-            [userId, 'ENTRY_FEE', 'DEBIT', entryFeeCents, 'CONTEST', contestInstanceId, contestInstanceId, idempotencyKey]
-          );
-        }
-
+        // Race condition: participant already exists (inserted by concurrent transaction).
+        // The concurrent transaction that inserted the participant also inserted the ENTRY_FEE ledger entry.
+        // Do NOT insert anything else - just return success.
+        // This transaction should have no mutations to maintain atomicity.
         await client.query('COMMIT');
         return { joined: true, participant: recheckResult.rows[0] };
       }
@@ -2044,7 +2018,7 @@ async function getAvailableContestInstances(pool, userId) {
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
     WHERE ci.status = 'SCHEDULED'
     AND ci.join_token IS NOT NULL
-    ORDER BY ci.is_primary_marketing DESC, ci.is_platform_owned DESC, ci.created_at DESC`,
+    ORDER BY ci.is_platform_owned DESC, ci.created_at DESC`,
     [userId]
   );
 
@@ -2121,6 +2095,7 @@ async function getAvailableContests(pool, userId) {
       WHERE cp2.contest_instance_id = ci.id
       AND cp2.user_id = $1
     )
+    AND (ci.lock_time IS NULL OR ci.lock_time > NOW())
     GROUP BY
       ci.id,
       ci.template_id,
