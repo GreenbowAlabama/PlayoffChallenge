@@ -516,10 +516,14 @@ async function initializeTournamentField(pool, contestInstanceId) {
 
     const { sport, template_type, provider_event_id, tournament_start_time, tournament_end_time } = ciResult.rows[0];
 
-    // Verify sport is GOLF
-    if (sport !== 'GOLF') {
+    // Verify sport is GOLF or PGA (normalize case-insensitively)
+    const normalizedSport = String(sport).toUpperCase();
+
+    if (normalizedSport !== 'GOLF' && normalizedSport !== 'PGA') {
       await client.query('ROLLBACK');
-      throw new Error(`initializeTournamentField: sport must be GOLF, got ${sport}`);
+      throw new Error(
+        `initializeTournamentField: unsupported sport ${sport}`
+      );
     }
 
     // RC1 Fix: Generate synthetic provider_event_id if null (manual contests)
