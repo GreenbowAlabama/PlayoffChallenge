@@ -66,7 +66,25 @@ docs/production-readiness/REGRESSION_RESULTS_V1.md
 
 [ ] Marketing contest flag verified
 
+[ ] Contest field selections populated
+
 Manual verification queries executed.
+
+### Contest Field Selections Verification
+
+Verify no contests have empty player fields:
+
+```sql
+SELECT contest_instance_id,
+       selection_json->'primary' AS primary_field,
+       jsonb_array_length(selection_json->'primary') AS player_count
+FROM field_selections
+WHERE jsonb_array_length(selection_json->'primary') = 0;
+```
+
+**Expected result:** No rows returned.
+
+If rows are returned, field population failed and lineup submissions will fail validation.
 
 ---
 
@@ -76,6 +94,10 @@ Manual verification queries executed.
 
 [ ] Contest field generation verified
 
+[ ] Contest field initialized before lineup submission
+
+[ ] field_selections.primary contains valid player_ids
+
 [ ] Lineup submission works
 
 [ ] Duplicate players prevented
@@ -83,6 +105,24 @@ Manual verification queries executed.
 [ ] Lineup edits allowed before lock
 
 [ ] Lineups locked after lock time
+
+### Field Initialization Verification
+
+Verify all SCHEDULED contests have populated player pools:
+
+```sql
+SELECT contest_instance_id,
+       jsonb_array_length(selection_json->'primary') AS player_count,
+       ci.status
+FROM field_selections fs
+JOIN contest_instances ci ON ci.id = fs.contest_instance_id
+WHERE ci.status = 'SCHEDULED'
+ORDER BY contest_instance_id;
+```
+
+**Expected result:** All rows show `player_count > 0`. Zero rows is acceptable (no SCHEDULED contests yet).
+
+**Verification rule:** For every SCHEDULED contest, `field_selections.selection_json->'primary'` must be a non-empty array of player objects with `player_id` property.
 
 ---
 

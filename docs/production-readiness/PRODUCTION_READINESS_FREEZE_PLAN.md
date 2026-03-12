@@ -109,7 +109,61 @@ CONTEST_ENGINE_V1_FROZEN
 
 ## 2 Fix Lineup 400 and Freeze Player Pipeline
 
-Resolve lineup submission error.
+Resolve lineup submission error caused by empty contest field.
+
+### Root Cause
+
+When `field_selections.selection_json.primary` is empty, lineup submission fails validation with HTTP 400.
+
+### Solution Implemented
+
+Added guard in `entryRosterService.submitPicks()` at line 203-207:
+
+```javascript
+if (!validatedField || validatedField.length === 0) {
+  throw Object.assign(
+    new Error('Contest field not initialized'),
+    ERROR_CODES.CONTEST_NOT_SCHEDULED
+  );
+}
+```
+
+Also verified `ingestionService.populateFieldSelections()` has invariant check at line 110-114 to prevent empty field persistence.
+
+### Contest Field Validation
+
+Before freezing the player pipeline, verify every SCHEDULED contest has a populated field:
+
+```sql
+SELECT ci.id,
+       ci.status,
+       COALESCE(jsonb_array_length(fs.selection_json->'primary'), 0) AS player_count
+FROM contest_instances ci
+LEFT JOIN field_selections fs ON ci.id = fs.contest_instance_id
+WHERE ci.status = 'SCHEDULED'
+AND (
+      fs.selection_json IS NULL
+      OR jsonb_array_length(fs.selection_json->'primary') = 0
+);
+```
+
+**Expected result:** 0 rows.
+
+If any rows are returned, field population failed. Run ingestion to populate fields before launch.
+
+### System Invariant
+
+**CRITICAL INVARIANT:** For all contests where `contest_instances.status = 'SCHEDULED'`:
+
+```
+jsonb_array_length(field_selections.selection_json->'primary') > 0
+```
+
+**Violation consequence:** Lineup submissions will fail with "Contest field not initialized" error.
+
+**Enforcement:**
+- Ingestion guard prevents empty fields from being written
+- Submission guard prevents users from submitting lineups to contests with empty fields
 
 After fix, freeze:
 

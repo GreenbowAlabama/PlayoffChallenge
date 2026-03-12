@@ -342,7 +342,7 @@ describe('Entry Roster Service', () => {
       expect(result.success).toBe(true);
     });
 
-    it('rejects submission when field_selections.primary is empty', async () => {
+    it('rejects submission when picks are not in empty field', async () => {
       const pool = createMockPool();
       const contestId = 'test-contest-id';
       const userId = 'test-user-id';
@@ -370,12 +370,13 @@ describe('Entry Roster Service', () => {
       );
 
       // field_selections row exists but primary field is empty
+      // This is valid structure, but validation will fail because picks aren't in empty field
       pool.setQueryResponse(
         q => q.includes('field_selections'),
         {
           rows: [{
             selection_json: {
-              primary: []  // Empty field
+              primary: []  // Empty field - valid structure but no players
             }
           }],
           rowCount: 1
@@ -384,7 +385,7 @@ describe('Entry Roster Service', () => {
 
       await expect(
         entryRosterService.submitPicks(pool, contestId, userId, playerIds)
-      ).rejects.toThrow('Contest field not initialized');
+      ).rejects.toThrow('Players not in validated field');
     });
 
     it('rejects submission when field_selections.primary is null', async () => {
@@ -430,6 +431,63 @@ describe('Entry Roster Service', () => {
       await expect(
         entryRosterService.submitPicks(pool, contestId, userId, playerIds)
       ).rejects.toThrow('Contest field not initialized');
+    });
+
+    it('allows picks when field_selections.primary contains player objects', async () => {
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+      const playerIds = ['espn_123', 'espn_456'];
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      // field_selections with object format (from ingestion)
+      // This is the format that comes from populateFieldSelections in ingestionService
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: [
+                { player_id: 'espn_123', name: 'Player One', image_url: null },
+                { player_id: 'espn_456', name: 'Player Two', image_url: null }
+              ]
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('INSERT'),
+        {
+          rows: [{ updated_at: new Date().toISOString() }],
+          rowCount: 1
+        }
+      );
+
+      const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+      expect(result.success).toBe(true);
+      expect(result.player_ids).toEqual(['espn_123', 'espn_456']);
     });
 
     it('accepts submission when field_selections.primary is populated', async () => {
