@@ -1635,8 +1635,36 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
       );
 
       if (recheckResult.rows.length > 0) {
-        // Race condition: another transaction inserted the participant and already debited.
-        // CRITICAL: Do NOT debit here. Simply commit and return success.
+        // Race condition: participant already exists.
+        // CRITICAL: Verify ENTRY_FEE debit exists. If not, insert it to maintain financial invariant.
+        const idempotencyKey = `entry_fee:${contestInstanceId}:${userId}`;
+
+        // Check if ENTRY_FEE ledger entry already exists using idempotency key
+        const existingDebitResult = await client.query(
+          'SELECT id FROM ledger WHERE idempotency_key = $1',
+          [idempotencyKey]
+        );
+
+        // If ENTRY_FEE doesn't exist, insert it now to maintain invariant:
+        // participant insertion must always be paired with ENTRY_FEE debit
+        if (existingDebitResult.rows.length === 0) {
+          await client.query(
+            `INSERT INTO ledger (
+               user_id,
+               entry_type,
+               direction,
+               amount_cents,
+               reference_type,
+               reference_id,
+               contest_instance_id,
+               idempotency_key,
+               created_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+             ON CONFLICT (idempotency_key) DO NOTHING`,
+            [userId, 'ENTRY_FEE', 'DEBIT', entryFeeCents, 'CONTEST', contestInstanceId, contestInstanceId, idempotencyKey]
+          );
+        }
+
         await client.query('COMMIT');
         return { joined: true, participant: recheckResult.rows[0] };
       }
