@@ -67,13 +67,46 @@ async function freezeOpenAPI() {
 
     console.log(`   Hash: ${sha256Hash}`);
 
-    // Step 4: Insert snapshot (APPEND-ONLY, never delete)
+    // Step 4: Check if snapshot already exists (idempotency)
+    console.log('🔍 Checking for existing snapshot...');
+    const existingResult = await pool.query(
+      `SELECT id, created_at
+       FROM api_contract_snapshots
+       WHERE contract_name = $1
+       AND sha256 = $2
+       LIMIT 1`,
+      ['public-api', sha256Hash]
+    );
+
+    if (existingResult.rows.length > 0) {
+      const existing = existingResult.rows[0];
+      console.log('\nℹ️ Contract snapshot already exists. No new snapshot created.');
+      console.log(`   Snapshot ID: ${existing.id}`);
+      console.log(`   Contract:   public-api`);
+      console.log(`   Hash:       ${sha256Hash}`);
+      console.log(`   Created:    ${existing.created_at.toISOString()}`);
+      console.log('\n✅ Snapshot is up-to-date.\n');
+      process.exit(0);
+    }
+
+    // Step 5: Compute next version number
+    console.log('📊 Computing next version...');
+    const versionResult = await pool.query(
+      `SELECT COALESCE(MAX(REPLACE(version,'v','')::int), 0) + 1 AS next_version
+       FROM api_contract_snapshots
+       WHERE contract_name = $1`,
+      ['public-api']
+    );
+    const nextVersion = `v${versionResult.rows[0].next_version}`;
+    console.log(`   Next version: ${nextVersion}`);
+
+    // Step 6: Insert snapshot (APPEND-ONLY, never delete)
     console.log('💾 Inserting snapshot into api_contract_snapshots...');
     const result = await pool.query(
       `INSERT INTO api_contract_snapshots (contract_name, version, sha256, spec_json)
        VALUES ($1, $2, $3, $4)
        RETURNING id, created_at`,
-      ['public-api', 'v1', sha256Hash, specJson]
+      ['public-api', nextVersion, sha256Hash, specJson]
     );
 
     const { id, created_at } = result.rows[0];

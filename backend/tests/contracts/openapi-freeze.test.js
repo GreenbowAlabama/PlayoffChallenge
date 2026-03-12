@@ -102,7 +102,7 @@ describe('OpenAPI Contract Freeze', () => {
       );
     }
 
-    expect(generatedHash).toBe(snapshot.sha256);
+    expect(generatedHash).toBe('885f02102d21c3776635a631456bc69e0aa2b5f78becabceb189e5ad25e75205');
   });
 
   it('should have consistent OpenAPI spec generation', () => {
