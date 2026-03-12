@@ -91,6 +91,53 @@ Workers must not implement changes that could violate this equation without arch
 
 ---
 
+# Architecture Freeze Bootstrap
+
+The Playoff Challenge backend architecture is now **frozen** for pre-launch stability.
+
+**Workers must read these files before beginning any work:**
+
+**First:** Check governance state:
+
+0. `/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/GOVERNANCE_VERSION.md`
+   - Single source of truth for architecture state
+   - Current version: 1, Architecture Lock: ACTIVE
+   - Read this first to understand current governance state
+
+Then read in order:
+
+1. `/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/ARCHITECTURE_FREEZE_V1.md`
+   - Defines frozen systems and allowed work
+   - Lists protected files and escalation protocol
+
+2. `/Users/iancarter/Documents/workspace/playoff-challenge/docs/ai/AI_ARCHITECTURE_LOCK.md`
+   - Worker boundary enforcement
+   - Protected file index
+   - Escalation procedures
+
+3. `/Users/iancarter/Documents/workspace/playoff-challenge/docs/ai/AI_GUARDRAILS.md`
+   - Concrete protection rules
+   - Worker decision tree
+   - Allowed modification lanes
+
+**Critical Rule:**
+
+If a task requires modifying any frozen system, workers must **STOP** and respond:
+
+```
+ARCHITECTURE CHANGE REQUIRED
+```
+
+Then provide:
+- System affected
+- Reason for change
+- Proposed modification
+- Risk to financial/lifecycle invariants
+
+**Do not proceed without explicit architect approval.**
+
+---
+
 # Step 3 — Contracts and Schema (Authority Sources)
 
 Workers must treat these files as the authoritative sources of truth.

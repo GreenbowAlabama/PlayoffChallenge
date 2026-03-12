@@ -69,6 +69,23 @@ Regression Standard:
   - Invariant tests must remain green.
   - Settlement replay must remain deterministic.
 
+Test Execution Ordering (Deterministic):
+  Jest runs tests in a deterministic order to optimize failure detection:
+
+  1. Unit tests (fastest, lowest dependencies)
+  2. Service tests (isolated service logic)
+  3. Integration tests (cross-service interactions)
+  4. End-to-end tests (slowest, full system flow)
+
+  This ordering ensures:
+  - Fast tests run first to catch regressions quickly
+  - Failures are visible early
+  - Full regression passes are reliable and consistent
+  - Test sequencing uses a custom Jest test sequencer
+
+  Workers should rely on this deterministic ordering when running full regression tests.
+  If tests fail, the failure will occur as early as possible in the test run.
+
 The test DB is authoritative for automated validation.
 Staging is NOT the test harness.
 

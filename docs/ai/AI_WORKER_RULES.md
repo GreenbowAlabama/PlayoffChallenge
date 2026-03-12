@@ -64,6 +64,67 @@ Do not implement the change without explicit architect authorization.
 
 ---
 
+# Architecture Freeze
+
+The platform is under **ARCHITECTURE FREEZE** for pre-launch stability.
+
+## Frozen Systems (No Worker Modifications)
+
+Workers cannot modify:
+
+• Database Schema (`backend/db/schema.snapshot.sql`)
+• Financial Ledger System (`financialReconciliationService.js`, `settlementStrategy.js`)
+• Contest Lifecycle Engine (`contestLifecycleAdvancer.js`, lifecycle services)
+• OpenAPI Contracts (`openapi.yaml`, `openapi-admin.yaml`)
+• Admin Authorization (`adminAuthMiddleware.js`)
+• Discovery Idempotency (`discoveryService.js` structure)
+
+## Escalation Requirement
+
+If a task requires modifying any frozen system:
+
+**STOP immediately.**
+
+Respond with only:
+
+```
+ARCHITECTURE CHANGE REQUIRED
+```
+
+Then provide:
+
+1. **System affected** — Which frozen system requires change
+2. **Reason** — Why modification is necessary
+3. **Proposed modification** — Exact change needed
+4. **Risk analysis** — Impact on financial/lifecycle/API invariants
+
+**Do not implement without architect approval.**
+
+## Allowed Work After Freeze
+
+Workers may implement:
+
+• iOS bug fixes (client-side only)
+• Production readiness checklist items
+• Discovery enhancement (7-day tournament window, idempotent)
+• Contest scoring visualization
+• Payout display
+• Player tier logic (iOS only)
+
+See `docs/governance/ARCHITECTURE_FREEZE_V1.md` for full allowed work list.
+
+## Authority Documentation
+
+Read these before beginning work (in order):
+
+• **FIRST:** `docs/governance/GOVERNANCE_VERSION.md` — Single source of truth for architecture state
+• `docs/governance/ARCHITECTURE_FREEZE_V1.md` — Comprehensive freeze policy
+• `docs/ai/AI_ARCHITECTURE_LOCK.md` — Worker boundary enforcement
+• `docs/ai/AI_GUARDRAILS.md` — Concrete protection rules
+• `docs/governance/PROTECTED_FILES_INDEX.md` — Protected file index
+
+---
+
 # Ledger Immutability
 
 Workers must never delete or modify existing ledger rows.
