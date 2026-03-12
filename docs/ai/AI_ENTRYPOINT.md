@@ -251,6 +251,20 @@ Workers must follow the iOS sweep protocol.
 
 ---
 
+# Step 6 — Operational Troubleshooting Protocol
+
+When diagnosing operational issues, workers must follow the **Web-Admin First** troubleshooting protocol.
+
+**Reference:** `docs/ai/AI_WORKER_RULES.md` (Operational Troubleshooting section)
+
+**Map:** `/Users/iancarter/Documents/workspace/playoff-challenge/docs/operations/WEB_ADMIN_MAP.md`
+
+**Rule:** Operational diagnostics must prioritize web-admin dashboards before suggesting SQL queries or scripts.
+
+Workers must not invent admin navigation paths. Consult the WEB_ADMIN_MAP.md to map issues to actual admin locations.
+
+---
+
 # Optional Read Only
 
 Workers may read but not modify these directories.

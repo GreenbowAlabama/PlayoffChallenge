@@ -351,6 +351,75 @@ Workers must never:
 
 ---
 
+# Operational Troubleshooting — Web-Admin First
+
+**Status:** MANDATORY for all diagnostic work
+
+**CRITICAL RULE:** Workers must read `/Users/iancarter/Documents/workspace/playoff-challenge/docs/operations/WEB_ADMIN_MAP.md` before responding to ANY operational troubleshooting request.
+
+This prevents improvised UI guidance and ensures all troubleshooting references actual admin locations.
+
+When responding to operational issues (wallet problems, contest state issues, discovery failures, etc.), workers must prioritize **web-admin dashboards** before suggesting SQL queries, scripts, or direct database access.
+
+## Troubleshooting Hierarchy
+
+**Level 1 — Web-Admin UI (PRIMARY)**
+
+Workers must first guide operators through web-admin dashboards.
+
+Consult: `/Users/iancarter/Documents/workspace/playoff-challenge/docs/operations/WEB_ADMIN_MAP.md`
+
+This document maps common operational issues to the correct Admin Area and Page.
+
+**Level 2 — Admin API Endpoints**
+
+If web-admin does not expose the required information, workers may suggest admin endpoints. Only after confirming the UI cannot expose the data.
+
+**Level 3 — Logs and Service Diagnostics**
+
+Workers may inspect backend logs, worker logs, lifecycle reconciler output, and discovery ingestion logs.
+
+**Level 4 — SQL (ESCALATION ONLY)**
+
+Direct SQL queries are considered diagnostic escalation.
+
+Workers must only suggest SQL if:
+
+• the web-admin interface cannot expose the data
+• the admin API cannot expose the data
+• logs cannot reveal the issue
+
+**SQL must never be the default troubleshooting step.**
+
+## Response Format
+
+When guiding an operator through troubleshooting:
+
+```
+Step 1
+Open Web Admin
+
+Step 2
+Navigate to: [Admin Area] → [Page Name]
+
+Step 3
+Return the following values:
+- [value 1]
+- [value 2]
+- [value 3]
+
+Step 4
+Paste the values here for analysis.
+```
+
+## Guidance Rule
+
+Workers must consult `/Users/iancarter/Documents/workspace/playoff-challenge/docs/operations/WEB_ADMIN_MAP.md` before suggesting SQL queries or service diagnostics.
+
+The map prevents hallucination of UI paths and ensures workers reference actual admin locations.
+
+---
+
 # Architecture Awareness — Authentication Middleware
 
 **Current State:** Authentication extraction (`extractUserId`, `extractOptionalUserId`) is currently duplicated across multiple route files:
