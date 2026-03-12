@@ -8,12 +8,14 @@
 const request = require('supertest');
 const express = require('express');
 const walletRoutes = require('../../routes/wallet.routes');
+const { createMockUserToken } = require('../mocks/testAppFactory');
 
 describe('Wallet Fund Endpoint', () => {
   let app;
   let mockPool;
   const TEST_USER_ID = '550e8400-e29b-41d4-a716-446655440000';
   const TEST_IDEMPOTENCY_KEY = 'idem-key-test-12345';
+  let userToken;
 
   beforeEach(() => {
     // Create mock pool
@@ -21,6 +23,9 @@ describe('Wallet Fund Endpoint', () => {
       query: jest.fn(),
       connect: jest.fn()
     };
+
+    // Create user token
+    userToken = createMockUserToken({ sub: TEST_USER_ID, user_id: TEST_USER_ID });
 
     // Create Express app with wallet routes
     app = express();
@@ -36,7 +41,7 @@ describe('Wallet Fund Endpoint', () => {
     it('should return 400 if Idempotency-Key header is missing', async () => {
       const response = await request(app)
         .post('/api/wallet/fund')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .send({ amount_cents: 10000 });
 
       expect(response.status).toBe(400);
@@ -47,7 +52,7 @@ describe('Wallet Fund Endpoint', () => {
     it('should return 400 if amount_cents is missing', async () => {
       const response = await request(app)
         .post('/api/wallet/fund')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({});
 
@@ -58,7 +63,7 @@ describe('Wallet Fund Endpoint', () => {
     it('should return 400 if amount_cents is negative', async () => {
       const response = await request(app)
         .post('/api/wallet/fund')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ amount_cents: -1000 });
 
@@ -70,7 +75,7 @@ describe('Wallet Fund Endpoint', () => {
     it('should return 400 if amount_cents is zero', async () => {
       const response = await request(app)
         .post('/api/wallet/fund')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ amount_cents: 0 });
 
@@ -83,7 +88,7 @@ describe('Wallet Fund Endpoint', () => {
       const maxAmount = parseInt(process.env.WALLET_MAX_DEPOSIT_CENTS || '100000', 10);
       const response = await request(app)
         .post('/api/wallet/fund')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ amount_cents: maxAmount + 1 });
 
@@ -111,7 +116,7 @@ describe('Wallet Fund Endpoint', () => {
 
       const response = await request(app)
         .post('/api/wallet/fund')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ amount_cents: 10000 });
 
@@ -134,7 +139,7 @@ describe('Wallet Fund Endpoint', () => {
 
       const response = await request(app)
         .post('/api/wallet/fund')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ amount_cents: 10000 });
 

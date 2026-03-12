@@ -356,13 +356,13 @@ describe('contestOpsService', () => {
           [contestId, uniqueEventId],
         );
 
-        // Create another contest with same event_id
+        // Create another contest with same event_id but different entry_fee_cents to avoid unique constraint
         const contest2Res = await client.query(
           `INSERT INTO contest_instances (
             template_id, organizer_id, entry_fee_cents, payout_structure,
             status, contest_name, max_entries, provider_event_id
           ) VALUES (
-            $1, $2, 5000, '[]'::jsonb,
+            $1, $2, 10000, '[]'::jsonb,
             'SCHEDULED', 'Test Contest 5B', 20, $3
           ) RETURNING id`,
           [templateId, organizer2Id, uniqueEventId],
@@ -457,14 +457,14 @@ describe('contestOpsService', () => {
         );
         const templateId = templateRes.rows[0].id;
 
-        // Create contest with current_entries = 0 (stale)
+        // Create contest (participant count computed dynamically from contest_participants)
         const contestRes = await client.query(
           `INSERT INTO contest_instances (
             template_id, organizer_id, entry_fee_cents, payout_structure,
-            status, contest_name, max_entries, current_entries
+            status, contest_name, max_entries
           ) VALUES (
             $1, $2, 5000, '[]'::jsonb,
-            'SCHEDULED', 'Dynamic Count Test', 20, 0
+            'SCHEDULED', 'Dynamic Count Test', 20
           ) RETURNING id`,
           [templateId, organizerId],
         );

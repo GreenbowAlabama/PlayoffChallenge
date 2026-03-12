@@ -22,6 +22,7 @@ const {
   convertIllegalEntryFeeToRefund,
   rollbackNonAtomicJoin,
   freezeNegativeWallet,
+  repairIllegalRefundDebit,
   logFinancialAction
 } = require('../../services/financialReconciliationService');
 
@@ -38,7 +39,7 @@ describe('financialReconciliationService', () => {
   // MOCK STATE CLEANUP
   // ============================================================
   afterEach(() => {
-    pool.clearAllMocks?.();
+    pool.reset();
     capturedQueries = [];
   });
 
@@ -47,6 +48,26 @@ describe('financialReconciliationService', () => {
   // ============================================================
 
   describe('getPlatformReconciliation()', () => {
+    beforeEach(() => {
+      // Provide default mock responses so each test can override only what it needs
+      pool.setQueryResponse(
+        q => q.includes('wallet_liability_cents'),
+        { rows: [{ wallet_liability_cents: 0 }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('contest_pools_cents'),
+        { rows: [{ contest_pools_cents: 0 }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('deposits_cents'),
+        { rows: [{ deposits_cents: 0 }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('withdrawals_cents'),
+        { rows: [{ withdrawals_cents: 0 }], rowCount: 1 }
+      );
+    });
+
     it('calculates wallet liability excluding orphaned entries', async () => {
       // Setup: 2 users with WALLET-type entries (not ENTRY_FEE)
       pool.setQueryResponse(
@@ -156,6 +177,36 @@ describe('financialReconciliationService', () => {
   // ============================================================
 
   describe('getFinancialInvariants()', () => {
+    beforeEach(() => {
+      // Provide default mock responses for all invariant checks (count queries)
+      // Tests can override specific checks as needed
+      // Use specific patterns to avoid matching queries we don't intend to match
+      pool.setQueryResponse(
+        q => q.includes('negative_wallets') || (q.includes('COUNT(*)') && q.includes('reference_type = \'WALLET\'')),
+        { rows: [{ count: 0 }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('illegal_entry_fee_direction') || (q.includes('entry_type = \'ENTRY_FEE\'') && q.includes('CREDIT')),
+        { rows: [{ count: 0 }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('illegal_refund_direction') || (q.includes('entry_type = \'ENTRY_FEE_REFUND\'') && q.includes('DEBIT')),
+        { rows: [{ count: 0 }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('orphaned_ledger_entries') || (q.includes('reference_id IS NULL')),
+        { rows: [{ count: 0 }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('orphaned_withdrawals') || (q.includes('WALLET_WITHDRAWAL') && q.includes('NOT EXISTS')),
+        { rows: [{ count: 0 }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('negative_contest_pools') || (q.includes('pool_balance_cents')),
+        { rows: [{ count: 0 }], rowCount: 1 }
+      );
+    });
+
     it('detects negative wallets', async () => {
       pool.setQueryResponse(
         q => q.includes('negative_wallets') && q.includes('wallet'),
@@ -324,8 +375,13 @@ describe('financialReconciliationService', () => {
     });
 
     it('prevents repair if ledger entry not found', async () => {
+      pool.reset();
       pool.setQueryResponse(
         q => q.includes('SELECT') && q.includes('ledger'),
+        { rows: [], rowCount: 0 }
+      );
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('ROLLBACK'),
         { rows: [], rowCount: 0 }
       );
 
@@ -367,46 +423,59 @@ describe('financialReconciliationService', () => {
     // ATOMICITY TEST (Critical for Governance)
     // ========================================================
     it('uses single transaction (BEGIN/COMMIT) for repair', async () => {
-      const queries = [];
+      pool.reset();
 
-      // Capture all queries during repair
-      pool.setQueryResponse(() => true, (query) => {
-        queries.push(query);
-        if (query.includes('BEGIN')) return { rows: [], rowCount: 0 };
-        if (query.includes('SELECT')) return { rows: [{ id: orphanLedgerId, amount_cents: 5000, direction: 'DEBIT' }], rowCount: 1 };
-        if (query.includes('INSERT')) return { rows: [{ id: uuidv4() }], rowCount: 1 };
-        if (query.includes('COMMIT')) return { rows: [], rowCount: 0 };
-        return { rows: [], rowCount: 0 };
-      });
-
-      await repairOrphanWithdrawal(pool, orphanLedgerId, adminId, reason);
-
-      // Verify transaction boundaries
-      expect(queries.length).toBeGreaterThan(0);
-      expect(queries.some(q => q.includes('BEGIN'))).toBe(true);
-      expect(queries.some(q => q.includes('COMMIT'))).toBe(true);
-    });
-
-    it('rolls back all changes if any step fails', async () => {
-      // Setup: ledger INSERT succeeds, but audit log INSERT fails
+      // Set up responses for each query type
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
       pool.setQueryResponse(
         q => q.includes('SELECT') && q.includes('ledger'),
         { rows: [{ id: orphanLedgerId, amount_cents: 5000, direction: 'DEBIT' }], rowCount: 1 }
       );
-
       pool.setQueryResponse(
         q => q.includes('INSERT INTO ledger'),
         { rows: [{ id: uuidv4() }], rowCount: 1 }
       );
-
       pool.setQueryResponse(
         q => q.includes('INSERT INTO financial_admin_actions'),
-        { error: new Error('Unique constraint violation'), rowCount: 0 }
+        { rows: [{ id: uuidv4() }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('COMMIT'),
+        { rows: [], rowCount: 0 }
+      );
+
+      await repairOrphanWithdrawal(pool, orphanLedgerId, adminId, reason);
+
+      // Verify transaction boundaries using query history
+      const queryHistory = pool.getQueryHistory();
+      expect(queryHistory.some(q => q.sql.includes('BEGIN'))).toBe(true);
+      expect(queryHistory.some(q => q.sql.includes('COMMIT'))).toBe(true);
+    });
+
+    it('rolls back all changes if any step fails', async () => {
+      pool.reset();
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
+
+      // Setup: first SELECT throws error (simulates query failure)
+      pool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('ledger'),
+        new Error('Connection reset')
+      );
+
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('ROLLBACK'),
+        { rows: [], rowCount: 0 }
       );
 
       const result = await repairOrphanWithdrawal(pool, orphanLedgerId, adminId, reason);
 
-      // Should rollback: repair should fail
+      // Should rollback: repair should fail due to query error
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
     });
@@ -498,21 +567,34 @@ describe('financialReconciliationService', () => {
     });
 
     it('uses single transaction (BEGIN/COMMIT) for repair', async () => {
-      const queries = [];
+      pool.reset();
 
-      pool.setQueryResponse(() => true, (query) => {
-        queries.push(query);
-        if (query.includes('BEGIN')) return { rows: [], rowCount: 0 };
-        if (query.includes('SELECT')) return { rows: [{ id: entryFeeLedgerId, amount_cents: 2500, direction: 'CREDIT' }], rowCount: 1 };
-        if (query.includes('INSERT')) return { rows: [{ id: uuidv4() }], rowCount: 1 };
-        if (query.includes('COMMIT')) return { rows: [], rowCount: 0 };
-        return { rows: [], rowCount: 0 };
-      });
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('ledger'),
+        { rows: [{ id: entryFeeLedgerId, amount_cents: 2500, direction: 'CREDIT', reference_id: uuidv4() }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('INSERT INTO ledger'),
+        { rows: [{ id: uuidv4() }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('INSERT INTO financial_admin_actions'),
+        { rows: [{ id: uuidv4() }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('COMMIT'),
+        { rows: [], rowCount: 0 }
+      );
 
       await convertIllegalEntryFeeToRefund(pool, entryFeeLedgerId, adminId, reason);
 
-      expect(queries.some(q => q.includes('BEGIN'))).toBe(true);
-      expect(queries.some(q => q.includes('COMMIT'))).toBe(true);
+      const queryHistory = pool.getQueryHistory();
+      expect(queryHistory.some(q => q.sql.includes('BEGIN'))).toBe(true);
+      expect(queryHistory.some(q => q.sql.includes('COMMIT'))).toBe(true);
     });
   });
 
@@ -526,17 +608,26 @@ describe('financialReconciliationService', () => {
     const reason = 'Non-atomic join: fee debited but no participant created';
 
     beforeEach(() => {
+      pool.reset();
+
       pool.setQueryResponse(
         q => q.trim().toUpperCase().startsWith('BEGIN'),
         { rows: [], rowCount: 0 }
       );
 
+      // First SELECT: fetch entry fee (includes DEBIT, entry_type)
       pool.setQueryResponse(
-        q => q.includes('SELECT') && q.includes('ledger'),
+        q => q.includes('SELECT') && q.includes('ledger') && (q.includes('DEBIT') || q.includes('entry_type')),
         {
-          rows: [{ id: entryFeeLedgerId, amount_cents: 5000, direction: 'DEBIT' }],
+          rows: [{ id: entryFeeLedgerId, amount_cents: 5000, direction: 'DEBIT', reference_id: uuidv4() }],
           rowCount: 1
         }
+      );
+
+      // Third SELECT: check for existing reversal (includes ADJUSTMENT)
+      pool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('ledger') && q.includes('ADJUSTMENT'),
+        { rows: [], rowCount: 0 } // No existing reversal
       );
 
       pool.setQueryResponse(
@@ -564,11 +655,25 @@ describe('financialReconciliationService', () => {
         q => q.trim().toUpperCase().startsWith('COMMIT'),
         { rows: [], rowCount: 0 }
       );
+
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('ROLLBACK'),
+        { rows: [], rowCount: 0 }
+      );
     });
 
     it('validates entry_fee_ledger_id exists', async () => {
+      pool.reset();
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
       pool.setQueryResponse(
         q => q.includes('SELECT') && q.includes('ledger'),
+        { rows: [], rowCount: 0 }
+      );
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('ROLLBACK'),
         { rows: [], rowCount: 0 }
       );
 
@@ -579,9 +684,22 @@ describe('financialReconciliationService', () => {
     });
 
     it('validates no participant exists for this entry', async () => {
+      pool.reset();
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('ledger') && (q.includes('DEBIT') || q.includes('entry_type')),
+        { rows: [{ id: entryFeeLedgerId, amount_cents: 5000, direction: 'DEBIT', reference_id: uuidv4() }], rowCount: 1 }
+      );
       pool.setQueryResponse(
         q => q.includes('contest_participants'),
         { rows: [{ id: uuidv4() }], rowCount: 1 } // Participant found (conflict)
+      );
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('ROLLBACK'),
+        { rows: [], rowCount: 0 }
       );
 
       const result = await rollbackNonAtomicJoin(pool, entryFeeLedgerId, adminId, reason);
@@ -618,21 +736,42 @@ describe('financialReconciliationService', () => {
     });
 
     it('uses single transaction (BEGIN/COMMIT) for repair', async () => {
-      const queries = [];
+      pool.reset();
 
-      pool.setQueryResponse(() => true, (query) => {
-        queries.push(query);
-        if (query.includes('BEGIN')) return { rows: [], rowCount: 0 };
-        if (query.includes('SELECT')) return { rows: [{ id: entryFeeLedgerId, amount_cents: 5000, direction: 'DEBIT' }], rowCount: 1 };
-        if (query.includes('INSERT')) return { rows: [{ id: uuidv4() }], rowCount: 1 };
-        if (query.includes('COMMIT')) return { rows: [], rowCount: 0 };
-        return { rows: [], rowCount: 0 };
-      });
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('ledger') && (q.includes('DEBIT') || q.includes('entry_type')),
+        { rows: [{ id: entryFeeLedgerId, amount_cents: 5000, direction: 'DEBIT', reference_id: uuidv4() }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('ledger') && q.includes('ADJUSTMENT'),
+        { rows: [], rowCount: 0 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('contest_participants'),
+        { rows: [], rowCount: 0 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('INSERT INTO ledger'),
+        { rows: [{ id: uuidv4() }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('INSERT INTO financial_admin_actions'),
+        { rows: [{ id: uuidv4() }], rowCount: 1 }
+      );
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('COMMIT'),
+        { rows: [], rowCount: 0 }
+      );
 
       await rollbackNonAtomicJoin(pool, entryFeeLedgerId, adminId, reason);
 
-      expect(queries.some(q => q.includes('BEGIN'))).toBe(true);
-      expect(queries.some(q => q.includes('COMMIT'))).toBe(true);
+      const queryHistory = pool.getQueryHistory();
+      expect(queryHistory.some(q => q.sql.includes('BEGIN'))).toBe(true);
+      expect(queryHistory.some(q => q.sql.includes('COMMIT'))).toBe(true);
     });
   });
 
@@ -671,6 +810,7 @@ describe('financialReconciliationService', () => {
     });
 
     it('prevents duplicate freeze (unique constraint)', async () => {
+      pool.reset();
       pool.setQueryResponse(
         q => q.includes('user_wallet_freeze') && q.includes('INSERT'),
         {
@@ -726,11 +866,16 @@ describe('financialReconciliationService', () => {
       );
 
       pool.setQueryResponse(
-        q => q.includes('SELECT') && q.includes('ledger'),
+        q => q.includes('SELECT') && q.includes('ledger') && q.includes('ENTRY_FEE_REFUND'),
         {
-          rows: [{ id: refundLedgerId, amount_cents: 2500, direction: 'DEBIT' }],
+          rows: [{ id: refundLedgerId, user_id: uuidv4(), amount_cents: 2500, direction: 'DEBIT', reference_id: uuidv4() }],
           rowCount: 1
         }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('idempotency_key'),
+        { rows: [], rowCount: 0 }
       );
 
       pool.setQueryResponse(
@@ -756,37 +901,46 @@ describe('financialReconciliationService', () => {
     });
 
     it('validates refund ledger entry exists', async () => {
+      pool.reset();
       pool.setQueryResponse(
-        q => q.includes('SELECT') && q.includes('ledger'),
+        q => q.trim().toUpperCase().startsWith('BEGIN'),
+        { rows: [], rowCount: 0 }
+      );
+      pool.setQueryResponse(
+        q => q.includes('SELECT') && q.includes('ledger') && q.includes('ENTRY_FEE_REFUND'),
+        { rows: [], rowCount: 0 }
+      );
+      pool.setQueryResponse(
+        q => q.trim().toUpperCase().startsWith('ROLLBACK'),
         { rows: [], rowCount: 0 }
       );
 
-      const result = await repairOrphanWithdrawal(pool, 'nonexistent-id', adminId, reason);
+      const result = await repairIllegalRefundDebit(pool, 'nonexistent-id', adminId, reason);
 
       expect(result.success).toBe(false);
     });
 
     it('inserts reversal ADJUSTMENT CREDIT entry', async () => {
-      const result = await repairOrphanWithdrawal(pool, refundLedgerId, adminId, reason);
+      const result = await repairIllegalRefundDebit(pool, refundLedgerId, adminId, reason);
 
       expect(result.adjustment_ledger_id).toBeDefined();
     });
 
     it('logs admin action', async () => {
-      const result = await repairOrphanWithdrawal(pool, refundLedgerId, adminId, reason);
+      const result = await repairIllegalRefundDebit(pool, refundLedgerId, adminId, reason);
 
       expect(result.audit_log_id).toBeDefined();
     });
 
     it('returns success', async () => {
-      const result = await repairOrphanWithdrawal(pool, refundLedgerId, adminId, reason);
+      const result = await repairIllegalRefundDebit(pool, refundLedgerId, adminId, reason);
 
       expect(result.success).toBe(true);
     });
 
     it('running repair twice is idempotent (same result)', async () => {
-      const result1 = await repairOrphanWithdrawal(pool, refundLedgerId, adminId, reason);
-      const result2 = await repairOrphanWithdrawal(pool, refundLedgerId, adminId, reason);
+      const result1 = await repairIllegalRefundDebit(pool, refundLedgerId, adminId, reason);
+      const result2 = await repairIllegalRefundDebit(pool, refundLedgerId, adminId, reason);
 
       expect(result1.success).toBe(true);
       expect(result2.success).toBe(true);

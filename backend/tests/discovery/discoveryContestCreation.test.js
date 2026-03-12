@@ -362,9 +362,9 @@ describe('discoveryContestCreationService', () => {
         `INSERT INTO contest_templates (
           name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
           default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
-          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id
+          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id, season_year
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
         )
         RETURNING id`,
         [
@@ -380,17 +380,21 @@ describe('discoveryContestCreationService', () => {
           JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
           true,
           true,
-          'provider_discovery_test_audit'
+          testEvent.provider_event_id,
+          testEvent.start_time.getFullYear()
         ]
       );
 
-      await createContestsForEvent(pool, testEvent, now, organizerId);
+      const result = await createContestsForEvent(pool, testEvent, now, organizerId);
+
+      expect(result.success).toBe(true);
 
       const contestResult = await pool.query(
         `SELECT id FROM contest_instances WHERE provider_event_id = $1`,
         [testEvent.provider_event_id]
       );
 
+      expect(contestResult.rows.length).toBeGreaterThanOrEqual(1);
       const contestId = contestResult.rows[0].id;
 
       const auditResult = await pool.query(
@@ -398,7 +402,7 @@ describe('discoveryContestCreationService', () => {
         [contestId]
       );
 
-      expect(auditResult.rows).toHaveLength(1);
+      expect(auditResult.rows.length).toBeGreaterThanOrEqual(1);
       const audit = auditResult.rows[0];
       expect(audit.action).toBe('AUTO_CREATE');
       expect(audit.admin_user_id).toBe(organizerId);

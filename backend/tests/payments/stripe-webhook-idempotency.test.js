@@ -221,11 +221,12 @@ describe('Stripe Webhook Idempotency & Replay Safety', () => {
       );
       expect(parseInt(stripeEventsResult.rows[0].count)).toBe(1);
 
-      // Verify exactly 1 ledger row for this contest
+      // Verify exactly 1 ledger row (WALLET_DEPOSIT, not ENTRY_FEE)
+      // Webhook creates WALLET_DEPOSIT CREDIT; joinContest handles ENTRY_FEE DEBIT separately
       const ledgerResult = await pool.query(
         `SELECT COUNT(*)::int as count FROM ledger
-         WHERE contest_instance_id = $1 AND entry_type = 'ENTRY_FEE' AND stripe_event_id = $2`,
-        [contestId, eventId]
+         WHERE user_id = (SELECT user_id FROM payment_intents WHERE id = $1) AND entry_type = 'WALLET_DEPOSIT' AND stripe_event_id = $2`,
+        [paymentIntentId, eventId]
       );
       expect(parseInt(ledgerResult.rows[0].count)).toBe(1);
     });
@@ -288,11 +289,12 @@ describe('Stripe Webhook Idempotency & Replay Safety', () => {
       );
       expect(parseInt(stripeEventsResult.rows[0].count)).toBe(1);
 
-      // Verify exactly 1 ledger row (no duplicates)
+      // Verify exactly 1 ledger row (WALLET_DEPOSIT, no duplicates)
+      // Webhook creates WALLET_DEPOSIT CREDIT; joinContest handles ENTRY_FEE DEBIT separately
       const ledgerResult = await pool.query(
         `SELECT COUNT(*)::int as count FROM ledger
-         WHERE contest_instance_id = $1 AND stripe_event_id = $2`,
-        [contestId, eventId]
+         WHERE user_id = (SELECT user_id FROM payment_intents WHERE id = $1) AND entry_type = 'WALLET_DEPOSIT' AND stripe_event_id = $2`,
+        [paymentIntentId, eventId]
       );
       expect(parseInt(ledgerResult.rows[0].count)).toBe(1);
 

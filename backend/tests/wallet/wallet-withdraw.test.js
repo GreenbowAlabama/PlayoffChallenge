@@ -8,12 +8,14 @@
 const request = require('supertest');
 const express = require('express');
 const walletRoutes = require('../../routes/wallet.routes');
+const { createMockUserToken } = require('../mocks/testAppFactory');
 
 describe('Wallet Withdraw Endpoint', () => {
   let app;
   let mockPool;
   const TEST_USER_ID = '550e8400-e29b-41d4-a716-446655440000';
   const TEST_IDEMPOTENCY_KEY = 'idem-key-withdraw-12345';
+  let userToken;
 
   beforeEach(() => {
     // Create mock pool
@@ -21,6 +23,9 @@ describe('Wallet Withdraw Endpoint', () => {
       query: jest.fn(),
       connect: jest.fn()
     };
+
+    // Create user token
+    userToken = createMockUserToken({ sub: TEST_USER_ID, user_id: TEST_USER_ID });
 
     // Create Express app with wallet routes
     app = express();
@@ -36,7 +41,7 @@ describe('Wallet Withdraw Endpoint', () => {
     it('should return 400 if Idempotency-Key header is missing', async () => {
       const response = await request(app)
         .post('/api/wallet/withdraw')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .send({ amount_cents: 5000, method: 'standard' });
 
       expect(response.status).toBe(400);
@@ -47,7 +52,7 @@ describe('Wallet Withdraw Endpoint', () => {
     it('should return 400 if amount_cents is missing', async () => {
       const response = await request(app)
         .post('/api/wallet/withdraw')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ method: 'standard' });
 
@@ -58,7 +63,7 @@ describe('Wallet Withdraw Endpoint', () => {
     it('should return 400 if amount_cents is negative', async () => {
       const response = await request(app)
         .post('/api/wallet/withdraw')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ amount_cents: -1000, method: 'standard' });
 
@@ -70,7 +75,7 @@ describe('Wallet Withdraw Endpoint', () => {
     it('should return 400 if method is invalid', async () => {
       const response = await request(app)
         .post('/api/wallet/withdraw')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ amount_cents: 5000, method: 'invalid' });
 
@@ -95,7 +100,7 @@ describe('Wallet Withdraw Endpoint', () => {
 
       const response = await request(app)
         .post('/api/wallet/withdraw')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ amount_cents: 999999999, method: 'standard' });
 
@@ -110,7 +115,7 @@ describe('Wallet Withdraw Endpoint', () => {
 
         const response = await request(app)
           .post('/api/wallet/withdraw')
-          .set('Authorization', `Bearer ${TEST_USER_ID}`)
+          .set('Authorization', `Bearer ${userToken}`)
           .set('Idempotency-Key', `${TEST_IDEMPOTENCY_KEY}-${method}`)
           .send({ amount_cents: 5000, method });
 
@@ -125,7 +130,7 @@ describe('Wallet Withdraw Endpoint', () => {
 
       const response = await request(app)
         .post('/api/wallet/withdraw')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ amount_cents: 5000, method: 'standard' });
 
@@ -144,7 +149,7 @@ describe('Wallet Withdraw Endpoint', () => {
       const key = `${TEST_IDEMPOTENCY_KEY}-idem`;
       const response1 = await request(app)
         .post('/api/wallet/withdraw')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', key)
         .send({ amount_cents: 5000, method: 'standard' });
 
@@ -153,7 +158,7 @@ describe('Wallet Withdraw Endpoint', () => {
 
       const response2 = await request(app)
         .post('/api/wallet/withdraw')
-        .set('Authorization', `Bearer ${TEST_USER_ID}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', key)
         .send({ amount_cents: 5000, method: 'standard' });
 

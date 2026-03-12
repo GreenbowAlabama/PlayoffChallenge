@@ -108,8 +108,8 @@ describe('Contest Ops Service - getContestOpsSnapshot', () => {
     await client.query(
       `INSERT INTO contest_instances (
          id, template_id, organizer_id, contest_name, status,
-         entry_fee_cents, max_entries, current_entries, lock_time, tournament_start_time, join_token, payout_structure
-       ) VALUES ($1, $2, $3, $4, 'SCHEDULED', 5000, 20, 5, $5, $6, $7, '{"1":100}'::jsonb)`,
+         entry_fee_cents, max_entries, lock_time, tournament_start_time, join_token, payout_structure
+       ) VALUES ($1, $2, $3, $4, 'SCHEDULED', 5000, 20, $5, $6, $7, '{"1":100}'::jsonb)`,
       [
         contestId,
         testTemplateId,
@@ -164,8 +164,8 @@ describe('Contest Ops Service - getContestOpsSnapshot', () => {
     await client.query(
       `INSERT INTO contest_instances (
          id, template_id, organizer_id, contest_name, status,
-         entry_fee_cents, max_entries, current_entries, lock_time, tournament_start_time, join_token, payout_structure
-       ) VALUES ($1, $2, $3, $4, 'SCHEDULED', 5000, 2, 2, $5, $6, $7, '{"1":100}'::jsonb)`,
+         entry_fee_cents, max_entries, lock_time, tournament_start_time, join_token, payout_structure
+       ) VALUES ($1, $2, $3, $4, 'SCHEDULED', 5000, 2, $5, $6, $7, '{"1":100}'::jsonb)`,
       [
         contestId,
         testTemplateId,
@@ -175,6 +175,19 @@ describe('Contest Ops Service - getContestOpsSnapshot', () => {
         tournamentStartTime,
         `${testPrefix}_token_full`
       ]
+    );
+
+    // Add 2 participants to fill the contest (max_entries = 2)
+    const participantUser1 = uuidv4();
+    const participantUser2 = uuidv4();
+    await client.query(
+      `INSERT INTO users (id, username, email) VALUES ($1, $2, $3), ($4, $5, $6)`,
+      [participantUser1, `user_${participantUser1}`, `user${participantUser1}@example.com`,
+       participantUser2, `user_${participantUser2}`, `user${participantUser2}@example.com`]
+    );
+    await client.query(
+      `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at) VALUES ($1, $2, NOW()), ($1, $3, NOW())`,
+      [contestId, participantUser1, participantUser2]
     );
 
     const snapshot = await contestOpsService.getContestOpsSnapshot(client, contestId, { useProvidedClient: true });
@@ -191,8 +204,8 @@ describe('Contest Ops Service - getContestOpsSnapshot', () => {
     await client.query(
       `INSERT INTO contest_instances (
          id, template_id, organizer_id, contest_name, status,
-         entry_fee_cents, max_entries, current_entries, lock_time, tournament_start_time, join_token, payout_structure
-       ) VALUES ($1, $2, $3, $4, 'SCHEDULED', 5000, 20, 8, $5, $6, $7, '{"1":100}'::jsonb)`,
+         entry_fee_cents, max_entries, lock_time, tournament_start_time, join_token, payout_structure
+       ) VALUES ($1, $2, $3, $4, 'SCHEDULED', 5000, 20, $5, $6, $7, '{"1":100}'::jsonb)`,
       [
         contestId,
         testTemplateId,
@@ -202,6 +215,22 @@ describe('Contest Ops Service - getContestOpsSnapshot', () => {
         tournamentStartTime,
         `${testPrefix}_token_capacity`
       ]
+    );
+
+    // Add 8 participants to test capacity calculation
+    const participantUserIds = Array.from({ length: 8 }, () => uuidv4());
+    const userInsertValues = participantUserIds.map((uid, i) => `($${i*3+1}, $${i*3+2}, $${i*3+3})`).join(', ');
+    const userInsertParams = participantUserIds.flatMap(uid => [uid, `user_${uid}`, `user${uid}@example.com`]);
+
+    await client.query(
+      `INSERT INTO users (id, username, email) VALUES ${userInsertValues}`,
+      userInsertParams
+    );
+
+    const participantInsertValues = participantUserIds.map((uid, i) => `($1, $${i+2}, NOW())`).join(', ');
+    await client.query(
+      `INSERT INTO contest_participants (contest_instance_id, user_id, joined_at) VALUES ${participantInsertValues}`,
+      [contestId, ...participantUserIds]
     );
 
     const snapshot = await contestOpsService.getContestOpsSnapshot(client, contestId, { useProvidedClient: true });

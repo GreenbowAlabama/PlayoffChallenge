@@ -12,35 +12,23 @@ const request = require('supertest');
 const express = require('express');
 const walletRoutes = require('../../routes/wallet.routes');
 const { createMockPool } = require('../mocks/mockPool');
+const { createMockUserToken } = require('../mocks/testAppFactory');
 
 const TEST_USER_ID = '11111111-1111-1111-1111-111111111111';
 
 describe('Wallet Balance — Mixed Credit/Debit', () => {
   let app;
   let mockPool;
+  let userToken;
 
   beforeEach(() => {
     mockPool = createMockPool();
+    userToken = createMockUserToken({ sub: TEST_USER_ID, user_id: TEST_USER_ID });
 
     app = express();
     app.set('trust proxy', 1);
     app.use(express.json());
     app.locals.pool = mockPool;
-
-    // Test-only middleware: Simulate centralized auth
-    app.use((req, res, next) => {
-      const authHeader = req.headers['authorization'];
-
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const userId = authHeader.substring(7);
-        req.user = {
-          id: userId,
-          isAdmin: false
-        };
-      }
-
-      next();
-    });
 
     app.use('/api/wallet', walletRoutes);
   });
@@ -61,7 +49,7 @@ describe('Wallet Balance — Mixed Credit/Debit', () => {
 
     const response = await request(app)
       .get('/api/wallet')
-      .set('Authorization', `Bearer ${TEST_USER_ID}`)
+      .set('Authorization', `Bearer ${userToken}`)
       .set('Content-Type', 'application/json');
 
     expect(response.status).toBe(200);
@@ -82,7 +70,7 @@ describe('Wallet Balance — Mixed Credit/Debit', () => {
 
     const response = await request(app)
       .get('/api/wallet')
-      .set('Authorization', `Bearer ${TEST_USER_ID}`)
+      .set('Authorization', `Bearer ${userToken}`)
       .set('Content-Type', 'application/json');
 
     expect(response.status).toBe(200);
@@ -111,7 +99,7 @@ describe('Wallet Balance — Mixed Credit/Debit', () => {
 
     await request(app)
       .get('/api/wallet')
-      .set('Authorization', `Bearer ${TEST_USER_ID}`)
+      .set('Authorization', `Bearer ${userToken}`)
       .set('Content-Type', 'application/json');
 
     // Verify CASE statement for direction
@@ -133,7 +121,7 @@ describe('Wallet Balance — Mixed Credit/Debit', () => {
 
     const response = await request(app)
       .get('/api/wallet')
-      .set('Authorization', `Bearer ${TEST_USER_ID}`)
+      .set('Authorization', `Bearer ${userToken}`)
       .set('Content-Type', 'application/json');
 
     expect(response.status).toBe(200);
@@ -161,7 +149,7 @@ describe('Wallet Balance — Mixed Credit/Debit', () => {
 
     await request(app)
       .get('/api/wallet')
-      .set('Authorization', `Bearer ${TEST_USER_ID}`)
+      .set('Authorization', `Bearer ${userToken}`)
       .set('Content-Type', 'application/json');
 
     // Verify query filters by user_id (includes ALL entry types regardless of reference_type)
@@ -182,7 +170,7 @@ describe('Wallet Balance — Mixed Credit/Debit', () => {
 
     const response = await request(app)
       .get('/api/wallet')
-      .set('Authorization', `Bearer ${TEST_USER_ID}`)
+      .set('Authorization', `Bearer ${userToken}`)
       .set('Content-Type', 'application/json');
 
     expect(response.status).toBe(200);

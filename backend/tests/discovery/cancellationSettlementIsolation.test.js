@@ -88,6 +88,13 @@ describe('Settlement Isolation - CANCELLED Sibling Independence', () => {
       [userId, testEmail('user'), `test-user-${userId}`]
     );
 
+    // 2.5. Create system user for settlement audit (required by FK constraint)
+    await pool.query(
+      `INSERT INTO users (id, email, username) VALUES ($1, $2, $3)
+       ON CONFLICT (id) DO NOTHING`,
+      ['00000000-0000-0000-0000-000000000000', 'system@platform.local', 'system']
+    );
+
     // 3. Create contest_template with ALL required columns
     templateId = crypto.randomUUID();
     const testProviderId = `isolation_test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

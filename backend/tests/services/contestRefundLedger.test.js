@@ -178,6 +178,12 @@ describe('Contest Refund Ledger Operations', () => {
       // First join
       await customContestService.joinContest(pool, contestInstanceId, testUserId);
 
+      // Bypass cooldown by backdating join timestamp
+      await pool.query(
+        `UPDATE contest_participants SET joined_at = NOW() - INTERVAL '35 seconds' WHERE contest_instance_id = $1 AND user_id = $2`,
+        [contestInstanceId, testUserId]
+      );
+
       // Then unjoin
       const unjoinResult = await customContestService.unJoinContest(pool, contestInstanceId, testUserId);
       expect(unjoinResult).toBeDefined();
@@ -205,6 +211,13 @@ describe('Contest Refund Ledger Operations', () => {
     test('refund idempotency key prevents duplicate refunds', async () => {
       // Join then unjoin
       await customContestService.joinContest(pool, contestInstanceId, testUserId);
+
+      // Bypass cooldown by backdating join timestamp
+      await pool.query(
+        `UPDATE contest_participants SET joined_at = NOW() - INTERVAL '35 seconds' WHERE contest_instance_id = $1 AND user_id = $2`,
+        [contestInstanceId, testUserId]
+      );
+
       await customContestService.unJoinContest(pool, contestInstanceId, testUserId);
 
       // Verify only ONE refund entry exists
@@ -245,6 +258,12 @@ describe('Contest Refund Ledger Operations', () => {
 
       // Join
       await customContestService.joinContest(pool, contestInstanceId, testUserId);
+
+      // Bypass cooldown by backdating join timestamp
+      await pool.query(
+        `UPDATE contest_participants SET joined_at = NOW() - INTERVAL '35 seconds' WHERE contest_instance_id = $1 AND user_id = $2`,
+        [contestInstanceId, testUserId]
+      );
 
       // Unjoin
       await customContestService.unJoinContest(pool, contestInstanceId, testUserId);

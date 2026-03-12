@@ -90,7 +90,7 @@ describe('Admin Templates Routes', () => {
           scoring_strategy_key, lock_strategy_key,
           settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
           allowed_entry_fee_max_cents, allowed_payout_structures, lineup_size, drop_lowest
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           manualId, 'Test Template Manual', 'NFL', 'TOURNAMENT', 'SCHEDULED', false,
           'nfl_standard', 'kickoff_time',
@@ -112,19 +112,19 @@ describe('Admin Templates Routes', () => {
     });
 
     it('should filter to system-only templates', async () => {
-      // Create system template
+      // Create system template (with unique provider_tournament_id to avoid constraint violation)
       const systemId = randomUUID();
       await pool.query(
         `INSERT INTO contest_templates (
           id, name, sport, template_type, status, is_system_generated,
           provider_tournament_id, season_year, scoring_strategy_key, lock_strategy_key,
           settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents,
-          allowed_entry_fee_max_cents, allowed_payout_structures
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          allowed_entry_fee_max_cents, allowed_payout_structures, is_active
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           systemId, 'Test Template System Only', 'PGA', 'STROKE_PLAY', 'SCHEDULED', true,
-          'test_system_only_001', 2026, 'pga_standard', 'tournament_start',
-          'payouts_after_complete', 1000, 500, 5000, JSON.stringify(['winner_takes_all'])
+          `test_system_only_${randomUUID()}`, 2026, 'pga_standard', 'tournament_start',
+          'payouts_after_complete', 1000, 500, 5000, JSON.stringify(['winner_takes_all']), false
         ]
       );
 

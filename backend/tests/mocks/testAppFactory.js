@@ -189,6 +189,32 @@ function createMockAdminToken(claims = {}) {
 }
 
 /**
+ * Create a mock user JWT token for testing user-authenticated routes.
+ * Used by wallet, customContest, and other user routes.
+ * Note: Signature is not verified by default routes (they only decode the payload).
+ *
+ * @param {Object} claims Token payload claims
+ * @returns {string} JWT token string
+ */
+function createMockUserToken(claims = {}) {
+  const jwt = require('jsonwebtoken');
+
+  const defaultClaims = {
+    sub: '11111111-1111-1111-1111-111111111111',
+    user_id: '11111111-1111-1111-1111-111111111111',
+    email: 'user@example.com',
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600
+  };
+
+  const payload = { ...defaultClaims, ...claims };
+  // Use a dummy secret - routes only decode, don't verify
+  const secret = 'user-token-secret-not-verified';
+
+  return jwt.sign(payload, secret);
+}
+
+/**
  * Setup common mock responses for standard test scenarios.
  * Call this helper to pre-configure a mock pool with typical data.
  *
@@ -262,6 +288,7 @@ module.exports = {
   // Request helpers
   createRequestFactory,
   createMockAdminToken,
+  createMockUserToken,
 
   // Mock setup
   createMockPool,
