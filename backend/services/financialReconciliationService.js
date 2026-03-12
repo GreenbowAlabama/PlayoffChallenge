@@ -378,6 +378,103 @@ async function freezeNegativeWallet(pool, userId, adminId, reason) {
   }
 }
 
+async function repairIllegalRefundDebit(pool, refundLedgerId, adminId, reason) {
+  if (!refundLedgerId) return { success: false, error: 'refund_ledger_id is required' };
+  if (!adminId) return { success: false, error: 'admin_id is required' };
+  if (!reason || reason.trim() === '') return { success: false, error: 'reason is required and cannot be empty' };
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const result = await client.query(
+      `SELECT id, user_id, amount_cents, reference_id
+       FROM ledger
+       WHERE id = $1
+       AND entry_type = 'ENTRY_FEE_REFUND'
+       AND direction = 'DEBIT'`,
+      [refundLedgerId]
+    );
+
+    if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return { success: false, error: 'Illegal ENTRY_FEE_REFUND DEBIT entry not found' };
+    }
+
+    const ledger = result.rows[0];
+
+    const idempotencyKey = `refund_debit_repair:${refundLedgerId}`;
+
+    const existing = await client.query(
+      `SELECT id FROM ledger WHERE idempotency_key = $1`,
+      [idempotencyKey]
+    );
+
+    let adjustmentLedgerId;
+
+    if (existing.rowCount > 0) {
+      adjustmentLedgerId = existing.rows[0].id;
+    } else {
+      adjustmentLedgerId = uuidv4();
+
+      await client.query(
+        `INSERT INTO ledger (
+          id,
+          user_id,
+          entry_type,
+          direction,
+          amount_cents,
+          reference_type,
+          reference_id,
+          idempotency_key,
+          created_at
+        )
+        VALUES (
+          $1,
+          $2,
+          'ADJUSTMENT',
+          'CREDIT',
+          $3,
+          'CONTEST',
+          $4,
+          $5,
+          NOW()
+        )`,
+        [
+          adjustmentLedgerId,
+          ledger.user_id,
+          ledger.amount_cents,
+          ledger.reference_id,
+          idempotencyKey
+        ]
+      );
+    }
+
+    const auditLogId = await logFinancialAction(
+      client,
+      adminId,
+      'repair_illegal_refund_debit',
+      reason,
+      { refund_ledger_id: refundLedgerId }
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      success: true,
+      adjustment_ledger_id: adjustmentLedgerId,
+      audit_log_id: auditLogId
+    };
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    return { success: false, error: err.message };
+  } finally {
+    client.release();
+  }
+}
+
 async function logFinancialAction(poolOrClient, adminId, actionType, reason, details = {}) {
   if (!adminId) return { success: false, error: 'admin_id is required', log_id: null, timestamp: null };
   if (!actionType) return { success: false, error: 'action_type is required', log_id: null, timestamp: null };
@@ -454,6 +551,7 @@ module.exports = {
   convertIllegalEntryFeeToRefund,
   rollbackNonAtomicJoin,
   freezeNegativeWallet,
+  repairIllegalRefundDebit,
   logFinancialAction,
   getReconciliationHistory
 };

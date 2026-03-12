@@ -206,9 +206,17 @@ async function handleWalletTopupSuccess(client, event) {
 }
 
 /**
- * Handle entry fee PaymentIntent success.
+ * Handle contest-linked PaymentIntent success.
  *
- * Original payment_intent.succeeded handler for contest entry fees.
+ * When a Stripe payment for a contest entry succeeds, credit the user's wallet.
+ * The actual contest join (ENTRY_FEE DEBIT) happens separately via joinContest().
+ *
+ * This design ensures:
+ * - Single authoritative ENTRY_FEE DEBIT writer: customContestService.joinContest()
+ * - Webhook only credits wallet with incoming Stripe payment
+ * - User can then call joinContest to finalize entry
+ * - No negative wallet balances
+ * - No double-debit risk
  *
  * @param {Object} client - Database transaction client
  * @param {Object} event - Stripe event object
@@ -242,8 +250,10 @@ async function handleEntryFeeSuccess(client, event) {
     status: 'SUCCEEDED'
   });
 
-  // Insert ledger entry with idempotency key format: stripe_event:{event_id}:ENTRY_FEE
-  const ledgerIdempotencyKey = `stripe_event:${event.id}:ENTRY_FEE`;
+  // Create wallet deposit ledger entry (not entry fee debit)
+  // WALLET_DEPOSIT: money from Stripe enters user's wallet
+  // ENTRY_FEE DEBIT happens later in joinContest() (authoritative point)
+  const ledgerIdempotencyKey = `stripe_event:${event.id}:WALLET_DEPOSIT`;
 
   if (!paymentIntent.id || paymentIntent.id.length !== 36) {
     throw new Error("Invalid internal paymentIntent.id (not UUID)");
@@ -251,9 +261,8 @@ async function handleEntryFeeSuccess(client, event) {
 
   try {
     await LedgerRepository.insertLedgerEntry(client, {
-      contest_instance_id: paymentIntent.contest_instance_id,
       user_id: paymentIntent.user_id,
-      entry_type: 'ENTRY_FEE',
+      entry_type: 'WALLET_DEPOSIT',
       direction: 'CREDIT',
       amount_cents: amountCents,
       currency: paymentIntent.currency,

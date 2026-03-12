@@ -288,7 +288,7 @@ async function discoverTournament(input, pool, now, organizerId) {
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
       )
-      ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
+      ON CONFLICT ON CONSTRAINT contest_instances_provider_template_fee_unique
       DO NOTHING`,
       [
         templateId,
@@ -299,7 +299,7 @@ async function discoverTournament(input, pool, now, organizerId) {
         now, // start_time: injected now
         `${normalized.name} - Marketing`, // contest_name
         100, // max_entries
-        normalized.providerEventId, // provider_event_id: links to tournament data for player resolution
+        normalized.provider_tournament_id, // provider_event_id: tournament ID for field initialization and player resolution
         true, // is_platform_owned
         true, // is_primary_marketing
         generateJoinToken() // join_token: generated token for platform marketing contest
@@ -425,7 +425,7 @@ async function discoverTournament(input, pool, now, organizerId) {
             5000, JSON.stringify({ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }),
             normalized.status, now,
             `${normalized.name} - Marketing`, 100,
-            normalized.providerEventId,
+            normalized.provider_tournament_id,
             true, true,
             generateJoinToken()
           ]

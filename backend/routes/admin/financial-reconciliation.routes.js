@@ -45,7 +45,7 @@ router.post('/repair', async (req, res) => {
   try {
     const { action, params, reason } = req.body;
     const pool = req.app.locals.pool;
-    const adminId = req.user.id;
+    const adminId = req.adminUser.id;
 
     if (!action) return res.status(400).json({ error: 'action is required' });
     if (!reason || reason.trim() === '') return res.status(400).json({ error: 'reason is required' });
