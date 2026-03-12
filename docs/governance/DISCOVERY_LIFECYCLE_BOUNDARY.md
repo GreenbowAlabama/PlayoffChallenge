@@ -169,3 +169,205 @@ Violations require:
 - Governance review
 - Test updates
 - Documentation updates
+
+---
+
+## 11. DISCOVERY PIPELINE INVARIANTS
+
+The discovery pipeline is responsible for creating the complete system structure that enables contests to function.
+
+Contest creation is not a single atomic operation. It is a cascading pipeline where each stage depends on the previous:
+
+```
+contest_instances
+    ↓
+tournament_configs
+    ↓
+field_selections
+    ↓
+player ingestion
+    ↓
+lineup submission
+```
+
+**Critical Rule:** contest_instances alone are NOT sufficient for a functional contest.
+
+A contest is only operational when tournament_configs and field_selections have been successfully initialized.
+
+### Invariant 1 — Contest Structural Completeness
+
+**Rule:** Every contest_instance must have exactly one tournament_config.
+
+**Verification Query:**
+
+```sql
+SELECT ci.id
+FROM contest_instances ci
+LEFT JOIN tournament_configs tc
+  ON tc.contest_instance_id = ci.id
+WHERE tc.id IS NULL;
+```
+
+**Interpretation:** If any rows return, discovery has failed. The contest instance exists but its configuration does not.
+
+This represents a structural integrity violation.
+
+### Invariant 2 — Tournament Config Initialization
+
+**Rule:** tournament_configs must include all configuration fields populated at discovery time.
+
+**Required Fields:**
+
+- `contest_instance_id` — Foreign key to contest_instances
+- `provider_event_id` — Identifier from external provider
+- `ingestion_endpoint` — Where to fetch live scoring data
+- `event_start_date` — Event begins (provider time)
+- `event_end_date` — Event ends (provider time)
+- `round_count` — Number of rounds in contest (e.g., 4 for golf)
+- `cut_after_round` — Round number after which field is reduced (or NULL)
+- `leaderboard_schema_version` — Version of scoring schema
+- `field_source` — Source of field data (e.g., 'PROVIDER', 'MANUAL')
+- `hash` — Content hash of configuration (for idempotency)
+
+**Constraint:** All fields must be populated. NULL values in any required field indicate incomplete discovery.
+
+### Invariant 3 — Field Selection Initialization
+
+**Rule:** Every contest_instance must have one field_selections row.
+
+**Verification Query:**
+
+```sql
+SELECT ci.id
+FROM contest_instances ci
+LEFT JOIN field_selections fs
+  ON fs.contest_instance_id = ci.id
+WHERE fs.id IS NULL;
+```
+
+**Interpretation:** If any rows return, the contest instance lacks field definitions. Lineup submission is impossible without field_selections.
+
+### Invariant 4 — Idempotent Discovery
+
+**Rule:** Discovery must be safe to run multiple times without creating duplicates.
+
+**Implementation Pattern:**
+
+All discovery pipeline operations must use:
+
+```sql
+INSERT INTO tournament_configs (...)
+VALUES (...)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO field_selections (...)
+VALUES (...)
+ON CONFLICT DO NOTHING;
+```
+
+**Rationale:**
+
+- Discovery may be retried if network fails
+- External sources may be polled multiple times
+- The system must guarantee that re-running discovery produces identical state
+- No duplicate tournament_configs
+- No duplicate field_selections
+
+---
+
+## 12. AI WORKER SAFETY RULE — DISCOVERY SYSTEM
+
+**Status:** MANDATORY — Workers must follow this rule without exception.
+
+### When to Request Architect Approval
+
+Workers must STOP and request architect approval BEFORE implementing any task that involves:
+
+- Contest discovery logic
+- tournament_configs creation
+- field_selections initialization
+- Ingestion pipeline architecture
+- Scoring ingestion adapters
+- Provider event ingestion
+- Discovery orchestration
+
+### What Workers Must NOT Do
+
+Workers must NEVER:
+
+- Modify discovery structure without governance review
+- Skip tournament_configs creation
+- Skip field_selections creation
+- Create contests without full pipeline initialization
+- Bypass discovery idempotency constraints
+- Assume contest_instances alone are sufficient
+
+### Rationale
+
+The discovery system is a protected architectural boundary. Incomplete or partial implementations create structural corruption that:
+
+- Breaks lineup submission (field_selections missing)
+- Breaks scoring ingestion (tournament_configs missing)
+- Requires manual database repair
+- Violates determinism guarantees
+
+Any task touching discovery must be reviewed by an architect to ensure full structural completeness.
+
+---
+
+## 13. RECOVERY PROCEDURE
+
+If a contest_instance is created without accompanying tournament_configs or field_selections, the system is in a broken state.
+
+### Detection
+
+Run the verification queries from Invariants 1 and 3:
+
+```sql
+-- Missing tournament_config
+SELECT ci.id
+FROM contest_instances ci
+LEFT JOIN tournament_configs tc
+  ON tc.contest_instance_id = ci.id
+WHERE tc.id IS NULL;
+
+-- Missing field_selections
+SELECT ci.id
+FROM contest_instances ci
+LEFT JOIN field_selections fs
+  ON fs.contest_instance_id = ci.id
+WHERE fs.id IS NULL;
+```
+
+### Correct Repair Method
+
+The correct repair is to call:
+
+```javascript
+initializeTournamentField(contestInstanceId)
+```
+
+This function is responsible for:
+
+1. Creating tournament_configs with provider metadata
+2. Creating field_selections with initial field data
+3. Triggering player ingestion pipeline
+4. Validating structural completeness
+
+### Why Not Manual SQL Creation?
+
+Direct manual SQL creation of tournament_configs or field_selections is discouraged because:
+
+- It bypasses idempotency constraints
+- It may miss dependent initialization logic
+- It violates the discovery pipeline order
+- It requires domain knowledge of provider event metadata
+
+The `initializeTournamentField()` function encapsulates this logic and ensures correctness.
+
+### Prevention Going Forward
+
+- All contest creation paths must call the complete discovery pipeline
+- Tests must verify all three entities (contest_instances, tournament_configs, field_selections)
+- Code review must catch partial implementations
+- Workers must request architect approval for discovery changes
