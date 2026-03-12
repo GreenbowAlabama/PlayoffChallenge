@@ -41,24 +41,37 @@ function isValidUUID(str) {
 
 /**
  * Middleware to extract user ID from request.
- * In production, this would come from authentication middleware.
- * For now, expects X-User-Id header.
- *
- * Validates UUID format to prevent invalid IDs from reaching database queries.
+ * Supports both:
+ * - Authorization: Bearer <jwt> (extracts sub or user_id from payload)
+ * - X-User-Id: <uuid> (direct UUID)
+ * Validates UUID format.
  */
 function extractUserId(req, res, next) {
-  let userId;
-  const authHeader = req.headers['authorization'];
-  const xUserId = req.headers['x-user-id'];
+  let userId = null;
 
+  // Try Authorization Bearer token first
+  const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    userId = authHeader.substring(7, authHeader.length);
-  } else if (xUserId) {
-    userId = xUserId;
-  } else {
+    try {
+      const token = authHeader.split(' ')[1];
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      userId = payload.sub || payload.user_id;
+    } catch (err) {
+      // JWT decode failed, fall through to X-User-Id check
+    }
+  }
+
+  // Fall back to X-User-Id header if JWT didn't work
+  if (!userId) {
+    userId = req.headers['x-user-id'];
+  }
+
+  // No user ID found
+  if (!userId) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
+  // Validate UUID format
   if (!isValidUUID(userId)) {
     return res.status(400).json({ error: 'Invalid user ID format' });
   }
@@ -76,19 +89,30 @@ function extractUserId(req, res, next) {
  *
  * Sets req.userId = null if Authorization header is missing.
  * Returns 400 if Authorization header is present but invalid UUID.
- * Preserves existing behavior if valid.
+ * Supports both Authorization Bearer JWT and X-User-Id header.
  */
 function extractOptionalUserId(req, res, next) {
-  let userId;
-  const authHeader = req.headers['authorization'];
-  const xUserId = req.headers['x-user-id'];
+  let userId = null;
 
+  // Try Authorization Bearer token first
+  const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    userId = authHeader.substring(7, authHeader.length);
-  } else if (xUserId) {
-    userId = xUserId;
-  } else {
-    // No auth header present - allow request with null userId
+    try {
+      const token = authHeader.split(' ')[1];
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      userId = payload.sub || payload.user_id;
+    } catch (err) {
+      // JWT decode failed, fall through to X-User-Id check
+    }
+  }
+
+  // Fall back to X-User-Id header if JWT didn't work
+  if (!userId) {
+    userId = req.headers['x-user-id'];
+  }
+
+  // No auth header present - allow request with null userId
+  if (!userId) {
     req.userId = null;
     return next();
   }
