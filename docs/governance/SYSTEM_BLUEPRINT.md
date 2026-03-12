@@ -127,6 +127,27 @@ Key Systems
 - Contest Engine
 - Database
 
+### Discovery Template Binding Rule
+
+**External Event (provider_event_id)**
+↓
+**Template Binding (contest_templates.provider_tournament_id)**
+↓
+**Contest Instance Creation**
+
+**Constraint Enforcement:**
+```
+UNIQUE(provider_event_id, template_id, entry_fee_cents)
+```
+
+**Purpose:**
+- Ensures discovery idempotency
+- Prevents duplicate contest instances
+- Guarantees deterministic contest generation
+
+**Implementation Note:**
+The discovery system binds external provider events to templates via `provider_tournament_id`. This binding is idempotent and ensures that replaying discovery does not create duplicate contests or templates.
+
 ---
 
 ## Contest Entry Flow
@@ -219,6 +240,78 @@ Web Admin provides operational tooling for:
 Admin operations must follow governance rules defined in:
 
 docs/governance/06-admin-operations/
+
+---
+
+# API Contract Governance
+
+API contracts (OpenAPI specifications) are frozen using cryptographic snapshots to ensure stability and auditability.
+
+## Contract Freeze Lifecycle
+
+```
+Develop API → Generate Spec → Compute SHA256 → Check Snapshot → Version → Freeze
+                                                    ↓
+                                           Already exists?
+                                            ↓         ↓
+                                          YES       NO
+                                           ↓         ↓
+                                        Exit 0   Insert v1,v2,v3...
+```
+
+## Freezing Process
+
+```bash
+# Public API (available now)
+npm run freeze:openapi
+
+# Planned command (Phase 2 implementation):
+# npm run freeze:openapi:admin
+# Requires: freeze-openapi-admin.js script
+```
+
+## Contract Snapshot Storage
+
+**Table:** `api_contract_snapshots`
+
+**Columns:**
+- `contract_name` (public-api, admin-api)
+- `version` (v1, v2, v3...)
+- `sha256` (cryptographic hash of spec)
+- `spec_json` (full OpenAPI spec)
+- `created_at` (timestamp)
+
+**Unique Constraint:** `(contract_name, sha256)` — prevents duplicate hashes
+
+## Idempotency Guarantee
+
+Freezing the same spec multiple times:
+1. Computes identical SHA256
+2. Detects existing snapshot
+3. Exits successfully without creating duplicate
+4. No database churn
+
+## Version Computation
+
+Versions auto-increment based on existing snapshots:
+```sql
+SELECT COALESCE(MAX(REPLACE(version,'v','')::int), 0) + 1
+FROM api_contract_snapshots
+WHERE contract_name = 'public-api'
+```
+
+## Governance Rules
+
+- API changes MUST be frozen before deployment
+- Tests prevent deployment if OpenAPI changes without freezing
+- Contract history is immutable and append-only
+- Workers must understand contract authority (frozen boundaries)
+
+**Reference:**
+- `backend/scripts/freeze-openapi.js`
+- `backend/contracts/openapi.yaml`
+- `backend/contracts/openapi-admin.yaml`
+- `docs/governance/ARCHITECTURE_LOCK.md` (OpenAPI Contracts section)
 
 ---
 

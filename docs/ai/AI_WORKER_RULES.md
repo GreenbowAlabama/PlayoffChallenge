@@ -1,21 +1,66 @@
 # 67 ENTERPRISES — AI WORKER RULES
 
+**Status:** AUTHORITATIVE
+**Version:** 1
+**Last Updated:** 2026-03-11
+
 Workers must read this document immediately after AI_ENTRYPOINT.md.
 
 This file defines behavioral rules for AI workers.
 
 ---
 
+# Governance Authority
+
+Workers must treat governance documentation as authoritative.
+
+If governance documentation conflicts with code, schema, or OpenAPI contracts, this hierarchy applies:
+
+1. schema.snapshot.sql (database structure)
+2. OpenAPI contracts (API shapes)
+3. Source code (implementation)
+4. Governance documentation (consistency)
+
+Workers must verify governance claims against source of truth before implementing changes.
+
+---
+
 # Core Principle
 
-Workers must operate deterministically.
+Workers must operate deterministically and within architectural boundaries.
 
 Workers must:
 
-• avoid repository scanning
-• avoid token waste
-• avoid architectural drift
-• avoid unauthorized edits
+• operate with full system context (governance + schema + OpenAPI)
+• avoid repository scanning (use explicit file references only)
+• avoid token waste (targeted reads, not broad exploration)
+• avoid architectural drift (respect frozen invariants)
+• avoid unauthorized edits (only modify assigned lanes)
+
+---
+
+# Architecture Lock Protocol
+
+The system is under PRE-LAUNCH ARCHITECTURE LOCK.
+
+Workers must NOT modify:
+
+• Schema structure (backend/db/schema.snapshot.sql)
+• OpenAPI contracts (backend/contracts/openapi.yaml or openapi-admin.yaml)
+• Ledger architecture (LEDGER_ARCHITECTURE_AND_RECONCILIATION.md)
+• Wallet accounting primitives (FINANCIAL_INVARIANTS.md)
+• Contest lifecycle states (LIFECYCLE_EXECUTION_MAP.md)
+• AI governance rules (docs/ai/)
+
+If a task requires modification of these frozen primitives, workers must STOP and respond:
+
+```
+ARCHITECTURE LOCK ACTIVE — ARCHITECT APPROVAL REQUIRED
+```
+
+Do not implement the change without explicit architect authorization.
+
+**Authoritative Reference:** `/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/ARCHITECTURE_LOCK.md`
 
 ---
 
@@ -190,4 +235,52 @@ Test command run:
 
 Test result:
 • PASS
+
+---
+
+# Documentation Update Rules (Idempotency)
+
+When modifying documentation files, workers must update existing sections instead of appending duplicates.
+
+Required behavior:
+
+1. If the section header already exists
+   → Replace the content inside that section.
+
+2. If the section header does NOT exist
+   → Create the section.
+
+3. Never append duplicate sections with the same header.
+
+4. Never create repeated subsections with the same title.
+
+5. Documentation edits must be **idempotent**.
+
+Meaning:
+
+Running the same update multiple times should produce the **same document structure** without duplication.
+
+Workers must always:
+
+• Search the document for an existing header
+• Replace the content beneath the header
+• Preserve document structure
+• Avoid duplication
+
+Example (BAD):
+
+```
+## Discovery System Status
+(text)
+
+## Discovery System Status
+(text again)
+```
+
+Example (GOOD):
+
+```
+## Discovery System Status
+(updated text replaces old text)
+```
 

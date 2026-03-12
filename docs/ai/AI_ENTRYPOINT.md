@@ -1,5 +1,9 @@
 # 67 ENTERPRISES — AI ENTRYPOINT
 
+**Status:** AUTHORITATIVE
+**Version:** 1
+**Last Updated:** 2026-03-11
+
 This file is the canonical entrypoint for all AI workers (Claude, Gemini, ChatGPT).
 
 Workers must read files in the exact order defined below.
@@ -7,6 +11,10 @@ Workers must read files in the exact order defined below.
 Workers must not scan the repository.
 
 Workers must only read files explicitly referenced here.
+
+**Critical Requirement:** Workers must launch with full system context.
+
+All workers must complete the bootstrap sequence below before accepting any task instructions. Workers operating without full context violate architectural boundaries and risk introducing drift.
 
 ---
 
@@ -36,25 +44,35 @@ These documents define the architecture and cannot be violated.
 
 Read them in this order.
 
+**CRITICAL: Architecture Lock is Active**
+
+**Check governance version first:**
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/GOVERNANCE_VERSION.md
+
 1.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/CLAUDE_RULES.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/ARCHITECTURE_LOCK.md
+
+⚠️ READ FIRST: This document defines frozen primitives. Do not modify schema, OpenAPI, ledger, lifecycle, or governance rules without architect approval.
 
 2.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/LEDGER_ARCHITECTURE_AND_RECONCILIATION.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/CLAUDE_RULES.md
 
 3.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/LIFECYCLE_EXECUTION_MAP.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/LEDGER_ARCHITECTURE_AND_RECONCILIATION.md
 
 4.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/FINANCIAL_INVARIANTS.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/LIFECYCLE_EXECUTION_MAP.md
 
 5.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/DISCOVERY_LIFECYCLE_BOUNDARY.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/FINANCIAL_INVARIANTS.md
 
 6.
-/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/IOS_SWEEP_PROTOCOL.md
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/DISCOVERY_LIFECYCLE_BOUNDARY.md
 
 7.
+/Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/IOS_SWEEP_PROTOCOL.md
+
+8.
 /Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/ARCHITECTURE_ENFORCEMENT.md
 
 ---
@@ -73,33 +91,84 @@ Workers must not implement changes that could violate this equation without arch
 
 ---
 
-# Step 3 — Contracts and Schema
+# Step 3 — Contracts and Schema (Authority Sources)
 
-Workers must treat these files as authoritative.
+Workers must treat these files as the authoritative sources of truth.
 
-## Schema Reference (Start Here)
+Workers must verify governance documentation against these sources before proceeding.
 
-For faster schema understanding, read this first:
+## Schema Authority
 
-/Users/iancarter/Documents/workspace/playoff-challenge/SCHEMA_REFERENCE.md
+**Authoritative File:**
+`/Users/iancarter/Documents/workspace/playoff-challenge/backend/db/schema.snapshot.sql`
 
-This markdown file is organized by domain (contests, financial, scoring, etc.) and is much faster to navigate than the raw snapshot.
+This is the single source of truth for database structure.
 
-## OpenAPI Contract
+For faster navigation:
+`/Users/iancarter/Documents/workspace/playoff-challenge/SCHEMA_REFERENCE.md` (organized by domain)
 
-/Users/iancarter/Documents/workspace/playoff-challenge/backend/contracts/openapi.yaml
+Workers must NOT:
+- Assume schema structure
+- Hallucinate columns or constraints
+- Implement code that requires schema changes
 
-## Database Schema Snapshot
+If schema modifications are required, workers must STOP and report:
+"Schema change required before code change."
 
-Only read if SCHEMA_REFERENCE.md does not provide sufficient detail:
+## OpenAPI Contract Authority
 
-/Users/iancarter/Documents/workspace/playoff-challenge/backend/db/schema.snapshot.sql
+**Authoritative Files:**
+- `/Users/iancarter/Documents/workspace/playoff-challenge/backend/contracts/openapi.yaml` (public API)
+- `/Users/iancarter/Documents/workspace/playoff-challenge/backend/contracts/openapi-admin.yaml` (admin API)
 
-The snapshot is the authoritative source but is large (4200+ lines). Use SCHEMA_REFERENCE.md for most queries.
+These define the authoritative API response shapes and request formats.
 
-If schema changes are required, workers must STOP and reply:
+Workers must NOT:
+- Add undocumented response fields
+- Change API shapes without updating OpenAPI
+- Deploy API changes that deviate from contracts
 
-Schema change required before code change.
+If API changes are needed, workers must STOP and report:
+"API contract update required before implementation."
+
+## API Contract Freeze System
+
+OpenAPI contracts are frozen using cryptographic snapshots to prevent unauthorized API drift.
+
+**How Contract Freezing Works:**
+
+1. **Generate** canonical OpenAPI spec from backend routes or YAML
+2. **Hash** spec using SHA256
+3. **Check** if snapshot exists in `api_contract_snapshots` table
+4. **If exists** → Exit successfully (idempotent)
+5. **If not** → Auto-increment version (v1, v2, v3...) and insert snapshot
+
+**Freeze Commands:**
+
+```bash
+# Public API contract (backend/contracts/openapi.yaml)
+npm run freeze:openapi
+
+# Planned command (Phase 2):
+# npm run freeze:openapi:admin
+# Freeze admin API contract (backend/contracts/openapi-admin.yaml)
+# Not yet implemented - see FAST_FOLLOWERS.md
+```
+
+**Snapshot Storage:**
+
+- **Table:** `api_contract_snapshots`
+- **Constraint:** UNIQUE(contract_name, sha256) prevents duplicate hashes
+- **Append-only:** Snapshots are never deleted, only appended
+
+**Worker Rules:**
+
+- Workers must freeze a new snapshot before changing OpenAPI contracts
+- Tests enforce freezing: `tests/contracts/openapi-freeze.test.js`
+- Frozen contracts are immutable governance boundaries
+- Contract changes without freezing will fail tests and block deployment
+
+**Reference:** `backend/scripts/freeze-openapi.js`, `docs/governance/ARCHITECTURE_LOCK.md`
 
 ---
 
