@@ -1,0 +1,64 @@
+{
+  "timestamp": "2026-03-12T01:41:07.572Z",
+  "server_time": "2026-03-12T01:41:07.389Z",
+  "source": "database",
+  "metrics": {
+    "contests_by_status": {
+      "SCHEDULED": 5,
+      "LOCKED": 0,
+      "LIVE": 0,
+      "COMPLETE": 0,
+      "CANCELLED": 0,
+      "ERROR": 0
+    },
+    "contests": [
+      {
+        "id": "4f614a3e-62b0-46fc-b420-fcf16a3efa66",
+        "contest_name": "THE PLAYERS Championship — $50",
+        "status": "SCHEDULED",
+        "max_entries": 100,
+        "current_entries": 0,
+        "entry_fee_cents": 5000,
+        "lock_time": "2026-03-12T04:00:00.000Z"
+      },
+      {
+        "id": "141a31f5-c28f-4d4a-b246-4016819450ef",
+        "contest_name": "THE PLAYERS Championship — $20",
+        "status": "SCHEDULED",
+        "max_entries": 100,
+        "current_entries": 0,
+        "entry_fee_cents": 2000,
+        "lock_time": "2026-03-12T04:00:00.000Z"
+      },
+      {
+        "id": "cea1a090-9dac-414a-bb34-eaef0ca71e43",
+        "contest_name": "THE PLAYERS Championship — $100",
+        "status": "SCHEDULED",
+        "max_entries": 100,
+        "current_entries": 0,
+        "entry_fee_cents": 10000,
+        "lock_time": "2026-03-12T04:00:00.000Z"
+      },
+      {
+        "id": "94ba3892-4a63-4c38-bc0c-fee0a516c40e",
+        "contest_name": "THE PLAYERS Championship — $10",
+        "status": "SCHEDULED",
+        "max_entries": 100,
+        "current_entries": 0,
+        "entry_fee_cents": 1000,
+        "lock_time": "2026-03-12T04:00:00.000Z"
+      },
+      {
+        "id": "902fe823-c3cb-4b99-93ce-cc594d89b5b1",
+        "contest_name": "THE PLAYERS Championship — $5",
+        "status": "SCHEDULED",
+        "max_entries": 100,
+        "current_entries": 0,
+        "entry_fee_cents": 500,
+        "lock_time": "2026-03-12T04:00:00.000Z"
+      }
+    ],
+    "contests_without_field_selections": 0,
+    "contests_without_entries": 5
+  }
+}

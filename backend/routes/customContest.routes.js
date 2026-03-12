@@ -544,6 +544,8 @@ router.patch('/:id/status', extractUserId, async (req, res) => {
  * - 409: { error_code: 'ALREADY_JOINED' | 'CONTEST_FULL' | 'CONTEST_LOCKED' | ... }
  */
 router.post('/:id/join', extractUserId, async (req, res) => {
+  console.log("[JOIN_ROUTE]", req.method, req.originalUrl, "user:", req.userId.slice(-6));
+
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
@@ -555,6 +557,8 @@ router.post('/:id/join', extractUserId, async (req, res) => {
     }
 
     const result = await customContestService.joinContest(pool, id, userId, token);
+
+    console.log("[JOIN_RESULT]", result.joined ? "SUCCESS" : "FAILED", "error_code:", result.error_code || "none");
 
     // Validate result is a proper object
     if (!result || typeof result !== 'object') {
@@ -622,6 +626,8 @@ router.get('/:id/leaderboard', extractUserId, async (req, res) => {
  * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
  */
 router.delete('/:id', extractUserId, async (req, res) => {
+  console.log("[DELETE_CONTEST_ROUTE]", req.method, req.originalUrl, "user:", req.userId.slice(-6));
+
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
@@ -662,6 +668,8 @@ router.delete('/:id', extractUserId, async (req, res) => {
  * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
  */
 router.delete('/:id/entry', extractUserId, async (req, res) => {
+  console.log("[UNJOIN_ROUTE]", req.method, req.originalUrl, "user:", req.userId.slice(-6));
+
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;

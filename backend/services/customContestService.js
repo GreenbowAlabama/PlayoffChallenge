@@ -1514,6 +1514,16 @@ async function publishContestInstance(pool, instanceId, organizerId) {
  * @returns {Promise<Object>} Join result { joined: true, participant } or { joined: false, error_code, reason }
  */
 async function joinContest(pool, contestInstanceId, userId, optionalToken = null) {
+  console.log(
+    "[JOIN_INITIATED]",
+    "contest:",
+    contestInstanceId,
+    "user:",
+    userId,
+    "time:",
+    new Date().toISOString()
+  );
+
   // Normalize UUIDs to lowercase to ensure consistent idempotency keys
   userId = userId.toLowerCase();
   contestInstanceId = contestInstanceId.toLowerCase();
@@ -2234,6 +2244,16 @@ async function getContestLeaderboard(pool, instanceId) {
  * @throws {Error} with code='CONTEST_DELETE_NOT_ALLOWED' if not organizer, wrong status, or entry_count > 1
  */
 async function deleteContestInstance(pool, contestId, organizerId) {
+  console.log(
+    "[DELETE_CONTEST_TRIGGERED]",
+    "contest:",
+    contestId,
+    "organizer:",
+    organizerId,
+    "time:",
+    new Date().toISOString()
+  );
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -2386,6 +2406,16 @@ async function deleteContestInstance(pool, contestId, organizerId) {
  * @throws {Error} with code='CONTEST_UNJOIN_NOT_ALLOWED' if not SCHEDULED or past lock_time
  */
 async function unJoinContest(pool, contestId, userId) {
+  console.log(
+    "[UNJOIN_TRIGGERED]",
+    "contest:",
+    contestId,
+    "user:",
+    userId,
+    "time:",
+    new Date().toISOString()
+  );
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
