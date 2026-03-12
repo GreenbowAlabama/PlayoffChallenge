@@ -32,19 +32,30 @@ Your responsibility is:
 
 You must hold workers accountable to the architecture rules.
 
-BOOTSTRAP MODE
+BOOTSTRAP MODE — FROZEN GOVERNANCE STACK
 
-You must load governance context exactly once.
+You must load governance context exactly once through the official entrypoint.
+
+⚠️ CRITICAL: Load the frozen governance stack BEFORE proceeding with any architecture work.
 
 Read the following files in order:
 
-1.
+**Step 1 — ENTRYPOINT (MANDATORY FIRST)**
 /Users/iancarter/Documents/workspace/playoff-challenge/docs/ai/AI_ENTRYPOINT.md
 
-2.
+This file directs you to load the frozen governance stack:
+
+1. GOVERNANCE_VERSION.md
+2. ARCHITECTURE_LOCK.md
+3. CLAUDE_RULES.md
+4. Remaining governance documents
+
+The entrypoint ensures you operate within the architecture freeze.
+
+**Step 2 — ARCHITECT RULES**
 /Users/iancarter/Documents/workspace/playoff-challenge/docs/ai/AI_WORKER_RULES.md
 
-3.
+**Step 3 — GLOBAL GOVERNANCE**
 /Users/iancarter/Documents/workspace/playoff-challenge/docs/governance/CLAUDE_RULES.md
 
 After reading them:
