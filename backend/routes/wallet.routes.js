@@ -26,24 +26,45 @@ function isValidUUID(str) {
 
 /**
  * Middleware to extract user ID from request.
- * Reads X-User-Id header only.
+ * Supports both:
+ * - Authorization: Bearer <jwt> (extracts sub or user_id from payload)
+ * - X-User-Id: <uuid> (direct UUID)
  * Validates UUID format.
  */
 function extractUserId(req, res, next) {
-  const xUserId = req.headers['x-user-id'];
+  let userId = null;
 
-  if (!xUserId) {
+  // Try Authorization Bearer token first
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.split(' ')[1];
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      userId = payload.sub || payload.user_id;
+    } catch (err) {
+      // JWT decode failed, fall through to X-User-Id check
+    }
+  }
+
+  // Fall back to X-User-Id header if JWT didn't work
+  if (!userId) {
+    userId = req.headers['x-user-id'];
+  }
+
+  // No user ID found
+  if (!userId) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  if (!isValidUUID(xUserId)) {
+  // Validate UUID format
+  if (!isValidUUID(userId)) {
     return res.status(400).json({ error: 'Invalid user ID format' });
   }
 
   if (process.env.LOG_AUTH_DEBUG === 'true') {
-    console.log('[Auth]', req.method, req.originalUrl, 'user_id_suffix:', xUserId.slice(-6));
+    console.log('[Auth]', req.method, req.originalUrl, 'user_id_suffix:', userId.slice(-6));
   }
-  req.userId = xUserId;
+  req.userId = userId;
   next();
 }
 
