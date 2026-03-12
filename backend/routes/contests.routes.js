@@ -82,7 +82,6 @@ router.get('/my', extractUserId, async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const userId = req.userId;
-    const isAdmin = req.isAdmin === true; // Fail-closed: default to false
 
     // Parse and validate pagination parameters
     const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
@@ -92,10 +91,9 @@ router.get('/my', extractUserId, async (req, res) => {
       return res.status(400).json({ error: 'Invalid pagination parameters' });
     }
 
-    const contests = await customContestService.getContestsForUser(
+    const contests = await customContestService.getParticipantContests(
       pool,
       userId,
-      isAdmin,
       limit,
       offset
     );
@@ -103,6 +101,40 @@ router.get('/my', extractUserId, async (req, res) => {
     res.json(contests);
   } catch (err) {
     console.error('[Contests] Error fetching my contests:', err);
+    res.status(500).json({ error: 'Failed to fetch contests' });
+  }
+});
+
+/**
+ * GET /api/contests/home
+ *
+ * Returns all SCHEDULED contests for the Home tab (Temporary Test Surface).
+ *
+ * Contract:
+ * - Data scope: All SCHEDULED contests (no filters on user participation or capacity)
+ * - Sorting: lock_time ASC (upcoming contests first)
+ * - Metadata-only: no standings
+ * - Non-mutating: does not trigger lifecycle advancement
+ *
+ * Response:
+ * - 200: Array of contest objects
+ * - 401: Authentication required
+ * - 500: Server error
+ *
+ * Authentication:
+ * - Requires extractUserId middleware (Bearer token or X-User-Id header)
+ * - userId from req.userId (extracted by middleware)
+ */
+router.get('/home', extractUserId, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const userId = req.userId;
+
+    const contests = await customContestService.getScheduledContestsForHome(pool, userId);
+
+    res.json(contests);
+  } catch (err) {
+    console.error('[Contests] Error fetching home contests:', err);
     res.status(500).json({ error: 'Failed to fetch contests' });
   }
 });

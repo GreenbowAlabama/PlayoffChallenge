@@ -2146,6 +2146,166 @@ async function getAvailableContests(pool, userId) {
 }
 
 /**
+ * Get Scheduled Contests for Home Tab (Temporary Test Surface)
+ *
+ * Returns all SCHEDULED contests with no filters.
+ * Sorted by lock_time ASC to show upcoming contests first.
+ *
+ * Governance compliance:
+ * - No time-based filtering (lock_time comparison)
+ * - No capacity filters
+ * - No user participation filters
+ * - Lifecycle-driven only (status = 'SCHEDULED')
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} userId - UUID of requesting user (for user_has_entered computation)
+ * @returns {Promise<Array>} Array of scheduled contest objects
+ */
+async function getScheduledContestsForHome(pool, userId) {
+  const result = await pool.query(
+    `
+    SELECT
+      ci.id,
+      ci.template_id,
+      ci.organizer_id,
+      ci.entry_fee_cents,
+      ci.payout_structure,
+      ci.status,
+      ci.start_time,
+      ci.lock_time,
+      ci.end_time,
+      ci.tournament_start_time,
+      ci.tournament_end_time,
+      ci.created_at,
+      ci.updated_at,
+      ci.join_token,
+      ci.max_entries,
+      ci.contest_name,
+      ci.settle_time,
+      ci.is_platform_owned,
+      ci.is_primary_marketing,
+      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      cct.name AS template_name,
+      cct.sport AS template_sport,
+      cct.template_type AS template_type,
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
+      EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $1) AS user_has_entered
+    FROM contest_instances ci
+    LEFT JOIN users u ON u.id = ci.organizer_id
+    LEFT JOIN contest_templates cct ON cct.id = ci.template_id
+    WHERE ci.status = 'SCHEDULED'
+    ORDER BY
+      ci.lock_time ASC NULLS LAST,
+      ci.created_at DESC
+    `,
+    [userId]
+  );
+
+  const currentTimestamp = Date.now();
+
+  // Map each row to list API response format (metadata-only, no standings)
+  const processedContests = result.rows.map(row =>
+    mapContestToApiResponseForList(row, { currentTimestamp, authenticatedUserId: userId })
+  );
+
+  return processedContests;
+}
+
+/**
+ * Get Participant Contests (Temporary Test Surface)
+ *
+ * Returns all contests where the user is a participant, regardless of status.
+ * Sorted by lifecycle priority (LIVE, SCHEDULED, COMPLETE, ERROR, CANCELLED)
+ * then by lock_time DESC for secondary ordering.
+ *
+ * Governance compliance:
+ * - No time-based filtering
+ * - User participation is the only filter
+ * - All lifecycle statuses included
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} userId - UUID of requesting user
+ * @param {number} limit - Results limit (default 50, clamped to [1, 200])
+ * @param {number} offset - Results offset (default 0, clamped to >= 0)
+ * @returns {Promise<Array>} Array of contest objects where user is a participant
+ */
+async function getParticipantContests(pool, userId, limit = 50, offset = 0) {
+  // Clamp pagination parameters
+  const limitValue = parseInt(limit, 10);
+  const offsetValue = parseInt(offset, 10);
+  const safeLimit = Math.max(1, Math.min(200, isNaN(limitValue) ? 50 : limitValue));
+  const safeOffset = Math.max(0, isNaN(offsetValue) ? 0 : offsetValue);
+
+  const result = await pool.query(
+    `
+    SELECT
+      ci.id,
+      ci.template_id,
+      ci.organizer_id,
+      ci.entry_fee_cents,
+      ci.payout_structure,
+      ci.status,
+      ci.start_time,
+      ci.lock_time,
+      ci.created_at,
+      ci.updated_at,
+      ci.join_token,
+      ci.max_entries,
+      ci.contest_name,
+      ci.end_time,
+      ci.settle_time,
+      COALESCE(u.username, u.name, 'Unknown') as organizer_name,
+      cct.name AS template_name,
+      cct.sport AS template_sport,
+      cct.template_type AS template_type,
+      (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
+      TRUE AS user_has_entered,
+      CASE ci.status
+        WHEN 'LIVE' THEN 0
+        WHEN 'SCHEDULED' THEN 1
+        WHEN 'COMPLETE' THEN 2
+        WHEN 'ERROR' THEN 3
+        WHEN 'CANCELLED' THEN 4
+        ELSE 99
+      END AS tier,
+      CASE WHEN ci.status = 'LIVE' THEN ci.end_time END AS live_end_time,
+      CASE WHEN ci.status = 'SCHEDULED' THEN ci.lock_time END AS scheduled_lock_time,
+      CASE WHEN ci.status = 'COMPLETE' THEN ci.settle_time END AS complete_settle_time,
+      CASE WHEN ci.status = 'ERROR' THEN ci.created_at END AS error_created_at,
+      CASE WHEN ci.status = 'CANCELLED' THEN ci.created_at END AS cancelled_created_at
+    FROM contest_instances ci
+    LEFT JOIN users u ON u.id = ci.organizer_id
+    LEFT JOIN contest_templates cct ON cct.id = ci.template_id
+    WHERE EXISTS (
+      SELECT 1 FROM contest_participants cp
+      WHERE cp.contest_instance_id = ci.id
+      AND cp.user_id = $1
+    )
+    ORDER BY
+      tier ASC,
+      live_end_time ASC NULLS LAST,
+      scheduled_lock_time DESC NULLS LAST,
+      complete_settle_time DESC NULLS LAST,
+      error_created_at DESC NULLS LAST,
+      cancelled_created_at DESC NULLS LAST,
+      ci.id ASC
+    LIMIT $2
+    OFFSET $3
+    `,
+    [userId, safeLimit, safeOffset]
+  );
+
+  const currentTimestamp = Date.now();
+
+  // Map each row to list API response format (metadata-only, no standings)
+  const processedContests = result.rows.map(row =>
+    mapContestToApiResponseForList(row, { currentTimestamp, authenticatedUserId: userId })
+  );
+
+  return processedContests;
+}
+
+/**
  * Get leaderboard for a contest instance.
  *
  * Returns standings, leaderboard state, and metadata in the format expected
@@ -2546,6 +2706,8 @@ module.exports = {
   getContestsForUser,
   getAvailableContestInstances,
   getAvailableContests,
+  getScheduledContestsForHome,
+  getParticipantContests,
   updateContestInstanceStatus,
   updateContestStatusForSystem,
   publishContestInstance,

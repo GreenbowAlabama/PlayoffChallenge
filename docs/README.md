@@ -233,6 +233,7 @@ npm test -- --forceExit
 | `CLAUDE.md` | Master rules (read first for any session) |
 | `docs/governance/CLAUDE_RULES.md` | Global governance + frozen layers |
 | `docs/governance/IOS_SWEEP_PROTOCOL.md` | iOS development structure |
+| `docs/api/contests-endpoints.md` | REST API endpoint specifications |
 | `backend/contracts/openapi.yaml` | Public API contract |
 
 ## Important Notes

@@ -173,6 +173,46 @@ The backend uses in-memory caching to reduce database/API calls:
 
 ---
 
+## Contest API Layer
+
+Client contest discovery and portfolio management are implemented via three endpoints:
+
+- **GET /api/contests/home** — Discover upcoming SCHEDULED contests
+- **GET /api/contests/my** — User's joined contests (all lifecycle states)
+- **GET /api/contests/available** — Legacy endpoint for joinable contests (deprecated)
+
+**Key Design Principle:** Visibility is determined by contest status (SCHEDULED, LIVE, COMPLETE, CANCELLED) rather than time-based filtering. This prevents race conditions and maintains deterministic behavior.
+
+**UI Mapping:**
+| iOS Tab | Endpoint | Purpose |
+|---------|----------|---------|
+| Home | `/contests/home` | Discover new contests |
+| My Contests | `/contests/my` | Track joined contests |
+| Join Button | `/custom-contests/{id}/join` | Participate |
+
+**Full endpoint documentation:** See `/docs/api/contests-endpoints.md` for detailed specifications, sorting rules, response formats, and migration guidance.
+
+```
+┌──────────────────────────────────────────────┐
+│                API Layer                     │
+│                                              │
+│  GET /api/contests/home      → discovery     │
+│  GET /api/contests/my        → user contests │
+│  GET /api/contests/available → legacy join   │
+└───────────────┬──────────────────────────────┘
+                │
+                ▼
+         ┌──────────────┐
+         │   iOS App    │
+         │              │
+         │ Home → /home │
+         │ My → /my     │
+         │ Join → /join │
+         └──────────────┘
+```
+
+---
+
 ## Data Flow: User Makes Picks
 
 ### Step 1: User opens "My Picks" tab
