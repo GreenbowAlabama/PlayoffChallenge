@@ -499,9 +499,10 @@ async function initializeTournamentField(pool, contestInstanceId) {
   try {
     await client.query('BEGIN');
 
-    // Load contest instance + template
+    // Load contest instance + template with tournament dates
     const ciResult = await client.query(
-      `SELECT ci.id, ci.provider_event_id, ct.sport
+      `SELECT ci.id, ci.provider_event_id, ci.tournament_start_time, ci.tournament_end_time,
+              ct.sport, ct.template_type
        FROM contest_instances ci
        JOIN contest_templates ct ON ci.template_id = ct.id
        WHERE ci.id = $1`,
@@ -513,7 +514,7 @@ async function initializeTournamentField(pool, contestInstanceId) {
       throw new Error(`Contest instance not found: ${contestInstanceId}`);
     }
 
-    const { sport, provider_event_id } = ciResult.rows[0];
+    const { sport, template_type, provider_event_id, tournament_start_time, tournament_end_time } = ciResult.rows[0];
 
     // Verify sport is GOLF
     if (sport !== 'GOLF') {
@@ -524,6 +525,21 @@ async function initializeTournamentField(pool, contestInstanceId) {
     // RC1 Fix: Generate synthetic provider_event_id if null (manual contests)
     const effectiveProviderId = provider_event_id || `manual_${contestInstanceId}`;
 
+    // Determine ingestion_endpoint based on template type
+    const ingestionEndpoint = template_type === 'PGA_TOURNAMENT' || template_type === 'PGA_DAILY'
+      ? 'espn_pga_scoreboard'
+      : 'provider_default';
+
+    // Use tournament dates if available, otherwise use NOW()
+    const eventStartDate = tournament_start_time || new Date();
+    const eventEndDate = tournament_end_time || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    // Calculate hash from provider_event_id
+    const crypto = require('crypto');
+    const hash = crypto.createHash('md5')
+      .update(contestInstanceId + '|' + effectiveProviderId)
+      .digest('hex');
+
     // Insert tournament_configs (idempotent: ON CONFLICT DO NOTHING)
     const tcResult = await client.query(
       `INSERT INTO tournament_configs (
@@ -532,19 +548,20 @@ async function initializeTournamentField(pool, contestInstanceId) {
         leaderboard_schema_version, field_source, hash, published_at, is_active, created_at
       )
       VALUES (
-        gen_random_uuid(), $1, $2, '',
-        NOW(), NOW() + interval '7 days', 4, NULL,
-        1, 'provider_sync', '', NOW(), false, NOW()
+        gen_random_uuid(), $1, $2, $3,
+        $4, $5, 4, NULL,
+        1, 'provider_sync', $6, NOW(), true, NOW()
       )
       ON CONFLICT DO NOTHING
       RETURNING id`,
-      [contestInstanceId, effectiveProviderId]
+      [contestInstanceId, effectiveProviderId, ingestionEndpoint, eventStartDate, eventEndDate, hash]
     );
 
     // Get tournament_config_id (either from insert or from existing row)
     let tourneyConfigId;
     if (tcResult.rows.length > 0) {
       tourneyConfigId = tcResult.rows[0].id;
+      console.log(`[Discovery] Tournament config created for contest ${contestInstanceId}: ${ingestionEndpoint}`);
     } else {
       // If ON CONFLICT triggered, fetch the existing row
       const existingResult = await client.query(
@@ -557,19 +574,27 @@ async function initializeTournamentField(pool, contestInstanceId) {
         throw new Error(`Failed to create or find tournament_configs for ${contestInstanceId}`);
       }
       tourneyConfigId = existingResult.rows[0].id;
+      console.log(`[Discovery] Tournament config already exists for contest ${contestInstanceId}`);
     }
 
     // Insert field_selections with placeholder structure (idempotent)
-    await client.query(
+    const fsResult = await client.query(
       `INSERT INTO field_selections (
         id, contest_instance_id, tournament_config_id, selection_json, created_at
       )
       VALUES (
         gen_random_uuid(), $1, $2, $3, NOW()
       )
-      ON CONFLICT DO NOTHING`,
+      ON CONFLICT DO NOTHING
+      RETURNING id`,
       [contestInstanceId, tourneyConfigId, JSON.stringify({ primary: [] })]
     );
+
+    if (fsResult.rows.length > 0) {
+      console.log(`[Discovery] Field selections initialized for contest ${contestInstanceId}`);
+    } else {
+      console.log(`[Discovery] Field selections already exist for contest ${contestInstanceId}`);
+    }
 
     // RC2 Fix: Immediately populate field_selections with active players
     const activePlayerIds = await fetchExistingGolfPlayerIds(pool);
