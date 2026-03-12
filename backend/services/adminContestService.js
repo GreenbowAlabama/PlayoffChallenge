@@ -1044,18 +1044,6 @@ async function deleteContest(pool, contestId, adminId, reason, hard) {
  * @throws {Error} If contest not found, invalid status, or database error
  */
 async function adminRemoveUserFromContest(pool, contestId, userId, adminUserId, reason) {
-  console.log(
-    "[ADMIN_REMOVE_USER_TRIGGERED]",
-    "contest:",
-    contestId,
-    "user:",
-    userId,
-    "admin:",
-    adminUserId,
-    "time:",
-    new Date().toISOString()
-  );
-
   // Validate inputs
   if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
     throw new Error('reason is required');

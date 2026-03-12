@@ -1514,16 +1514,6 @@ async function publishContestInstance(pool, instanceId, organizerId) {
  * @returns {Promise<Object>} Join result { joined: true, participant } or { joined: false, error_code, reason }
  */
 async function joinContest(pool, contestInstanceId, userId, optionalToken = null) {
-  console.log(
-    "[JOIN_INITIATED]",
-    "contest:",
-    contestInstanceId,
-    "user:",
-    userId,
-    "time:",
-    new Date().toISOString()
-  );
-
   // Normalize UUIDs to lowercase to ensure consistent idempotency keys
   userId = userId.toLowerCase();
   contestInstanceId = contestInstanceId.toLowerCase();
@@ -2244,16 +2234,6 @@ async function getContestLeaderboard(pool, instanceId) {
  * @throws {Error} with code='CONTEST_DELETE_NOT_ALLOWED' if not organizer, wrong status, or entry_count > 1
  */
 async function deleteContestInstance(pool, contestId, organizerId) {
-  console.log(
-    "[DELETE_CONTEST_TRIGGERED]",
-    "contest:",
-    contestId,
-    "organizer:",
-    organizerId,
-    "time:",
-    new Date().toISOString()
-  );
-
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -2406,15 +2386,33 @@ async function deleteContestInstance(pool, contestId, organizerId) {
  * @throws {Error} with code='CONTEST_UNJOIN_NOT_ALLOWED' if not SCHEDULED or past lock_time
  */
 async function unJoinContest(pool, contestId, userId) {
-  console.log(
-    "[UNJOIN_TRIGGERED]",
-    "contest:",
-    contestId,
-    "user:",
-    userId,
-    "time:",
-    new Date().toISOString()
+  // SAFETY GUARD: Prevent rapid join/unjoin cycles (catches client bugs)
+  // This protects against race conditions where iOS app unjoins immediately after joining
+  const recentJoin = await pool.query(
+    `SELECT joined_at FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2 LIMIT 1`,
+    [contestId, userId]
   );
+
+  if (recentJoin.rows.length > 0) {
+    const joinedAt = new Date(recentJoin.rows[0].joined_at).getTime();
+    const now = Date.now();
+    const MIN_JOIN_DURATION_MS = 30000; // 30 seconds
+
+    if (now - joinedAt < MIN_JOIN_DURATION_MS) {
+      console.warn(
+        "[UNJOIN_GUARD_BLOCKED]",
+        "contest:",
+        contestId,
+        "user:",
+        userId.slice(-6),
+        "reason: rapid_unjoin"
+      );
+
+      const err = new Error('Cannot leave contest immediately after joining. Please wait 30 seconds.');
+      err.code = 'UNJOIN_TOO_SOON';
+      throw err;
+    }
+  }
 
   const client = await pool.connect();
   try {

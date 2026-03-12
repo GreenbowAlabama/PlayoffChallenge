@@ -544,8 +544,6 @@ router.patch('/:id/status', extractUserId, async (req, res) => {
  * - 409: { error_code: 'ALREADY_JOINED' | 'CONTEST_FULL' | 'CONTEST_LOCKED' | ... }
  */
 router.post('/:id/join', extractUserId, async (req, res) => {
-  console.log("[JOIN_ROUTE]", req.method, req.originalUrl, "user:", req.userId.slice(-6));
-
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
@@ -557,8 +555,6 @@ router.post('/:id/join', extractUserId, async (req, res) => {
     }
 
     const result = await customContestService.joinContest(pool, id, userId, token);
-
-    console.log("[JOIN_RESULT]", result.joined ? "SUCCESS" : "FAILED", "error_code:", result.error_code || "none");
 
     // Validate result is a proper object
     if (!result || typeof result !== 'object') {
@@ -626,8 +622,6 @@ router.get('/:id/leaderboard', extractUserId, async (req, res) => {
  * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
  */
 router.delete('/:id', extractUserId, async (req, res) => {
-  console.log("[DELETE_CONTEST_ROUTE]", req.method, req.originalUrl, "user:", req.userId.slice(-6));
-
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
@@ -668,11 +662,20 @@ router.delete('/:id', extractUserId, async (req, res) => {
  * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
  */
 router.delete('/:id/entry', extractUserId, async (req, res) => {
-  console.log("[UNJOIN_ROUTE]", req.method, req.originalUrl, "user:", req.userId.slice(-6));
+  const { id } = req.params;
+
+  console.warn(
+    '[UNJOIN_REQUEST]',
+    'contest:',
+    id.slice(-6),
+    'user:',
+    req.userId.slice(-6),
+    'agent:',
+    req.headers['user-agent'] || 'unknown'
+  );
 
   try {
     const pool = req.app.locals.pool;
-    const { id } = req.params;
 
     if (!isValidUUID(id)) {
       return res.status(400).json({ error: 'Invalid contest ID format' });
@@ -691,6 +694,9 @@ router.delete('/:id/entry', extractUserId, async (req, res) => {
     }
     if (err.code === 'CONTEST_UNJOIN_NOT_ALLOWED') {
       return res.status(403).json({ error_code: err.code, reason: err.message });
+    }
+    if (err.code === 'UNJOIN_TOO_SOON') {
+      return res.status(409).json({ error_code: err.code, reason: err.message });
     }
     console.error('[Custom Contest] Error unjoining contest:', err);
     res.status(500).json({ error_code: 'INTERNAL_ERROR', reason: 'Failed to unjoin contest' });
