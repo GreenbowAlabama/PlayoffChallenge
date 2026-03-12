@@ -1,9 +1,11 @@
 # Ledger Architecture and Financial Reconciliation
-67 Games / Playoff Challenge
 
-Status: Authoritative Governance Document  
-Owner: Architecture  
-Last Updated: 2026-03-07
+**Status:** FROZEN — Authoritative Governance Document
+**Governance Version:** 1
+**Last Verified:** 2026-03-11
+**Architecture Lock:** ACTIVE (See ARCHITECTURE_LOCK.md)
+**Owner:** Architecture
+**Last Updated:** 2026-03-07
 
 ---
 

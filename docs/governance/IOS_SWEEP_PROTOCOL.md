@@ -1,5 +1,9 @@
 # iOS Sweep Protocol — Structured & Contract-Safe
 
+**Status:** AUTHORITATIVE
+**Governance Version:** 1
+**Last Verified:** 2026-03-11
+
 **Purpose:** Enforce disciplined, deterministic iOS development through mandatory pre-reads, layer boundary enforcement, and structured sweep phases. Prevent drift between backend contracts and iOS implementation.
 
 ---

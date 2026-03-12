@@ -1,8 +1,10 @@
 # Financial Control Tower
 
-Status: Authoritative Governance Document
-Owner: Operations & Architecture
-Last Updated: 2026-03-07
+**Status:** AUTHORITATIVE
+**Governance Version:** 1
+**Last Verified:** 2026-03-11
+**Owner:** Operations & Architecture
+**Last Updated:** 2026-03-07
 
 ---
 

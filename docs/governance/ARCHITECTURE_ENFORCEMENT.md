@@ -1,5 +1,10 @@
 # Architecture Enforcement
 
+**Status:** AUTHORITATIVE
+**Governance Version:** 1
+**Last Verified:** 2026-03-11
+**Architecture Lock:** ACTIVE (See ARCHITECTURE_LOCK.md)
+
 This document tracks enforcement guardrails introduced to maintain design system authority and prevent architectural drift.
 
 ---

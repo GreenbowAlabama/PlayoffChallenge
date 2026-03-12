@@ -1,5 +1,9 @@
 # Admin Control Room Governance
 
+**Status:** AUTHORITATIVE
+**Governance Version:** 1
+**Last Verified:** 2026-03-11
+
 ## Purpose
 
 The Admin Control Room provides a single operational console for monitoring the health and behavior of the platform.

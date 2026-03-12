@@ -1,5 +1,10 @@
 # Lifecycle Execution Map
 
+**Status:** FROZEN — Authoritative Governance Document
+**Governance Version:** 1
+**Last Verified:** 2026-03-11
+**Architecture Lock:** ACTIVE (See ARCHITECTURE_LOCK.md)
+
 **Purpose:** Single authoritative reference for all contest lifecycle transitions.
 Prevents fragmented execution entry points and orchestration drift.
 

@@ -1,9 +1,29 @@
 # CLAUDE RULES — PLAYOFF CHALLENGE (READ FIRST)
 
+**Status:** AUTHORITATIVE
+**Governance Version:** 1
+**Last Verified:** 2026-03-11
+
 This document is a HARD GATE.
 
 Claude must read and follow this before making any changes.
 If any rule here conflicts with a suggested action, this file wins.
+
+---
+
+## Governance Authority
+
+Governance documentation represents the authoritative architectural model of the system.
+
+If governance documentation conflicts with application code, schema snapshot, or OpenAPI contracts, the following precedence applies:
+
+1. **schema.snapshot.sql** — Database structure is authoritative
+2. **OpenAPI contracts** — API shapes are authoritative
+3. **Source code** — Implementation must conform to contracts
+4. **Governance documentation** — This layer ensures consistency
+5. **Operational documentation** — Describes how to operate the system
+
+Workers must verify governance claims against source code and schema before proceeding with changes.
 
 ---
 
@@ -24,6 +44,26 @@ Single source of truth prevents drift.
 | `FINANCIAL_INVARIANTS.md` | Wallet debit atomicity, entry fee immutability, idempotency guarantees, error handling |
 | `IOS_SWEEP_PROTOCOL.md` | iOS development phases, contract integrity, layer boundary enforcement |
 | `ARCHITECTURE_ENFORCEMENT.md` | Design system token enforcement (iOS UI) |
+
+---
+
+## Documentation Idempotency Rule
+
+AI workers must treat documentation edits as **deterministic updates**.
+
+When modifying documentation:
+
+• **Existing sections must be replaced** (not duplicated)
+• **Headers must remain unique**
+• **Duplicate sections are prohibited**
+
+If a section already exists:
+
+The worker must modify the existing section rather than adding a new one.
+
+Workers must not append repeated sections with the same header.
+
+Meaning: Running the same documentation update multiple times must produce the same document structure without duplication.
 
 ---
 
@@ -85,35 +125,55 @@ Git is handled manually.
 
 ---
 
-# 3. SCHEMA IS NOT ASSUMED
+# 3. SCHEMA AUTHORITY
 
-schema.snapshot.sql is authoritative.
+**Authoritative Source:**
+`/Users/iancarter/Documents/workspace/playoff-challenge/backend/db/schema.snapshot.sql`
 
-Claude:
-- Must NOT assume schema structure.
-- Must request SCHEMA_REFERENCE.md first (organized by domain, faster to scan).
-- Must request schema.snapshot.sql if SCHEMA_REFERENCE.md lacks necessary detail.
-- Must not hallucinate columns or constraints.
+The database schema snapshot is the single source of truth for:
+- Table definitions
+- Column types and constraints
+- Foreign key relationships
+- Trigger rules
+- Index definitions
+- Constraint enforcement
+
+Workers must NOT:
+- Assume schema structure
+- Hallucinate columns or constraints
+- Infer schema from code
+- Modify schema without explicit architect approval
 
 If database behavior is involved:
-- Consult SCHEMA_REFERENCE.md first (/Users/iancarter/Documents/workspace/playoff-challenge/SCHEMA_REFERENCE.md)
-- Then inspect schema.snapshot.sql if needed (/Users/iancarter/Documents/workspace/playoff-challenge/backend/db/schema.snapshot.sql)
-- Do not guess.
+- Consult SCHEMA_REFERENCE.md first (organized by domain, faster navigation)
+- Inspect schema.snapshot.sql if detail is needed
+- Do not guess or infer
+
+Any proposed change that requires schema modification must be reported:
+"Schema change required before code change."
 
 ---
 
-# 4. OPENAPI IS LAW
+# 4. OPENAPI CONTRACT AUTHORITY
 
-backend/openapi.yaml is authoritative.
+**Authoritative Sources:**
+- `/Users/iancarter/Documents/workspace/playoff-challenge/backend/contracts/openapi.yaml` (public API)
+- `/Users/iancarter/Documents/workspace/playoff-challenge/backend/contracts/openapi-admin.yaml` (admin API)
 
-- Request/response shapes must match openapi.yaml.
-- No silent API changes.
-- No undocumented fields.
-- No inferred contract changes.
+API response shapes and request formats are defined by OpenAPI contracts.
+
+Workers must NOT:
+- Add undocumented response fields
+- Change request/response shapes without updating contracts
+- Infer contract changes from code
+- Deploy API changes that deviate from OpenAPI
 
 If implementation and OpenAPI conflict:
-- OpenAPI wins.
-- Update implementation to comply.
+- OpenAPI contract is authoritative
+- Update implementation to match contract
+
+Any proposed change that would break OpenAPI compatibility must be reported:
+"API contract violation — update OpenAPI first."
 
 ---
 
