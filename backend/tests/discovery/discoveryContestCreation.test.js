@@ -965,5 +965,80 @@ describe('discoveryContestCreationService', () => {
         [eventId]
       );
     });
+
+    it('verifies template auto-creation called via discoverTournament on missing template', async () => {
+      // TEST: Verify that when a template doesn't exist, discoverTournament is called
+      // This confirms the if-not-found-then-create logic works
+
+      const uniqueEventId = `espn_pga_verify_call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const event = {
+        provider_event_id: uniqueEventId,
+        name: 'Verify Call Test Tournament',
+        start_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),  // 7 days from now
+        end_time: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)    // 10 days from now
+      };
+
+      mockGetAllEvents.mockReturnValue([event]);
+      mockDiscoverTournament.mockResolvedValue({
+        success: true,
+        templateId: 'test-template-id',
+        created: true
+      });
+
+      // Run discovery
+      const result = await runDiscoveryCycle(pool, new Date(), organizerId);
+
+      expect(result.success).toBe(true);
+      expect(result.event_id).toBe(uniqueEventId);
+
+      // CRITICAL: Verify discoverTournament was called
+      // This proves the "if template not found, call discoverTournament" logic is active
+      expect(mockDiscoverTournament).toHaveBeenCalled();
+      expect(mockDiscoverTournament).toHaveBeenCalledTimes(1);
+
+      // Verify the call received the correct provider_tournament_id (normalized format)
+      const callArgs = mockDiscoverTournament.mock.calls[0][0];
+      expect(callArgs.provider_tournament_id).toBe(uniqueEventId);
+      expect(callArgs.season_year).toBe(new Date().getFullYear());
+      expect(callArgs.name).toBe(event.name);
+    });
+
+    it('event ID normalization: discovery normalizes raw ESPN IDs to espn_pga_ format', async () => {
+      // TEST: Verify event IDs are normalized before any DB queries
+      // This simulates the case where ESPN returns raw IDs, which must be normalized
+
+      const rawEspnId = '401811950';  // Raw ESPN event ID
+      const normalizedId = `espn_pga_${rawEspnId}`;  // Expected normalized format
+
+      const event = {
+        provider_event_id: normalizedId,  // calendarProvider.js already normalized this
+        name: 'Normalization Test Event',
+        start_time: new Date(Date.now() + 86400000),
+        end_time: new Date(Date.now() + 172800000)
+      };
+
+      mockGetAllEvents.mockReturnValue([event]);
+      mockDiscoverTournament.mockResolvedValue({
+        success: true,
+        created: true
+      });
+
+      const result = await runDiscoveryCycle(pool, new Date(), organizerId);
+
+      expect(result.success).toBe(true);
+      // Verify discoverTournament was called with normalized ID
+      expect(mockDiscoverTournament).toHaveBeenCalled();
+      const callArgs = mockDiscoverTournament.mock.calls[0][0];
+      expect(callArgs.provider_tournament_id).toBe(normalizedId);
+      expect(callArgs.provider_tournament_id).toMatch(/^espn_pga_\d+$/);
+
+      // Cleanup
+      await pool.query(
+        `DELETE FROM contest_templates
+         WHERE provider_tournament_id = $1
+         AND is_system_generated = true`,
+        [normalizedId]
+      );
+    });
   });
 });

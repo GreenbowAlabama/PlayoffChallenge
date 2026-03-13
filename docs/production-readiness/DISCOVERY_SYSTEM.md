@@ -16,6 +16,30 @@ The discovery engine scans the provider calendar and ensures system contest temp
 
 All events with `start_time` that falls within this window will be discovered and processed.
 
+### Automatic Template Creation
+
+**Discovery automatically generates system templates when a tournament is first detected.**
+
+When `runDiscoveryCycle()` discovers a new tournament (an event with no existing system template), it:
+
+1. Calls `discoverTournament()` to create a system-generated template
+2. Automatically configures the template with PGA-specific scoring, settlement, and payout rules
+3. Creates a primary marketing contest instance for the template
+4. Proceeds to create contest instances for all entry fee tiers
+
+**This flow is fully autonomous** — manual template creation is not required.
+
+**Event ID Normalization:**
+
+All event IDs are normalized to the format `espn_pga_{event_id}` before any database queries:
+
+```
+Raw ESPN ID:     401811937
+Normalized:      espn_pga_401811937
+```
+
+Normalization happens in `calendarProvider.js` before events reach discovery logic.
+
 ### Discovery Cycle Behavior
 
 **Single Cycle (runDiscoveryCycle):**
@@ -25,7 +49,7 @@ All events with `start_time` that falls within this window will be discovered an
 3. **Sort events** by start_time ASC for deterministic processing
 4. **For each event:**
    - Check if a system-generated contest template exists
-   - If not, create the tournament template
+   - **If NOT found:** call `discoverTournament()` to auto-create the template
    - Create contest instances for the template (multiple entry fee tiers)
 5. **Skip events** that already have templates (idempotent)
 
@@ -105,10 +129,16 @@ const DISCOVERY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;  // 14 days
 ```
 [Discovery Calendar] Checking window: ... (N total events, M candidates)
 [Discovery Calendar] Evaluating event espn_pga_XXX start=...
-[Discovery Calendar] Creating template for event espn_pga_XXX
+[Discovery Calendar] Creating system template for event espn_pga_XXX
+[Discovery] ✓ Created system template: event=espn_pga_XXX, template_id=<uuid>
 [Discovery Calendar] Completed event espn_pga_XXX: templates_created=X, instances_created=Y
 [Discovery Calendar] cycle_duration_ms=DURATION
 ```
+
+**Template Auto-Creation Logs:**
+- `[Discovery Calendar] Creating system template for event espn_pga_XXX` — Template creation initiated
+- `[Discovery] ✓ Created system template: event=espn_pga_XXX, template_id=<uuid>` — Template successfully created
+- `[Discovery Calendar] Skipped event espn_pga_XXX reason=template_exists` — Template already existed, skipped creation
 
 **Errors:**
 ```

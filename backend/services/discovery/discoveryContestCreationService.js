@@ -216,7 +216,7 @@ async function runDiscoveryCycle(pool, now = new Date(), organizerId) {
 
         // Step 4b: Template doesn't exist, create it
         console.log(
-          `[Discovery Calendar] Creating template for event ${event.provider_event_id}`
+          `[Discovery Calendar] Creating system template for event ${event.provider_event_id}`
         );
 
         const discoverResult = await discoverTournament(
@@ -242,6 +242,9 @@ async function runDiscoveryCycle(pool, now = new Date(), organizerId) {
 
         if (discoverResult.created) {
           templatesCreatedInCycle = true;
+          console.log(
+            `[Discovery] ✓ Created system template: event=${event.provider_event_id}, template_id=${discoverResult.templateId}`
+          );
         }
 
         // Step 4c: Create contest instances for this event
