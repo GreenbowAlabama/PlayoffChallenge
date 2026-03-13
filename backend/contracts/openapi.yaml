@@ -1868,7 +1868,7 @@ components:
           format: date-time
         token:
           type: string
-          description: JWT bearer token used as Authorization: Bearer <token>
+          description: "JWT bearer token used as Authorization: Bearer <token>"
 
     Leaderboard:
       type: object
