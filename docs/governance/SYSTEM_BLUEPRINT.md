@@ -121,7 +121,30 @@ Key Systems
 
 ESPN API → Discovery Worker → Contest Templates → Contest Instances
 
-Key Systems
+### Discovery Worker
+
+**Inputs:**
+- Provider calendar (ESPN PGA API)
+
+**Processing:**
+1. Pull full event calendar from provider
+2. Filter events by discovery window (14 days from current time)
+3. For each event in window:
+   - Check if system template exists (via provider_tournament_id)
+   - Create template if not exists
+   - Create contest instances for template (multiple entry fee tiers)
+4. Skip events that already have templates (idempotent)
+
+**Output:**
+- contest_templates rows (system-generated PGA_TOURNAMENT type)
+- contest_instances rows (platform-owned contests)
+
+**Guarantees:**
+- Idempotent (templates checked before creation)
+- Deterministic ordering (events sorted by start_time)
+- No duplicate templates (unique constraint enforced)
+
+**Key Systems**
 
 - Discovery Worker
 - Contest Engine
@@ -146,7 +169,7 @@ UNIQUE(provider_event_id, template_id, entry_fee_cents)
 - Guarantees deterministic contest generation
 
 **Implementation Note:**
-The discovery system binds external provider events to templates via `provider_tournament_id`. This binding is idempotent and ensures that replaying discovery does not create duplicate contests or templates.
+The discovery system binds external provider events to templates via `provider_tournament_id`. This binding is idempotent and ensures that replaying discovery does not create duplicate contests or templates. Discovery processes all events in the 14-day window in a single cycle, ensuring no tournaments are skipped.
 
 ---
 

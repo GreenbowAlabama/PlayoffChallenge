@@ -26,12 +26,16 @@
  * - Season year extracted from event.start_time
  */
 
-const { getNextUpcomingEvent } = require('./calendarProvider');
+const { getNextUpcomingEvent, getAllEvents } = require('./calendarProvider');
 const { fetchEspnSummary, extractEspnEventId } = require('./espnDataFetcher');
 const { discoverTournament } = require('./discoveryService');
 const pgaEspnIngestion = require('../ingestion/strategies/pgaEspnIngestion');
 const { initializeTournamentField } = require('../ingestionService');
 const customContestService = require('../customContestService');
+
+// Discovery window: 14 days in milliseconds
+// All events with start_time within this window will be discovered
+const DISCOVERY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 /**
  * Derive lock_time for a PGA contest during creation.
@@ -89,11 +93,18 @@ async function deriveLockTimeForCreation(providerEventId, fixtureStartDate) {
 
 /**
  * Run discovery cycle:
- * 1. Get next upcoming event (7-day window)
- * 2. Resolve base PGA_BASE template
- * 3. Clone tournament template from base (idempotent)
- * 4. Create contest instance (idempotent)
- * 5. Log cycle outcome (event_id, template_created, instance_created)
+ * 1. Get ALL upcoming events within discovery window (14 days)
+ * 2. For EACH event in the window (sorted by start_time):
+ *    a. Check if template already exists (skip if it does)
+ *    b. Create tournament template if it doesn't exist
+ *    c. Create contest instances for that tournament
+ * 3. Log outcome for each event (evaluated, created, skipped)
+ *
+ * CRITICAL FIX: This function now processes ALL events in the discovery window
+ * in a single cycle, preventing events from being missed due to sequential processing.
+ * Previously, only the next upcoming event was processed per cycle run.
+ *
+ * Return contract maintained for backward compatibility with worker and tests.
  *
  * @param {Object} pool - Database connection pool
  * @param {Date} now - Current time (for determinism)
@@ -101,11 +112,12 @@ async function deriveLockTimeForCreation(providerEventId, fixtureStartDate) {
  *
  * @returns {Promise<Object>} {
  *   success: boolean,
- *   event_id: string|null,
- *   template_created: boolean,
- *   instance_created: boolean,
+ *   event_id: string|null (last event processed, or null if none),
+ *   template_created: boolean (true if any template was created in cycle),
+ *   instance_created: boolean (true if any instance was created in cycle),
  *   errors: string[],
- *   message: string
+ *   message: string,
+ *   created: number (total instances created, for compatibility)
  * }
  */
 async function runDiscoveryCycle(pool, now = new Date(), organizerId) {
@@ -115,73 +127,167 @@ async function runDiscoveryCycle(pool, now = new Date(), organizerId) {
       event_id: null,
       template_created: false,
       instance_created: false,
+      created: 0,
       errors: ['organizerId parameter is required'],
       message: 'Discovery cycle failed: missing organizerId'
     };
   }
 
-  try {
-    // Step 1: Get next upcoming event (7-day window)
-    const event = await Promise.resolve(getNextUpcomingEvent(now));
+  const cycleStart = Date.now();
 
-    if (!event) {
+  try {
+    // Step 1: Get ALL events from the calendar
+    const allEvents = getAllEvents();
+
+    if (!allEvents || allEvents.length === 0) {
       return {
         success: true,
         event_id: null,
-        created: 0,
         template_created: false,
         instance_created: false,
+        created: 0,
         errors: [],
-        message: 'No upcoming events within 7-day window'
+        message: 'No events in calendar'
       };
     }
 
-    // Step 2: Auto-create system template for this tournament via discoveryService
-    // This ensures the template exists before createContestsForEvent attempts to use it
-    const discoverResult = await discoverTournament(
-      {
-        provider_tournament_id: event.provider_event_id,
-        season_year: event.start_time.getFullYear(),
-        name: event.name,
-        start_time: event.start_time,
-        end_time: event.end_time,
-        status: 'SCHEDULED'
-      },
-      pool,
-      now,
-      organizerId
+    // Step 2: Filter events within discovery window (14 days)
+    // Use same window as getNextUpcomingEvent() for consistency
+    const windowEnd = new Date(now.getTime() + DISCOVERY_WINDOW_MS);
+    const candidateEvents = allEvents.filter(event => {
+      // Defensive parsing: handle both start_time and startDate
+      const startTime = new Date(event.start_time || event.startDate);
+      return startTime >= now && startTime <= windowEnd;
+    });
+
+    if (candidateEvents.length === 0) {
+      return {
+        success: true,
+        event_id: null,
+        template_created: false,
+        instance_created: false,
+        created: 0,
+        errors: [],
+        message: `No upcoming events within ${DISCOVERY_WINDOW_MS / (24 * 60 * 60 * 1000)}-day window`
+      };
+    }
+
+    // Step 3: Sort candidate events by start_time (deterministic ordering)
+    candidateEvents.sort((a, b) => {
+      const aStart = new Date(a.start_time || a.startDate);
+      const bStart = new Date(b.start_time || b.startDate);
+      return aStart - bStart;
+    });
+
+    console.log(
+      `[Discovery Calendar] Checking window: ${now.toISOString()} to ${windowEnd.toISOString()} (${allEvents.length} total events, ${candidateEvents.length} candidates)`
     );
 
-    if (!discoverResult.success) {
-      return {
-        success: false,
-        event_id: event.provider_event_id,
-        template_created: false,
-        instance_created: false,
-        errors: [discoverResult.error],
-        message: `Discovery cycle failed: template creation error: ${discoverResult.error}`
-      };
+    // Step 4: Process each candidate event
+    let lastEventId = null;
+    let templatesCreatedInCycle = false;
+    let instancesCreatedInCycle = false;
+    let totalInstancesCreated = 0;
+    const errors = [];
+
+    for (const event of candidateEvents) {
+      try {
+        const startTime = new Date(event.start_time || event.startDate);
+        console.log(
+          `[Discovery Calendar] Evaluating event ${event.provider_event_id} start=${startTime.toISOString()}`
+        );
+
+        // Step 4a: Check if template already exists
+        const templateCheckResult = await pool.query(
+          `SELECT id FROM contest_templates
+           WHERE provider_tournament_id = $1
+           AND season_year = $2
+           AND is_system_generated = true
+           LIMIT 1`,
+          [event.provider_event_id, startTime.getFullYear()]
+        );
+
+        if (templateCheckResult.rows.length > 0) {
+          console.log(
+            `[Discovery Calendar] Skipped event ${event.provider_event_id} reason=template_exists`
+          );
+          continue;
+        }
+
+        // Step 4b: Template doesn't exist, create it
+        console.log(
+          `[Discovery Calendar] Creating template for event ${event.provider_event_id}`
+        );
+
+        const discoverResult = await discoverTournament(
+          {
+            provider_tournament_id: event.provider_event_id,
+            season_year: startTime.getFullYear(),
+            name: event.name,
+            start_time: event.start_time,
+            end_time: event.end_time,
+            status: 'SCHEDULED'
+          },
+          pool,
+          now,
+          organizerId
+        );
+
+        if (!discoverResult.success) {
+          const errorMsg = `Failed to create template for ${event.provider_event_id}: ${discoverResult.error}`;
+          console.error(`[Discovery Calendar] ${errorMsg}`);
+          errors.push(errorMsg);
+          continue;
+        }
+
+        if (discoverResult.created) {
+          templatesCreatedInCycle = true;
+        }
+
+        // Step 4c: Create contest instances for this event
+        const contestResult = await createContestsForEvent(pool, event, now, organizerId);
+
+        if (contestResult.success && contestResult.created > 0) {
+          instancesCreatedInCycle = true;
+          totalInstancesCreated += contestResult.created;
+        } else if (!contestResult.success) {
+          errors.push(...contestResult.errors);
+        }
+
+        lastEventId = event.provider_event_id;
+
+        console.log(
+          `[Discovery Calendar] Completed event ${event.provider_event_id}: templates_created=${discoverResult.created ? 1 : 0}, instances_created=${contestResult.created}`
+        );
+      } catch (eventErr) {
+        const errorMsg = `Error processing event ${event.provider_event_id}: ${eventErr.message}`;
+        console.error(`[Discovery Calendar] ${errorMsg}`);
+        errors.push(errorMsg);
+      }
     }
 
-    // Step 3: Create contest instances for all system-generated templates
-    const result = await createContestsForEvent(pool, event, now, organizerId);
+    const cycleDuration = Date.now() - cycleStart;
+    console.log(`[Discovery Calendar] cycle_duration_ms=${cycleDuration}`);
 
     return {
-      success: result.success,
-      event_id: event.provider_event_id,
-      created: result.created,
-      // template_created: whether we created a new template or it was already idempotent
-      template_created: discoverResult.created,
-      instance_created: result.created > 0,
-      errors: result.errors,
-      message: `Template: created=${discoverResult.created}, Instances: created=${result.created}`
+      success: errors.length === 0,
+      event_id: lastEventId,
+      template_created: templatesCreatedInCycle,
+      instance_created: instancesCreatedInCycle,
+      created: totalInstancesCreated,
+      errors,
+      message: `Processed ${candidateEvents.length} candidates: templates_created=${templatesCreatedInCycle}, instances_created=${instancesCreatedInCycle}, total_instances=${totalInstancesCreated}`
     };
   } catch (err) {
+    const cycleDuration = Date.now() - cycleStart;
+    console.log(`[Discovery Calendar] cycle_duration_ms=${cycleDuration}`);
+
     return {
       success: false,
       event_id: null,
       template_created: false,
       instance_created: false,
+      created: 0,
       errors: [err.message],
       message: `Discovery cycle failed: ${err.message}`
     };
