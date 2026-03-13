@@ -138,8 +138,10 @@ async function runDiscoveryCycle(pool, now = new Date(), organizerId) {
   try {
     // Step 1: Get ALL events from the calendar
     const allEvents = getAllEvents();
+    console.log(`[Discovery Calendar] Loaded tournaments: ${allEvents.length}`);
 
     if (!allEvents || allEvents.length === 0) {
+      console.warn('[Discovery] WARNING: calendarProvider returned 0 tournaments');
       return {
         success: true,
         event_id: null,
@@ -159,6 +161,12 @@ async function runDiscoveryCycle(pool, now = new Date(), organizerId) {
       const startTime = new Date(event.start_time || event.startDate);
       return startTime >= now && startTime <= windowEnd;
     });
+
+    // Log filtered events for observability
+    const eligibleEventIds = candidateEvents.map(e => e.provider_event_id);
+    console.log(
+      `[Discovery] Events inside discovery window (${DISCOVERY_WINDOW_MS / (24 * 60 * 60 * 1000)} days): ${eligibleEventIds.join(', ') || 'none'}`
+    );
 
     if (candidateEvents.length === 0) {
       return {

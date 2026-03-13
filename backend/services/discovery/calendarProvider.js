@@ -19,6 +19,9 @@
 /**
  * Get all PGA events from ESPN calendar fixture
  *
+ * Reads the full season schedule from response.data.leagues[0].calendar
+ * (the ESPN scoreboard API structure), not just active tournament events.
+ *
  * @returns {Array} Normalized events
  *   [
  *     {
@@ -32,13 +35,13 @@
  * @throws {Error} If fixture cannot be loaded
  */
 function getAllEvents() {
-  let calendarFixture;
+  let response;
 
   try {
     // Batch 1: Read from fixture
     // Path is relative to this file (backend/services/discovery/)
     // so we go up two levels to backend, then to tests/fixtures
-    calendarFixture = require('../../tests/fixtures/espn-pga-calendar-staging.json');
+    response = require('../../tests/fixtures/espn-pga-calendar-staging.json');
   } catch (err) {
     console.error(
       '[Discovery] CRITICAL: Failed to load espn-pga-calendar-staging.json: ' + err.message
@@ -46,17 +49,20 @@ function getAllEvents() {
     throw new Error('Calendar fixture not found or malformed: ' + err.message);
   }
 
-  if (!calendarFixture.events || !Array.isArray(calendarFixture.events)) {
-    console.error('[Discovery] CRITICAL: Calendar fixture missing "events" array');
-    throw new Error('Calendar fixture invalid: missing events array');
+  // Extract calendar from the ESPN scoreboard API structure
+  const calendar = response.data?.leagues?.[0]?.calendar || [];
+
+  if (!Array.isArray(calendar) || calendar.length === 0) {
+    console.error('[Discovery] CRITICAL: Calendar fixture missing "data.leagues[0].calendar" array');
+    throw new Error('Calendar fixture invalid: missing data.leagues[0].calendar array');
   }
 
   // Normalize ESPN schema to internal format
-  const normalizedEvents = calendarFixture.events.map(espnEvent => ({
-    provider_event_id: `espn_pga_${espnEvent.id}`,
-    name: espnEvent.label,
-    start_time: new Date(espnEvent.startDate),
-    end_time: new Date(espnEvent.endDate)
+  const normalizedEvents = calendar.map(tournament => ({
+    provider_event_id: `espn_pga_${tournament.id}`,
+    name: tournament.label,
+    start_time: new Date(tournament.startDate),
+    end_time: new Date(tournament.endDate)
   }));
 
   return normalizedEvents;
