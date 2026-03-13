@@ -238,7 +238,7 @@ async function discoverTournament(input, pool, now, organizerId) {
         1000, // allowed_entry_fee_min_cents: $10
         50000, // allowed_entry_fee_max_cents: $500
         JSON.stringify([
-          { payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }
+          { payout_percentages: { "1": 50, "2": 30, "3": 20 }, min_entries: 2 }
         ]),
         true, // is_active: true by default
         normalized.provider_tournament_id,
@@ -294,7 +294,7 @@ async function discoverTournament(input, pool, now, organizerId) {
         templateId,
         organizerId, // organizer_id: platform user (UUID)
         5000, // entry_fee_cents: $50
-        JSON.stringify({ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }), // payout_structure
+        JSON.stringify({ payout_percentages: { "1": 50, "2": 30, "3": 20 }, min_entries: 2 }), // payout_structure
         normalized.status, // status: inherit from template (SCHEDULED or CANCELLED)
         now, // start_time: injected now
         `${normalized.name} - Marketing`, // contest_name
@@ -391,7 +391,7 @@ async function discoverTournament(input, pool, now, organizerId) {
             normalized.name, 'GOLF', 'PGA_DAILY', 'pga_standard_v1',
             'auto_discovery', 'pga_settlement',
             5000, 1000, 50000,
-            JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
+            JSON.stringify([{ payout_percentages: { "1": 50, "2": 30, "3": 20 }, min_entries: 2 }]),
             false, // is_active: false to avoid constraint violation (activate via setup.js)
             normalized.provider_tournament_id, normalized.season_year,
             true, normalized.status
@@ -422,7 +422,7 @@ async function discoverTournament(input, pool, now, organizerId) {
           DO NOTHING`,
           [
             newTemplateId, organizerId,
-            5000, JSON.stringify({ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }),
+            5000, JSON.stringify({ payout_percentages: { "1": 50, "2": 30, "3": 20 }, min_entries: 2 }),
             normalized.status, now,
             `${normalized.name} - Marketing`, 100,
             normalized.provider_tournament_id,

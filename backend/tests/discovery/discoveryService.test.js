@@ -166,7 +166,7 @@ describe('discoveryService', () => {
       const payouts = row.allowed_payout_structures;
       expect(Array.isArray(payouts)).toBe(true);
       expect(payouts.length).toBeGreaterThan(0);
-      expect(payouts[0].payout_percentages).toEqual([0.5, 0.3, 0.2]);
+      expect(payouts[0].payout_percentages).toEqual({ "1": 50, "2": 30, "3": 20 });
     });
   });
 

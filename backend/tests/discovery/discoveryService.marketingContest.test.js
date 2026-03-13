@@ -108,7 +108,7 @@ describe('discoverTournament — Marketing Contest Creation', () => {
       // Verify payout structure
       const payout = contest.payout_structure;
       expect(payout).toBeDefined();
-      expect(payout.payout_percentages).toEqual([0.5, 0.3, 0.2]);
+      expect(payout.payout_percentages).toEqual({ "1": 50, "2": 30, "3": 20 });
     });
 
     it('should name contest with tournament name + Marketing', async () => {
