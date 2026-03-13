@@ -182,6 +182,45 @@ Stop and escalate. Discovery structure changes require architect approval.
 
 ---
 
+### 8. Authentication System
+
+**Authority:** `backend/services/userJwt.js`
+
+**Status:** OPERATIONAL
+
+**System:**
+The platform uses JWT bearer authentication. Tokens are issued by authentication endpoints:
+- POST /api/users (Apple Sign In)
+- POST /api/auth/register (Email/password signup)
+- POST /api/auth/login (Email/password login)
+
+**Token Format:**
+```
+Authorization: Bearer <jwt>
+```
+
+**JWT Payload Claims:**
+- `sub` = user.id
+- `user_id` = user.id
+- `email` = user.email
+
+**Token Signing:**
+- Algorithm: HS256
+- Secret: `process.env.JWT_SECRET`
+- Expiration: 24h
+
+**Authentication Middleware:**
+Verifies the JWT and sets `req.userId` on authenticated requests.
+
+**Protected Files:**
+- `backend/services/userJwt.js`
+- `backend/server.js` (auth endpoints)
+
+**If changes required:**
+Authentication modifications require architect approval.
+
+---
+
 ## Protected Files Index
 
 The following files are protected and must never be modified without architect approval:

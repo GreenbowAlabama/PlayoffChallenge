@@ -20,6 +20,7 @@ const { startLifecycleReconciler } = require('./workers/lifecycleReconcilerWorke
 const { startDiscoveryWorker } = require('./workers/discoveryWorker');
 const { startIngestionWorker } = require('./workers/ingestionWorker');
 const { startWithdrawalProcessor } = require('./workers/withdrawalProcessorWorker');
+const { generateUserToken } = require('./services/userJwt');
 
 // Fail fast on misconfigured environment
 config.validateEnvironment();
@@ -1375,10 +1376,12 @@ app.post('/api/users', authLimiter, async (req, res) => {
       if ((email && !existingUser.email) || (name && !existingUser.name)) {
         console.log('Updating user with new email/name');
         const updatedUser = await usersService.updateUserEmailName(pool, existingUser.id, email, name);
-        return res.json(updatedUser);
+        const token = generateUserToken(updatedUser);
+        return res.json({ ...updatedUser, token });
       }
 
-      return res.json(existingUser);
+      const token = generateUserToken(existingUser);
+      return res.json({ ...existingUser, token });
     }
 
     // NEW USER SIGNUP - Compliance checks required
@@ -1424,7 +1427,8 @@ app.post('/api/users', authLimiter, async (req, res) => {
     });
 
     console.log(`[COMPLIANCE] Created new user: ${newUser.id} (State: ${state})`);
-    res.json(newUser);
+    const token = generateUserToken(newUser);
+    res.json({ ...newUser, token });
   } catch (err) {
     console.error('Error in /api/users:', err);
     res.status(500).json({ error: err.message });
@@ -1493,7 +1497,8 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
     console.log(`[AUTH] Created new email user: ${newUser.id} (State: ${state})`);
 
-    res.json(newUser);
+    const token = generateUserToken(newUser);
+    res.json({ ...newUser, token });
   } catch (err) {
     console.error('Error in /api/auth/register:', err);
     res.status(500).json({ error: err.message });
@@ -1534,7 +1539,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     // Return user (without password_hash)
     delete user.password_hash;
-    res.json(user);
+    const token = generateUserToken(user);
+    res.json({ ...user, token });
   } catch (err) {
     console.error('Error in /api/auth/login:', err);
     res.status(500).json({ error: err.message });

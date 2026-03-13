@@ -105,6 +105,48 @@ ADMIN --> CONTEST_ENGINE
 
 # System Data Flows
 
+## User Authentication Flow
+
+Clients authenticate using one of three endpoints:
+
+1. **POST /api/users** — Apple Sign In
+2. **POST /api/auth/register** — Email/password signup
+3. **POST /api/auth/login** — Email/password login
+
+### Authentication Response
+
+All three endpoints return:
+```json
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "username": "string",
+  "created_at": "ISO-8601",
+  "token": "jwt-bearer-token"
+}
+```
+
+### Token Storage and Usage
+
+1. Client stores the JWT token in secure storage
+2. Client includes token in all authenticated requests:
+   ```
+   Authorization: Bearer <token>
+   ```
+3. Authentication middleware verifies the JWT and extracts the user ID
+
+### Token Details
+
+- **Algorithm:** HS256
+- **Secret:** `JWT_SECRET` environment variable
+- **Expiration:** 24 hours
+- **Claims:**
+  - `sub` = user.id
+  - `user_id` = user.id
+  - `email` = user.email
+
+---
+
 ## User Onboarding Flow
 
 User → Apple Login → API → User Creation → Wallet Initialization

@@ -1155,7 +1155,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Bearer token authentication for authenticated API endpoints
+      description: >
+        JWT bearer authentication. Tokens are issued by authentication endpoints
+        (POST /api/users, POST /api/auth/register, POST /api/auth/login).
+        Clients must include the token in requests using:
+        Authorization: Bearer <token>
 
   schemas:
     # --- Main Response Objects ---
