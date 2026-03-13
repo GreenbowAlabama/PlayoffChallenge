@@ -59,7 +59,7 @@ struct LiveContestsView: View {
                         Section {
                             ForEach(contests, id: \.id) { contest in
                                 NavigationLink(value: contest.id) {
-                                    ContestListItemView(contest: contest)
+                                    ContestCardView(contest: contest, style: .list, onTap: nil)
                                 }
                             }
                         }
@@ -109,7 +109,7 @@ struct LiveContestsView: View {
             case 200:
                 let decoder = JSONDecoder.iso8601Decoder
                 let dtos = try decoder.decode([ContestListItemDTO].self, from: data)
-                self.contests = dtos.map { $0.toDomain() }
+                self.contests = dtos.map { Contest.from($0) }
                 self.isLoading = false
             case 401:
                 throw NSError(domain: "LiveContestsView", code: 401, userInfo: [NSLocalizedDescriptionKey: "Authentication required"])

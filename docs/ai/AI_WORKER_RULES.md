@@ -460,6 +460,58 @@ Test result:
 
 ---
 
+# iOS CLIENT LOCK V1 Guardrails
+
+The iOS client follows a strict architecture:
+
+**API → DTO → Domain → ViewModel → View**
+
+**Rules:**
+
+1. **Views MUST NEVER perform networking.**
+   - No URLSession calls in Views
+   - No direct HTTP requests from SwiftUI code
+   - Views are presentation-only
+
+2. **ViewModels MUST NOT create URLSession requests directly.**
+   - All networking must be delegated to Service layer
+   - ViewModels orchestrate, do not fetch
+
+3. **All networking must go through Service layer classes.**
+   - Services implement ContestServiceing protocol
+   - Services handle URLSession, decoding, error mapping
+   - Example: `CustomContestService`
+
+4. **DTO → Domain mapping must use existing domain mappers.**
+   - Never call `.toDomain()` (method does not exist)
+   - Use pattern: `Contest.from(dto)`
+   - Verify mapper exists in `core/Sources/core/Domain/Contest.swift`
+
+5. **Workers must prefer minimal fixes to resolve compile errors.**
+   - Do not introduce new ViewModels unless explicitly instructed
+   - Do not add new Service layers without approval
+   - Search for existing replacements before creating new architecture
+   - Example: If view is missing, search for similar components before creating new ones
+
+6. **If a compile error appears related to a removed method or view:**
+   - First search the project for the **existing replacement**
+   - Check similar code patterns (e.g., AvailableContestsView for LiveContestsView pattern)
+   - Before creating new architecture, try using existing components
+
+**Violation Examples:**
+
+❌ `$0.toDomain()` → ✅ `Contest.from($0)`
+
+❌ Direct URLSession in View → ✅ Service layer call from ViewModel
+
+❌ Creating `NewContestViewModel` for a simple fix → ✅ Use `ContestCardView(style: .list)`
+
+❌ URLSession in ViewModel → ✅ `service.fetchContests()` from ViewModel
+
+Violating these rules introduces architectural drift and breaks CLIENT LOCK V1.
+
+---
+
 # Documentation Update Rules (Idempotency)
 
 When modifying documentation files, workers must update existing sections instead of appending duplicates.
