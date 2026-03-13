@@ -683,6 +683,67 @@ describe('presentationDerivationService', () => {
         }).toThrow(/Unsupported payout structure type/);
       });
     });
+
+    describe('Discovery Format (Nested payout_percentages)', () => {
+      it('should handle nested payout_percentages object format from discovery', () => {
+        // New format from discovery service: { payout_percentages: { "1": 50, "2": 30, "3": 20 }, min_entries: 2 }
+        const structure = {
+          payout_percentages: { "1": 50, "2": 30, "3": 20 },
+          min_entries: 2
+        };
+
+        const result = derivePayoutTable(structure);
+
+        expect(result).toHaveLength(3);
+        expect(result[0]).toEqual({
+          place: '1',
+          rank_min: 1,
+          rank_max: 1,
+          amount: null,
+          payout_percent: 50,
+          currency: 'USD'
+        });
+        expect(result[1]).toEqual({
+          place: '2',
+          rank_min: 2,
+          rank_max: 2,
+          amount: null,
+          payout_percent: 30,
+          currency: 'USD'
+        });
+        expect(result[2]).toEqual({
+          place: '3',
+          rank_min: 3,
+          rank_max: 3,
+          amount: null,
+          payout_percent: 20,
+          currency: 'USD'
+        });
+      });
+
+      it('should validate numeric values in nested payout_percentages', () => {
+        const structure = {
+          payout_percentages: { "1": 50, "2": "invalid", "3": 20 },
+          min_entries: 2
+        };
+
+        expect(() => {
+          derivePayoutTable(structure);
+        }).toThrow(/Invalid payout_percent type for place '2': expected number or null, got string/);
+      });
+
+      it('should handle null values in nested payout_percentages', () => {
+        const structure = {
+          payout_percentages: { "1": 50, "2": null, "3": 20 },
+          min_entries: 2
+        };
+
+        const result = derivePayoutTable(structure);
+
+        expect(result).toHaveLength(3);
+        expect(result[1].payout_percent).toBeNull();
+      });
+    });
   });
 
   describe('deriveRosterConfig', () => {

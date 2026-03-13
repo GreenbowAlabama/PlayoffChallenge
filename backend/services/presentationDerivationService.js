@@ -223,6 +223,40 @@ function derivePayoutTable(payoutStructureJson) {
     }
   }
 
+  // Handle new discovery format: { payout_percentages: { "1": 50, "2": 30, "3": 20 }, min_entries: 2 }
+  // Extract payout_percentages object if present (it's a nested structure)
+  if (structure.payout_percentages && typeof structure.payout_percentages === 'object' && !Array.isArray(structure.payout_percentages)) {
+    const percentages = structure.payout_percentages;
+    const payoutTable = [];
+    let currentRank = 1;
+
+    // Sort by place number (1, 2, 3, ...)
+    const entries = Object.entries(percentages).sort((a, b) => {
+      const placeA = parseInt(a[0], 10);
+      const placeB = parseInt(b[0], 10);
+      return placeA - placeB;
+    });
+
+    for (const [place, payout_percent] of entries) {
+      // Strict type validation: payout_percent must be number or null
+      if (payout_percent !== null && typeof payout_percent !== 'number') {
+        throw new Error(`Invalid payout_percent type for place '${place}': expected number or null, got ${typeof payout_percent}`);
+      }
+
+      payoutTable.push({
+        place: String(currentRank),
+        rank_min: currentRank,
+        rank_max: currentRank,
+        amount: null, // Computed at settlement time
+        payout_percent: payout_percent == null ? null : Math.trunc(payout_percent),
+        currency: 'USD'
+      });
+      currentRank += 1;
+    }
+
+    return payoutTable;
+  }
+
   // Transform structure into array of payout rows
   // Expected format: { first: 70, second: 20, third: 10 } or { first: 100 } etc.
   const payoutTable = [];
