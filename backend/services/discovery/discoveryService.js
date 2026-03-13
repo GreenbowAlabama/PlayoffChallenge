@@ -14,8 +14,6 @@
  */
 
 const { validateDiscoveryInput, getErrorDetails } = require('./discoveryValidator');
-const { initializeTournamentField } = require('../ingestionService');
-const { generateJoinToken } = require('../customContestService');
 
 /**
  * Discover tournament and create/update system template
@@ -106,6 +104,9 @@ async function discoverTournament(input, pool, now, organizerId) {
         const templateRowChanged = templateCancel.rowCount === 1;
 
         if (templateRowChanged) {
+          // Template status was updated to CANCELLED
+          cancellationUpdated = true;
+
           // 2) Cascade instances + insert transitions for exactly the rows that changed.
           // Lock the target rows to avoid drift between "pre" and "update".
           const cascade = await client.query(
@@ -145,8 +146,9 @@ async function discoverTournament(input, pool, now, organizerId) {
             [templateId, now]
           );
 
+          // Cascade is idempotent even if there are no instances to cascade
           const changedCount = cascade.rows[0]?.changed_count || 0;
-          cancellationUpdated = changedCount > 0;
+          // changedCount may be 0 if no instances to cascade, but template was still updated
         } else {
           // Template already CANCELLED → idempotent no-op, skip cascade entirely.
           cancellationUpdated = false;
@@ -250,83 +252,7 @@ async function discoverTournament(input, pool, now, organizerId) {
 
     const templateId = result.rows[0].id;
 
-    // ===== CREATE PRIMARY MARKETING CONTEST =====
-    // When a new system template is created, automatically create exactly one
-    // primary marketing contest for it.
-    //
-    // Atomicity:
-    //   Contest creation is in the same transaction as template creation.
-    //   If either fails, both rollback. No partial states.
-    //
-    // Idempotency:
-    //   The unique partial index idx_contest_instances_primary_marketing_unique
-    //   ensures at most 1 primary marketing contest per template.
-    //   If a race condition attempts to create another, the unique constraint
-    //   violation is caught by ON CONFLICT and silently ignored.
-    //
-    // Status:
-    //   Marketing contest inherits status from template:
-    //   - If template.status='SCHEDULED', marketing contest is 'SCHEDULED'
-    //   - If template.status='CANCELLED', marketing contest is 'CANCELLED'
-    //
-    // Determinism:
-    //   Uses injected `now` parameter, not internal Date creation.
-    await client.query(
-      `INSERT INTO contest_instances (
-        template_id,
-        organizer_id,
-        entry_fee_cents,
-        payout_structure,
-        status,
-        start_time,
-        contest_name,
-        max_entries,
-        provider_event_id,
-        is_platform_owned,
-        is_primary_marketing,
-        join_token
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-      )
-      ON CONFLICT ON CONSTRAINT contest_instances_provider_template_fee_unique
-      DO NOTHING`,
-      [
-        templateId,
-        organizerId, // organizer_id: platform user (UUID)
-        5000, // entry_fee_cents: $50
-        JSON.stringify({ payout_percentages: { "1": 50, "2": 30, "3": 20 }, min_entries: 2 }), // payout_structure
-        normalized.status, // status: inherit from template (SCHEDULED or CANCELLED)
-        now, // start_time: injected now
-        `${normalized.name} - Marketing`, // contest_name
-        100, // max_entries
-        normalized.provider_tournament_id, // provider_event_id: tournament ID for field initialization and player resolution
-        true, // is_platform_owned
-        true, // is_primary_marketing
-        generateJoinToken() // join_token: generated token for platform marketing contest
-      ]
-    );
-
-    // Capture the created marketing contest instance for field initialization (outside transaction)
-    const instanceResult = await client.query(
-      `SELECT id FROM contest_instances
-       WHERE template_id = $1 AND is_primary_marketing = true
-       LIMIT 1`,
-      [templateId]
-    );
-
     await client.query('COMMIT');
-    const marketingInstanceId = instanceResult.rows.length > 0 ? instanceResult.rows[0].id : null;
-
-    // Initialize tournament field for marketing contest (non-blocking, after transaction)
-    if (marketingInstanceId) {
-      try {
-        await initializeTournamentField(pool, marketingInstanceId);
-      } catch (err) {
-        console.warn(
-          `[discoverTournament] Field initialization failed for ${marketingInstanceId}: ${err.message}`
-        );
-      }
-    }
 
     return {
       success: true,
@@ -399,37 +325,6 @@ async function discoverTournament(input, pool, now, organizerId) {
         );
 
         const newTemplateId = newTemplate.rows[0].id;
-
-        // Still create marketing contest for this template
-        await clientRetry.query(
-          `INSERT INTO contest_instances (
-            template_id,
-            organizer_id,
-            entry_fee_cents,
-            payout_structure,
-            status,
-            start_time,
-            contest_name,
-            max_entries,
-            provider_event_id,
-            is_platform_owned,
-            is_primary_marketing,
-            join_token
-          ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
-          )
-          ON CONFLICT ON CONSTRAINT contest_instances_provider_template_fee_unique
-          DO NOTHING`,
-          [
-            newTemplateId, organizerId,
-            5000, JSON.stringify({ payout_percentages: { "1": 50, "2": 30, "3": 20 }, min_entries: 2 }),
-            normalized.status, now,
-            `${normalized.name} - Marketing`, 100,
-            normalized.provider_tournament_id,
-            true, true,
-            generateJoinToken()
-          ]
-        );
 
         await clientRetry.query('COMMIT');
 

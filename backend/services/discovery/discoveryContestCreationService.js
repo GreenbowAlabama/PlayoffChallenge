@@ -644,6 +644,7 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
 
     // Entry fee tiers (in cents): $5, $10, $20, $50, $100
     const entryFeeTiers = [500, 1000, 2000, 5000, 10000];
+    const maxTier = Math.max(...entryFeeTiers); // Highest tier is marketing contest
 
     for (const template of templatesResult.rows) {
       const payoutStructure = Array.isArray(template.allowed_payout_structures)
@@ -658,6 +659,9 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
         const entryFeeDollars = entryFeeCents / 100;
         const contestName = `${event.name} — $${entryFeeDollars}`;
 
+        // Deterministic marketing selection: highest tier is always the marketing contest
+        const isPrimaryMarketing = entryFeeCents === maxTier;
+
         // System-generated discovery contests are published immediately with a generated join_token
         const joinToken = customContestService.generateJoinToken();
 
@@ -665,8 +669,8 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
           `INSERT INTO contest_instances (
             template_id, organizer_id, entry_fee_cents, max_entries, payout_structure,
             status, contest_name, tournament_start_time, tournament_end_time,
-            lock_time, provider_event_id, is_platform_owned, join_token
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            lock_time, provider_event_id, is_platform_owned, is_primary_marketing, join_token
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
           ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
           WHERE is_platform_owned = true
           DO NOTHING
@@ -684,6 +688,7 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
             derivedLockTime, // lock_time derived from ESPN data (with fallback)
             event.provider_event_id,
             isPlatformOwned,
+            isPrimaryMarketing, // Deterministic: true only for highest tier ($100)
             joinToken
           ]
         );
@@ -693,7 +698,8 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
           const contestInstanceId = insertResult.rows[0].id;
           createdContestIds.push(contestInstanceId); // Collect for post-commit initialization
 
-          console.log(`  ✓ Created: ${contestName}`);
+          const marketingTag = isPrimaryMarketing ? ' [MARKETING]' : '';
+          console.log(`  ✓ Created: ${contestName}${marketingTag}`);
 
           // Audit logging (non-blocking)
           try {
@@ -713,7 +719,8 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
                   provider_event_id: event.provider_event_id,
                   template_id: template.id,
                   event_name: event.name,
-                  entry_fee_cents: entryFeeCents
+                  entry_fee_cents: entryFeeCents,
+                  is_primary_marketing: isPrimaryMarketing
                 })
               ]
             );

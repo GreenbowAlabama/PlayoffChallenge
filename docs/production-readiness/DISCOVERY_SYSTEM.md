@@ -16,18 +16,20 @@ The discovery engine scans the provider calendar and ensures system contest temp
 
 All events with `start_time` that falls within this window will be discovered and processed.
 
-### Automatic Template Creation
+### Automatic Template and Contest Creation
 
-**Discovery automatically generates system templates when a tournament is first detected.**
+**Discovery automatically generates system templates and contest instances when a tournament is first detected.**
 
 When `runDiscoveryCycle()` discovers a new tournament (an event with no existing system template), it:
 
 1. Calls `discoverTournament()` to create a system-generated template
 2. Automatically configures the template with PGA-specific scoring, settlement, and payout rules
-3. Creates a primary marketing contest instance for the template
-4. Proceeds to create contest instances for all entry fee tiers
+3. Calls `createContestsForEvent()` to auto-create contest instances with deterministic tier ladder:
+   - 5 contests per event ($5, $10, $20, $50, $100)
+   - Highest tier ($100) deterministically marked: `is_primary_marketing = true`
+   - All instances status = SCHEDULED, is_platform_owned = true
 
-**This flow is fully autonomous** — manual template creation is not required.
+**This flow is fully autonomous** — manual template and contest creation is not required.
 
 **Event ID Normalization:**
 
@@ -49,9 +51,13 @@ Normalization happens in `calendarProvider.js` before events reach discovery log
 3. **Sort events** by start_time ASC for deterministic processing
 4. **For each event:**
    - Check if a system-generated contest template exists
-   - **If NOT found:** call `discoverTournament()` to auto-create the template
-   - Create contest instances for the template (multiple entry fee tiers)
-5. **Skip events** that already have templates (idempotent)
+   - **If NOT found:**
+     - Call `discoverTournament()` to auto-create the template
+     - Call `createContestsForEvent()` to create 5-tier contest ladder
+   - **If found:**
+     - Skip template creation (idempotent)
+     - Skip instance creation (idempotent)
+5. **Result:** Exactly 5 contests per event with deterministic marketing selection
 
 ### Key Guarantees
 
@@ -62,6 +68,8 @@ Normalization happens in `calendarProvider.js` before events reach discovery log
 | **Template deduplication** | Unique constraint on `(provider_tournament_id, season_year)` |
 | **Instance deduplication** | Unique constraint on `(provider_event_id, template_id, entry_fee_cents)` |
 | **Deterministic ordering** | Events sorted by start_time before processing |
+| **Deterministic marketing** | Highest tier ($100) always marked `is_primary_marketing = true`; unique constraint enforces at most 1 per template |
+| **Tier ladder exactness** | Exactly 5 contests per event: [$5, $10, $20, $50, $100] |
 | **Non-blocking** | ESPN data fetch failures fall back to fixture data; errors logged, cycle continues |
 
 ### Inputs
@@ -75,7 +83,11 @@ Normalization happens in `calendarProvider.js` before events reach discovery log
 ### Outputs
 
 - **contest_templates rows:** System-generated PGA_TOURNAMENT type templates
-- **contest_instances rows:** Platform-owned contests for each entry fee tier
+- **contest_instances rows:** Platform-owned 5-tier contests for each event with:
+  - Entry fees: $5, $10, $20, $50, $100 (in cents: 500, 1000, 2000, 5000, 10000)
+  - Exactly one marked `is_primary_marketing = true` ($100 tier)
+  - All others `is_primary_marketing = false`
+  - All status = SCHEDULED with is_platform_owned = true
 
 ### Processing Example
 

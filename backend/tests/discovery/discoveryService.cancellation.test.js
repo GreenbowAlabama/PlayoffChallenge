@@ -102,19 +102,18 @@ describe('discoveryService - cancellation cascade', () => {
       expect(template.rows[0].status).toBe('CANCELLED');
     });
 
-    it('should create primary marketing contest with status=CANCELLED', async () => {
+    it('should not create any contests when template discovered as CANCELLED', async () => {
       const validCancelledInput = getValidCancelledInput(testProviderId);
       const result = await discoverTournament(validCancelledInput, pool, now, testOrganizerId);
       const templateId = result.templateId;
 
-      // Verify marketing contest exists and has CANCELLED status
-      const contest = await pool.query(
-        `SELECT status FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
+      // Verify no contests are created (contests created via createContestsForEvent, not discoverTournament)
+      const contests = await pool.query(
+        `SELECT id FROM contest_instances
+         WHERE template_id = $1`,
         [templateId]
       );
-      expect(contest.rows).toHaveLength(1);
-      expect(contest.rows[0].status).toBe('CANCELLED');
+      expect(contests.rows).toHaveLength(0);
     });
   });
 

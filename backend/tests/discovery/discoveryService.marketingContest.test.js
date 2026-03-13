@@ -1,25 +1,40 @@
 /**
- * Discovery Service — Marketing Contest Creation Tests
+ * Discovery Tier Ladder and Marketing Contest Tests
  *
- * Verifies that system template discovery automatically creates exactly one
- * primary marketing contest, with atomicity and idempotency guarantees.
+ * Verifies that createContestsForEvent() creates exactly 5 tier contests
+ * with the highest tier deterministically marked as is_primary_marketing = true.
+ *
+ * Architecture:
+ * - discoverTournament() creates templates only
+ * - createContestsForEvent() creates contest instances with tier ladder
+ * - Highest tier ($100) is always marked is_primary_marketing = true
  */
 
 const { Pool } = require('pg');
 const { discoverTournament } = require('../../services/discovery/discoveryService');
+const { createContestsForEvent } = require('../../services/discovery/discoveryContestCreationService');
 
-describe('discoverTournament — Marketing Contest Creation', () => {
+describe('Discovery Tier Ladder and Marketing Contest', () => {
   let pool;
   const now = new Date('2026-03-01T12:00:00Z');
   const testOrganizerId = '00000000-0000-0000-0000-000000000001';
 
+  const eventId = 'espn_pga_tier_test_2026';
+
   const validInput = {
-    provider_tournament_id: 'pga_marketing_test_2026',
+    provider_tournament_id: eventId,
     season_year: 2026,
-    name: 'PGA Marketing Test 2026',
+    name: 'PGA Tier Test 2026',
     start_time: new Date('2026-03-15T08:00:00Z'),
     end_time: new Date('2026-03-18T20:00:00Z'),
     status: 'SCHEDULED'
+  };
+
+  const testEvent = {
+    provider_event_id: eventId,
+    name: 'PGA Tier Test Tournament',
+    start_time: new Date('2026-03-15T08:00:00Z'),
+    end_time: new Date('2026-03-18T20:00:00Z')
   };
 
   beforeAll(async () => {
@@ -28,22 +43,6 @@ describe('discoverTournament — Marketing Contest Creation', () => {
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
     });
 
-    // Create marketing contest organizer user
-    // User ID should map to system user 67 for platform contests
-    const organizerId = '00000000-0000-0000-0000-000000000043';
-    await pool.query(
-      `INSERT INTO users (id, email, username) VALUES ($1, $2, $3)
-       ON CONFLICT (id) DO NOTHING`,
-      [organizerId, 'marketing-organizer@platform.local', 'platform-marketing']
-    );
-  });
-
-  afterAll(async () => {
-    await pool.end();
-  });
-
-  beforeEach(async () => {
-    // Create test organizer user for discoverTournament calls
     await pool.query(
       `INSERT INTO users (id, email, username) VALUES ($1, $2, $3)
        ON CONFLICT (id) DO NOTHING`,
@@ -51,282 +50,248 @@ describe('discoverTournament — Marketing Contest Creation', () => {
     );
   });
 
+  afterAll(async () => {
+    await pool.end();
+  });
+
   afterEach(async () => {
     // Clean up test data
     await pool.query(
+      `DELETE FROM admin_contest_audit
+       WHERE contest_instance_id IN (
+         SELECT id FROM contest_instances
+         WHERE provider_event_id = $1
+       )`,
+      [eventId]
+    );
+    await pool.query(
       `DELETE FROM contest_instances
-       WHERE template_id IN (
-         SELECT id FROM contest_templates
-         WHERE provider_tournament_id LIKE 'pga_marketing_test_%'
-       )`
+       WHERE provider_event_id = $1`,
+      [eventId]
     );
     await pool.query(
       `DELETE FROM contest_templates
-       WHERE provider_tournament_id LIKE 'pga_marketing_test_%'`
+       WHERE provider_tournament_id = $1`,
+      [eventId]
     );
   });
 
-  describe('marketing contest creation on discovery', () => {
-    it('should create exactly one primary marketing contest when template created', async () => {
-      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
+  describe('Tier ladder creation', () => {
+    it('should create exactly 5 contests from tier ladder', async () => {
+      // Step 1: Create template (no contests yet)
+      const templateResult = await discoverTournament(validInput, pool, now, testOrganizerId);
+      expect(templateResult.success).toBe(true);
+      expect(templateResult.templateId).toBeTruthy();
 
-      expect(result.success).toBe(true);
-      expect(result.created).toBe(true);
-      expect(result.templateId).toBeTruthy();
+      // Step 2: Create contests for event
+      const contestResult = await createContestsForEvent(pool, testEvent, now, testOrganizerId);
+      expect(contestResult.success).toBe(true);
+      expect(contestResult.created).toBe(5); // Exactly 5 tiers
 
-      // Verify primary marketing contest was created
+      // Verify all 5 contests exist
       const contests = await pool.query(
-        `SELECT * FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result.templateId]
+        `SELECT entry_fee_cents, is_primary_marketing, contest_name
+         FROM contest_instances
+         WHERE provider_event_id = $1
+         ORDER BY entry_fee_cents ASC`,
+        [testEvent.provider_event_id]
       );
 
-      expect(contests.rows).toHaveLength(1);
-      const contest = contests.rows[0];
-      expect(contest.is_primary_marketing).toBe(true);
-      expect(contest.is_platform_owned).toBe(true);
-      expect(contest.status).toBe('SCHEDULED');
+      expect(contests.rows).toHaveLength(5);
+
+      // Verify tier values: $5, $10, $20, $50, $100
+      const expectedFees = [500, 1000, 2000, 5000, 10000];
+      contests.rows.forEach((row, i) => {
+        expect(row.entry_fee_cents).toBe(expectedFees[i]);
+        expect(row.contest_name).toContain('PGA Tier Test Tournament');
+      });
     });
 
-    it('should set marketing contest defaults correctly', async () => {
-      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
-      const contests = await pool.query(
-        `SELECT * FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result.templateId]
+    it('should mark highest tier as marketing contest', async () => {
+      // Create template
+      const templateResult = await discoverTournament(validInput, pool, now, testOrganizerId);
+      expect(templateResult.success).toBe(true);
+
+      // Create contests
+      const contestResult = await createContestsForEvent(pool, testEvent, now, testOrganizerId);
+      expect(contestResult.success).toBe(true);
+
+      // Verify exactly one marketing contest (highest tier)
+      const marketingContests = await pool.query(
+        `SELECT entry_fee_cents FROM contest_instances
+         WHERE provider_event_id = $1 AND is_primary_marketing = true`,
+        [testEvent.provider_event_id]
       );
 
-      const contest = contests.rows[0];
-
-      // Verify defaults
-      expect(contest.entry_fee_cents).toBe(5000); // $50
-      expect(contest.max_entries).toBe(100);
-      expect(contest.status).toBe('SCHEDULED');
-      expect(contest.is_platform_owned).toBe(true);
-      expect(contest.is_primary_marketing).toBe(true);
-
-      // Verify payout structure
-      const payout = contest.payout_structure;
-      expect(payout).toBeDefined();
-      expect(payout.payout_percentages).toEqual({ "1": 50, "2": 30, "3": 20 });
+      expect(marketingContests.rows).toHaveLength(1);
+      expect(marketingContests.rows[0].entry_fee_cents).toBe(10000); // $100
     });
 
-    it('should name contest with tournament name + Marketing', async () => {
-      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
-      const contests = await pool.query(
-        `SELECT * FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result.templateId]
-      );
+    it('should have only one primary marketing contest', async () => {
+      // Create template
+      await discoverTournament(validInput, pool, now, testOrganizerId);
 
-      expect(contests.rows[0].contest_name).toBe('PGA Marketing Test 2026 - Marketing');
-    });
+      // Create contests
+      await createContestsForEvent(pool, testEvent, now, testOrganizerId);
 
-    it('should generate non-null join_token for marketing contest', async () => {
-      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
-      const contests = await pool.query(
-        `SELECT * FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result.templateId]
-      );
-
-      const contest = contests.rows[0];
-      expect(contest.join_token).not.toBeNull();
-      expect(contest.join_token).toBeTruthy();
-      expect(typeof contest.join_token).toBe('string');
-      expect(contest.join_token.length).toBeGreaterThan(0);
-    });
-
-    it('should NOT create marketing contest on template update (no new contest)', async () => {
-      // First discovery: creates template + marketing contest
-      const result1 = await discoverTournament(validInput, pool, now, testOrganizerId);
-      expect(result1.created).toBe(true);
-
-      const contests1 = await pool.query(
+      // Count primary marketing contests
+      const marketingCount = await pool.query(
         `SELECT COUNT(*) as count FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result1.templateId]
+         WHERE provider_event_id = $1 AND is_primary_marketing = true`,
+        [testEvent.provider_event_id]
       );
-      expect(parseInt(contests1.rows[0].count, 10)).toBe(1);
 
-      // Second discovery: updates template, does NOT create new contest
-      const updatedInput = {
-        ...validInput,
-        name: 'PGA Marketing Test 2026 (Updated)'
-      };
-      const result2 = await discoverTournament(updatedInput, pool, now);
-      expect(result2.created).toBe(false); // Template not created, just updated
-      expect(result2.templateId).toBe(result1.templateId);
-
-      // Verify still exactly one marketing contest
-      const contests2 = await pool.query(
-        `SELECT COUNT(*) as count FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result1.templateId]
-      );
-      expect(parseInt(contests2.rows[0].count, 10)).toBe(1);
+      expect(parseInt(marketingCount.rows[0].count, 10)).toBe(1);
     });
 
-    it('should be idempotent: rediscovery does not create duplicate contests', async () => {
-      // First discovery
-      const result1 = await discoverTournament(validInput, pool, now, testOrganizerId);
-      expect(result1.created).toBe(true);
+    it('should mark non-highest tiers as non-marketing', async () => {
+      // Create template
+      await discoverTournament(validInput, pool, now, testOrganizerId);
 
-      const contests1 = await pool.query(
+      // Create contests
+      await createContestsForEvent(pool, testEvent, now, testOrganizerId);
+
+      // Verify lower tiers are not marketing
+      const nonMarketing = await pool.query(
         `SELECT COUNT(*) as count FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result1.templateId]
+         WHERE provider_event_id = $1
+         AND is_primary_marketing = false
+         AND entry_fee_cents < 10000`,
+        [testEvent.provider_event_id]
       );
-      expect(parseInt(contests1.rows[0].count, 10)).toBe(1);
 
-      // Rediscovery: template already exists, contest already exists
-      const result2 = await discoverTournament(validInput, pool, now, testOrganizerId);
-      expect(result2.created).toBe(false);
-      expect(result2.templateId).toBe(result1.templateId);
-
-      // Verify still exactly one marketing contest
-      const contests2 = await pool.query(
-        `SELECT COUNT(*) as count FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result1.templateId]
-      );
-      expect(parseInt(contests2.rows[0].count, 10)).toBe(1);
+      expect(parseInt(nonMarketing.rows[0].count, 10)).toBe(4); // 4 non-marketing contests
     });
 
-    it('should enforce unique constraint via partial index', async () => {
-      // Create template + marketing contest
-      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
-      expect(result.created).toBe(true);
+    it('should generate contest names correctly', async () => {
+      // Create template
+      await discoverTournament(validInput, pool, now, testOrganizerId);
 
-      // Try to manually insert another primary marketing contest for same template
-      const duplicateInsert = async () => {
-        return pool.query(
-          `INSERT INTO contest_instances (
-            template_id, organizer_id, entry_fee_cents, payout_structure,
-            status, start_time, contest_name, max_entries,
-            is_platform_owned, is_primary_marketing
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-          [
-            result.templateId,
-            '00000000-0000-0000-0000-000000000001',
-            5000,
-            JSON.stringify({ payout_percentages: [0.5, 0.3, 0.2] }),
-            'SCHEDULED',
-            new Date(),
-            'Duplicate',
-            100,
-            true,
-            true // is_primary_marketing = true
-          ]
-        );
-      };
+      // Create contests
+      await createContestsForEvent(pool, testEvent, now, testOrganizerId);
 
-      // Should fail with unique constraint violation
-      await expect(duplicateInsert()).rejects.toThrow('unique');
-    });
-
-    it('should allow multiple non-primary contests per template', async () => {
-      // Create template + primary marketing contest
-      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
-
-      // Manually create a non-primary contest for same template
-      await pool.query(
-        `INSERT INTO contest_instances (
-          template_id, organizer_id, entry_fee_cents, payout_structure,
-          status, start_time, contest_name, max_entries, is_primary_marketing
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          result.templateId,
-          '00000000-0000-0000-0000-000000000001',
-          10000, // different fee
-          JSON.stringify({ payout_percentages: [0.5, 0.3, 0.2] }),
-          'SCHEDULED',
-          new Date(),
-          'Non-primary Contest',
-          50,
-          false // is_primary_marketing = false
-        ]
-      );
-
-      // Verify both contests exist for same template
+      // Verify contest names
       const contests = await pool.query(
-        `SELECT is_primary_marketing FROM contest_instances
-         WHERE template_id = $1
-         ORDER BY is_primary_marketing DESC`,
-        [result.templateId]
+        `SELECT entry_fee_cents, contest_name FROM contest_instances
+         WHERE provider_event_id = $1
+         ORDER BY entry_fee_cents ASC`,
+        [testEvent.provider_event_id]
       );
 
-      expect(contests.rows).toHaveLength(2);
-      expect(contests.rows[0].is_primary_marketing).toBe(true); // Primary
-      expect(contests.rows[1].is_primary_marketing).toBe(false); // Non-primary
+      const expectedNames = [
+        'PGA Tier Test Tournament — $5',
+        'PGA Tier Test Tournament — $10',
+        'PGA Tier Test Tournament — $20',
+        'PGA Tier Test Tournament — $50',
+        'PGA Tier Test Tournament — $100'
+      ];
+
+      contests.rows.forEach((row, i) => {
+        expect(row.contest_name).toBe(expectedNames[i]);
+      });
+    });
+
+    it('should set all contests to SCHEDULED status', async () => {
+      // Create template
+      await discoverTournament(validInput, pool, now, testOrganizerId);
+
+      // Create contests
+      await createContestsForEvent(pool, testEvent, now, testOrganizerId);
+
+      // Verify all SCHEDULED
+      const statuses = await pool.query(
+        `SELECT DISTINCT status FROM contest_instances
+         WHERE provider_event_id = $1`,
+        [testEvent.provider_event_id]
+      );
+
+      expect(statuses.rows).toHaveLength(1);
+      expect(statuses.rows[0].status).toBe('SCHEDULED');
+    });
+
+    it('should be idempotent: creating twice produces exactly 5 contests', async () => {
+      // Create template
+      await discoverTournament(validInput, pool, now, testOrganizerId);
+
+      // Create contests first time
+      const result1 = await createContestsForEvent(pool, testEvent, now, testOrganizerId);
+      expect(result1.created).toBe(5);
+
+      // Try to create contests again (should skip due to ON CONFLICT)
+      const result2 = await createContestsForEvent(pool, testEvent, now, testOrganizerId);
+      expect(result2.created).toBe(0); // All already exist
+      expect(result2.skipped).toBe(5);
+
+      // Verify still exactly 5 contests
+      const finalCount = await pool.query(
+        `SELECT COUNT(*) as count FROM contest_instances
+         WHERE provider_event_id = $1`,
+        [testEvent.provider_event_id]
+      );
+
+      expect(parseInt(finalCount.rows[0].count, 10)).toBe(5);
+    });
+
+    it('should generate join tokens for all contests', async () => {
+      // Create template
+      await discoverTournament(validInput, pool, now, testOrganizerId);
+
+      // Create contests
+      await createContestsForEvent(pool, testEvent, now, testOrganizerId);
+
+      // Verify all have join tokens
+      const contests = await pool.query(
+        `SELECT join_token FROM contest_instances
+         WHERE provider_event_id = $1`,
+        [testEvent.provider_event_id]
+      );
+
+      contests.rows.forEach(row => {
+        expect(row.join_token).not.toBeNull();
+        expect(typeof row.join_token).toBe('string');
+        expect(row.join_token.length).toBeGreaterThan(0);
+      });
     });
   });
 
-  describe('atomicity guarantees', () => {
-    it('should rollback template if marketing contest creation fails', async () => {
-      // This test verifies atomicity by triggering a contest insert error
-      // We'll use an invalid organizer_id that doesn't exist (foreign key violation)
+  describe('Deterministic marketing selection', () => {
+    it('$100 tier is always the marketing contest', async () => {
+      // Create template
+      await discoverTournament(validInput, pool, now, testOrganizerId);
 
-      // Note: The actual implementation uses a hardcoded organizer_id (67)
-      // For this test, we verify the invariant by checking transaction behavior
-      // In practice, the organizer_id should always exist, so this test
-      // documents the guarantee rather than triggering it
+      // Create contests
+      await createContestsForEvent(pool, testEvent, now, testOrganizerId);
 
-      const result = await discoverTournament(validInput, pool, now, testOrganizerId);
-      expect(result.success).toBe(true);
-
-      // Verify both template and contest exist
-      const template = await pool.query(
-        `SELECT id FROM contest_templates WHERE id = $1`,
-        [result.templateId]
-      );
-      expect(template.rows).toHaveLength(1);
-
+      // Verify $100 is marketing
       const contest = await pool.query(
-        `SELECT id FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result.templateId]
+        `SELECT is_primary_marketing FROM contest_instances
+         WHERE provider_event_id = $1 AND entry_fee_cents = 10000`,
+        [testEvent.provider_event_id]
       );
+
       expect(contest.rows).toHaveLength(1);
-    });
-  });
-
-  describe('determinism', () => {
-    it('should use injected now, not current time', async () => {
-      const fixedNow = new Date('2026-03-01T12:00:00Z');
-
-      const result = await discoverTournament(validInput, pool, fixedNow, testOrganizerId);
-
-      const contests = await pool.query(
-        `SELECT start_time FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result.templateId]
-      );
-
-      // start_time should be set to the injected 'now'
-      expect(contests.rows[0].start_time).toEqual(fixedNow);
+      expect(contest.rows[0].is_primary_marketing).toBe(true);
     });
 
-    it('should be deterministic: same input → same template + contest', async () => {
-      const result1 = await discoverTournament(validInput, pool, now, testOrganizerId);
-      const result2 = await discoverTournament(validInput, pool, now, testOrganizerId);
+    it('$5, $10, $20, $50 are never marketing', async () => {
+      // Create template
+      await discoverTournament(validInput, pool, now, testOrganizerId);
 
-      expect(result1.templateId).toBe(result2.templateId);
+      // Create contests
+      await createContestsForEvent(pool, testEvent, now, testOrganizerId);
 
-      // Both should have exactly one marketing contest
-      const contests1 = await pool.query(
-        `SELECT COUNT(*) as count FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result1.templateId]
-      );
-      const contests2 = await pool.query(
-        `SELECT COUNT(*) as count FROM contest_instances
-         WHERE template_id = $1 AND is_primary_marketing = true`,
-        [result2.templateId]
+      // Verify lower tiers are not marketing
+      const lowerTiers = await pool.query(
+        `SELECT entry_fee_cents, is_primary_marketing FROM contest_instances
+         WHERE provider_event_id = $1 AND entry_fee_cents < 10000
+         ORDER BY entry_fee_cents ASC`,
+        [testEvent.provider_event_id]
       );
 
-      expect(parseInt(contests1.rows[0].count, 10)).toBe(1);
-      expect(parseInt(contests2.rows[0].count, 10)).toBe(1);
+      expect(lowerTiers.rows).toHaveLength(4);
+      lowerTiers.rows.forEach(row => {
+        expect(row.is_primary_marketing).toBe(false);
+      });
     });
   });
 });

@@ -79,16 +79,33 @@ Provider cancellation cascade may update instance.status → CANCELLED
 
 ### Discovery MAY:
 - Create contest_templates (auto-template generation)
+- Create contest_instances with deterministic tier ladder
 
-### Discovery MUST NOT:
-- Create contest_instances automatically (Phase 1 constraint)
+### Contest Instance Creation Model
 
-Instance creation remains:
-- Admin-driven
-- Explicit
-- Intentional
+Discovery creates contest instances via `createContestsForEvent()` with deterministic rules:
 
-This prevents uncontrolled lifecycle propagation.
+**Entry Fee Tiers:**
+- $5 (500 cents)
+- $10 (1000 cents)
+- $20 (2000 cents)
+- $50 (5000 cents)
+- $100 (10000 cents)
+
+**Marketing Selection (Deterministic):**
+- Highest tier ($100) always marked: `is_primary_marketing = true`
+- All other tiers: `is_primary_marketing = false`
+
+**Instance Properties:**
+- status = SCHEDULED
+- lock_time = tournament_start_time (from ESPN data or fixture fallback)
+- is_platform_owned = true (system-generated)
+- join_token = auto-generated
+
+**Idempotency:**
+- ON CONFLICT (provider_event_id, template_id, entry_fee_cents) DO NOTHING
+- Multiple discoveries of same event produce exactly 5 contests
+- No duplicate contest creation
 
 ---
 
@@ -145,9 +162,15 @@ Lifecycle replays must:
 
 ---
 
-## 9. Phase 1 Constraint (Important)
+## 9. Auto-Instance Generation Execution
 
-Auto-instance generation from discovery is NOT permitted in Phase 1.
+Auto-instance generation via `createContestsForEvent()` is now active.
+
+**Execution Model:**
+- Triggered within `runDiscoveryCycle()` after template creation
+- Operates on deterministic tier ladder (5 contests per event)
+- Idempotent: safe to re-run without duplicate creation
+- Respects provider event boundaries (one ladder per event)
 
 Reason:
 Instance creation introduces lifecycle coupling risk.
