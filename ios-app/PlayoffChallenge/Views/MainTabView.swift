@@ -51,22 +51,17 @@ struct MainTabView: View {
                 Label("Contests", systemImage: "trophy.fill")
             }
 
-            // Tab 2: Leaderboard
+            // Tab 2: LIVE Contests
             NavigationStack {
-                VStack {
-                    Text("Leaderboard")
-                        .font(.headline)
-                    Spacer()
-                }
-                .navigationTitle("Leaderboard")
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        WalletBalanceButtonView(viewModel: walletVM)
+                LiveContestsView()
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            WalletBalanceButtonView(viewModel: walletVM)
+                        }
                     }
-                }
             }
             .tabItem {
-                Label("Leaderboard", systemImage: "chart.bar.fill")
+                Label("LIVE", systemImage: "flame.fill")
             }
 
             // Tab 3: Profile

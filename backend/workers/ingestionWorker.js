@@ -13,7 +13,9 @@
  * - Required for: contest progression, settlement
  *
  * Configuration:
- * - Interval: 1 minute (60000ms, configurable via INGESTION_WORKER_INTERVAL_MS)
+ * - Environment variable: INGESTION_WORKER_INTERVAL_MS (optional)
+ *   - If set: uses this interval for all contest statuses
+ *   - If not set: uses lifecycle-based adaptive polling (LIVE=5s, LOCKED=30s, SCHEDULED=5m, IDLE=60s)
  * - Started only in non-test environments (guarded by server.js NODE_ENV check)
  *
  * Behavior:
@@ -35,8 +37,18 @@ let ingestionWorkerRunning = false;
 
 /**
  * Polling interval configuration (milliseconds)
- * Adjusted based on highest contest lifecycle state
+ *
+ * If INGESTION_WORKER_INTERVAL_MS is set, it overrides all lifecycle-based intervals.
+ * Otherwise, intervals are adjusted based on highest contest lifecycle state.
+ *
+ * Environment variable: INGESTION_WORKER_INTERVAL_MS (optional)
+ * Default: lifecycle-based adaptive polling
  */
+const OVERRIDE_INTERVAL = process.env.INGESTION_WORKER_INTERVAL_MS
+  ? Number(process.env.INGESTION_WORKER_INTERVAL_MS)
+  : null;
+
+// Lifecycle-based defaults (used only if INGESTION_WORKER_INTERVAL_MS not set)
 const POLL_INTERVAL_SCHEDULED = 300000;  // 5 minutes
 const POLL_INTERVAL_LOCKED = 30000;      // 30 seconds
 const POLL_INTERVAL_LIVE = 5000;         // 5 seconds
@@ -48,10 +60,42 @@ const POLL_INTERVAL_IDLE = 60000;        // 60 seconds (no active contests)
  * Queries for contests with provider_event_id in SCHEDULED/LOCKED/LIVE status
  * and returns the highest state found to determine polling interval.
  *
+ * If INGESTION_WORKER_INTERVAL_MS is set, returns that interval regardless of state.
+ * Otherwise uses lifecycle-based adaptive intervals.
+ *
  * @param {Object} pool - Database connection pool
  * @returns {Promise<Object>} { status, interval } where status is highest state and interval is sleep ms
  */
 async function getHighestContestStatus(pool) {
+  // If override is set, use it for all states
+  if (OVERRIDE_INTERVAL !== null) {
+    try {
+      const result = await pool.query(
+        `SELECT
+           CASE
+             WHEN MAX(CASE WHEN ci.status = 'LIVE' THEN 1 ELSE 0 END) = 1 THEN 'LIVE'
+             WHEN MAX(CASE WHEN ci.status = 'LOCKED' THEN 1 ELSE 0 END) = 1 THEN 'LOCKED'
+             WHEN MAX(CASE WHEN ci.status = 'SCHEDULED' THEN 1 ELSE 0 END) = 1 THEN 'SCHEDULED'
+             ELSE NULL
+           END as highest_status
+         FROM contest_instances ci
+         JOIN tournament_configs tc
+           ON tc.contest_instance_id = ci.id
+         WHERE
+           tc.provider_event_id IS NOT NULL
+           AND ci.status IN ('SCHEDULED','LOCKED','LIVE')`
+      );
+
+      const highestStatus = result.rows[0]?.highest_status || 'IDLE';
+      return { status: highestStatus, interval: OVERRIDE_INTERVAL };
+    } catch (err) {
+      console.error('[Ingestion Worker] Failed to determine contest status:', err.message);
+      // Use override interval even on error
+      return { status: 'IDLE', interval: OVERRIDE_INTERVAL };
+    }
+  }
+
+  // Otherwise use lifecycle-based adaptive polling
   try {
     const result = await pool.query(
       `SELECT
@@ -242,11 +286,13 @@ async function runCycleWithHeartbeat(pool) {
 /**
  * Start the ingestion worker with lifecycle-based polling throttling.
  *
- * Polling intervals adjust based on highest contest lifecycle state:
- * - LIVE:      5 seconds (frequent updates for active scoring)
- * - LOCKED:   30 seconds (moderate updates for locked contests)
- * - SCHEDULED: 5 minutes (infrequent updates for scheduled contests)
- * - IDLE:     60 seconds (no active contests)
+ * Configuration:
+ * - If INGESTION_WORKER_INTERVAL_MS env var is set, uses that interval for all states
+ * - Otherwise, polling intervals adjust based on highest contest lifecycle state:
+ *   - LIVE:      5 seconds (frequent updates for active scoring)
+ *   - LOCKED:   30 seconds (moderate updates for locked contests)
+ *   - SCHEDULED: 5 minutes (infrequent updates for scheduled contests)
+ *   - IDLE:     60 seconds (no active contests)
  *
  * @param {Object} pool - Database connection pool
  * @param {Object} options - Legacy configuration options (for backward compatibility with tests)
@@ -266,7 +312,12 @@ async function startIngestionWorker(pool, options = {}) {
   }
 
   ingestionWorkerRunning = true;
-  console.log('[Ingestion Worker] Starting');
+
+  if (OVERRIDE_INTERVAL !== null) {
+    console.log(`[Ingestion Worker] Starting with OVERRIDE_INTERVAL=${OVERRIDE_INTERVAL}ms (from INGESTION_WORKER_INTERVAL_MS env var)`);
+  } else {
+    console.log('[Ingestion Worker] Starting with lifecycle-based adaptive polling (INGESTION_WORKER_INTERVAL_MS not set)');
+  }
 
   while (ingestionWorkerRunning) {
     try {

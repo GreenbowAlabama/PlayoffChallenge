@@ -173,4 +173,38 @@ router.get('/available', extractUserId, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/contests/live
+ *
+ * Returns all contests currently in LIVE status.
+ *
+ * Contract:
+ * - Data scope: All LIVE contests (no filters on user participation or capacity)
+ * - Sorting: end_time ASC (contests ending soonest first)
+ * - Metadata-only: no standings
+ * - Non-mutating: does not trigger lifecycle advancement
+ *
+ * Response:
+ * - 200: Array of contest objects
+ * - 401: Authentication required
+ * - 500: Server error
+ *
+ * Authentication:
+ * - Requires extractUserId middleware (Bearer token or X-User-Id header)
+ * - userId from req.userId (extracted by middleware)
+ */
+router.get('/live', extractUserId, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const userId = req.userId;
+
+    const contests = await customContestService.getLiveContests(pool, userId);
+
+    res.json(contests);
+  } catch (err) {
+    console.error('[Contests] Error fetching live contests:', err);
+    res.status(500).json({ error: 'Failed to fetch contests' });
+  }
+});
+
 module.exports = router;

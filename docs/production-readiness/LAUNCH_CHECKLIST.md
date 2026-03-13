@@ -84,6 +84,12 @@ docs/production-readiness/SYSTEM_STATUS_AND_ISSUES.md
 
 # Section 2.5 — Fixed Issues (Verified Complete)
 
+✅ **INGESTION WORKER POLLING INTERVAL — FIXED**
+- Worker now respects `INGESTION_WORKER_INTERVAL_MS` environment variable
+- Supports both override mode (env var set) and adaptive mode (env var not set)
+- Backward compatible with existing deployments
+- See docs/production-readiness/PLATFORM_WORKERS.md for configuration details
+
 ✅ **JOIN CONTEST LEDGER RACE CONDITION — FIXED**
 - joinContest() now verifies ledger debit exists
 - Race condition self-heals missing ENTRY_FEE entries
@@ -423,6 +429,12 @@ Runbooks verified for:
 [ ] API environment configuration correct
 
 [ ] Worker services running
+
+[ ] **Worker Configuration Verified:**
+  - [ ] INGESTION_WORKER_INTERVAL_MS set to desired polling interval (e.g., 60000ms)
+  - [ ] Worker startup logs show correct interval configuration
+  - [ ] Lifecycle-based adaptive polling understood (used when env var not set)
+  - See docs/production-readiness/PLATFORM_WORKERS.md for details
 
 [ ] Stripe production keys configured
 

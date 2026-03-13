@@ -175,6 +175,67 @@ Authorization: Bearer 11111111-1111-1111-1111-111111111111
 
 ---
 
+## GET /api/contests/live
+
+**Purpose:** Live contests display for the LIVE tab showing contests currently in progress.
+
+**Use Case:** Display all contests that are currently executing (LIVE status).
+
+### Request
+
+```http
+GET /api/contests/live
+Authorization: Bearer {user_id}
+```
+
+### Filters
+
+- **Status:** `LIVE` only
+- **Participation:** None (shows all LIVE contests)
+- **Capacity:** None (shows all regardless of entries)
+
+### Sorting
+
+- **Primary:** `end_time ASC` (contests ending soonest first)
+
+### Response
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "contest_name": "PGA — THE PLAYERS Championship 2026 Contest",
+    "status": "LIVE",
+    "lock_time": "2026-03-13T12:30:00Z",
+    "end_time": "2026-03-16T17:00:00Z",
+    "entry_fee_cents": 5000,
+    "entry_count": 45,
+    "user_has_entered": true,
+    "organizer_name": "Platform"
+  },
+  {
+    "id": "660e8400-e29b-41d4-a716-446655440001",
+    "contest_name": "PGA — Arnold Palmer Invitational 2026 Contest",
+    "status": "LIVE",
+    "lock_time": "2026-03-14T10:00:00Z",
+    "end_time": "2026-03-17T18:00:00Z",
+    "entry_fee_cents": 5000,
+    "entry_count": 32,
+    "user_has_entered": false,
+    "organizer_name": "Platform"
+  }
+]
+```
+
+### Notes
+
+- Returns contests sorted by proximity to end (soonest end first)
+- Includes all users regardless of participation
+- No pagination (returns all LIVE contests)
+- Used by iOS LIVE tab to show active contests
+
+---
+
 ## GET /api/contests/available (Legacy)
 
 ⚠️ **DEPRECATED:** This endpoint is retained for backward compatibility.
@@ -231,10 +292,10 @@ Authorization: Bearer {user_id}
 
 ## Architecture Notes
 
-### The Three Endpoint Roles
+### The Four Endpoint Roles
 
 **Home (`GET /api/contests/home`)**
-- Discovers **all upcoming contests**
+- Discovers **all upcoming contests** for discovery
 - No user-scoping
 - Sorted by proximity (earliest lock first)
 - Enables rotation between contests
@@ -244,6 +305,13 @@ Authorization: Bearer {user_id}
 - Includes all lifecycle statuses
 - Sorted by urgency (LIVE first)
 - Supports pagination for large portfolios
+
+**LIVE (`GET /api/contests/live`)**
+- Shows **contests currently executing**
+- Status-filtered (LIVE only)
+- Sorted by end time (soonest first)
+- No pagination (all LIVE contests)
+- Used by iOS LIVE tab
 
 **Available/Legacy (`GET /api/contests/available`)**
 - Historical endpoint

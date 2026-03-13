@@ -818,4 +818,147 @@ describe('Contests Routes', () => {
       });
     });
   });
+
+  describe('GET /api/contests/live (Live Contests)', () => {
+    it('should return only LIVE contests', async () => {
+      const liveContest = createMockContest({
+        id: '11111111-1111-1111-1111-111111111111',
+        status: 'LIVE',
+        end_time: new Date(Date.now() + 3600000),
+        user_has_entered: false
+      });
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE ci\.status = 'LIVE'/,
+        mockQueryResponses.multiple([liveContest])
+      );
+
+      const response = await request(app)
+        .get('/api/contests/live')
+        .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].status).toBe('LIVE');
+    });
+
+    it('should exclude SCHEDULED contests', async () => {
+      const liveContest = createMockContest({
+        id: '11111111-1111-1111-1111-111111111111',
+        status: 'LIVE'
+      });
+
+      const scheduledContest = createMockContest({
+        id: '22222222-2222-2222-2222-222222222222',
+        status: 'SCHEDULED'
+      });
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE ci\.status = 'LIVE'/,
+        mockQueryResponses.multiple([liveContest])
+      );
+
+      const response = await request(app)
+        .get('/api/contests/live')
+        .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].status).toBe('LIVE');
+    });
+
+    it('should exclude COMPLETE contests', async () => {
+      const liveContest = createMockContest({
+        id: '11111111-1111-1111-1111-111111111111',
+        status: 'LIVE'
+      });
+
+      const completeContest = createMockContest({
+        id: '33333333-3333-3333-3333-333333333333',
+        status: 'COMPLETE'
+      });
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE ci\.status = 'LIVE'/,
+        mockQueryResponses.multiple([liveContest])
+      );
+
+      const response = await request(app)
+        .get('/api/contests/live')
+        .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].status).toBe('LIVE');
+    });
+
+    it('should exclude CANCELLED contests', async () => {
+      const liveContest = createMockContest({
+        id: '11111111-1111-1111-1111-111111111111',
+        status: 'LIVE'
+      });
+
+      const cancelledContest = createMockContest({
+        id: '44444444-4444-4444-4444-444444444444',
+        status: 'CANCELLED'
+      });
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE ci\.status = 'LIVE'/,
+        mockQueryResponses.multiple([liveContest])
+      );
+
+      const response = await request(app)
+        .get('/api/contests/live')
+        .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].status).toBe('LIVE');
+    });
+
+    it('should sort LIVE contests by end_time ASC', async () => {
+      const now = Date.now();
+      const contest1 = createMockContest({
+        id: '00000000-0000-0000-0000-000000000001',
+        status: 'LIVE',
+        end_time: new Date(now + 7200000) // 2 hours
+      });
+
+      const contest2 = createMockContest({
+        id: '00000000-0000-0000-0000-000000000002',
+        status: 'LIVE',
+        end_time: new Date(now + 3600000) // 1 hour
+      });
+
+      const contest3 = createMockContest({
+        id: '00000000-0000-0000-0000-000000000003',
+        status: 'LIVE',
+        end_time: new Date(now + 10800000) // 3 hours
+      });
+
+      mockPool.setQueryResponse(
+        /SELECT[\s\S]*FROM contest_instances[\s\S]*WHERE ci\.status = 'LIVE'/,
+        mockQueryResponses.multiple([contest2, contest1, contest3])
+      );
+
+      const response = await request(app)
+        .get('/api/contests/live')
+        .set('Authorization', `Bearer ${TEST_USER_ID}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(3);
+      // Verify end_time ordering (earliest first) using ISO string comparison
+      const times = response.body.map(c => new Date(c.end_time).getTime());
+      expect(times[0]).toBeLessThan(times[1]);
+      expect(times[1]).toBeLessThan(times[2]);
+    });
+
+    it('should require authentication', async () => {
+      const response = await request(app)
+        .get('/api/contests/live');
+
+      expect(response.status).toBe(401);
+    });
+  });
 });

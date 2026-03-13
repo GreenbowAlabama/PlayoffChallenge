@@ -11,6 +11,36 @@ Status: IDENTIFIED BLOCKERS FOR LAUNCH
 
 ## Completed Fixes
 
+### 0. Ingestion Worker Polling Interval Configuration — FIXED
+**Status:** ✅ RESOLVED
+
+**Issue:** Ingestion worker was ignoring the `INGESTION_WORKER_INTERVAL_MS` environment variable and using hardcoded lifecycle-based polling intervals (5s for LIVE, 30s for LOCKED, etc.).
+
+**Solution Implemented:**
+- Added `OVERRIDE_INTERVAL` configuration constant that reads from `INGESTION_WORKER_INTERVAL_MS` env var
+- Updated `getHighestContestStatus()` to respect the override interval
+- When env var is set, worker uses that interval for all contest statuses
+- When env var is not set, worker falls back to lifecycle-based adaptive polling (original behavior)
+- Enhanced startup logging to show which configuration mode is active
+
+**Configuration:**
+```javascript
+const OVERRIDE_INTERVAL = process.env.INGESTION_WORKER_INTERVAL_MS
+  ? Number(process.env.INGESTION_WORKER_INTERVAL_MS)
+  : null;
+```
+
+**Impact:** Production deployments can now control ingestion worker polling frequency via environment variable while maintaining backward compatibility.
+
+**Files Modified:**
+- `/backend/workers/ingestionWorker.js`
+
+**Startup Behavior:**
+- With `INGESTION_WORKER_INTERVAL_MS=60000`: `[Ingestion Worker] Starting with OVERRIDE_INTERVAL=60000ms (from INGESTION_WORKER_INTERVAL_MS env var)`
+- Without env var: `[Ingestion Worker] Starting with lifecycle-based adaptive polling (INGESTION_WORKER_INTERVAL_MS not set)`
+
+---
+
 ### 1. Join Contest Ledger Race Condition — FIXED
 **Status:** ✅ RESOLVED
 
