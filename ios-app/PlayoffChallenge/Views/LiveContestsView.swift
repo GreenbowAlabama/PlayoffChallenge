@@ -108,7 +108,7 @@ struct LiveContestsView: View {
             switch httpResponse.statusCode {
             case 200:
                 let decoder = JSONDecoder.iso8601Decoder
-                let dtos = try decoder.decode([ContestListItemDTO].self, from: data)
+                let dtos = try decoder.decode([Core.ContestListItemDTO].self, from: data)
                 self.contests = dtos.map { Contest.from($0) }
                 self.isLoading = false
             case 401:
