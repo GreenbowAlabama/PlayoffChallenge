@@ -451,3 +451,60 @@ Trigger alert if:
 - `customContest.service.test.js` — join flow, wallet validation, idempotency
 - `wallet-balance.*.test.js` — balance computation
 - Payment and settlement tests — interaction with wallet state
+
+---
+
+## 6. Reconciliation Counting Semantics
+
+### Definition
+
+Reconciliation counting (used in lifecycle reconciliation) **does NOT measure financial state**.
+
+Reconciliation counts measure **state transitions executed in a single reconciliation run**, which is distinct from wallet balances and contest pool calculations.
+
+### Reconciliation Count vs. Financial Totals
+
+| Metric | Measures | Scope | Used For |
+|--------|----------|-------|----------|
+| **Reconciliation Count** | State transitions executed in THIS run | Current run only (e.g., 5 contests moved SCHEDULED→LOCKED) | Observability, trigger deduplication |
+| **Wallet Liability** | Sum of all CREDIT/DEBIT entries for a user | All historical ledger entries | Balance query, financial invariant equation |
+| **Contest Pool** | Sum of entry fees - refunds - payouts | All historical ledger entries | Contest economics, financial invariant equation |
+
+### Why This Matters
+
+**Scenario:** Database has 100 contests in SCHEDULED state. Reconciliation runs:
+- **Reconciliation count:** Shows how many contests actually transitioned (e.g., 5 with elapsed lock_time)
+- **Wallet liability & contest pool:** Includes all users and all contests in ledger (unchanged by reconciliation run)
+- **Financial invariant:** `wallet_liability + contest_pools = deposits - withdrawals` (independent of reconciliation counts)
+
+### Counting Rules
+
+**Reconciliation results ONLY count transitions that executed THIS RUN:**
+
+1. ✅ Count transitions by reading the RETURNING clause of INSERT operations
+2. ✅ Do NOT count historical transition records from `contest_state_transitions` table
+3. ✅ Do NOT count contests that could transition but haven't yet
+4. ✅ Return zero counts when no eligible contests exist
+
+**Example (Test Case: "returns zero counts when no eligible contests exist"):**
+- Database state: Empty (no SCHEDULED, LOCKED, or LIVE contests)
+- Reconciliation call: `reconcileLifecycle(pool, now)`
+- Expected result: `{ totals: { count: 0, changedIds: [] } }`
+- Why: No contests eligible for transition → no transitions executed → count = 0
+
+### Implementation
+
+Each transition function (`transitionScheduledToLocked`, etc.) uses:
+```sql
+WITH transitioned AS (
+  UPDATE contest_instances
+  SET status = $1, updated_at = $2
+  WHERE [eligibility conditions]
+  RETURNING id
+)
+INSERT INTO contest_state_transitions (...)
+SELECT id, ... FROM transitioned
+RETURNING contest_instance_id
+```
+
+The RETURNING clause on INSERT is the source of truth for "changed IDs," not a query of historical records.

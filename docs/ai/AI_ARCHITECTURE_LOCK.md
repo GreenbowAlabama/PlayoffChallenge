@@ -131,13 +131,28 @@ Stop and escalate. Settlement modifications require architect approval.
 - No authentication requirement changes
 
 **Freezing Mechanism:**
-API contracts are frozen using cryptographic snapshots.
+API contracts are frozen using cryptographic snapshots stored in `api_contract_snapshots` table with SHA256 hash uniqueness.
 
 **If changes required:**
-1. Update openapi.yaml
-2. Run: `npm run freeze:openapi`
-3. Commit snapshot
-4. Deploy after architect approval
+1. Update `backend/contracts/openapi.yaml` with new endpoints/schemas
+2. Run: `npm run freeze:openapi` (creates append-only snapshot with auto-incrementing version)
+3. Update test expected hash: `backend/tests/contract-freeze.test.js` (line 40)
+   - Get new hash from freeze command output or `sha256sum backend/contracts/openapi.yaml`
+   - Update `expectedHash` variable with new value
+   - Add comment noting date and reason for hash change
+4. Verify test passes: `TEST_DB_ALLOW_DBNAME=railway npm test tests/contract-freeze.test.js`
+5. Commit: snapshot in database + updated test expected hash + updated openapi.yaml
+6. Deploy after architect approval
+
+**Idempotency:**
+- `npm run freeze:openapi` can be run multiple times safely
+- If snapshot already exists for that hash, exits with success (no duplicate created)
+- Safe for CI/CD pipelines
+
+**Violation Detection:**
+- Test automatically detects contract drift via hash mismatch
+- If test fails, follow steps above to update hash
+- If hash mismatch is unexpected, investigate code changes first
 
 ---
 
@@ -184,19 +199,28 @@ Stop and escalate. Discovery structure changes require architect approval.
 
 ### 8. Authentication System
 
-**Authority:** `backend/services/userJwt.js`
+**Authority:**
+- Backend: `backend/services/userJwt.js`
+- iOS: `ios-app/PlayoffChallenge/Services/AuthService.swift`
 
 **Status:** OPERATIONAL
 
 **System:**
-The platform uses JWT bearer authentication. Tokens are issued by authentication endpoints:
+The platform uses JWT bearer authentication issued by backend auth endpoints and consumed by iOS client.
+
+**Backend Token Issuance:**
+Tokens are issued by authentication endpoints:
 - POST /api/users (Apple Sign In)
 - POST /api/auth/register (Email/password signup)
 - POST /api/auth/login (Email/password login)
 
-**Token Format:**
-```
-Authorization: Bearer <jwt>
+**Response:**
+```json
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "token": "eyJhbGc..."
+}
 ```
 
 **JWT Payload Claims:**
@@ -209,12 +233,26 @@ Authorization: Bearer <jwt>
 - Secret: `process.env.JWT_SECRET`
 - Expiration: 24h
 
-**Authentication Middleware:**
-Verifies the JWT and sets `req.userId` on authenticated requests.
+**iOS Client Implementation:**
+- **AuthService** owns auth state:
+  - Stores JWT token in `authToken` property
+  - Persists to UserDefaults under key `authToken`
+  - Exposes via `currentAuthToken()` method
+  - Exposes user ID via `currentUserId()` for backward compatibility
+- **APIService** remains stateless:
+  - Requests token from `AuthService.shared.currentAuthToken()`
+  - Sends `Authorization: Bearer <jwt>` header
+  - Sends `X-User-Id` header for backward compatibility
+  - Does not store tokens directly
 
 **Protected Files:**
-- `backend/services/userJwt.js`
-- `backend/server.js` (auth endpoints)
+- Backend:
+  - `backend/services/userJwt.js`
+  - `backend/server.js` (auth endpoints)
+- iOS:
+  - `ios-app/PlayoffChallenge/Services/AuthService.swift`
+  - `ios-app/PlayoffChallenge/Services/APIService.swift`
+  - `ios-app/PlayoffChallenge/Models/Models.swift` (User struct)
 
 **If changes required:**
 Authentication modifications require architect approval.

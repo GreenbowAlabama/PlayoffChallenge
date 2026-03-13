@@ -24,8 +24,16 @@ class AuthService: ObservableObject {
     @Published var pendingAppleCredential: (appleId: String, email: String?, name: String?)? = nil
     @Published var hasAuthStateChanged = UUID()
 
+    private var authToken: String?
+
     init() {
         print("AuthService: Initializing...")
+        // Load token if available
+        self.authToken = UserDefaults.standard.string(forKey: "authToken")
+        if let token = self.authToken {
+            print("AuthService: Found saved authToken")
+        }
+
         if let userIdString = UserDefaults.standard.string(forKey: "userId"),
            let userId = UUID(uuidString: userIdString) {
             print("AuthService: Found saved userId: \(userId)")
@@ -85,6 +93,13 @@ class AuthService: ObservableObject {
                 self.currentUser = user
                 UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
                 print("AuthService: Saved userId to UserDefaults")
+
+                // Store JWT token if present
+                if let token = user.token {
+                    self.authToken = token
+                    UserDefaults.standard.set(token, forKey: "authToken")
+                    print("AuthService: Saved authToken to UserDefaults")
+                }
 
                 self.isAuthenticated = true
 
@@ -172,6 +187,13 @@ class AuthService: ObservableObject {
             UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
             print("AuthService: Saved userId to UserDefaults")
 
+            // Store JWT token if present
+            if let token = user.token {
+                self.authToken = token
+                UserDefaults.standard.set(token, forKey: "authToken")
+                print("AuthService: Saved authToken to UserDefaults")
+            }
+
             self.isAuthenticated = true
 
             // V2: Check TOS requirement via flags endpoint (capability-based)
@@ -213,6 +235,13 @@ class AuthService: ObservableObject {
             UserDefaults.standard.set(user.id.uuidString, forKey: "userId")
             print("AuthService: Saved userId to UserDefaults")
 
+            // Store JWT token if present
+            if let token = user.token {
+                self.authToken = token
+                UserDefaults.standard.set(token, forKey: "authToken")
+                print("AuthService: Saved authToken to UserDefaults")
+            }
+
             self.isAuthenticated = true
             self.needsUsernameSetup = true
 
@@ -241,6 +270,8 @@ class AuthService: ObservableObject {
         isAuthenticated = false
         needsToAcceptTOS = false
         UserDefaults.standard.removeObject(forKey: "userId")
+        UserDefaults.standard.removeObject(forKey: "authToken")
+        self.authToken = nil
 
         // Emit auth state change to notify ViewModels to invalidate caches
         hasAuthStateChanged = UUID()
@@ -258,9 +289,15 @@ class AuthService: ObservableObject {
         return currentUser?.username ?? "User"
     }
 
-    /// Returns the Bearer token (currently user ID) if authenticated, nil otherwise.
-    /// Centralized here so future auth upgrades (JWT, sessions, etc.) only require changes in this method.
+    /// Returns the JWT bearer token if authenticated, nil otherwise.
+    /// Token is obtained from authentication endpoints and stored by AuthService.
     func currentAuthToken() -> String? {
+        return authToken
+    }
+
+    /// Returns the current user's ID as a UUID string.
+    /// Used for X-User-Id header and backward compatibility.
+    func currentUserId() -> String? {
         return currentUser?.id.uuidString
     }
 }

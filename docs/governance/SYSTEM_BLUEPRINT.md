@@ -128,12 +128,21 @@ All three endpoints return:
 
 ### Token Storage and Usage
 
-1. Client stores the JWT token in secure storage
-2. Client includes token in all authenticated requests:
-   ```
-   Authorization: Bearer <token>
-   ```
-3. Authentication middleware verifies the JWT and extracts the user ID
+**Backend:**
+- Issues JWT token in user response after successful authentication
+- Verifies token signature on all authenticated requests
+- Extracts user ID from `sub` claim
+- Rejects requests with invalid or missing tokens (401 Unauthorized)
+
+**iOS Client:**
+- **AuthService** stores token in `authToken` property and UserDefaults
+- **APIService** retrieves token from AuthService on each request
+- Includes token in all authenticated requests:
+  ```
+  Authorization: Bearer <token>
+  X-User-Id: <user-id-uuid>  (backward compatibility)
+  ```
+- Maintains stateless architecture (APIService does not store tokens)
 
 ### Token Details
 

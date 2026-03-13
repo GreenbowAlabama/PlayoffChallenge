@@ -101,6 +101,33 @@ API contracts are frozen using cryptographic snapshots to ensure immutability an
 - Append-only versioning: versions increment automatically (v1, v2, v3...)
 - Idempotency: freezing the same spec multiple times produces one snapshot
 - Audit trail: all contract changes are permanently recorded with timestamps
+- **Schema Enforcement:** Triggers block UPDATE and DELETE operations (append-only)
+- **Uniqueness Constraint:** UNIQUE INDEX on (contract_name, version, sha256)
+- **Latest View:** `api_contract_snapshots_latest` provides quick access to current snapshot
+
+**Database Schema:**
+```sql
+CREATE TABLE api_contract_snapshots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  contract_name TEXT NOT NULL,
+  version TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  spec_json JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE UNIQUE INDEX api_contract_snapshots_unique
+  ON api_contract_snapshots(contract_name, version, sha256);
+
+-- Triggers prevent mutation (INSERT ONLY)
+CREATE TRIGGER api_contract_snapshots_block_update
+  BEFORE UPDATE ON api_contract_snapshots
+  FOR EACH ROW EXECUTE FUNCTION api_contract_snapshots_no_update_delete();
+
+CREATE TRIGGER api_contract_snapshots_block_delete
+  BEFORE DELETE ON api_contract_snapshots
+  FOR EACH ROW EXECUTE FUNCTION api_contract_snapshots_no_update_delete();
+```
 
 **Freeze Process:**
 ```bash
@@ -115,10 +142,19 @@ npm run freeze:openapi:admin  # Planned for Phase 2 (not yet implemented)
 4. If exists → exit successfully (idempotent)
 5. If not → compute next version and insert append-only snapshot
 
+**Idempotency Guarantee:**
+- Running `npm run freeze:openapi` multiple times with the same spec produces ONE snapshot
+- Subsequent runs detect existing snapshot and exit with success code
+- No duplicate versions created
+- Perfect for CI/CD pipelines (safe to run on every commit)
+
 **Violation Detection:**
 - Contract changes without freezing trigger test failures
 - `tests/contracts/openapi-freeze.test.js` enforces contract immutability
+- Test compares current openapi.yaml hash against expected hash
+- If drift detected, test fails and blocks deployment
 - Workers must freeze a new snapshot before deploying API changes
+- **Worker Protocol:** If test fails, run `npm run freeze:openapi`, then update expected hash in test
 
 **Authoritative Reference:** `backend/scripts/freeze-openapi.js`
 

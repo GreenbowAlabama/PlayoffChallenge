@@ -83,14 +83,22 @@ class APIService {
         request.setValue(clientVersion, forHTTPHeaderField: "X-Client-Version")
     }
 
-    /// Adds authorization header if a user is authenticated.
+    /// Adds authorization headers if a user is authenticated.
+    /// - JWT token in Authorization header (from AuthService)
+    /// - X-User-Id header for backward compatibility (from AuthService)
     private func addAuthorizationHeader(to request: inout URLRequest) {
-        if let userIdString = UserDefaults.standard.string(forKey: "userId"),
-           let userId = UUID(uuidString: userIdString) {
-            request.setValue("Bearer \(userId.uuidString)", forHTTPHeaderField: "Authorization")
-            print("APIService: Added Authorization header for userId: \(userId.uuidString)")
+        // Get JWT token from AuthService
+        if let token = AuthService.shared.currentAuthToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            print("APIService: Added JWT Authorization header")
         } else {
-            print("APIService: No authenticated user, Authorization header not added.")
+            print("APIService: No JWT token available, Authorization header not added.")
+        }
+
+        // Add X-User-Id for backward compatibility
+        if let userId = AuthService.shared.currentUserId() {
+            request.setValue(userId, forHTTPHeaderField: "X-User-Id")
+            print("APIService: Added X-User-Id header for backward compatibility")
         }
     }
 

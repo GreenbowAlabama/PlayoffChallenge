@@ -10,8 +10,8 @@
  *   npm run freeze:openapi
  *
  * What it does:
- * 1. Generates canonical OpenAPI spec from app routes
- * 2. Computes SHA256 hash of the spec JSON
+ * 1. Loads the OpenAPI YAML contract file
+ * 2. Computes SHA256 hash of the spec
  * 3. Inserts new row into api_contract_snapshots (APPEND-ONLY)
  * 4. Respects append-only invariant: never deletes old rows
  * 5. Creates audit trail of all API changes
@@ -29,8 +29,10 @@
  */
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { Pool } = require('pg');
-const { generateOpenAPISpec } = require('./generate-openapi');
+const yaml = require('js-yaml');
 
 async function freezeOpenAPI() {
   // Validate environment
@@ -48,13 +50,20 @@ async function freezeOpenAPI() {
   });
 
   try {
-    // Step 1: Generate canonical OpenAPI spec
-    console.log('📋 Generating canonical OpenAPI spec...');
-    const spec = generateOpenAPISpec();
+    // Step 1: Load OpenAPI YAML file (no app initialization required)
+    console.log('📋 Loading OpenAPI contract from file...');
+    const specPath = path.join(__dirname, '..', 'contracts', 'openapi.yaml');
+
+    if (!fs.existsSync(specPath)) {
+      throw new Error(`OpenAPI spec not found at ${specPath}`);
+    }
+
+    const specYaml = fs.readFileSync(specPath, 'utf8');
+    const spec = yaml.load(specYaml);
 
     // Step 2: Validate spec structure
     if (!spec || typeof spec !== 'object' || spec.openapi !== '3.0.0') {
-      throw new Error('Generated spec is invalid or missing required fields');
+      throw new Error('OpenAPI spec is invalid or missing required fields');
     }
 
     // Step 3: Serialize and hash

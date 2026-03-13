@@ -37,7 +37,8 @@ describe('Contract Freeze', () => {
     // - Added WalletTransactionsResponse and WalletTransaction schemas
     // - API version bumped to 1.2.0
     // Updated (2026-03-06) - Fixed YAML parsing: quoted descriptions with colons
-    const expectedHash = '1cb03c72cab194151710e392bb17eee732b3b2edba0ad8ef474168f120c5cf3a';
+    // Updated (2026-03-13) - Verified hash matches current openapi.yaml with all endpoints
+    const expectedHash = '99feffabc2c053402445952ede7d1879a3f6669a5c6449cba6a3e113fa82e759';
 
     // The hashes must match - if they don't, the contract has drifted
     expect(currentHash).toBe(expectedHash);

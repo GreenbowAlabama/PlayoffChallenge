@@ -80,6 +80,62 @@ If `error_code` is `INSUFFICIENT_WALLET_FUNDS`, wallet balance is insufficient (
 
 ---
 
+## 1.2. AUTHENTICATION BOUNDARY RULE (PRE-SWEEP)
+
+Before any iOS authentication work, understand JWT token handling:
+
+### Token Ownership Architecture
+
+**AuthService owns auth state:**
+- Stores JWT token in private `authToken` property
+- Persists token to UserDefaults under key `authToken`
+- Exposes token via `currentAuthToken()` method
+- Exposes user ID via `currentUserId()` for backward compatibility
+- Stores and clears token during login/logout
+
+**APIService remains stateless:**
+- Does NOT store tokens in UserDefaults
+- Requests token from `AuthService.shared.currentAuthToken()`
+- Sends `Authorization: Bearer <jwt>` header on all authenticated requests
+- Also sends `X-User-Id` header for backward compatibility
+
+### Token Reception & Storage
+
+Backend auth endpoints return user response with token:
+```json
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "username": "string",
+  "created_at": "ISO-8601",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+iOS must:
+- ✅ Decode token from `User.token` field
+- ✅ Store in AuthService.authToken
+- ✅ Persist to UserDefaults for session recovery
+- ✅ Use in all subsequent authenticated requests
+
+iOS must NOT:
+- ❌ Store token in APIService
+- ❌ Parse or validate JWT claims (backend responsibility)
+- ❌ Implement token refresh logic (24h expiration only)
+- ❌ Send token in request body (header only)
+
+### Request Headers
+
+All authenticated APIService requests must include:
+```
+Authorization: Bearer <jwt>
+X-User-Id: <user-id-uuid>
+```
+
+**Evidence:** `backend/contracts/openapi.yaml` (bearerAuth definition), `backend/server.js` (auth endpoints)
+
+---
+
 ## 2. ARCHITECTURE LAYER BOUNDARIES
 
 ### Forbidden Crossings (HARD RULES)

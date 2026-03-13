@@ -440,6 +440,70 @@ if (shouldAutoTransition) {
 
 ---
 
+## Reconciliation Service Return Contract
+
+### Return Structure
+
+The `reconcileLifecycle(pool, now)` function returns a structured result containing counts and IDs of contests that transitioned during THIS reconciliation run.
+
+**Return Type:**
+```javascript
+{
+  nowISO: string,                              // ISO-8601 timestamp of injected now
+  scheduledToLocked: {
+    count: number,                             // Number of contests transitioned in THIS run
+    changedIds: string[]                       // Array of contest IDs that transitioned
+  },
+  lockedToLive: {
+    count: number,                             // Number of contests transitioned in THIS run
+    changedIds: string[]                       // Array of contest IDs that transitioned
+  },
+  liveToCompleted: {
+    count: number,                             // Number of contests transitioned in THIS run
+    changedIds: string[]                       // Array of contest IDs that transitioned
+  },
+  totals: {
+    count: number,                             // Sum of all transitions in THIS run
+    changedIds: string[]                       // All contest IDs changed in THIS run
+  }
+}
+```
+
+### Counting Semantics (CRITICAL)
+
+**The `count` field represents ONLY transitions executed during the current reconciliation run.**
+
+This is NOT a cumulative count of all contests in any state. This is NOT a count of contests in the database that could transition.
+
+**Key Properties:**
+- ✅ **Reflects actual mutations:** Only counts contests that changed state in THIS call
+- ✅ **Excludes historical transitions:** Previous reconciliation runs are NOT included
+- ✅ **Idempotent counting:** If no eligible contests exist, count = 0 (no mutations)
+- ✅ **Aggregated per transition:** Each transition type (SCHEDULED→LOCKED, LOCKED→LIVE, LIVE→COMPLETE) has its own count
+- ✅ **Total aggregation:** `totals.count = scheduledToLocked.count + lockedToLive.count + liveToCompleted.count`
+
+**Example Scenarios:**
+
+| Scenario | Expected Result |
+|----------|-----------------|
+| No eligible contests (database has 0 contests in SCHEDULED, LOCKED, or LIVE with elapsed times) | `totals.count = 0`, all `changedIds = []` |
+| 5 contests time out and transition SCHEDULED→LOCKED | `scheduledToLocked.count = 5`, `totals.count >= 5` |
+| Re-run reconciliation immediately (no time has passed, contests already LOCKED) | `scheduledToLocked.count = 0`, `lockedToLive.count = 0`, `totals.count = 0` (idempotent) |
+| Day 1 case (lock_time == tournament_start_time, both in past) | Both transitions execute in one run: `totals.count = 2` |
+
+### Implementation Details
+
+Each transition function returns `{ count, changedIds }` by:
+1. **Querying eligible contests** (based on status and time conditions)
+2. **Updating status** (single CTE UPDATE)
+3. **Inserting transition records** (single CTE INSERT RETURNING)
+4. **Extracting changed IDs** (from RETURNING clause, not from database history query)
+5. **Counting mutations** (changed IDs length)
+
+**Why NOT a database history query:** Counting from `contest_state_transitions` table would include historical records from previous runs. The RETURNING clause ensures we count only the rows we just inserted.
+
+---
+
 ## Fast Feedback Commands
 
 Use these to verify lifecycle implementation status:

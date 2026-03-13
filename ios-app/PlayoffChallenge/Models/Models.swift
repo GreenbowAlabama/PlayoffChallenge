@@ -48,6 +48,7 @@ struct User: Codable, Identifiable {
     let paymentDate: String?
     let isAdmin: Bool
     let createdAt: String?
+    let token: String?
 
     // Compliance fields
     let state: String?
@@ -71,6 +72,7 @@ struct User: Codable, Identifiable {
         case paymentDate = "payment_date"
         case isAdmin = "is_admin"
         case createdAt = "created_at"
+        case token
 
         // Compliance fields
         case state
@@ -96,6 +98,7 @@ struct User: Codable, Identifiable {
         paymentDate = try c.decodeIfPresent(String.self, forKey: .paymentDate)
         isAdmin = (try? c.decode(Bool.self, forKey: .isAdmin)) ?? false
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        token = try c.decodeIfPresent(String.self, forKey: .token)
 
         // Compliance fields
         state = try c.decodeIfPresent(String.self, forKey: .state)
