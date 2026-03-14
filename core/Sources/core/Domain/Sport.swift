@@ -9,13 +9,13 @@ public enum Sport: String, Codable, Sendable, Equatable {
 
     /// Initialize from backend template_sport string.
     /// Backend returns: "GOLF", "NFL", or other values.
-    /// Defaults to .nfl if nil or unrecognized.
+    /// Defaults to .unknown if nil or unrecognized (explicit, not silent).
     public init(_ value: String?) {
         guard let value = value else {
-            self = .nfl
+            self = .unknown
             return
         }
 
-        self = Sport(rawValue: value.uppercased()) ?? .nfl
+        self = Sport(rawValue: value.uppercased()) ?? .unknown
     }
 }

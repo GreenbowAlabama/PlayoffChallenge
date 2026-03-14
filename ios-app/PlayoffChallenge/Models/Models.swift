@@ -722,6 +722,7 @@ typealias RosterConfigContract = [String: AnyCodable]
 struct ContestDetailResponseContract: Decodable {
     let contest_id: String
     let type: String
+    let sport: String?  // Sport type: "GOLF", "NFL", etc. (required for routing)
     let leaderboard_state: LeaderboardState
     let actions: ContestActions
     let payout_table: [PayoutTierContract]
@@ -730,15 +731,17 @@ struct ContestDetailResponseContract: Decodable {
     enum CodingKeys: String, CodingKey {
         case contest_id
         case type
+        case sport = "template_sport"  // Maps to template_sport in API response
         case leaderboard_state
         case actions
         case payout_table
         case roster_config
     }
 
-    init(contest_id: String, type: String, leaderboard_state: LeaderboardState, actions: ContestActions, payout_table: [PayoutTierContract], roster_config: RosterConfigContract) {
+    init(contest_id: String, type: String, sport: String?, leaderboard_state: LeaderboardState, actions: ContestActions, payout_table: [PayoutTierContract], roster_config: RosterConfigContract) {
         self.contest_id = contest_id
         self.type = type
+        self.sport = sport
         self.leaderboard_state = leaderboard_state
         self.actions = actions
         self.payout_table = payout_table
@@ -749,6 +752,7 @@ struct ContestDetailResponseContract: Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         contest_id = try c.decode(String.self, forKey: .contest_id)
         type = try c.decode(String.self, forKey: .type)
+        sport = try c.decodeIfPresent(String.self, forKey: .sport)  // Maps to template_sport
         leaderboard_state = try c.decode(LeaderboardState.self, forKey: .leaderboard_state)
         actions = try c.decode(ContestActions.self, forKey: .actions)
         // Required fields — no fallback

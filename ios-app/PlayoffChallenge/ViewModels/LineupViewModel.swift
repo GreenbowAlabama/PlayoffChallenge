@@ -213,9 +213,13 @@ final class LineupViewModel: ObservableObject {
         isLoading = true
         print("[MYLINEUP][vm] isLoading=true")
 
+        // DEFENSIVE ROUTING: Log sport to catch routing bugs
+        print("contest.sport = \(contest.sport.rawValue)")
+
         // GOVERNANCE: GOLF contests do not use NFL week logic.
         // Use /api/custom-contests/{id}/my-entry to load user's picks.
         if contest.sport == .golf {
+            print("Loading GOLF entry")
             do {
                 // Load user's entry and contest context from /api/custom-contests/{id}/my-entry
                 print("[MYLINEUP][vm] calling getMyEntry for GOLF contest")
@@ -349,8 +353,16 @@ final class LineupViewModel: ObservableObject {
             return
         }
 
+        // DEFENSIVE GUARD: Reject unknown sports (never fallback to NFL)
+        guard contest.sport != .unknown else {
+            errorMessage = "Failed to load data: Unknown contest sport '\(contest.sport.rawValue)'"
+            showError = true
+            isLoading = false
+            return
+        }
+
         // NFL: Use existing week-based logic
-        print("DEBUG: contest.sport = nfl")
+        print("Loading NFL lineup")
         print("DEBUG: Loading v2 data for week \(selectedWeek)")
 
         do {
