@@ -484,6 +484,7 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
               event_type,
               provider_data_json,
               payload_hash,
+              validation_status,
               created_at
             ) VALUES (
               gen_random_uuid(),
@@ -492,6 +493,7 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
               'PLAYER_POOL',
               $2,
               $3,
+              'VALID',
               NOW()
             )`,
             [
