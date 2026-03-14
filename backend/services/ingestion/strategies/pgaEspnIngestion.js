@@ -744,12 +744,15 @@ async function handleScoringIngestion(ctx, unit) {
 
   const competitions = event.competitions || [];
   if (competitions.length === 0) {
+    console.warn(`[pgaEspnIngestion] No competitions in event, returning empty`);
     return [];
   }
 
   const competition = competitions[0];
   const competitors = competition.competitors || [];
+  console.log(`[pgaEspnIngestion] Found ${competitors.length} competitors in competition`);
   if (competitors.length === 0) {
+    console.warn(`[pgaEspnIngestion] No competitors in competition, returning empty`);
     return [];
   }
 
@@ -765,6 +768,7 @@ async function handleScoringIngestion(ctx, unit) {
       `SELECT id, espn_id FROM players WHERE espn_id = ANY($1)`,
       [espnIds]
     );
+    console.log(`[pgaEspnIngestion] Matched ${playersResult.rows.length} competitors to database golfers`);
 
     for (const row of playersResult.rows) {
       espnToDbMap[row.espn_id] = row.id;
@@ -783,6 +787,7 @@ async function handleScoringIngestion(ctx, unit) {
       }
     }
   }
+  console.log(`[pgaEspnIngestion] Current round number: ${currentRound}`);
 
   // ── Step 4: Determine final round status ──────────────────────────────────
   // ESPN uses STATUS_FINAL when tournament is complete
@@ -841,7 +846,10 @@ async function handleScoringIngestion(ctx, unit) {
     });
   }
 
+  console.log(`[pgaEspnIngestion] Step 5 processed ${golfers.length} golfers with score data`);
+
   if (golfers.length === 0) {
+    console.warn(`[pgaEspnIngestion] No golfers with score data, returning empty`);
     return [];
   }
 
@@ -871,7 +879,7 @@ async function handleScoringIngestion(ctx, unit) {
 
   // ── Step 8: Add contest context to golfer scores ──────────────────────────
   // Return scores shaped for golfer_event_scores table insertion
-  return scoringResult.golfer_scores.map(score => ({
+  const finalScores = scoringResult.golfer_scores.map(score => ({
     contest_instance_id: contestInstanceId,
     golfer_id: score.golfer_id,
     round_number: currentRound,
@@ -880,6 +888,10 @@ async function handleScoringIngestion(ctx, unit) {
     finish_bonus: score.finish_bonus,
     total_points: score.total_points
   }));
+
+  console.log(`[pgaEspnIngestion] handleScoringIngestion returning ${finalScores.length} scores for contest=${contestInstanceId}`);
+
+  return finalScores;
 }
 
 /**
