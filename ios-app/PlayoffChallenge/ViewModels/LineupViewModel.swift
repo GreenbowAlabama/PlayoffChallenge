@@ -140,8 +140,8 @@ final class LineupViewModel: ObservableObject {
     }
 
     var isLineupComplete: Bool {
-        if contest.templateType == .pgaTournament {
-            // PGA: Complete when all golfer slots are filled
+        if contest.sport == .golf {
+            // GOLF: Complete when all golfer slots are filled
             return slots.filter { !$0.isEmpty }.count == lineupSize
         }
         // NFL: Complete when all positions have required count
@@ -213,12 +213,12 @@ final class LineupViewModel: ObservableObject {
         isLoading = true
         print("[MYLINEUP][vm] isLoading=true")
 
-        // GOVERNANCE: PGA contests do not use NFL week logic.
+        // GOVERNANCE: GOLF contests do not use NFL week logic.
         // Use /api/custom-contests/{id}/my-entry to load user's picks.
-        if contest.templateType == .pgaTournament {
+        if contest.sport == .golf {
             do {
                 // Load user's entry and contest context from /api/custom-contests/{id}/my-entry
-                print("[MYLINEUP][vm] calling getMyEntry")
+                print("[MYLINEUP][vm] calling getMyEntry for GOLF contest")
                 let entryResponse = try await APIService.shared.getMyEntry(contestId: contestId)
                 print("[MYLINEUP][vm] myEntry OK canEdit=\(entryResponse.canEdit) playerIds=\(entryResponse.playerIds.count) avail=\(entryResponse.availablePlayers?.count ?? 0)")
 
@@ -350,7 +350,7 @@ final class LineupViewModel: ObservableObject {
         }
 
         // NFL: Use existing week-based logic
-        print("DEBUG: contest.templateType = nfl")
+        print("DEBUG: contest.sport = nfl")
         print("DEBUG: Loading v2 data for week \(selectedWeek)")
 
         do {
@@ -455,8 +455,8 @@ final class LineupViewModel: ObservableObject {
 
         guard positionCount < limit else { return }
 
-        // PGA: Add player and persist immediately
-        if contest.templateType == .pgaTournament {
+        // GOLF: Add player and persist immediately
+        if contest.sport == .golf {
             // Find first empty slot and fill it with new player
             if let emptyIndex = slots.firstIndex(where: { $0.isEmpty }) {
                 let filledSlot = PickV2Slot(
@@ -516,8 +516,8 @@ final class LineupViewModel: ObservableObject {
     func removeSlot(_ slot: PickV2Slot) async {
         guard let userId = userId else { return }
 
-        // PGA: Remove player and persist immediately
-        if contest.templateType == .pgaTournament {
+        // GOLF: Remove player and persist immediately
+        if contest.sport == .golf {
             if let slotIndex = slots.firstIndex(where: { $0.id == slot.id }) {
                 let clearedSlot = PickV2Slot(
                     pickId: slots[slotIndex].pickId,

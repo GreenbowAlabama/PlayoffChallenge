@@ -44,6 +44,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
     public let payoutTable: [PayoutTier]?
     public let rosterConfig: RosterConfig?
     public let templateType: ContestTemplateType
+    public let sport: Sport  // Sport type: GOLF, NFL, etc.
     public let isPlatformOwned: Bool?
 
     public init(
@@ -68,6 +69,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         payoutTable: [PayoutTier]?,
         rosterConfig: RosterConfig?,
         templateType: ContestTemplateType = .unknown,
+        sport: Sport = .unknown,
         isPlatformOwned: Bool?
     ) {
         self.id = id
@@ -91,6 +93,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         self.payoutTable = payoutTable
         self.rosterConfig = rosterConfig
         self.templateType = templateType
+        self.sport = sport
         self.isPlatformOwned = isPlatformOwned
     }
 
@@ -141,6 +144,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         }
 
         let templateType = contract.templateType.flatMap { ContestTemplateType(rawValue: $0) } ?? .unknown
+        let sport = Sport(contract.templateSport)
 
         return Contest(
             id: UUID(uuidString: contract.id) ?? UUID(),
@@ -164,6 +168,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             payoutTable: contract.payoutTable?.map { PayoutTier.from($0) },
             rosterConfig: contract.rosterConfig.map { RosterConfig.from($0) },
             templateType: templateType,
+            sport: sport,
             isPlatformOwned: contract.isPlatformOwned
         )
     }
@@ -173,6 +178,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
     /// Fields like organizerId, contestName, status come from the list endpoint (ContestListItemDTO).
     public static func from(_ contract: ContestDetailResponseContract) -> Contest {
         let templateType = ContestTemplateType(rawValue: contract.type) ?? .unknown
+        let sport = Sport(contract.template_sport)
 
         return Contest(
             id: UUID(uuidString: contract.contest_id) ?? UUID(),
@@ -196,6 +202,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             payoutTable: contract.payout_table.map { PayoutTier.from($0) },
             rosterConfig: RosterConfig.from(contract.roster_config),
             templateType: templateType,
+            sport: sport,
             isPlatformOwned: nil // Not present in detail contract
         )
     }
@@ -224,6 +231,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         payoutTable: [PayoutTier]? = [PayoutTier.stub()],
         rosterConfig: RosterConfig? = RosterConfig.stub(),
         templateType: ContestTemplateType = .playoffChallenge,
+        sport: Sport = .unknown,
         isPlatformOwned: Bool? = nil
     ) -> Contest {
         return Contest(
@@ -248,6 +256,7 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
             payoutTable: payoutTable,
             rosterConfig: rosterConfig,
             templateType: templateType,
+            sport: sport,
             isPlatformOwned: isPlatformOwned
         )
     }

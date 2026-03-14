@@ -11,7 +11,8 @@ struct ContestDetailResponseDTO: Decodable {
     let id: UUID
     let contest_id: UUID?  // Alias for id per OpenAPI (client compatibility field; may be absent in legacy responses)
     let template_id: UUID
-    let type: String
+    let type: String  // template_type: "PGA_DAILY", "PLAYOFF_CHALLENGE", etc.
+    let template_sport: String?  // Sport type: "GOLF", "NFL"
     let organizer_id: UUID
     let entry_fee_cents: Int
     let payout_structure: JSONValue?  // Required field but nullable
@@ -46,7 +47,7 @@ struct ContestDetailResponseDTO: Decodable {
     let standings: [StandingDTO]?
 
     enum CodingKeys: String, CodingKey {
-        case id, contest_id, template_id, type, organizer_id, organizer_name
+        case id, contest_id, template_id, type, template_sport, organizer_id, organizer_name
         case entry_fee_cents, payout_structure, contest_name
         case start_time, end_time, tournament_start_time, tournament_end_time, lock_time, max_entries, join_token
         case created_at, updated_at, is_platform_owned, status
@@ -63,6 +64,7 @@ struct ContestDetailResponseDTO: Decodable {
         contest_id = try c.decodeIfPresent(UUID.self, forKey: .contest_id)
         template_id = try c.decode(UUID.self, forKey: .template_id)
         type = try c.decode(String.self, forKey: .type)
+        template_sport = try c.decodeIfPresent(String.self, forKey: .template_sport)
         organizer_id = try c.decode(UUID.self, forKey: .organizer_id)
         entry_fee_cents = try c.decode(Int.self, forKey: .entry_fee_cents)
         payout_structure = try c.decodeIfPresent(JSONValue.self, forKey: .payout_structure)
