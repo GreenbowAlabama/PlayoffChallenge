@@ -201,15 +201,16 @@ Discovery Logs
 ## Leaderboard Not Updating
 
 **Admin Area:**
-Contests
+Operations
 
 **Primary Page:**
-Live Contests
+Leaderboards
 
 **Verify:**
+- active PGA leaderboard data
 - latest score ingestion time
 - player scoring updates
-- ranking refresh
+- leaderboard entry count
 
 **Fallback Page:**
 Discovery → Player Ingestion

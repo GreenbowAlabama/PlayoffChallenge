@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict hHcOneknZvQrIhmzKdagqp8BlyFspWDlUrfNLa6xwvItQRmN0aSQOyTPtJsB6Hm
+\restrict 9ng8x5aWLTQhMfZzDVYu9HxwFKXIPul3S8JjCNHSfcH1yr56AAg5PyDpm1wTxoI
 
 -- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -764,6 +764,23 @@ COMMENT ON COLUMN public.game_settings.current_playoff_week IS 'Current active p
 --
 
 COMMENT ON COLUMN public.game_settings.season_year IS 'NFL season year (e.g. 2024)';
+
+
+--
+-- Name: golfer_event_scores; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.golfer_event_scores (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    contest_instance_id uuid NOT NULL,
+    golfer_id text NOT NULL,
+    round_number integer NOT NULL,
+    hole_points integer NOT NULL,
+    bonus_points integer NOT NULL,
+    finish_bonus integer NOT NULL,
+    total_points integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
 
 
 --
@@ -2139,6 +2156,22 @@ ALTER TABLE ONLY public.financial_reconciliations
 
 ALTER TABLE ONLY public.game_settings
     ADD CONSTRAINT game_settings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: golfer_event_scores golfer_event_scores_contest_instance_id_golfer_id_round_num_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.golfer_event_scores
+    ADD CONSTRAINT golfer_event_scores_contest_instance_id_golfer_id_round_num_key UNIQUE (contest_instance_id, golfer_id, round_number);
+
+
+--
+-- Name: golfer_event_scores golfer_event_scores_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.golfer_event_scores
+    ADD CONSTRAINT golfer_event_scores_pkey PRIMARY KEY (id);
 
 
 --
@@ -4245,5 +4278,5 @@ ALTER TABLE ONLY public.wallet_withdrawals
 -- PostgreSQL database dump complete
 --
 
-\unrestrict hHcOneknZvQrIhmzKdagqp8BlyFspWDlUrfNLa6xwvItQRmN0aSQOyTPtJsB6Hm
+\unrestrict 9ng8x5aWLTQhMfZzDVYu9HxwFKXIPul3S8JjCNHSfcH1yr56AAg5PyDpm1wTxoI
 

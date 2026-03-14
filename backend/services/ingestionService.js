@@ -781,6 +781,7 @@ async function runPlayerPool(contestInstanceId, pool) {
 /**
  * Run scoring ingestion for a contest instance.
  *
+ * Fetches ESPN leaderboard and constructs SCORING work unit.
  * Ingests leaderboard, live stats, and scoring data required for contest progression and settlement.
  * Only allowed for contests in status: LOCKED, LIVE
  * Rejects SCHEDULED contests (scoring data unavailable).
@@ -788,9 +789,41 @@ async function runPlayerPool(contestInstanceId, pool) {
  * @param {string} contestInstanceId - UUID of contest_instance
  * @param {Object} pool - pg.Pool
  * @returns {Promise<Object>} summary with phase='SCORING'
+ * @throws {Error} If provider_event_id not found or leaderboard fetch fails
  */
 async function runScoring(contestInstanceId, pool) {
-  return run(contestInstanceId, pool, null, { phase: 'SCORING' });
+  if (!contestInstanceId) {
+    throw new Error('ingestionService.runScoring: contestInstanceId required');
+  }
+
+  const result = await pool.query(
+    `SELECT provider_event_id
+     FROM tournament_configs
+     WHERE contest_instance_id = $1`,
+    [contestInstanceId]
+  );
+
+  if (!result.rows.length) {
+    throw new Error(
+      `runScoring: provider_event_id not found for contest ${contestInstanceId}`
+    );
+  }
+
+  const providerEventId = result.rows[0].provider_event_id;
+
+  const espnEventId = providerEventId.replace(/^espn_pga_/, '');
+
+  const { fetchLeaderboard } = require('./ingestion/espn/espnPgaApi');
+
+  const providerData = await fetchLeaderboard({ eventId: espnEventId });
+
+  const workUnit = {
+    phase: 'SCORING',
+    providerEventId,
+    providerData
+  };
+
+  return run(contestInstanceId, pool, [workUnit], { phase: 'SCORING' });
 }
 
 module.exports = { run, runPlayerPool, runScoring, initializeTournamentField, refreshAllScheduledContestFields };
