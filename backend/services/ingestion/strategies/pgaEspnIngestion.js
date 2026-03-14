@@ -719,20 +719,28 @@ async function handleScoringIngestion(ctx, unit) {
   const providerData = unit.providerData;
   const providerEventId = unit.providerEventId;
 
+  logger.info(`[pgaEspnIngestion] handleScoringIngestion START: providerEventId=${providerEventId}`);
+  logger.info(`[pgaEspnIngestion] providerData has ${Object.keys(providerData).length} keys: ${Object.keys(providerData).join(', ')}`);
+
   // ── Step 1: Parse ESPN structure and find correct event ─────────────────────
   const events = providerData.events || [];
+  logger.info(`[pgaEspnIngestion] Found ${events.length} events in leaderboard response`);
   if (events.length === 0) {
+    logger.warn(`[pgaEspnIngestion] No events in leaderboard, returning empty`);
     return [];
   }
 
   // Strip espn_pga_ prefix from providerEventId to match ESPN API response format
   const eventId = providerEventId.replace(/^espn_pga_/, '');
+  logger.info(`[pgaEspnIngestion] Looking for eventId=${eventId} (stripped from ${providerEventId})`);
+  logger.info(`[pgaEspnIngestion] Event IDs available: ${events.map(e => e.id).join(', ')}`);
 
   // Find event matching eventId (not just events[0])
   const event = events.find(e => e.id === eventId);
   if (!event) {
     throw new Error(`handleScoringIngestion: Event ${providerEventId} not found in leaderboard response`);
   }
+  logger.info(`[pgaEspnIngestion] Found matching event, competitions=${event.competitions?.length || 0}`);
 
   const competitions = event.competitions || [];
   if (competitions.length === 0) {
