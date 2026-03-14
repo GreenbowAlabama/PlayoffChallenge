@@ -425,6 +425,43 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminErrorResponse'
 
+  /api/admin/pga/leaderboard-debug:
+    get:
+      tags:
+        - Admin Diagnostics
+      summary: PGA leaderboard diagnostic with fantasy scoring
+      description: |
+        Operational diagnostic endpoint used to validate PGA scoring.
+        Returns the current leaderboard with raw stroke totals and the
+        computed fantasy score using the contest scoring strategy.
+
+        This endpoint is read-only and intended for internal debugging and
+        verification that the scoring pipeline works end-to-end.
+      operationId: getPgaLeaderboardDebug
+      security:
+        - adminAuth: []
+      responses:
+        '200':
+          description: Leaderboard with fantasy scoring
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PgaLeaderboardEntry'
+        '401':
+          description: Unauthorized - admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminErrorResponse'
+
 components:
   securitySchemes:
     adminAuth:
@@ -584,3 +621,28 @@ components:
             - settlement_error: Error message (for error states)
             - provider_reason: Reason from provider (for PROVIDER_TOURNAMENT_CANCELLED)
             - affected_participants: Count (for CANCELLED cascades)
+
+    PgaLeaderboardEntry:
+      type: object
+      required:
+        - golfer_id
+        - player_name
+        - position
+        - total_strokes
+        - fantasy_score
+      properties:
+        golfer_id:
+          type: string
+          description: Unique golfer identifier
+        player_name:
+          type: string
+          description: Golfer display name
+        position:
+          type: integer
+          description: Current leaderboard position
+        total_strokes:
+          type: integer
+          description: Real tournament strokes
+        fantasy_score:
+          type: number
+          description: Computed fantasy score from scoring engine

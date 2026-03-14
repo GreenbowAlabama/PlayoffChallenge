@@ -140,6 +140,7 @@ The following paths are **open** for worker modification:
 
 | Path | Status | Notes |
 |------|--------|-------|
+| `backend/services/pgaLeaderboardDebugService.js` | ✅ LOW PROTECTION | Operational diagnostics service for scoring validation; read-only |
 | `backend/services/[NEW_SERVICE].js` | ✅ ALLOWED | New service files in approved lanes |
 | `backend/routes/[NEW_ENDPOINT].js` | ✅ ALLOWED | New endpoint files (must match OpenAPI) |
 | `backend/repositories/` | ✅ ALLOWED | Non-ledger data access patterns |

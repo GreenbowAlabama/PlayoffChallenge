@@ -265,6 +265,22 @@ Workers must not invent admin navigation paths. Consult the WEB_ADMIN_MAP.md to 
 
 ---
 
+# PGA Scoring Diagnostics
+
+The admin API includes a diagnostic endpoint allowing verification of PGA scoring:
+
+```
+GET /api/admin/pga/leaderboard-debug
+```
+
+This endpoint merges leaderboard snapshots with stored fantasy scores.
+
+AI agents may use this endpoint when investigating scoring discrepancies or validating scoring engine behavior.
+
+**Reference:** `/Users/iancarter/Documents/workspace/playoff-challenge/docs/architecture/ADMIN_API.md`
+
+---
+
 # Optional Read Only
 
 Workers may read but not modify these directories.
