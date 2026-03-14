@@ -182,7 +182,7 @@ async function fetchCalendar({ leagueId, seasonYear, timeout = 5000 }) {
     const response = await axios.get(url, {
       timeout,
       headers: {
-        'User-Agent': 'playoff-challenge/2.0'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       }
     });
 
@@ -221,7 +221,7 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
     const response = await axios.get(url, {
       timeout,
       headers: {
-        'User-Agent': 'playoff-challenge/2.0'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       }
     });
 
