@@ -182,7 +182,12 @@ async function fetchCalendar({ leagueId, seasonYear, timeout = 5000 }) {
     const response = await axios.get(url, {
       timeout,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://www.espn.com/',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
       }
     });
 
@@ -212,16 +217,17 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
   logger.info(`[espnPgaApi] Fetching leaderboard: eventId=${eventId}`);
 
   return withRetry(async () => {
-    // TODO: Replace with actual ESPN API endpoint
-    // Placeholder: should be something like:
-    // https://site.api.espn.com/sports/golf/pga/events/{eventId}
-
-    const url = `https://site.api.espn.com/sports/golf/pga/events/${eventId}`;
+    const url = `https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard`;
 
     const response = await axios.get(url, {
       timeout,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://www.espn.com/',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
       }
     });
 
