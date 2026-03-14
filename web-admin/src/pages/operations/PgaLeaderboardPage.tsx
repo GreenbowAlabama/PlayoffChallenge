@@ -5,7 +5,8 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { getPgaLeaderboard, PgaLeaderboardEntry } from '../../api/pga-leaderboard';
+import { getPgaLeaderboard } from '../../api/pga-leaderboard';
+import type { PgaLeaderboardEntry } from '../../api/pga-leaderboard';
 
 function LoadingSpinner() {
   return (
