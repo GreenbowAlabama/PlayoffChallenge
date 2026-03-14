@@ -1040,5 +1040,102 @@ describe('discoveryContestCreationService', () => {
         [normalizedId]
       );
     });
+
+    it('lifecycle constraint: discovery contest should not set start_time', async () => {
+      // TEST: Verify that discovery-created contests have start_time = NULL
+      // This is a critical invariant: lifecycle engine uses tournament_start_time for state transitions
+      // If start_time is set during creation, lifecycle state machine breaks prematurely
+
+      const uniqueTestId = `lifecycle_constraint_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const testEvent = {
+        provider_event_id: `espn_pga_${uniqueTestId}`,
+        name: 'Lifecycle Constraint Test',
+        start_time: new Date('2026-04-15T08:00:00Z'),
+        end_time: new Date('2026-04-18T08:00:00Z')
+      };
+
+      // Create a system-generated template
+      const templateResult = await pool.query(
+        `INSERT INTO contest_templates (
+          name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key,
+          default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents,
+          allowed_payout_structures, is_active, is_system_generated, provider_tournament_id, season_year
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+        )
+        RETURNING id`,
+        [
+          `Lifecycle Test Template ${uniqueTestId}`,
+          'GOLF',
+          'PGA_DAILY',
+          'pga_standard_v1',
+          'auto_discovery',
+          'pga_settlement',
+          5000,
+          1000,
+          50000,
+          JSON.stringify([{ payout_percentages: [0.5, 0.3, 0.2], min_entries: 2 }]),
+          true,
+          true,
+          testEvent.provider_event_id,
+          2026
+        ]
+      );
+
+      const templateId = templateResult.rows[0].id;
+
+      // Create contests for this event
+      const result = await createContestsForEvent(pool, testEvent, now, organizerId);
+
+      expect(result.success).toBe(true);
+      expect(result.created).toBeGreaterThan(0);
+
+      // Verify created contests have start_time = NULL
+      const createdContests = await pool.query(
+        `SELECT id, status, start_time, tournament_start_time, lock_time
+         FROM contest_instances
+         WHERE template_id = $1
+         AND provider_event_id = $2`,
+        [templateId, testEvent.provider_event_id]
+      );
+
+      expect(createdContests.rows.length).toBeGreaterThan(0);
+
+      // All created contests must have:
+      // 1. status = SCHEDULED (not LIVE or LOCKED)
+      // 2. start_time = NULL (lifecycle engine responsibility to set)
+      createdContests.rows.forEach((contest) => {
+        expect(contest.status).toBe('SCHEDULED');
+        expect(contest.start_time).toBeNull();
+        expect(contest.tournament_start_time).toEqual(testEvent.start_time);
+      });
+
+      // Cleanup
+      await pool.query(
+        `DELETE FROM admin_contest_audit
+         WHERE contest_instance_id IN (
+           SELECT id FROM contest_instances WHERE template_id = $1
+         )`,
+        [templateId]
+      );
+
+      await pool.query(
+        `DELETE FROM contest_state_transitions
+         WHERE contest_instance_id IN (
+           SELECT id FROM contest_instances WHERE template_id = $1
+         )`,
+        [templateId]
+      );
+
+      await pool.query(
+        `DELETE FROM contest_instances WHERE template_id = $1`,
+        [templateId]
+      );
+
+      await pool.query(
+        `DELETE FROM contest_templates WHERE id = $1`,
+        [templateId]
+      );
+    });
   });
 });

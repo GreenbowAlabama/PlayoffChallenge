@@ -670,6 +670,9 @@ async function createContestsForEvent(pool, event, now = new Date(), organizerId
             template_id, organizer_id, entry_fee_cents, max_entries, payout_structure,
             status, contest_name, tournament_start_time, tournament_end_time,
             lock_time, provider_event_id, is_platform_owned, is_primary_marketing, join_token
+            -- NOTE: start_time explicitly NOT set during discovery creation
+            -- start_time is only written when lifecycle transitions SCHEDULED→LOCKED→LIVE
+            -- Lifecycle engine uses tournament_start_time for state machine, never start_time
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
           ON CONFLICT (provider_event_id, template_id, entry_fee_cents)
           WHERE is_platform_owned = true

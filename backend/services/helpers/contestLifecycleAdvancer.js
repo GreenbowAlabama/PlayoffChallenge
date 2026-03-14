@@ -124,7 +124,9 @@ function advanceContestLifecycleIfNeeded(contest) {
       return null;
 
     case 'LOCKED':
-      if (contest.start_time && now >= new Date(contest.start_time).getTime()) {
+      // Defensive guard: LOCKED contests only transition to LIVE when tournament_start_time is reached
+      // Never use start_time for this determination (start_time is only written when LIVE transition occurs)
+      if (contest.tournament_start_time && now >= new Date(contest.tournament_start_time).getTime()) {
         return 'LIVE';
       }
       return null;

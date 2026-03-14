@@ -490,6 +490,77 @@ if contest.template_sport == "GOLF" {
 
 ---
 
+# Contest Lifecycle Start-Time Authority
+
+## Problem
+
+The contest lifecycle state machine must use the correct timestamp field to determine when contests transition between states. Using the wrong field causes premature state transitions.
+
+## Rules
+
+1. **Discovery Never Sets start_time**
+   - Discovery creates contests with `status = SCHEDULED` and `start_time = NULL`
+   - Discovery populates only: `tournament_start_time`, `tournament_end_time`, `lock_time`
+   - `start_time` must never be written during contest creation
+
+2. **Lifecycle Engine Sets start_time Only on LIVE Transition**
+   - When a contest transitions SCHEDULED → LOCKED → LIVE, the lifecycle engine writes `start_time` to mark the exact moment of the LIVE transition
+   - This timestamp has historical significance: it records when the contest actually became live
+
+3. **State Machine Authority**
+   - **SCHEDULED → LOCKED:** Depends on `lock_time <= now`
+   - **LOCKED → LIVE:** Depends on `tournament_start_time <= now` (NOT `start_time`)
+   - **LIVE → COMPLETE:** Depends on `tournament_end_time <= now`
+   - If `start_time` exists before tournament_start_time is reached, it indicates corrupted state
+
+## Example Lifecycle Timeline
+
+```
+Time: 2026-03-13 04:00 UTC
+Contest Created
+├─ status: SCHEDULED
+├─ start_time: NULL
+├─ lock_time: 2026-03-13 07:00 UTC
+└─ tournament_start_time: 2026-03-19 07:00 UTC
+
+Time: 2026-03-13 07:00 UTC
+lock_time reached → Transition to LOCKED
+├─ status: LOCKED
+├─ start_time: NULL
+└─ tournament_start_time: 2026-03-19 07:00 UTC
+
+Time: 2026-03-19 07:00 UTC
+tournament_start_time reached → Transition to LIVE
+├─ status: LIVE
+├─ start_time: 2026-03-19 07:00 UTC  ← Lifecycle engine writes this now
+└─ tournament_end_time: 2026-03-19 19:00 UTC
+
+Time: 2026-03-19 19:00 UTC
+tournament_end_time reached → Transition to COMPLETE
+├─ status: COMPLETE
+├─ settle_time: 2026-03-19 19:00 UTC (set by settlement engine)
+└─ [Contest is now settled]
+```
+
+## Implementation Authority
+
+- **File:** `backend/services/helpers/contestLifecycleAdvancer.js`
+- **Function:** `advanceContestLifecycleIfNeeded()`
+- **Constraint:** Must check `tournament_start_time`, never `start_time`
+
+## Repair Tool
+
+If contests are incorrectly marked LIVE with future `tournament_start_time`:
+
+```bash
+node backend/scripts/repairIncorrectContestStartTimes.js --dryrun
+node backend/scripts/repairIncorrectContestStartTimes.js
+```
+
+See `docs/operations/CONTEST_REPAIR.md` for operational guidance.
+
+---
+
 # AI Governance Integration
 
 AI agents must reference governance towers before implementing changes.

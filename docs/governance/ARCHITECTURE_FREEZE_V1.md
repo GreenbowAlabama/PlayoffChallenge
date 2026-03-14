@@ -138,9 +138,29 @@ Frozen guarantees:
 • Contest instance uniqueness enforced
 • Safe replay of discovery cycles
 
+## Discovery Contest Creation Invariant (CRITICAL)
+
+**Rule:** Discovery-created contests MUST initialize with:
+- `status = SCHEDULED`
+- `start_time = NULL`
+- `is_live = false`
+- `is_locked = false`
+
+**Reason:** The lifecycle engine uses `tournament_start_time` for state transitions, never `start_time`. If `start_time` is populated during discovery, the lifecycle state machine breaks.
+
+**Implementation:** Contest instances created by discovery via `createContestsForEvent()` or `processEventDiscovery()` must not include `start_time` in their INSERT statements.
+
+**Enforcement:**
+
+Violation causes contests to incorrectly transition to LIVE when `start_time <= now`, even if `tournament_start_time` is in the future. This prevents users from joining and creates data integrity issues.
+
+**Files:**
+
+backend/services/discovery/discoveryContestCreationService.js (lines 668-694)
+
 Relevant files:
 
-backend/services/discovery/discoveryService.js  
+backend/services/discovery/discoveryService.js
 backend/services/discovery/espnDataFetcher.js
 
 ---

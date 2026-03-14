@@ -90,6 +90,43 @@ backend/services/discovery/espnDataFetcher.js       ❌ PROTECTED (adapter only)
 
 **Escalation:** If discovery structure changes, respond: `ARCHITECTURE CHANGE REQUIRED`
 
+### Discovery Contest Creation Fields (CRITICAL GUARDRAIL)
+
+**Forbidden fields during discovery contest creation:**
+
+```
+start_time        ❌ FORBIDDEN
+end_time          ❌ FORBIDDEN
+is_live           ❌ FORBIDDEN
+is_locked         ❌ FORBIDDEN
+```
+
+**Why:** Discovery must NOT populate lifecycle fields. The lifecycle engine is the sole authority for these fields.
+
+**Correct initialization:**
+
+Discovery-created contests MUST have:
+```
+status = 'SCHEDULED'
+start_time = NULL
+is_live = false
+is_locked = false
+```
+
+**Files to check:**
+
+- `backend/services/discovery/discoveryContestCreationService.js` (lines 668-694)
+- `backend/services/discovery/discoveryService.js` (processEventDiscovery function)
+
+**Impact of violation:**
+
+If discovery sets `start_time`, the lifecycle state machine breaks:
+1. Contest prematurely transitions SCHEDULED → LIVE when `start_time <= now`
+2. Contest cannot be joined (LIVE state is not joinable)
+3. Data integrity violation: `tournament_start_time` future but `status = LIVE`
+
+**Repair:** Run `node backend/scripts/repairIncorrectContestStartTimes.js`
+
 ---
 
 ### Admin Authorization
