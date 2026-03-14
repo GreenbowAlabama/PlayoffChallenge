@@ -470,32 +470,41 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
           );
 
           if (eventCheck.rows.length === 0) {
-            await client.query(
-              `INSERT INTO ingestion_events (
-                id,
-                contest_instance_id,
-                provider,
-                event_type,
-                provider_data_json,
-                created_at
-              ) VALUES (
-                gen_random_uuid(),
-                $1,
-                'pga_espn',
-                'PLAYER_POOL',
-                $2,
-                NOW()
-              )`,
-              [
-                contestInstanceId,
-                fieldResult.rows[0].selection_json
-              ]
-            );
+          const crypto = require('crypto');
+          const payloadHash = crypto
+            .createHash('sha256')
+            .update(JSON.stringify(fieldResult.rows[0].selection_json))
+            .digest('hex');
 
-            console.log(
-              `[ingestionService] PLAYER_POOL ingestion_event created for contest ${contestInstanceId}`
-            );
-          }
+          await client.query(
+            `INSERT INTO ingestion_events (
+              id,
+              contest_instance_id,
+              provider,
+              event_type,
+              provider_data_json,
+              payload_hash,
+              created_at
+            ) VALUES (
+              gen_random_uuid(),
+              $1,
+              'pga_espn',
+              'PLAYER_POOL',
+              $2,
+              $3,
+              NOW()
+            )`,
+            [
+              contestInstanceId,
+              fieldResult.rows[0].selection_json,
+              payloadHash
+            ]
+          );
+
+          console.log(
+            `[ingestionService] PLAYER_POOL ingestion_event created for contest ${contestInstanceId}`
+          );
+        }
         }
       } catch (err) {
         console.error(`[ingestionService] Failed to create PLAYER_POOL ingestion_event for ${contestInstanceId}:`, err.message);
