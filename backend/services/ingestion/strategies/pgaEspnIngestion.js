@@ -797,6 +797,9 @@ async function handleScoringIngestion(ctx, unit) {
   // For each competitor, extract round data and build holes array
   const golfers = [];
 
+  let skippedNoRoundData = 0;
+  let skippedNoHoles = 0;
+
   for (const competitor of competitors) {
     const espnPlayerId = String(competitor.id);
     const dbGolferId = espnToDbMap[espnPlayerId];
@@ -812,6 +815,7 @@ async function handleScoringIngestion(ctx, unit) {
 
     if (!roundData || !roundData.linescores) {
       // No score data for this round yet
+      skippedNoRoundData++;
       continue;
     }
 
@@ -833,6 +837,7 @@ async function handleScoringIngestion(ctx, unit) {
 
     // Only push golfer if holes were scored
     if (holes.length === 0) {
+      skippedNoHoles++;
       continue;
     }
 
@@ -846,7 +851,7 @@ async function handleScoringIngestion(ctx, unit) {
     });
   }
 
-  console.log(`[pgaEspnIngestion] Step 5 processed ${golfers.length} golfers with score data`);
+  console.log(`[pgaEspnIngestion] Step 5 processed ${golfers.length} golfers with score data (skipped: ${skippedNoRoundData} no round data, ${skippedNoHoles} no holes)`);
 
   if (golfers.length === 0) {
     console.warn(`[pgaEspnIngestion] No golfers with score data, returning empty`);
