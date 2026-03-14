@@ -154,6 +154,29 @@ API contracts are frozen using cryptographic snapshots stored in `api_contract_s
 - If test fails, follow steps above to update hash
 - If hash mismatch is unexpected, investigate code changes first
 
+## Contest API Response Contract v1.1 Update
+
+**Change:** Added `template_sport` field to contest detail response
+
+**Details:**
+- Field: `template_sport` (string)
+- Type: `GOLF`, `NFL`, etc.
+- Endpoint: `GET /api/custom-contests/{id}`
+- Location in response: Root level (alongside `template_type`)
+- Example: `{ "template_sport": "GOLF", "template_type": "PGA_DAILY" }`
+
+**Purpose:**
+Enables clients (iOS app) to deterministically route sport-specific logic without inferring from template type.
+
+**Backwards Compatibility:**
+✅ Safe additive change. Clients not using this field continue to work.
+
+**Implementation:**
+- Database field: `contest_templates.sport`
+- Added to SELECT in `customContestService.getContestInstance()` and `getContestInstanceByToken()`
+- Mapped in `contestApiResponseMapper.mapContestToApiResponse()` and `mapContestToApiResponseForList()`
+- Already documented in `openapi.yaml` (line 1416-1418)
+
 ---
 
 ### 6. Admin Authorization System

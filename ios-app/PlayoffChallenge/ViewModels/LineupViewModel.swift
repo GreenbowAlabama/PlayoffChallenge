@@ -496,6 +496,7 @@ final class LineupViewModel: ObservableObject {
             let offset = min(currentWeek - 1, 3)
             let effectiveWeek = playoffStartWeek + offset
             let _ = try await APIService.shared.addPickV2(
+                contestInstanceId: contestId,
                 userId: userId,
                 weekNumber: effectiveWeek,
                 playerId: player.id,
@@ -558,6 +559,7 @@ final class LineupViewModel: ObservableObject {
             let offset = min(currentWeek - 1, 3)
             let effectiveWeek = playoffStartWeek + offset
             let _ = try await APIService.shared.removePickV2(
+                contestInstanceId: contestId,
                 userId: userId,
                 weekNumber: effectiveWeek,
                 pickId: pickId

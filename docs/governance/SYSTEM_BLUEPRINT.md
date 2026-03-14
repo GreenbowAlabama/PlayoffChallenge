@@ -374,6 +374,39 @@ FROM api_contract_snapshots
 WHERE contract_name = 'public-api'
 ```
 
+## Contest API Response Model
+
+**New Field (v1.1):** `template_sport`
+
+The Contest Detail endpoint (`GET /api/custom-contests/{id}`) now includes explicit sport metadata:
+
+```json
+{
+  "id": "...",
+  "template_sport": "GOLF",
+  "template_type": "PGA_DAILY",
+  "status": "SCHEDULED",
+  "is_locked": false,
+  "is_live": false,
+  "can_join": true,
+  ...
+}
+```
+
+**Purpose:**
+Allows clients (iOS app) to deterministically select sport-specific logic without inferring from template type.
+
+**Client Usage:**
+```swift
+if contest.template_sport == "GOLF" {
+    // Load PGA players
+} else if contest.template_sport == "NFL" {
+    // Load NFL players
+}
+```
+
+**Backwards Compatibility:** Safe additive change. Clients not using this field continue to function.
+
 ## Governance Rules
 
 - API changes MUST be frozen before deployment

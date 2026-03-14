@@ -698,11 +698,12 @@ func getPicksV2(userId: UUID, weekNumber: Int) async throws -> PicksV2Response {
 
 /// Performs lineup operations (add/remove) using the v2 API.
 /// Supports batched operations for atomic lineup changes.
-func submitPicksV2(userId: UUID, weekNumber: Int, operations: [PickOp]) async throws -> PicksV2OperationResponse {
+func submitPicksV2(contestInstanceId: UUID, userId: UUID, weekNumber: Int, operations: [PickOp]) async throws -> PicksV2OperationResponse {
     let url = URL(string: "\(baseURL)/api/picks/v2")!
     var request = createV2Request(url: url, method: "POST")
 
     let requestBody = PicksV2Request(
+        contestInstanceId: contestInstanceId.uuidString,
         userId: userId.uuidString,
         weekNumber: weekNumber,
         ops: operations
@@ -729,15 +730,15 @@ func submitPicksV2(userId: UUID, weekNumber: Int, operations: [PickOp]) async th
 }
 
 /// Convenience method to add a single player to the lineup.
-func addPickV2(userId: UUID, weekNumber: Int, playerId: String, position: String) async throws -> PicksV2OperationResponse {
+func addPickV2(contestInstanceId: UUID, userId: UUID, weekNumber: Int, playerId: String, position: String) async throws -> PicksV2OperationResponse {
     let op = PickOp(action: "add", playerId: playerId, pickId: nil, position: position)
-    return try await submitPicksV2(userId: userId, weekNumber: weekNumber, operations: [op])
+    return try await submitPicksV2(contestInstanceId: contestInstanceId, userId: userId, weekNumber: weekNumber, operations: [op])
 }
 
 /// Convenience method to remove a pick from the lineup.
-func removePickV2(userId: UUID, weekNumber: Int, pickId: UUID) async throws -> PicksV2OperationResponse {
+func removePickV2(contestInstanceId: UUID, userId: UUID, weekNumber: Int, pickId: UUID) async throws -> PicksV2OperationResponse {
     let op = PickOp(action: "remove", playerId: nil, pickId: pickId.uuidString, position: nil)
-    return try await submitPicksV2(userId: userId, weekNumber: weekNumber, operations: [op])
+    return try await submitPicksV2(contestInstanceId: contestInstanceId, userId: userId, weekNumber: weekNumber, operations: [op])
 }
 
 // NEW: Get user's detailed picks for quick view
@@ -1344,6 +1345,7 @@ struct PositionLimitsV2: Codable {
 
 // Request for POST /api/picks/v2
 struct PicksV2Request: Encodable {
+    let contestInstanceId: String
     let userId: String
     let weekNumber: Int
     let ops: [PickOp]

@@ -601,4 +601,40 @@ npm test -- --forceExit
 - Snapshot binding required for settlement (immutability enforcement)
 - Provider cancellation cascade support (discovery layer responsibility)
 
+---
+
+## Lifecycle Invariant: Contest Actions (can_join Enforcement)
+
+**Rule:**
+When `effectiveStatus == LIVE`, the contest action `can_join` MUST be `false`.
+
+This rule applies even when the database status is `SCHEDULED` but temporal state has advanced past `start_time`.
+
+**Rationale:**
+The effective status represents the actual contest state at read time. A contest in LIVE state (tournament started) must never allow new participants to join, regardless of persisted status.
+
+**Implementation:**
+Contest action derivation receives `effectiveStatus` (not raw database status) via `mapContestToApiResponse()`:
+
+```javascript
+// Map effective status (not raw DB status) to action derivation
+const contestRowWithEffectiveStatus = { ...contestRow, status: effectiveStatus };
+const actions = deriveContestActions(contestRowWithEffectiveStatus, ...);
+```
+
+**can_join Calculation:**
+```javascript
+const can_join =
+  contestRow.status === 'SCHEDULED' &&  // effectiveStatus must be SCHEDULED (not LIVE)
+  lockTimeMs !== null &&
+  nowMs < lockTimeMs &&
+  (userContext.max_entries === null || userContext.entry_count < userContext.max_entries) &&
+  userContext.user_has_entered === false;
+```
+
+**Test Coverage:**
+- `contestApiResponseMapper.test.js`: Validates temporal state derivation
+- Contest lifecycle tests: Verify status transitions preserve invariant
+- Pick operations tests: Confirm join operations respect derived state
+
 **Next Phase:** Tournament Discovery Foundation (MVP event registry + template abstraction)

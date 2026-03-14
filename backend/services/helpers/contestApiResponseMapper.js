@@ -110,8 +110,12 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
 
   // --- Iteration 01: Derive presentation fields ---
   const leaderboard_state = deriveLeaderboardState(contestRow, settlementRecordExists);
+
+  // Pass effective status to deriveContestActions to ensure can_join respects derived state
+  // (e.g., if status=SCHEDULED but now >= start_time, effectiveStatus=LIVE and can_join should be false)
+  const contestRowWithEffectiveStatus = { ...contestRow, status: effectiveStatus };
   const actions = deriveContestActions(
-    contestRow,
+    contestRowWithEffectiveStatus,
     leaderboard_state,
     {
       user_has_entered: contestRow.user_has_entered,
@@ -130,6 +134,8 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
     contest_id: contestRow.id,
     template_id: contestRow.template_id,
     type: contestRow.template_type,
+    template_sport: contestRow.template_sport,
+    template_type: contestRow.template_type,
     organizer_id: contestRow.organizer_id,
     organizer_name: contestRow.organizer_name,
     entry_fee_cents: contestRow.entry_fee_cents,
@@ -239,8 +245,11 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
 
   // --- Iteration 01: Derive presentation fields ---
   const leaderboard_state = deriveLeaderboardState(contestRow, settlementRecordExists);
+
+  // Pass effective status to deriveContestActions to ensure can_join respects derived state
+  const contestRowWithEffectiveStatus = { ...contestRow, status: effectiveStatus };
   const actions = deriveContestActions(
-    contestRow,
+    contestRowWithEffectiveStatus,
     leaderboard_state,
     {
       user_has_entered: contestRow.user_has_entered,
