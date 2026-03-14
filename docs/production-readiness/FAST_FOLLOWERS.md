@@ -92,6 +92,59 @@ All routes should import from the centralized module instead of defining logic i
 
 ---
 
+## Web-Admin Observability for Player Pool & Tournament Config
+
+**Status:** Fast Follower Phase 2
+
+**Current State:**
+- ✅ Player pool lazy-creation logic implemented in `entryRosterService`
+- ⚠️ Web-Admin has no views for `field_selections` or `tournament_configs` visibility
+- ⚠️ No admin dashboard for player pool snapshot status
+- ⚠️ No invariant check: "All PGA contests with tournament_configs must have field_selections"
+
+**Purpose:** Operators need visibility into:
+- Whether a contest has a valid player pool snapshot
+- Tournament config binding status
+- Field selection state (populated vs empty)
+- Lazy creation events (when triggered)
+
+**Phase 2 Implementation Required:**
+
+1. **Create `field_selections` Admin View**
+   - Table view: contest_instance_id, tournament_config_id, primary_count, created_at
+   - Filter by contest status (SCHEDULED, LOCKED, LIVE, COMPLETE)
+   - Show "primary array populated" vs "empty" status
+
+2. **Create `tournament_configs` Admin View**
+   - Table view: contest_instance_id, provider_event_id, event_start_date, is_active
+   - Link to related field_selections row
+   - Show FK integrity status
+
+3. **Add Player Pool Snapshot Status Dashboard**
+   - Unified view combining:
+     - Contest name & status
+     - Tournament config linked
+     - Field selections created & populated
+     - Lazy creation events (if any)
+   - Admin can troubleshoot player pool visibility issues
+
+4. **Add System Invariant Check**
+   - Governance rule: "All GOLF contests with tournament_configs must have field_selections"
+   - Alert if invariant violated
+   - Can be added to System Invariant Monitor
+
+**Files to Create:**
+- `web-admin/src/pages/PlayerPoolAdmin.tsx`
+- `web-admin/src/api/playerPool.ts`
+
+**Timeline:** Post-Launch Fast Follower (Phase 2)
+
+**Dependencies:**
+- Web-Admin API routes for field_selections and tournament_configs
+- System Invariant Monitor framework (already in place)
+
+---
+
 ## Discovery & Settlement Test Stability
 
 Recent fixes stabilized the discovery contest creation and settlement audit pipeline.

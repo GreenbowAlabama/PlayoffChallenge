@@ -99,6 +99,45 @@ const OVERRIDE_INTERVAL = process.env.INGESTION_WORKER_INTERVAL_MS
 
 Recent test failures in the discovery and settlement subsystems have been resolved.
 
+---
+
+### 5. Player Pool Visibility Bug (PGA Contests) — FIXED
+**Status:** ✅ RESOLVED (March 13, 2026)
+
+**Issue:** Newly joined PGA golf contests sometimes displayed no available players in the iOS MyLineup view.
+
+**Root Cause:** Timing race condition between contest publish and discovery ingestion:
+- `publishContestInstance()` calls `ensureFieldSelectionsForGolf()` immediately upon publish
+- This function attempts to create a `field_selections` row with FK to `tournament_configs`
+- But `tournament_configs` is created asynchronously by discovery ingestion
+- If discovery hadn't run yet, the FK-constrained INSERT silently failed
+- When users later joined the contest, `getMyEntry()` had no `field_selections` row and returned empty `available_players`
+
+**Solution Implemented:**
+- Modified `entryRosterService.getMyEntry()` to lazily create `field_selections` when needed
+- Lazy creation only occurs if `tournament_configs` exists (never fabricates foreign keys)
+- Idempotent via `ON CONFLICT DO NOTHING` — safe under concurrent requests
+- Non-blocking error handling — fallback to players table if creation fails
+- New test suite: `tests/roster/playerPoolFallback.test.js` (4 test cases, all passing)
+
+**Implementation Details:**
+- File: `/backend/services/entryRosterService.js` (lines 348-387)
+- Logic: IF field_selections missing OR primary empty, AND tournament_configs exists → auto-create
+- Populated primary array with all active GOLF players from database
+- Idempotency strategy: Check if `tournament_configs` row exists before inserting
+
+**Test Coverage:**
+1. Tournament_configs missing → fallback players returned, no insert
+2. Tournament_configs exists → lazy insert occurs with populated primary
+3. Repeated calls → idempotent via ON CONFLICT DO NOTHING
+4. Existing field_selections → no mutation occurs
+
+**Impact:** Player pools are now guaranteed on first roster access, regardless of discovery ingestion timing.
+
+**Files Modified:**
+- `/backend/services/entryRosterService.js` (lazy creation logic added)
+- `/backend/tests/roster/playerPoolFallback.test.js` (new test suite)
+
 **Fix A — Settlement Audit FK**
 
 SYSTEM_USER_ID ('00000000-0000-0000-0000-000000000000') is now created during test bootstrap.

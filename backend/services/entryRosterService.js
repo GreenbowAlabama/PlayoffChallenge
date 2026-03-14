@@ -344,6 +344,47 @@ async function getMyEntry(pool, contestInstanceId, userId) {
         name: player.full_name,
         image_url: player.image_url || null
       }));
+
+      // LAZY CREATION: Persist field_selections if tournament_configs exists
+      // Never fabricate foreign keys. Only write if tournament_configs is present.
+      if (!shouldUseFieldSelections && availablePlayers.length > 0) {
+        try {
+          const tcResult = await pool.query(
+            `SELECT id FROM tournament_configs WHERE contest_instance_id = $1 LIMIT 1`,
+            [contestInstanceId]
+          );
+
+          if (tcResult.rows.length > 0) {
+            const tourneyConfigId = tcResult.rows[0].id;
+            const selectionJson = {
+              primary: availablePlayers.map(p => ({
+                player_id: p.player_id,
+                name: p.name,
+                image_url: p.image_url
+              })),
+              alternates: []
+            };
+
+            await pool.query(
+              `INSERT INTO field_selections (
+                 id,
+                 contest_instance_id,
+                 tournament_config_id,
+                 selection_json,
+                 created_at
+               )
+               VALUES (gen_random_uuid(), $1, $2, $3::jsonb, NOW())
+               ON CONFLICT DO NOTHING`,
+              [contestInstanceId, tourneyConfigId, JSON.stringify(selectionJson)]
+            );
+          }
+        } catch (err) {
+          console.warn(
+            `[entryRosterService] Failed to lazy-create field_selections for contest ${contestInstanceId}:`,
+            err.message
+          );
+        }
+      }
     }
     // Otherwise availablePlayers stays as []
   }
