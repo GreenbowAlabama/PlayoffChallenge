@@ -725,8 +725,11 @@ async function handleScoringIngestion(ctx, unit) {
     return [];
   }
 
-  // Find event matching providerEventId (not just events[0])
-  const event = events.find(e => e.id === providerEventId);
+  // Strip espn_pga_ prefix from providerEventId to match ESPN API response format
+  const eventId = providerEventId.replace(/^espn_pga_/, '');
+
+  // Find event matching eventId (not just events[0])
+  const event = events.find(e => e.id === eventId);
   if (!event) {
     throw new Error(`handleScoringIngestion: Event ${providerEventId} not found in leaderboard response`);
   }
