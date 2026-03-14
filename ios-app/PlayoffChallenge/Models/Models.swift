@@ -122,7 +122,7 @@ struct Player: Codable, Identifiable {
     let fullName: String
     let position: String
     let team: String?
-    let isActive: Bool
+    let isActive: Bool?
     let gameTime: String?
     let imageUrl: String?
 
