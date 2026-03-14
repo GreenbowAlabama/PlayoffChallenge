@@ -122,6 +122,7 @@ final class ContestDetailService: ContestDetailFetching, @unchecked Sendable {
                 payoutTable: contract.payout_table.map { PayoutTier.from($0) },
                 rosterConfig: RosterConfig.from(contract.roster_config),
                 templateType: ContestTemplateType(rawValue: dto.type) ?? .unknown,
+                sport: Sport(dto.template_sport),
                 isPlatformOwned: dto.is_platform_owned
             )
 
