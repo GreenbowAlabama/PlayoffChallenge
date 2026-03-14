@@ -449,6 +449,59 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       }
     }
 
+    // ── Emit PLAYER_POOL ingestion_event if field_selections exists ──────────
+    // Runs every cycle. Creates event from existing field snapshot if event
+    // does not already exist. Idempotent: only creates once per contest.
+    if (row.sport === 'GOLF') {
+      try {
+        const fieldResult = await client.query(
+          `SELECT selection_json FROM field_selections WHERE contest_instance_id = $1`,
+          [contestInstanceId]
+        );
+
+        if (fieldResult.rows.length > 0) {
+          const eventCheck = await client.query(
+            `SELECT id
+             FROM ingestion_events
+             WHERE contest_instance_id = $1
+             AND event_type = 'PLAYER_POOL'`,
+            [contestInstanceId]
+          );
+
+          if (eventCheck.rows.length === 0) {
+            await client.query(
+              `INSERT INTO ingestion_events (
+                id,
+                contest_instance_id,
+                provider,
+                event_type,
+                provider_data_json,
+                created_at
+              ) VALUES (
+                gen_random_uuid(),
+                $1,
+                'pga_espn',
+                'PLAYER_POOL',
+                $2,
+                NOW()
+              )`,
+              [
+                contestInstanceId,
+                fieldResult.rows[0].selection_json
+              ]
+            );
+
+            console.log(
+              `[ingestionService] PLAYER_POOL ingestion_event created for contest ${contestInstanceId}`
+            );
+          }
+        }
+      } catch (err) {
+        console.error(`[ingestionService] Failed to create PLAYER_POOL ingestion_event for ${contestInstanceId}:`, err.message);
+        // Do not fail ingestion; event creation is non-blocking
+      }
+    }
+
     await client.query('COMMIT');
 
     // RC3 Fix: Refresh all SCHEDULED contests for this sport (blocking call, synchronous)
