@@ -610,6 +610,81 @@ async function handleFieldBuildIngestion(ctx, unit) {
 
   console.log(`[pgaEspnIngestion] FIELD_BUILD complete for contest ${contestInstanceId}: ${playerIds.length} golfers selected`);
 
+  // ── Create ingestion_event for PLAYER_POOL snapshot ──────────────────────────
+  //
+  // ARCHITECTURE NOTE: This ingestion_event represents the full PLAYER_POOL
+  // snapshot for the contest at this point in time. Ingestion events are emitted
+  // per provider payload snapshot, NOT per individual golfer record.
+  //
+  // This event is required for:
+  //   • Deterministic settlement (binding snapshots)
+  //   • Auditability (record of field at contest creation time)
+  //   • Replay safety (can re-run settlement from snapshot)
+  //   • Append-only ledger (immutable ingestion history)
+  //
+  // See docs/architecture/ESPN-PGA-Ingestion.md (PLAYER_POOL Snapshot Event)
+  // and docs/architecture/DATA_INGESTION_MODEL.md (Event Granularity Invariant)
+  //
+  // After all PLAYER_POOL units have been ingested and field built,
+  // emit ONE ingestion_event representing the entire field snapshot.
+  // This snapshot is required for downstream settlement pipeline.
+  const playersForSnapshot = await dbClient.query(`
+    SELECT espn_id, full_name
+    FROM players
+    WHERE id = ANY($1)
+    ORDER BY id ASC
+  `, [playerIds]);
+
+  const golfersList = playersForSnapshot.rows.map(p => ({
+    external_id: p.espn_id,
+    name: p.full_name
+  }));
+
+  const payloadSnapshot = {
+    provider_event_id: unit.providerEventId,
+    golfers: golfersList
+  };
+
+  const payloadHashSnapshot = crypto
+    .createHash('sha256')
+    .update(JSON.stringify(payloadSnapshot))
+    .digest('hex');
+
+  try {
+    await dbClient.query(`
+      INSERT INTO ingestion_events (
+        id,
+        contest_instance_id,
+        provider,
+        event_type,
+        provider_data_json,
+        payload_hash,
+        validation_status,
+        validated_at
+      ) VALUES (
+        gen_random_uuid(),
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        'VALID',
+        NOW()
+      )
+      ON CONFLICT (contest_instance_id, payload_hash) DO NOTHING
+    `, [
+      contestInstanceId,
+      'pga_espn',
+      'player_pool',
+      JSON.stringify(payloadSnapshot),
+      payloadHashSnapshot
+    ]);
+    console.log(`[pgaEspnIngestion] Created PLAYER_POOL ingestion_event for contest ${contestInstanceId}: ${golfersList.length} golfers`);
+  } catch (err) {
+    console.error(`[pgaEspnIngestion] Failed to create PLAYER_POOL ingestion_event for ${contestInstanceId}:`, err.message);
+    throw err;
+  }
+
   // Return empty scores array (FIELD_BUILD phase has no scores)
   return [];
 }

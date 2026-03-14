@@ -97,6 +97,51 @@ Response: { events: [{ id: "401811937", competitors: [~120 objects] }] }  ← PO
 
 ---
 
+## Ingestion Pipeline
+
+### Overview
+
+The ingestion pipeline consists of three phases:
+
+```
+Provider Fetch (ESPN Scoreboard)
+       ↓
+PLAYER_POOL Phase
+(field snapshot)
+       ↓
+FIELD_BUILD Phase
+(construct contest field)
+       ↓
+PLAYER_POOL ingestion_event
+(record full field snapshot)
+       ↓
+[Later] SCORING Phase
+(leaderboard snapshots)
+       ↓
+[Later] event_data_snapshots
+       ↓
+[Later] Settlement Pipeline
+```
+
+**Phase 1: PLAYER_POOL** (Runs during SCHEDULED status)
+- Fetches tournament field from ESPN scoreboard
+- Upserts each golfer to `players` table
+- Creates one work unit per golfer
+- Returns empty scores (no scoring data in SCHEDULED status)
+
+**Phase 2: FIELD_BUILD** (Runs after PLAYER_POOL units complete)
+- Constructs `field_selections` from ingested golfers
+- Creates PLAYER_POOL snapshot ingestion_event
+- Event captures the entire tournament field at a point in time
+- Payload includes provider_event_id and full golfer list
+
+**Phase 3: SCORING** (Runs during LOCKED/LIVE status)
+- Fetches leaderboard updates from ESPN
+- Creates event_data_snapshots for scoring data
+- Creates SCORING ingestion_events for settlement binding
+
+---
+
 ## Ingestion Logic
 
 ### Current Implementation (Scoreboard-Only)
@@ -186,6 +231,74 @@ async function fetchTournamentField(eventId) {
 - Golfers without athlete.id are silently filtered
 - Golfers without displayName/firstName are silently filtered
 - Missing headshot does not filter (image URL is deterministic)
+
+---
+
+## PLAYER_POOL Snapshot Event
+
+### Purpose
+
+After all golfers are ingested and the tournament field is built, the system emits ONE ingestion_event representing the complete field snapshot. This snapshot is critical for:
+
+- **Deterministic Settlement** — Settlement pipeline depends on immutable field snapshots
+- **Auditability** — Full record of which golfers were available for which contest
+- **Replay Safety** — Scoring and settlement can be replayed from snapshot
+- **Append-Only Ledger** — Maintains immutable ingestion record per contest
+
+### Event Contract
+
+**Location in Code:**
+```
+backend/services/ingestion/strategies/pgaEspnIngestion.js
+handleFieldBuildIngestion() → lines 611-665
+```
+
+**Event Type:**
+```
+event_type = 'player_pool'
+provider   = 'pga_espn'
+```
+
+**Payload Schema:**
+```json
+{
+  "provider_event_id": "espn_pga_401811937",
+  "golfers": [
+    {
+      "external_id": "12345",
+      "name": "Scottie Scheffler"
+    },
+    {
+      "external_id": "12346",
+      "name": "Rory McIlroy"
+    },
+    ...
+  ]
+}
+```
+
+**Idempotency:**
+- Uses `ON CONFLICT (contest_instance_id, payload_hash) DO NOTHING`
+- Same field snapshot produces same payload_hash
+- Re-ingestion of identical field produces no duplicate event
+- Safe for worker to run repeatedly
+
+### Event Granularity Invariant
+
+**Correct Ingestion Event Semantics:**
+
+One ingestion_event represents ONE provider payload snapshot, NOT individual records.
+
+| ❌ Incorrect | ✅ Correct |
+|---|---|
+| Create 123 ingestion_events (one per golfer) | Create 1 ingestion_event (full field) |
+| Event per database record | Event per API payload snapshot |
+| Denormalized, fragile | Normalized, auditable |
+
+This invariant ensures:
+- Deduplication by payload hash works correctly
+- Settlement pipeline has clear snapshot boundaries
+- Replay/determinism is achievable
 
 ---
 

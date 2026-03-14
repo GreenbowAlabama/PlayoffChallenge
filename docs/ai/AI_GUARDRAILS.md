@@ -426,6 +426,68 @@ Guardrail:
 
 ---
 
+### backend/services/ingestion/ (Ingestion Strategy)
+
+```
+Status:  ✅ ALLOWED (service implementation)
+Type:    Ingestion Pipeline
+Changes: ✅ CONDITIONAL (event semantics frozen)
+
+Rule: Ingestion services are modifiable for adapters (ESPN, etc.).
+      Event granularity semantics are FROZEN.
+
+ALLOWED (✅):
+  • Creating new ingestion strategy adapters
+  • Implementing getWorkUnits(), ingestWorkUnit(), upsertScores()
+  • Adding new event_type values (player_pool, scoring, etc.)
+  • Modifying how data is fetched and normalized
+  • Adding validation logic
+
+FROZEN (❌):
+  • Changing ingestion_event granularity model
+  • Creating per-record events instead of per-payload snapshots
+  • Modifying event deduplication by payload_hash
+  • Changing ON CONFLICT DO NOTHING idempotency
+
+CRITICAL GUARDRAIL: Event Granularity Invariant
+
+One ingestion_event = One provider payload snapshot.
+
+Correct:
+  • 123 golfers in scoreboard → 1 ingestion_event (full field)
+  • Leaderboard with 50 scores → 1 ingestion_event (full leaderboard)
+
+Incorrect:
+  • 123 golfers → 123 ingestion_events ❌ VIOLATION
+  • 50 scores → 50 ingestion_events ❌ VIOLATION
+
+Rationale:
+  • Deduplication by payload_hash fails if per-record
+  • Worker safety (repeated runs) breaks if per-record
+  • Settlement snapshot boundaries lost if per-record
+  • Append-only ledger becomes fragmented
+
+If implementing ingestion adapter:
+  1. Fetch all records from provider
+  2. Normalize to domain model
+  3. Create ONE ingestion_event with full payload
+  4. Use ON CONFLICT (contest_instance_id, payload_hash) DO NOTHING
+  5. Reference docs/architecture/DATA_INGESTION_MODEL.md
+
+See:
+  • docs/architecture/DATA_INGESTION_MODEL.md (Event Granularity Invariant)
+  • docs/architecture/ESPN-PGA-Ingestion.md (PLAYER_POOL Snapshot Event)
+  • backend/services/ingestion/strategies/pgaEspnIngestion.js (reference impl)
+
+Example (pgaEspnIngestion.js, handleFieldBuildIngestion):
+  ✅ Creates 1 event for entire field snapshot
+  ✅ Uses payload_hash for deduplication
+  ✅ Includes full golfer list in payload
+  ✅ Uses ON CONFLICT DO NOTHING
+```
+
+---
+
 ### backend/contracts/openapi.yaml
 
 ```
