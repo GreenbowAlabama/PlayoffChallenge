@@ -731,7 +731,7 @@ struct ContestDetailResponseContract: Decodable {
     enum CodingKeys: String, CodingKey {
         case contest_id
         case type
-        case sport = "template_sport"  // Maps to template_sport in API response
+        case sport  // Sport type from API (e.g., "GOLF", "NFL")
         case leaderboard_state
         case actions
         case payout_table

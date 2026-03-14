@@ -149,7 +149,7 @@ describe('Entry Roster Service', () => {
       ).rejects.toThrow('not a participant');
     });
 
-    it('rejects picks with wrong roster size', async () => {
+    it('rejects picks when exceeding roster_size limit (over 7)', async () => {
       const pool = createMockPool();
       const contestId = 'test-contest-id';
       const userId = 'test-user-id';
@@ -191,7 +191,7 @@ describe('Entry Roster Service', () => {
 
       await expect(
         entryRosterService.submitPicks(pool, contestId, userId, playerIds)
-      ).rejects.toThrow('Roster size must be exactly 7');
+      ).rejects.toThrow('Roster size must be between 0 and 7');
     });
 
     it('rejects picks with duplicates', async () => {
@@ -970,6 +970,216 @@ describe('Entry Roster Service', () => {
       await expect(
         entryRosterService.submitPicks(pool, contestId, userId, playerIds)
       ).rejects.toThrow();
+    });
+
+    // ============================================
+    // PARTIAL ROSTER SUBMISSION TESTS
+    // ============================================
+
+    it('submits partial roster with 1 player successfully', async () => {
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+      const playerIds = ['p1']; // Only 1 player (partial)
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'].map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('INSERT'),
+        {
+          rows: [{ updated_at: new Date().toISOString() }],
+          rowCount: 1
+        }
+      );
+
+      const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+
+      expect(result.success).toBe(true);
+      expect(result.player_ids).toEqual(['espn_p1']);
+      expect(result.updated_at).toBeDefined();
+    });
+
+    it('submits partial roster with 3 players successfully', async () => {
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+      const playerIds = ['p1', 'p2', 'p3']; // 3 players (partial)
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'].map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('INSERT'),
+        {
+          rows: [{ updated_at: new Date().toISOString() }],
+          rowCount: 1
+        }
+      );
+
+      const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+
+      expect(result.success).toBe(true);
+      expect(result.player_ids).toEqual(['espn_p1', 'espn_p2', 'espn_p3']);
+      expect(result.updated_at).toBeDefined();
+    });
+
+    it('rejects partial roster when exceeding roster_size limit', async () => {
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+      const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8']; // 8 players, exceeds max of 7
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10'].map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      await expect(
+        entryRosterService.submitPicks(pool, contestId, userId, playerIds)
+      ).rejects.toThrow('Roster size must be between 0 and 7');
+    });
+
+    it('submits empty roster (0 players) successfully', async () => {
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+      const playerIds = []; // Empty roster
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'].map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('INSERT'),
+        {
+          rows: [{ updated_at: new Date().toISOString() }],
+          rowCount: 1
+        }
+      );
+
+      const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+
+      expect(result.success).toBe(true);
+      expect(result.player_ids).toEqual([]);
+      expect(result.updated_at).toBeDefined();
     });
   });
 

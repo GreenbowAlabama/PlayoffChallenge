@@ -28,13 +28,44 @@ Validates a player roster against tournament constraints.
 **Never throws.** All validation errors collected and reported.
 
 **Constraints checked (Iteration 01):**
-1. Roster size matches config.roster_size exactly
+1. Roster size is between 0 and config.roster_size (inclusive)
 2. No duplicate player_ids in roster
 3. Each player_id exists in validatedField
 
+## ROSTER SUBMISSION RULE
+
+Roster submissions are allowed to be partial. Valid roster sizes:
+
+```
+0 <= player_ids.length <= roster_size
+```
+
+**Examples:**
+- `[]` — Empty roster (0 players)
+- `['p1']` — Single player (partial)
+- `['p1', 'p2', 'p3']` — Three players (partial)
+- `['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']` — Full roster (7 players)
+
+**Invalid:**
+- `['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8']` — Exceeds roster_size (8 > 7)
+
+**Additional constraints still enforced:**
+- No duplicate player_ids
+- All players must exist in contest field
+- Contest must be SCHEDULED
+- Contest must not be past lock_time
+- User must be a contest participant
+
+## ARCHITECTURAL RATIONALE
+
+Incremental roster persistence enables clients (iOS/web) to save lineup progress while users build their roster. This prevents data loss and improves UX during lineup construction.
+
 ## Test Coverage (Merge Blockers)
-- validateRoster rejects roster with wrong size
+- validateRoster accepts partial roster with 1 player
+- validateRoster accepts partial roster with 3 players
+- validateRoster accepts empty roster (0 players)
+- validateRoster rejects roster exceeding max size
 - validateRoster rejects roster with duplicates
 - validateRoster rejects roster with unknown players
-- validateRoster accepts valid roster
+- validateRoster accepts valid full roster
 - Sentinel test: no tier logic referenced

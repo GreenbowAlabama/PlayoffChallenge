@@ -95,6 +95,9 @@ final class ContestDetailService: ContestDetailFetching, @unchecked Sendable {
             // Decode to DTO (full response with all fields)
             let dto = try decoder.decode(ContestDetailResponseDTO.self, from: data)
 
+            // DEBUG: Log what the backend actually sent for sport
+            print("[ContestDetailService] Backend sport: '\(dto.sport ?? "nil")'")
+
             // Decode to contract for ContestActionState mapping
             let contract = try decoder.decode(Core.ContestDetailResponseContract.self, from: data)
 
@@ -122,7 +125,7 @@ final class ContestDetailService: ContestDetailFetching, @unchecked Sendable {
                 payoutTable: contract.payout_table.map { PayoutTier.from($0) },
                 rosterConfig: RosterConfig.from(contract.roster_config),
                 templateType: ContestTemplateType(rawValue: dto.type) ?? .unknown,
-                sport: Sport(dto.template_sport),
+                sport: Sport(dto.sport),
                 isPlatformOwned: dto.is_platform_owned
             )
 

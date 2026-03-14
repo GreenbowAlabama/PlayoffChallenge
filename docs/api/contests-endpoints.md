@@ -360,6 +360,63 @@ Content-Type: application/json
 
 ---
 
+## Submitting Picks (Golf)
+
+Submitting player picks is handled by a separate endpoint:
+
+```http
+POST /api/custom-contests/{id}/picks
+Authorization: Bearer {user_id}
+Content-Type: application/json
+
+{
+  "player_ids": ["espn_5724", "espn_8234", "espn_9102"]
+}
+```
+
+### Request
+
+- **player_ids:** Array of player IDs (required)
+- **Format:** Player IDs may be submitted as `"5724"` or `"espn_5724"` (backend normalizes to canonical format)
+
+### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "player_ids": ["espn_5724", "espn_8234", "espn_9102"],
+  "updated_at": "2026-03-13T10:24:36.000Z"
+}
+```
+
+### Roster Submission Rules
+
+**Partial roster persistence is supported.** Valid roster sizes:
+
+- `[]` — Empty roster (0 players)
+- `["p1"]` — Single player (partial)
+- `["p1", "p2", "p3"]` — Multiple players (partial)
+- `["p1", "p2", "p3", "p4", "p5", "p6", "p7"]` — Full roster (complete)
+
+**Validation range:** `0 <= player_ids.length <= roster_size`
+
+### Validation Constraints
+
+Backend enforces:
+
+1. **Roster size** — Must not exceed `roster_size` limit (400 error)
+2. **No duplicates** — All player_ids must be unique (400 error)
+3. **Field membership** — All players must exist in contest field (400 error)
+4. **Contest state** — Contest must be SCHEDULED (409 error)
+5. **Lock window** — Contest must not be past lock_time (409 error)
+6. **Participation** — User must be an entered participant (403 error)
+
+### Architectural Notes
+
+Incremental roster persistence enables clients to save lineup progress while users build their roster. This prevents data loss and improves UX during lineup construction.
+
+---
+
 ## Error Responses
 
 ### Common Errors
