@@ -22,7 +22,7 @@ public enum ContestTemplateType: String, Codable, Sendable {
 /// Contest domain model representing a single contest in a list or detail view.
 /// Mapped from `ContestListItemDTO` or `ContestDetailResponseContract`.
 /// Immutable, Codable, Hashable, Equatable, and Sendable.
-public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
+public struct Contest: Identifiable, Hashable, Equatable, Sendable {
     public let id: UUID
     public let organizerId: String
     public let contestName: String
@@ -95,31 +95,6 @@ public struct Contest: Identifiable, Codable, Hashable, Equatable, Sendable {
         self.templateType = templateType
         self.sport = sport
         self.isPlatformOwned = isPlatformOwned
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case organizerId = "organizer_id"
-        case contestName = "contest_name"
-        case organizerName = "organizer_name"
-        case status
-        case entryCount = "entry_count"
-        case maxEntries = "max_entries"
-        case entryFeeCents = "entry_fee_cents"
-        case lockTime = "lock_time"
-        case startTime = "start_time"
-        case endTime = "end_time"
-        case tournamentStartTime = "tournament_start_time"
-        case tournamentEndTime = "tournament_end_time"
-        case joinToken = "join_token"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-        case leaderboardState = "leaderboard_state"
-        case actions
-        case payoutTable = "payout_table"
-        case rosterConfig = "roster_config"
-        case templateType
-        case isPlatformOwned = "is_platform_owned"
     }
 
     // MARK: - Computed Properties
