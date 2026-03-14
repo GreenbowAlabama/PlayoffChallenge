@@ -17,6 +17,7 @@
 
 const { validateRoster } = require('./ContestRulesValidator');
 const { getStrategy } = require('./scoringStrategyRegistry');
+const { validateRoundOpen } = require('./pgaRoundValidator');
 
 /**
  * Sport mapping layer: convert template sport to player sport
@@ -159,7 +160,17 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
       );
     }
 
-    // 4. Validate user is a participant
+    // 4. Validate tournament round is open for submissions
+    // Use client (not pool) to maintain transactional consistency
+    const roundValidation = await validateRoundOpen(client, contestInstanceId);
+    if (!roundValidation.valid) {
+      throw Object.assign(
+        new Error(roundValidation.reason),
+        { ...ERROR_CODES.CONTEST_LOCKED, code: 'ROUND_LOCKED' }
+      );
+    }
+
+    // 5. Validate user is a participant
     const participantResult = await client.query(
       `SELECT 1 FROM contest_participants WHERE contest_instance_id = $1 AND user_id = $2`,
       [contestInstanceId, userId]
@@ -172,10 +183,10 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
       );
     }
 
-    // 5. Derive roster config
+    // 6. Derive roster config
     const rosterConfig = deriveRosterConfigFromStrategy(contestRow.scoring_strategy_key);
 
-    // 6. Fetch field_selections if available
+    // 7. Fetch field_selections if available
     const fieldResult = await client.query(
       `SELECT selection_json FROM field_selections WHERE contest_instance_id = $1 LIMIT 1`,
       [contestInstanceId]
@@ -213,7 +224,7 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
       };
     });
 
-    // 7. Validate roster (size, duplicates, field membership)
+    // 8. Validate roster (size, duplicates, field membership)
     // Use normalized IDs for validation
     const validationResult = validateRoster(normalizedPlayerIds, rosterConfig, validatedField);
     if (!validationResult.valid) {
@@ -223,7 +234,7 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
       );
     }
 
-    // 8. Upsert into entry_rosters
+    // 9. Upsert into entry_rosters
     // Use normalized IDs for storage
     const upsertResult = await client.query(
       `INSERT INTO entry_rosters (contest_instance_id, user_id, player_ids, submitted_at, updated_at)
