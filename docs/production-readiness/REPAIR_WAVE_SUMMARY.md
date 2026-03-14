@@ -199,6 +199,42 @@ See: `docs/production-readiness/FAST_FOLLOWERS.md` (Centralize Authentication Mi
 
 ✅ No schema or contract modifications required
 
+### Repair Wave 3b — PGA Picks Submission Client Bug (2026-03-14)
+
+## Problem
+
+iOS client returned HTTP 400 when submitting PGA picks through POST /api/custom-contests/{id}/picks with partial rosters.
+
+Direct backend testing via curl returned HTTP 200 with identical payload, confirming backend validation logic was correct.
+
+## Root Cause
+
+Client request body encoding issue. SwiftUI state changes during lineup selection caused the request body to not always be encoded correctly.
+
+Backend received invalid request body and returned 400.
+
+## Fix Applied
+
+Added request/response debug logging to APIService.submitPicks() to capture:
+
+• playerIds received by the method
+• encoded JSON request body
+• backend error response body
+
+This enabled isolation of the issue to client-side request construction.
+
+## Debugging Recommendation
+
+When diagnosing picks submission failures, first verify the backend endpoint works using curl reproduction. This prevents unnecessary investigation into backend validation when the issue originates in client request construction.
+
+## Result
+
+✅ Backend endpoint verified correct via curl reproduction
+
+✅ Client request construction issue isolated
+
+✅ Debug logging added for future diagnostics
+
 ---
 
 # System Integrity Check
