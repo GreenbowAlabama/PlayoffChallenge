@@ -235,6 +235,8 @@ npm test -- --forceExit
 | `docs/governance/IOS_SWEEP_PROTOCOL.md` | iOS development structure |
 | `docs/api/contests-endpoints.md` | REST API endpoint specifications |
 | `backend/contracts/openapi.yaml` | Public API contract |
+| `docs/architecture/ESPN-PGA-Ingestion.md` | ESPN data fetching strategy (scoreboard-based) |
+| `docs/production-readiness/DISCOVERY_SYSTEM.md` | Tournament discovery cycle |
 
 ## Important Notes
 

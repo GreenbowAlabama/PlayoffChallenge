@@ -170,4 +170,5 @@ const DISCOVERY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;  // 14 days
 - **Worker:** `/docs/production-readiness/PLATFORM_WORKERS.md`
 - **Contracts:** `/docs/api/contests-endpoints.md`
 - **Governance:** `/docs/governance/LIFECYCLE_EXECUTION_MAP.md`
+- **ESPN PGA Ingestion:** `/docs/architecture/ESPN-PGA-Ingestion.md` — Data fetching strategy and endpoint details
 

@@ -239,6 +239,7 @@ WHERE contest_instance_id = '${contest_id}';
 - **SYSTEM_STATUS_AND_ISSUES.md** — Resolved issue details
 - **ARCHITECTURE_LOCK.md** § Schema Frozen Primitives
 - **FAST_FOLLOWERS.md** § Web-Admin Observability for Player Pool
+- **ESPN-PGA-Ingestion.md** — Data fetching strategy for tournament field discovery
 
 ---
 

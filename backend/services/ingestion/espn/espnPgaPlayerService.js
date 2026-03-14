@@ -70,58 +70,27 @@ async function fetchGolfers() {
 }
 
 /**
- * Fetch tournament field from ESPN PGA endpoints with smart fallback.
+ * Fetch tournament field from ESPN PGA scoreboard endpoint.
  *
  * Strategy:
- * 1. Try leaderboard endpoint (has tee times, starting positions)
- * 2. If leaderboard is empty or fails → fallback to scoreboard (always has field)
- * 3. Both endpoints return competitors in same structure (athlete object)
+ * 1. Fetch scoreboard (always contains live tournament data and competitors)
+ * 2. Locate the exact event by ID
+ * 3. Extract competitors from that event
+ * 4. Throw if event not found (strict matching required)
  *
- * This handles pre-tournament scenarios where leaderboard is empty.
+ * Note: The leaderboard endpoint returns empty competitors even during
+ * live tournaments. Scoreboard is the reliable source for PGA field data.
  *
  * @param {string} eventId - ESPN event ID (e.g., '401811937')
  * @returns {Promise<Array>} Array of normalized golfer objects
- * @throws {Error} If eventId is missing or both endpoints fail
+ * @throws {Error} If eventId is missing, event not found, or fetch fails
  */
 async function fetchTournamentField(eventId) {
   if (!eventId) {
     throw new Error('fetchTournamentField: eventId is required');
   }
 
-  logger.info(`[espnPgaPlayerService] Fetching tournament field for event ${eventId}...`);
-
-  let leaderboardCompetitors = [];
-  let leaderboardAvailable = false;
-
-  // Step 1: Try leaderboard first (returns field for a specific tournament)
-  try {
-    const leaderboardResponse = await axios.get(
-      `https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/leaderboard?event=${eventId}`,
-      {
-        timeout: 10000,
-        headers: {
-          'User-Agent': 'playoff-challenge/2.0'
-        }
-      }
-    );
-
-    leaderboardCompetitors = leaderboardResponse.data.events?.[0]?.competitions?.[0]?.competitors || [];
-    leaderboardAvailable = true;
-
-    // Step 2: Use leaderboard if it has competitors
-    if (leaderboardCompetitors.length > 0) {
-      const normalized = leaderboardCompetitors
-        .map(competitor => normalizeGolfer(competitor))
-        .filter(golfer => golfer !== null);
-      logger.info(`[espnPgaPlayerService] Using leaderboard endpoint: ${normalized.length} valid golfers for event ${eventId}`);
-      return normalized;
-    }
-  } catch (err) {
-    logger.warn(`[espnPgaPlayerService] Leaderboard fetch failed for event ${eventId}, will try scoreboard: ${err.message}`);
-  }
-
-  // Step 3: Fallback to scoreboard if leaderboard is empty or failed (pre-tournament)
-  logger.info(`[espnPgaPlayerService] Leaderboard empty or unavailable, falling back to scoreboard for event ${eventId}`);
+  logger.info(`[espnPgaPlayerService] Fetching tournament field for event ${eventId} from scoreboard...`);
 
   try {
     const scoreboardResponse = await axios.get(
@@ -137,37 +106,28 @@ async function fetchTournamentField(eventId) {
     // Extract competitors from scoreboard
     const scoreboardEvents = scoreboardResponse.data.events || [];
 
-    let competitors = [];
-
-    // Strategy 1: Try to find exact event match by ID
+    // Find exact event match by ID (no fallback to other events)
     const targetEvent = scoreboardEvents.find(e => e.id === eventId);
-    if (targetEvent) {
-      const competitions = targetEvent.competitions || [];
-      for (const competition of competitions) {
-        const competitorList = competition.competitors || [];
-        competitors.push(...competitorList);
-      }
+    if (!targetEvent) {
+      throw new Error(`Event ${eventId} not found in scoreboard`);
     }
 
-    // Strategy 2: If no exact match, extract from ALL events (fallback for edge cases)
-    if (competitors.length === 0) {
-      for (const event of scoreboardEvents) {
-        const competitions = event.competitions || [];
-        for (const competition of competitions) {
-          const competitorList = competition.competitors || [];
-          competitors.push(...competitorList);
-        }
-      }
+    let competitors = [];
+    const competitions = targetEvent.competitions || [];
+    for (const competition of competitions) {
+      const competitorList = competition.competitors || [];
+      competitors.push(...competitorList);
     }
 
     const normalized = competitors
       .map(competitor => normalizeGolfer(competitor))
       .filter(golfer => golfer !== null);
-    logger.info(`[espnPgaPlayerService] Using scoreboard fallback: ${normalized.length} valid golfers for event ${eventId}`);
+
+    logger.info(`[espnPgaPlayerService] Fetched ${normalized.length} valid golfers for event ${eventId} from scoreboard`);
 
     return normalized;
   } catch (err) {
-    logger.error(`[espnPgaPlayerService] Error fetching tournament field (both leaderboard and scoreboard failed) for event ${eventId}:`, err.message);
+    logger.error(`[espnPgaPlayerService] Error fetching tournament field for event ${eventId}:`, err.message);
     throw err;
   }
 }

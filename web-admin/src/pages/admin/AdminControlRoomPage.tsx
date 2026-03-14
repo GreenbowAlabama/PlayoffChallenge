@@ -72,6 +72,17 @@ const towers: TowerTile[] = [
     ),
     color: 'from-rose-50 to-rose-100 border-rose-200 text-rose-700 hover:from-rose-100 hover:to-rose-200',
   },
+  {
+    title: 'PGA Leaderboard',
+    description: 'Live leaderboard & scoring diagnostics',
+    path: '/operations/leaderboards',
+    icon: (
+      <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>
+    ),
+    color: 'from-cyan-50 to-cyan-100 border-cyan-200 text-cyan-700 hover:from-cyan-100 hover:to-cyan-200',
+  },
 ];
 
 export function AdminControlRoomPage() {

@@ -461,11 +461,12 @@ describe('ESPN PGA Player Service', () => {
   });
 
   describe('fetchTournamentField', () => {
-    it('should fetch golfers from ESPN leaderboard endpoint', async () => {
-      const mockLeaderboardResponse = {
+    it('should fetch golfers from ESPN scoreboard endpoint', async () => {
+      const mockScoreboardResponse = {
         data: {
           events: [
             {
+              id: '401811937',
               competitions: [
                 {
                   competitors: [
@@ -497,7 +498,7 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      axios.get.mockResolvedValue(mockLeaderboardResponse);
+      axios.get.mockResolvedValue(mockScoreboardResponse);
 
       const result = await espnPgaPlayerService.fetchTournamentField('401811937');
 
@@ -518,28 +519,38 @@ describe('ESPN PGA Player Service', () => {
       });
     });
 
-    it('should call ESPN leaderboard endpoint with correct event ID', async () => {
-      const mockLeaderboardResponse = {
+    it('should call ESPN scoreboard endpoint (not leaderboard)', async () => {
+      const mockScoreboardResponse = {
         data: {
-          events: []
+          events: [
+            {
+              id: '401811937',
+              competitions: [
+                {
+                  competitors: []
+                }
+              ]
+            }
+          ]
         }
       };
 
-      axios.get.mockResolvedValue(mockLeaderboardResponse);
+      axios.get.mockResolvedValue(mockScoreboardResponse);
 
       await espnPgaPlayerService.fetchTournamentField('401811937');
 
       expect(axios.get).toHaveBeenCalledWith(
-        'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/leaderboard?event=401811937',
+        'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard',
         expect.any(Object)
       );
     });
 
-    it('should handle missing headshot in leaderboard response', async () => {
-      const mockLeaderboardResponse = {
+    it('should handle missing headshot in scoreboard response', async () => {
+      const mockScoreboardResponse = {
         data: {
           events: [
             {
+              id: '401811937',
               competitions: [
                 {
                   competitors: [
@@ -559,7 +570,7 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      axios.get.mockResolvedValue(mockLeaderboardResponse);
+      axios.get.mockResolvedValue(mockScoreboardResponse);
 
       const result = await espnPgaPlayerService.fetchTournamentField('401811937');
 
@@ -575,11 +586,12 @@ describe('ESPN PGA Player Service', () => {
       ).rejects.toThrow('API Error');
     });
 
-    it('should return empty array when no competitors in leaderboard response', async () => {
-      const mockLeaderboardResponse = {
+    it('should return empty array when event found but has no competitors', async () => {
+      const mockScoreboardResponse = {
         data: {
           events: [
             {
+              id: '401811937',
               competitions: [
                 {
                   competitors: []
@@ -590,18 +602,19 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      axios.get.mockResolvedValue(mockLeaderboardResponse);
+      axios.get.mockResolvedValue(mockScoreboardResponse);
 
       const result = await espnPgaPlayerService.fetchTournamentField('401811937');
 
       expect(result).toEqual([]);
     });
 
-    it('should extract competitors from nested events and competitions', async () => {
-      const mockLeaderboardResponse = {
+    it('should extract competitors from nested competitions within scoreboard event', async () => {
+      const mockScoreboardResponse = {
         data: {
           events: [
             {
+              id: '401811937',
               competitions: [
                 {
                   competitors: [
@@ -637,7 +650,7 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      axios.get.mockResolvedValue(mockLeaderboardResponse);
+      axios.get.mockResolvedValue(mockScoreboardResponse);
 
       const result = await espnPgaPlayerService.fetchTournamentField('401811937');
 
@@ -655,142 +668,15 @@ describe('ESPN PGA Player Service', () => {
       ).rejects.toThrow();
     });
 
-    it('should fallback to scoreboard when leaderboard has no competitors', async () => {
-      // Leaderboard returns empty competitors
-      const emptyLeaderboard = {
-        data: {
-          events: [
-            {
-              competitions: [
-                {
-                  competitors: []
-                }
-              ]
-            }
-          ]
-        }
-      };
-
-      // Scoreboard returns full field with matching event ID
-      const scoreboardResponse = {
-        data: {
-          events: [
-            {
-              id: '401811937',  // Must match requested event ID
-              competitions: [
-                {
-                  competitors: [
-                    {
-                      athlete: {
-                        id: '12345',
-                        displayName: 'Rory McIlroy',
-                        headshot: { href: 'https://a.espncdn.com/media/golf/players/12345.jpg' }
-                      }
-                    },
-                    {
-                      athlete: {
-                        id: '67890',
-                        displayName: 'Jon Rahm',
-                        headshot: { href: 'https://a.espncdn.com/media/golf/players/67890.jpg' }
-                      }
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      };
-
-      // Mock axios to return empty leaderboard first, then scoreboard
-      axios.get
-        .mockResolvedValueOnce(emptyLeaderboard)
-        .mockResolvedValueOnce(scoreboardResponse);
-
-      const result = await espnPgaPlayerService.fetchTournamentField('401811937');
-
-      expect(result).toHaveLength(2);
-      expect(result[0].name).toBe('Rory McIlroy');
-      expect(result[1].name).toBe('Jon Rahm');
-
-      // Verify both endpoints were called
-      expect(axios.get).toHaveBeenCalledTimes(2);
-      expect(axios.get).toHaveBeenNthCalledWith(
-        1,
-        expect.stringContaining('leaderboard'),
-        expect.any(Object)
-      );
-      expect(axios.get).toHaveBeenNthCalledWith(
-        2,
-        expect.stringContaining('scoreboard'),
-        expect.any(Object)
-      );
-    });
-
-    it('should use leaderboard when it has competitors (no fallback)', async () => {
-      const leaderboardResponse = {
-        data: {
-          events: [
-            {
-              competitions: [
-                {
-                  competitors: [
-                    {
-                      athlete: {
-                        id: '12345',
-                        displayName: 'Rory McIlroy',
-                        headshot: { href: 'https://a.espncdn.com/media/golf/players/12345.jpg' }
-                      }
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      };
-
-      axios.get.mockResolvedValueOnce(leaderboardResponse);
-
-      const result = await espnPgaPlayerService.fetchTournamentField('401811937');
-
-      expect(result).toHaveLength(1);
-      expect(result[0].name).toBe('Rory McIlroy');
-
-      // Verify only leaderboard was called (no fallback)
-      expect(axios.get).toHaveBeenCalledTimes(1);
-      expect(axios.get).toHaveBeenCalledWith(
-        expect.stringContaining('leaderboard'),
-        expect.any(Object)
-      );
-    });
-
-    it('should throw if both leaderboard and scoreboard fail', async () => {
-      axios.get
-        .mockRejectedValueOnce(new Error('Leaderboard API Error'))
-        .mockRejectedValueOnce(new Error('Scoreboard API Error'));
+    it('should throw if scoreboard API call fails', async () => {
+      axios.get.mockRejectedValueOnce(new Error('Scoreboard API Error'));
 
       await expect(
         espnPgaPlayerService.fetchTournamentField('401811937')
       ).rejects.toThrow('Scoreboard API Error');
     });
 
-    it('should extract competitors only from requested event in scoreboard', async () => {
-      // Leaderboard empty
-      const emptyLeaderboard = {
-        data: {
-          events: [
-            {
-              competitions: [
-                {
-                  competitors: []
-                }
-              ]
-            }
-          ]
-        }
-      };
-
+    it('should extract competitors only from exact requested event in scoreboard', async () => {
       // Scoreboard with multiple events - request only one
       const scoreboardResponse = {
         data: {
@@ -838,9 +724,7 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      axios.get
-        .mockResolvedValueOnce(emptyLeaderboard)
-        .mockResolvedValueOnce(scoreboardResponse);
+      axios.get.mockResolvedValueOnce(scoreboardResponse);
 
       const result = await espnPgaPlayerService.fetchTournamentField('401811937');
 
@@ -850,19 +734,14 @@ describe('ESPN PGA Player Service', () => {
       expect(result.map(g => g.name)).toEqual(['Rory McIlroy', 'Jon Rahm']);
     });
 
-    it('should log when falling back to scoreboard', async () => {
+    it('should log when fetching from scoreboard', async () => {
       const consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation();
-
-      const emptyLeaderboard = {
-        data: {
-          events: [{ competitions: [{ competitors: [] }] }]
-        }
-      };
 
       const scoreboardResponse = {
         data: {
           events: [
             {
+              id: '401811937',
               competitions: [
                 {
                   competitors: [
@@ -881,26 +760,25 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      axios.get
-        .mockResolvedValueOnce(emptyLeaderboard)
-        .mockResolvedValueOnce(scoreboardResponse);
+      axios.get.mockResolvedValueOnce(scoreboardResponse);
 
       await espnPgaPlayerService.fetchTournamentField('401811937');
 
-      // Verify fallback was logged
-      const fallbackCalls = consoleInfoSpy.mock.calls.filter(call =>
-        String(call[0]).includes('fallback') || String(call[0]).includes('empty')
+      // Verify fetch from scoreboard was logged
+      const scoreboardCalls = consoleInfoSpy.mock.calls.filter(call =>
+        String(call[0]).includes('scoreboard')
       );
-      expect(fallbackCalls.length).toBeGreaterThan(0);
+      expect(scoreboardCalls.length).toBeGreaterThan(0);
 
       consoleInfoSpy.mockRestore();
     });
 
-    it('should filter out competitors with missing athlete.id in leaderboard', async () => {
-      const mockLeaderboardResponse = {
+    it('should filter out competitors with missing athlete.id in scoreboard', async () => {
+      const mockScoreboardResponse = {
         data: {
           events: [
             {
+              id: '401811937',
               competitions: [
                 {
                   competitors: [
@@ -933,7 +811,7 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      axios.get.mockResolvedValue(mockLeaderboardResponse);
+      axios.get.mockResolvedValue(mockScoreboardResponse);
 
       const result = await espnPgaPlayerService.fetchTournamentField('401811937');
 
@@ -942,14 +820,7 @@ describe('ESPN PGA Player Service', () => {
       expect(result.map(g => g.external_id)).toEqual(['12345', '67890']);
     });
 
-    it('should filter out competitors with missing athlete.displayName in scoreboard fallback', async () => {
-      // Leaderboard is empty (forces fallback)
-      const emptyLeaderboard = {
-        data: {
-          events: [{ competitions: [{ competitors: [] }] }]
-        }
-      };
-
+    it('should filter out competitors with missing athlete.displayName in scoreboard', async () => {
       // Scoreboard with some invalid competitors
       const scoreboardResponse = {
         data: {
@@ -988,9 +859,7 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      axios.get
-        .mockResolvedValueOnce(emptyLeaderboard)
-        .mockResolvedValueOnce(scoreboardResponse);
+      axios.get.mockResolvedValueOnce(scoreboardResponse);
 
       const result = await espnPgaPlayerService.fetchTournamentField('401811937');
 
@@ -999,23 +868,8 @@ describe('ESPN PGA Player Service', () => {
       expect(result.map(g => g.name)).toEqual(['Valid Golfer', 'Another Valid']);
     });
 
-    it('BLOCKER #2: should filter scoreboard by eventId (not return all events)', async () => {
+    it('should filter scoreboard by eventId and not return golfers from other events', async () => {
       const requestedEventId = '401811937';
-
-      // Leaderboard is empty (forces fallback to scoreboard)
-      const emptyLeaderboard = {
-        data: {
-          events: [
-            {
-              competitions: [
-                {
-                  competitors: []  // Empty - forces fallback
-                }
-              ]
-            }
-          ]
-        }
-      };
 
       // Scoreboard contains 3 events with different golfers
       const scoreboardResponse = {
@@ -1090,9 +944,7 @@ describe('ESPN PGA Player Service', () => {
         }
       };
 
-      axios.get
-        .mockResolvedValueOnce(emptyLeaderboard)
-        .mockResolvedValueOnce(scoreboardResponse);
+      axios.get.mockResolvedValueOnce(scoreboardResponse);
 
       // Request only event 401811937
       const result = await espnPgaPlayerService.fetchTournamentField(requestedEventId);
@@ -1101,7 +953,6 @@ describe('ESPN PGA Player Service', () => {
       const playerNames = result.map(g => g.name);
 
       // CRITICAL ASSERTION: Should return ONLY golfers from requested event
-      // If BLOCKER #2 bug exists, would return all 5 golfers from all 3 events
       expect(playerIds).toContain('player3');  // From event 401811937
       expect(playerIds).toContain('player4');  // From event 401811937
 
@@ -1116,6 +967,106 @@ describe('ESPN PGA Player Service', () => {
       // Verify player names
       expect(playerNames).toContain('Player Three');
       expect(playerNames).toContain('Player Four');
+    });
+
+    it('should fetch directly from scoreboard (skip leaderboard endpoint) and extract exact event', async () => {
+      // New behavior: skip leaderboard, go directly to scoreboard with exact event ID matching
+      const scoreboardResponse = {
+        data: {
+          events: [
+            {
+              id: '401811935',
+              name: 'Arnold Palmer Invitational',
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: 'other1',
+                        displayName: 'Other Golfer 1',
+                        headshot: { href: 'https://example.com/other1.jpg' }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              id: '401811937',
+              name: 'The Players Championship',
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: '12345',
+                        displayName: 'Rory McIlroy',
+                        headshot: { href: 'https://a.espncdn.com/media/golf/players/12345.jpg' }
+                      }
+                    },
+                    {
+                      athlete: {
+                        id: '67890',
+                        displayName: 'Jon Rahm',
+                        headshot: { href: 'https://a.espncdn.com/media/golf/players/67890.jpg' }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      };
+
+      axios.get.mockResolvedValueOnce(scoreboardResponse);
+
+      const result = await espnPgaPlayerService.fetchTournamentField('401811937');
+
+      // Should return only golfers from the exact requested event
+      expect(result).toHaveLength(2);
+      expect(result[0].name).toBe('Rory McIlroy');
+      expect(result[1].name).toBe('Jon Rahm');
+
+      // Verify only scoreboard was called (leaderboard skipped)
+      expect(axios.get).toHaveBeenCalledTimes(1);
+      expect(axios.get).toHaveBeenCalledWith(
+        'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard',
+        expect.any(Object)
+      );
+    });
+
+    it('should throw if event not found in scoreboard', async () => {
+      const scoreboardResponse = {
+        data: {
+          events: [
+            {
+              id: '401811935',
+              name: 'Arnold Palmer Invitational',
+              competitions: [
+                {
+                  competitors: [
+                    {
+                      athlete: {
+                        id: 'player1',
+                        displayName: 'Player One',
+                        headshot: { href: 'https://example.com/p1.jpg' }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      };
+
+      axios.get.mockResolvedValueOnce(scoreboardResponse);
+
+      // Request event that doesn't exist in scoreboard
+      await expect(
+        espnPgaPlayerService.fetchTournamentField('999999999')
+      ).rejects.toThrow('Event 999999999 not found in scoreboard');
     });
   });
 });
