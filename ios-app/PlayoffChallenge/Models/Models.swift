@@ -120,7 +120,7 @@ struct Player: Codable, Identifiable {
     let id: String
     let sleeperId: String?
     let fullName: String
-    let position: String
+    let position: String?
     let team: String?
     let isActive: Bool?
     let gameTime: String?
