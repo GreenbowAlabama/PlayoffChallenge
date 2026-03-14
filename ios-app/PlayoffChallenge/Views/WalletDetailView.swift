@@ -131,7 +131,7 @@ struct WalletDetailView: View {
                     .padding(.top, DesignTokens.Spacing.lg)
 
                 VStack(spacing: DesignTokens.Spacing.md) {
-                    ForEach(["5.00", "10.00", "25.00", "50.00"], id: \.self) { amount in
+                    ForEach(["5.00", "10.00", "25.00", "50.00", "100.00", "500.00"], id: \.self) { amount in
                         Button {
                             depositAmount = amount
                         } label: {
