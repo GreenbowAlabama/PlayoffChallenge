@@ -719,13 +719,18 @@ async function handleScoringIngestion(ctx, unit) {
   const providerData = unit.providerData;
   const providerEventId = unit.providerEventId;
 
-  // ── Step 1: Parse ESPN structure ──────────────────────────────────────────
+  // ── Step 1: Parse ESPN structure and find correct event ─────────────────────
   const events = providerData.events || [];
   if (events.length === 0) {
     return [];
   }
 
-  const event = events[0];
+  // Find event matching providerEventId (not just events[0])
+  const event = events.find(e => e.id === providerEventId);
+  if (!event) {
+    throw new Error(`handleScoringIngestion: Event ${providerEventId} not found in leaderboard response`);
+  }
+
   const competitions = event.competitions || [];
   if (competitions.length === 0) {
     return [];
