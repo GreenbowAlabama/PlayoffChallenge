@@ -452,7 +452,8 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
     // ── Emit PLAYER_POOL ingestion_event if field_selections exists ──────────
     // Runs every cycle. Creates event from existing field snapshot if event
     // does not already exist. Idempotent: only creates once per contest.
-    if (row.sport === 'GOLF') {
+    const normalizedSport = String(row.sport).toUpperCase();
+    if (normalizedSport === 'PGA' || normalizedSport === 'GOLF') {
       try {
         const fieldResult = await client.query(
           `SELECT selection_json FROM field_selections WHERE contest_instance_id = $1`,
