@@ -2,6 +2,25 @@
 
 ---
 
+## Scoring Orchestration
+
+**SCORING is orchestrated by `ingestionService.runScoring()` rather than adapter work unit generation.**
+
+The service:
+1. Retrieves ESPN event ID from `tournament_configs`
+2. Calls `fetchLeaderboard()` to fetch ESPN leaderboard data
+3. Constructs a SCORING work unit with `{ phase: 'SCORING', providerEventId, providerData }`
+4. Passes the work unit to `run()` which invokes the adapter
+
+The adapter consumes this unit to compute golfer scores and insert them into `golfer_event_scores`.
+
+**Implementation:**
+- Service: `backend/services/ingestionService.js:runScoring()`
+- API Client: `backend/services/ingestion/espn/espnPgaApi.js:fetchLeaderboard()`
+- Adapter: `backend/services/ingestion/strategies/pgaEspnIngestion.js:handleScoringIngestion()`
+
+---
+
 ## PGA Leaderboard Diagnostics
 
 The system exposes an operational diagnostic endpoint allowing administrators to verify scoring correctness during live tournaments.

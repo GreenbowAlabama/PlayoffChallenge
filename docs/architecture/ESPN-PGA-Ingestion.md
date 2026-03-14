@@ -136,7 +136,10 @@ PLAYER_POOL ingestion_event
 - Payload includes provider_event_id and full golfer list
 
 **Phase 3: SCORING** (Runs during LOCKED/LIVE status)
-- Fetches leaderboard updates from ESPN
+- Orchestrated by `ingestionService.runScoring()` (NOT adapter)
+- Service fetches leaderboard updates from ESPN via `fetchLeaderboard()`
+- Service constructs SCORING work unit with { phase: 'SCORING', providerEventId, providerData }
+- Adapter consumes unit to compute golfer scores
 - Creates event_data_snapshots for scoring data
 - Creates SCORING ingestion_events for settlement binding
 

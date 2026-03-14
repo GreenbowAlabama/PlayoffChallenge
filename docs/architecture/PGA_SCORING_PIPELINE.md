@@ -9,11 +9,17 @@ The system separates **event scoring** from **entry aggregation** to ensure dete
 ## Architecture Overview
 
 ```
-Provider Data
+ingestionWorker
     ↓
-ESPN Leaderboard API
+runScoring(contestInstanceId)
     ↓
-pgaEspnIngestion (ingestion strategy)
+Fetch provider_event_id from tournament_configs
+    ↓
+fetchLeaderboard() (ESPN API)
+    ↓
+Construct SCORING work unit
+    ↓
+run() → pgaEspnIngestion (adapter)
     ↓
 handleScoringIngestion()
     ↓
@@ -25,6 +31,24 @@ pgaEntryAggregation (future phase)
     ↓
 Contest Leaderboard
 ```
+
+---
+
+## Scoring Orchestration
+
+SCORING is orchestrated by `ingestionService.runScoring()` rather than adapter work unit generation.
+
+The service retrieves the ESPN event ID from `tournament_configs`, fetches the leaderboard from ESPN via `fetchLeaderboard()`, constructs a SCORING work unit containing `{ phase: 'SCORING', providerEventId, providerData }`, and forwards it to the ingestion engine via `run()`.
+
+Adapters consume this unit to compute golfer scores and persist them to `golfer_event_scores`.
+
+**Key implementation:**
+
+- `backend/services/ingestionService.js:runScoring()` — Orchestration entry point
+- `backend/services/ingestion/espn/espnPgaApi.js:fetchLeaderboard()` — ESPN API call
+- `backend/services/ingestion/strategies/pgaEspnIngestion.js:handleScoringIngestion()` — Scoring adapter
+
+This separation ensures scoring orchestration is independent of sport-specific ingestion logic.
 
 ---
 

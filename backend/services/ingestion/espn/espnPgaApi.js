@@ -204,7 +204,7 @@ async function fetchCalendar({ leagueId, seasonYear, timeout = 5000 }) {
  * @returns {Promise<Object>} ESPN event detail response { events: [{competitions:[...]}] }
  * @throws {Error} If fetch fails (after retries or non-transient error)
  */
-async function fetchLeaderboard({ eventId, timeout = 5000 }) {
+async function fetchLeaderboard({ eventId, timeout = 15000 }) {
   if (!eventId) {
     throw new Error('fetchLeaderboard: eventId is required');
   }
