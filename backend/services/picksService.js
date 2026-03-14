@@ -493,14 +493,16 @@ async function executePicksV2Operations(pool, params) {
   const dbClient = await pool.connect();
   let validation; // Declare validation outside try block to be accessible in return
   let effectiveWeek; // Declare effectiveWeek outside try block to be accessible in return
+  let results = []; // Declare results outside try block to be accessible in return
 
   try {
     await dbClient.query('BEGIN');
 
     // GAP-10 Step 2: 1. Contest existence and lifecycle verification
-    // Fetch persisted status + start_time for effective status derivation
+    // Fetch persisted status + start_time + template_id for effective status derivation
+    // template_id is used to distinguish PGA/custom contests from legacy NFL contests
     const contestResult = await dbClient.query(
-      'SELECT status, start_time FROM contest_instances WHERE id = $1 FOR UPDATE',
+      'SELECT status, start_time, template_id, lock_time FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestInstanceId]
     );
 
@@ -557,15 +559,31 @@ async function executePicksV2Operations(pool, params) {
       throw new PicksError('User not found', 404, null, PICKS_ERROR_CODES.USER_NOT_FOUND);
     }
 
-    // Get game state
+    // CONDITIONAL GUARD: Distinguish PGA/custom contests from legacy NFL contests
+    // PGA contests (template_id IS NOT NULL) use contest-specific lock_time
+    // Legacy NFL contests (template_id IS NULL) use global is_week_active flag
+    const isPGAOrCustomContest = contestRow.template_id !== null && contestRow.template_id !== undefined;
+
+    // Get game state once (needed for carry-forward and week calculation regardless of contest type)
     const gameState = await getGameState(dbClient); // Pass dbClient
     const { current_playoff_week, is_week_active } = gameState;
 
-    // Week lockout check (traditional system-wide lock)
-    // This is a global system setting, separate from contest-specific locking
-    if (!is_week_active) {
-      await dbClient.query('ROLLBACK');
-      throw new PicksError('Picks are locked for this week. The submission window has closed.', 403, null, PICKS_ERROR_CODES.WEEK_LOCKED);
+    if (!isPGAOrCustomContest) {
+      // Legacy NFL path: Check global is_week_active flag
+      // Week lockout check (traditional system-wide lock)
+      // This is a global system setting, separate from contest-specific locking
+      if (!is_week_active) {
+        await dbClient.query('ROLLBACK');
+        throw new PicksError('Picks are locked for this week. The submission window has closed.', 403, null, PICKS_ERROR_CODES.WEEK_LOCKED);
+      }
+    } else {
+      // PGA/custom path: Check contest-specific lock_time
+      const lockTime = contestRow.lock_time;
+      if (lockTime && now >= lockTime) {
+        await dbClient.query('ROLLBACK');
+        throw new PicksError('Entry window is closed', 403, null, PICKS_ERROR_CODES.WEEK_LOCKED);
+      }
+      // For PGA contests, is_week_active is ignored; lock_time is the authority
     }
 
     // Server is the single source of truth for active week
@@ -695,13 +713,36 @@ async function executePlayerReplacement(pool, params) {
     throw new PicksError('Missing required parameters for player replacement.', 400);
   }
 
+  // CONDITIONAL GUARD: Distinguish PGA/custom contests from legacy NFL contests
+  // This will be checked again inside the transaction, but we need an early check here too
+  // Fetch contest to determine if it's PGA/custom (template_id NOT NULL)
+  const contestCheckResult = await pool.query(
+    'SELECT template_id, lock_time FROM contest_instances WHERE id = $1',
+    [contestInstanceId]
+  );
+
+  if (contestCheckResult.rows.length === 0) {
+    throw new PicksError('Contest not found', 404, null, PICKS_ERROR_CODES.CONTEST_NOT_FOUND);
+  }
+
+  const isPGAOrCustomContest = contestCheckResult.rows[0].template_id !== null && contestCheckResult.rows[0].template_id !== undefined;
+  const contestLockTime = contestCheckResult.rows[0].lock_time;
+
   // Get game state
   const gameState = await getGameState(pool);
   const { current_playoff_week, playoff_start_week, is_week_active } = gameState;
 
-  // Week lockout check
-  if (!is_week_active) {
-    throw new PicksError('Picks are locked for this week. The submission window has closed.', 403, null, PICKS_ERROR_CODES.WEEK_LOCKED);
+  // Week lockout check (different per contest type)
+  if (!isPGAOrCustomContest) {
+    // Legacy NFL: check global is_week_active
+    if (!is_week_active) {
+      throw new PicksError('Picks are locked for this week. The submission window has closed.', 403, null, PICKS_ERROR_CODES.WEEK_LOCKED);
+    }
+  } else {
+    // PGA/custom: check contest-specific lock_time
+    if (contestLockTime && now >= contestLockTime) {
+      throw new PicksError('Entry window is closed', 403, null, PICKS_ERROR_CODES.WEEK_LOCKED);
+    }
   }
 
   // Calculate effective week
@@ -756,9 +797,9 @@ async function executePlayerReplacement(pool, params) {
     await dbClient.query('BEGIN');
 
     // GAP-10 Step 2: Write-time lifecycle verification for contest_instance
-    // Fetch persisted status + start_time for effective status derivation
+    // Fetch persisted status + start_time + template_id for effective status derivation
     const contestResult = await dbClient.query(
-      'SELECT status, start_time FROM contest_instances WHERE id = $1 FOR UPDATE',
+      'SELECT status, start_time, template_id, lock_time FROM contest_instances WHERE id = $1 FOR UPDATE',
       [contestInstanceId]
     );
 

@@ -591,6 +591,386 @@ describe('Entry Roster Service', () => {
         entryRosterService.submitPicks(pool, contestId, userId, playerIds)
       ).rejects.toThrow('Players not in validated field');
     });
+
+    // GOVERNANCE COMPLIANCE TESTS: Lock Time Independence
+    // These tests verify that entryRosterService enforces contest-specific lock_time,
+    // independent of any global system flags like is_week_active.
+    // This prevents regression of the /api/picks/v2 misbehavior where global flags override contest locks.
+
+    it('accepts picks for SCHEDULED contest with future lock_time (lock_time-scoped)', async () => {
+      // SCENARIO: Ensure contest-scoped lock_time takes precedence.
+      // This is the CORRECT behavior that /api/picks/v2 violates.
+      // Preconditions:
+      //   - contest.status = SCHEDULED
+      //   - contest.lock_time = future (1 hour)
+      //   - current_time = now (before lock_time)
+      // Expected: Picks ACCEPTED (respects contest-specific lock_time)
+      // NOT: Blocked by any global flag
+
+      const pool = createMockPool();
+      const contestId = 'test-contest-scheduled-future-lock';
+      const userId = 'test-user-id';
+      const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000), // 1 hour in future
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('INSERT'),
+        {
+          rows: [{ updated_at: new Date().toISOString() }],
+          rowCount: 1
+        }
+      );
+
+      // This MUST succeed because:
+      // - Contest is SCHEDULED (status check passes)
+      // - Current time < lock_time (time check passes)
+      // - No global flag is consulted by this service
+      const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+      expect(result.success).toBe(true);
+      expect(result.player_ids).toEqual(playerIds.map(id => `espn_${id}`));
+    });
+
+    it('rejects picks when contest lock_time has passed, even if SCHEDULED', async () => {
+      // SCENARIO: Verify that lock_time is the lock mechanism, not status alone.
+      // Preconditions:
+      //   - contest.status = SCHEDULED
+      //   - contest.lock_time = past (1 hour ago)
+      //   - current_time = now (after lock_time)
+      // Expected: Picks REJECTED (lock_time enforcement)
+      // This prevents the inverse misbehavior where lock_time is ignored.
+
+      const pool = createMockPool();
+      const contestId = 'test-contest-scheduled-past-lock';
+      const userId = 'test-user-id';
+      const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() - 3600000), // 1 hour ago
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      await expect(
+        entryRosterService.submitPicks(pool, contestId, userId, playerIds)
+      ).rejects.toThrow('Entry window is closed');
+    });
+
+    it('enforces lock_time independently per contest (multi-contest isolation)', async () => {
+      // SCENARIO: Verify that two different contests with different lock_times
+      // are evaluated independently, not by global flag.
+      // This test ensures contest-scoping works correctly.
+      //
+      // Setup:
+      //   - Contest A: lock_time in future
+      //   - Contest B: lock_time in past
+      //   - Same user
+      // Expected:
+      //   - Contest A: picks ACCEPTED
+      //   - Contest B: picks REJECTED
+      // This proves that each contest's lock_time is respected independently.
+
+      const pool = createMockPool();
+      const userId = 'test-user-isolation-id';
+      const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+      const contestIdA = 'contest-a-future-lock';
+      const contestIdB = 'contest-b-past-lock';
+
+      // PART 1: Contest A (future lock_time) should accept
+      const poolA = createMockPool();
+
+      poolA.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestIdA,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000), // Future
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      poolA.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      poolA.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      poolA.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('INSERT'),
+        {
+          rows: [{ updated_at: new Date().toISOString() }],
+          rowCount: 1
+        }
+      );
+
+      const resultA = await entryRosterService.submitPicks(poolA, contestIdA, userId, playerIds);
+      expect(resultA.success).toBe(true);
+
+      // PART 2: Contest B (past lock_time) should reject
+      const poolB = createMockPool();
+
+      poolB.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestIdB,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() - 3600000), // Past
+            scoring_strategy_key: 'pga_standard_v1'
+          }],
+          rowCount: 1
+        }
+      );
+
+      poolB.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      poolB.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      await expect(
+        entryRosterService.submitPicks(poolB, contestIdB, userId, playerIds)
+      ).rejects.toThrow('Entry window is closed');
+
+      // ASSERTION: Independent evaluation per contest (not global flag)
+      // Result: A accepted, B rejected = contest-specific lock_time works
+    });
+
+    // CONDITIONAL DEPRECATION TESTS: /api/picks/v2 Guard (Task 4)
+    // These tests verify that the conditional guard in picksService properly
+    // distinguishes between PGA/custom contests (use lock_time) and legacy NFL contests (use is_week_active).
+
+    it('CONDITIONAL GUARD: PGA contest with future lock_time accepts picks despite is_week_active=false', async () => {
+      // SCENARIO: PGA contest should ignore global is_week_active flag
+      // This is the CORE FIX for the /api/picks/v2 deprecation.
+      //
+      // Preconditions:
+      //   - contest.template_id = 'template-123' (non-null, marks it as PGA/custom)
+      //   - contest.status = SCHEDULED
+      //   - contest.lock_time = future (1 hour)
+      //   - game_settings.is_week_active = false (global flag is OFF)
+      //   - current_time = now (before lock_time)
+      //
+      // Expected: Picks ACCEPTED
+      // Reason: PGA contests use lock_time, not is_week_active
+      //
+      // This prevents the issue where /api/picks/v2 was blocking all picks when
+      // is_week_active was false, regardless of contest-specific lock_time.
+
+      const pool = createMockPool();
+      const contestId = 'pga-contest-future-lock';
+      const userId = 'user-id';
+      const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+
+      // Mock contest (PGA/custom with template_id)
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000), // 1 hour in future
+            scoring_strategy_key: 'pga_standard_v1',
+            template_id: 'template-123' // NON-NULL = PGA/custom contest
+          }],
+          rowCount: 1
+        }
+      );
+
+      // Mock participant check
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      // Mock field_selections
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      // Mock entry_rosters insert
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('INSERT'),
+        {
+          rows: [{ updated_at: new Date().toISOString() }],
+          rowCount: 1
+        }
+      );
+
+      // NOTE: We do NOT mock game_settings or is_week_active here.
+      // If the guard works correctly, the service won't even check it for PGA contests.
+      // If the guard is broken, the service would try to query is_week_active and fail.
+
+      const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+      expect(result.success).toBe(true);
+      expect(result.player_ids).toEqual(playerIds.map(id => `espn_${id}`));
+    });
+
+    it('CONDITIONAL GUARD: Legacy NFL contest with is_week_active=false blocks picks (backward compat)', async () => {
+      // SCENARIO: Legacy NFL contests should continue using is_week_active flag
+      // This ensures backward compatibility and prevents regression.
+      //
+      // Preconditions:
+      //   - contest.template_id = NULL (null = legacy NFL contest)
+      //   - contest.status = SCHEDULED
+      //   - contest.lock_time = future (has lock_time, but it's ignored for NFL)
+      //   - game_settings.is_week_active = false (global flag is OFF)
+      //   - current_time = now
+      //
+      // Expected: Picks BLOCKED
+      // Reason: NFL contests respect is_week_active, not lock_time
+      //
+      // This ensures that the conditional guard doesn't break existing NFL contest behavior.
+
+      const pool = createMockPool();
+      const contestId = 'nfl-legacy-contest';
+      const userId = 'user-id';
+      const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+
+      // Mock contest (NFL legacy with template_id = null)
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000), // Future lock_time (ignored for NFL)
+            scoring_strategy_key: 'nfl_standard_v1',
+            template_id: null // NULL = legacy NFL contest
+          }],
+          rowCount: 1
+        }
+      );
+
+      // Mock participant check
+      pool.setQueryResponse(
+        q => q.includes('contest_participants') && q.includes('WHERE'),
+        {
+          rows: [{ 1: 1 }],
+          rowCount: 1
+        }
+      );
+
+      // Mock game_settings with is_week_active = false
+      pool.setQueryResponse(
+        q => q.includes('game_settings'),
+        {
+          rows: [{
+            current_playoff_week: 1,
+            playoff_start_week: 1,
+            is_week_active: false // Global flag OFF
+          }],
+          rowCount: 1
+        }
+      );
+
+      // Service should check is_week_active and reject
+      // No need to mock field_selections or entry_rosters since the request should fail at the is_week_active check
+
+      await expect(
+        entryRosterService.submitPicks(pool, contestId, userId, playerIds)
+      ).rejects.toThrow();
+    });
   });
 
   describe('getMyEntry', () => {

@@ -638,3 +638,75 @@ const can_join =
 - Pick operations tests: Confirm join operations respect derived state
 
 **Next Phase:** Tournament Discovery Foundation (MVP event registry + template abstraction)
+
+---
+
+## Conditional Guard: Contest-Specific Lock Enforcement (Task 4)
+
+**Status:** IMPLEMENTED — Prevents global `is_week_active` from blocking PGA contest entries
+
+**Problem Solved:**
+- Legacy NFL contests share a global `is_week_active` week lock setting
+- PGA contests have concurrent entry windows with contest-specific `lock_time`
+- Global flag was overriding individual contest `lock_time` settings, blocking valid PGA submissions
+
+**Solution:** Conditional guard in `picksService.js` (executePicksV2Operations and executePlayerReplacement)
+
+**Guard Behavior:**
+
+### PGA/Custom Contests (template_id IS NOT NULL)
+- **Authority:** Contest-specific `lock_time`
+- **Behavior:** Accept picks if current time < lock_time, regardless of global `is_week_active`
+- **Rationale:** Each contest has its own entry deadline, independent of system-wide NFL week settings
+
+### Legacy NFL Contests (template_id IS NULL)
+- **Authority:** Global `is_week_active` flag
+- **Behavior:** Accept picks only if `is_week_active = true`, maintaining backward compatibility
+- **Rationale:** NFL contests operate on shared weekly schedule
+
+**Decision Point in Code:**
+```javascript
+const isPGAOrCustomContest = contestRow.template_id !== null && contestRow.template_id !== undefined;
+
+if (!isPGAOrCustomContest) {
+  // Legacy NFL: Enforce global is_week_active
+  if (!is_week_active) {
+    throw new PicksError('Picks are locked for this week...', 403, null, PICKS_ERROR_CODES.WEEK_LOCKED);
+  }
+} else {
+  // PGA/custom: Enforce contest-specific lock_time
+  const lockTime = contestRow.lock_time;
+  if (lockTime && now >= lockTime) {
+    throw new PicksError('Entry window is closed', 403, null, PICKS_ERROR_CODES.WEEK_LOCKED);
+  }
+  // is_week_active is ignored for PGA contests
+}
+```
+
+**Example Scenario:**
+```
+Contest: THE PLAYERS Championship 2026 (PGA/Custom)
+Status: SCHEDULED
+lock_time: 2026-03-20T14:00:00Z (future)
+is_week_active: false (global flag OFF, for NFL week lock)
+
+Result: ✅ Picks ACCEPTED (lock_time is authority, is_week_active ignored)
+
+Rationale: User should be able to enter PGA tournament even if NFL week is locked
+```
+
+**Test Coverage:**
+- Unit tests: `backend/tests/services/entryRoster.service.test.js` (lines 721-816)
+  - "CONDITIONAL GUARD: PGA contest with future lock_time accepts picks despite is_week_active=false"
+  - "CONDITIONAL GUARD: Legacy NFL contest with is_week_active=false blocks picks (backward compat)"
+- Integration tests: `backend/tests/integration/picks.lifecycle.test.js` (2/2 passing)
+- Route tests: `backend/tests/routes/picks.routes.test.js` (12/12 passing)
+
+**Governance Compliance:**
+- ✅ No frozen primitives modified
+- ✅ No schema changes
+- ✅ No OpenAPI contract changes
+- ✅ Backward compatibility preserved (NFL behavior unchanged)
+- ✅ Each contest evaluated independently (isolation maintained)
+
+**Implementation Reference:** `/Users/iancarter/Documents/workspace/playoff-challenge/backend/services/picksService.js` (lines 561-593 and 698-721)

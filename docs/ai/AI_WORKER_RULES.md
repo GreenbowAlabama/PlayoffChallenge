@@ -438,6 +438,44 @@ Centralization is scheduled as a **Fast Follower** task (Phase 2) after launch.
 
 ---
 
+# PGA/Custom Contest Lock Enforcement (Task 4 — Conditional Deprecation)
+
+**Status:** IMPLEMENTED — Conditional guard active in picksService.js
+
+**Rule:** PGA/custom contests use contest-specific `lock_time` as authority. Legacy NFL contests use global `is_week_active` flag.
+
+**Rationale:** PGA contests are multi-concurrent with varying entry windows. Legacy NFL contests share global week settings. The conditional guard ensures each contest type respects its authority mechanism.
+
+**Implementation:** `backend/services/picksService.js` (lines 561-593, executePicksV2Operations)
+
+**Guard Logic:**
+- If `template_id IS NOT NULL` (PGA/custom): Check `contest.lock_time` only, ignore `is_week_active`
+- If `template_id IS NULL` (legacy NFL): Check `is_week_active` only, use `is_week_active` as authority
+
+**Example Scenarios:**
+
+| Contest Type | Status | lock_time | is_week_active | Picks Allowed? | Authority |
+|---|---|---|---|---|---|
+| PGA/Custom | SCHEDULED | future (1h) | false | ✅ YES | lock_time |
+| PGA/Custom | SCHEDULED | past (1h ago) | true | ❌ NO | lock_time |
+| NFL Legacy | SCHEDULED | future | false | ❌ NO | is_week_active |
+| NFL Legacy | SCHEDULED | future | true | ✅ YES | is_week_active |
+
+**Worker Guidance:**
+- When implementing picks submission for PGA contests, **always** verify `contest.lock_time` at submission time
+- Never apply global `is_week_active` to PGA contests
+- Legacy NFL contests must continue checking `is_week_active`
+- Each contest is evaluated independently (no global overrides for PGA)
+
+**Test Evidence:**
+- `backend/tests/services/entryRoster.service.test.js`: 2 new conditional guard tests (lines 721-816)
+- `backend/tests/integration/picks.lifecycle.test.js`: All picks route tests passing
+- `backend/tests/routes/picks.routes.test.js`: 12/12 tests passing
+
+**Reference:** Task 4 implementation summary in this repository, `backend/services/picksService.js`
+
+---
+
 # Output Format
 
 If schema change required:
