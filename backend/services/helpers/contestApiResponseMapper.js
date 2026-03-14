@@ -9,6 +9,7 @@ const {
 } = require('../presentationDerivationService');
 
 const { computeEffectiveStatus } = require('./computeEffectiveStatus');
+const deriveSportFromTemplateType = require('./deriveSportFromTemplateType');
 
 const VALID_STATUSES = new Set([
   'SCHEDULED',
@@ -128,13 +129,16 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
   const payout_table = derivePayoutTable(contestRow.payout_structure);
   const roster_config = deriveRosterConfig(contestRow.template_id);
 
+  // Derive sport deterministically from template_type (backend authoritative)
+  const sport = deriveSportFromTemplateType(contestRow.template_type);
+
   // --- Construct API Response ---
   return {
     id: contestRow.id,
     contest_id: contestRow.id,
     template_id: contestRow.template_id,
     type: contestRow.template_type,
-    template_sport: contestRow.template_sport,
+    sport: sport,
     template_type: contestRow.template_type,
     organizer_id: contestRow.organizer_id,
     organizer_name: contestRow.organizer_name,
@@ -262,6 +266,9 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
   const payout_table = derivePayoutTable(contestRow.payout_structure);
   const roster_config = deriveRosterConfig(contestRow.template_id);
 
+  // Derive sport deterministically from template_type (backend authoritative)
+  const sport = deriveSportFromTemplateType(contestRow.template_type);
+
   // --- Construct API List Response (no standings) ---
   const response = {
     id: contestRow.id,
@@ -282,7 +289,7 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
     is_platform_owned: contestRow.is_platform_owned,
     is_primary_marketing: contestRow.is_primary_marketing,
     template_name: contestRow.template_name,
-    template_sport: contestRow.template_sport,
+    sport: sport,
     template_type: contestRow.template_type,
 
     // Derived Fields (subset for list surface)

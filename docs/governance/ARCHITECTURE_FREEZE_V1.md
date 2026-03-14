@@ -101,8 +101,29 @@ Frozen guarantees:
 
 Relevant files:
 
-backend/services/contestLifecycleAdvancer.js  
+backend/services/contestLifecycleAdvancer.js
 backend/workers/lifecycleReconcilerWorker.js
+
+## Contest Lifecycle Join Rule (Invariant)
+
+**Rule:** can_join must be false for all contest states except SCHEDULED.
+
+**Implementation:**
+
+```javascript
+// LIVE, LOCKED, COMPLETE, CANCELLED, ERROR → can_join = false
+// SCHEDULED (if space available, user not entered, lock time future) → can_join = true
+const can_join =
+  contestRow.status === 'SCHEDULED' &&
+  lockTimeMs !== null &&
+  nowMs < lockTimeMs &&
+  (max_entries === null || entry_count < max_entries) &&
+  user_has_entered === false
+```
+
+**Files:** backend/services/presentationDerivationService.js (line ~60)
+
+**Guarantee:** The status check ensures LIVE and other non-SCHEDULED states automatically return can_join=false, preventing late entries into active contests.
 
 ---
 

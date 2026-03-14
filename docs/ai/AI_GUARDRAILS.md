@@ -355,6 +355,40 @@ If uncertain about modification:
 
 ---
 
+### backend/services/helpers/contestApiResponseMapper.js
+
+```
+Status:  ✅ ALLOWED (modifiable for API responses)
+Type:    API Response Mapper
+Changes: ✅ CONDITIONAL (data-driven only)
+
+Rule: Sport derivation is backend-authoritative. Client contracts depend on correct sport values.
+
+ALLOWED (✅):
+  • Deriving sport from template_type using deriveSportFromTemplateType helper
+  • Including sport in API responses
+  • Removing deprecated template_sport field
+  • Updating contest action derivation (can_join logic)
+  • Modifying response payload structure (if OpenAPI updated)
+
+FORBIDDEN (❌):
+  • Adding template_sport field to responses
+  • Inferring sport on backend
+  • Leaving sport derivation to clients
+  • Modifying without updating OpenAPI contract
+
+Constraint:
+  • All changes must update backend/contracts/openapi.yaml
+  • Must update iOS contracts (ContestDetailResponseContract, ContestListItemDTO)
+  • Must run: npm run freeze:openapi
+
+Guardrail:
+  Workers must never add template_sport fields to API responses.
+  Sport must be derived exclusively from template_type.
+```
+
+---
+
 ### backend/contracts/openapi.yaml
 
 ```

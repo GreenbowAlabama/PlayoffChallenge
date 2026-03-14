@@ -35,7 +35,7 @@ public struct ContestListItemDTO: Decodable, Identifiable {
     public let payoutTable: [PayoutTierContract]?
     public let rosterConfig: RosterConfigContract?
     public let templateType: String?
-    public let templateSport: String?
+    public let sport: String
     public let isPlatformOwned: Bool?
     public let isPrimaryMarketing: Bool?
 
@@ -59,7 +59,7 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         case payoutTable = "payout_table"
         case rosterConfig = "roster_config"
         case templateType = "template_type"
-        case templateSport = "template_sport"
+        case sport
         case isPlatformOwned = "is_platform_owned"
         case isPrimaryMarketing = "is_primary_marketing"
     }
@@ -84,7 +84,7 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         payoutTable: [PayoutTierContract]?,
         rosterConfig: RosterConfigContract?,
         templateType: String?,
-        templateSport: String?,
+        sport: String,
         isPlatformOwned: Bool?,
         isPrimaryMarketing: Bool? = nil
     ) {
@@ -107,7 +107,7 @@ public struct ContestListItemDTO: Decodable, Identifiable {
         self.payoutTable = payoutTable
         self.rosterConfig = rosterConfig
         self.templateType = templateType
-        self.templateSport = templateSport
+        self.sport = sport
         self.isPlatformOwned = isPlatformOwned
         self.isPrimaryMarketing = isPrimaryMarketing
     }

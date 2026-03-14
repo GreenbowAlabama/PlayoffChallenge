@@ -57,6 +57,8 @@ function deriveContestActions(contestRow, leaderboardState, userContext, current
   const nowMs = currentTimestamp || Date.now();
   const lockTimeMs = contestRow.lock_time ? new Date(contestRow.lock_time).getTime() : null;
 
+  // Lifecycle invariant: only SCHEDULED contests can be joined
+  // This rule overrides all other conditions (LIVE, LOCKED, COMPLETE, CANCELLED, ERROR contests can never be joined)
   const can_join =
     contestRow.status === 'SCHEDULED' &&
     lockTimeMs !== null &&

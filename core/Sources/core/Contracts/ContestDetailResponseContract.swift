@@ -14,11 +14,12 @@ public typealias RosterConfigContract = [String: AnyCodable]
 
 /// ContestDetailResponseContract: Master source of truth for contest state.
 /// Backend authoritative response—client must not infer state, capability, or eligibility.
+/// Sport is derived deterministically from template_type on the backend.
 /// Every required field is mandatory; missing any field = decode failure.
 public struct ContestDetailResponseContract: Decodable {
     public let contest_id: String
     public let type: String
-    public let template_sport: String?
+    public let sport: String
     public let leaderboard_state: LeaderboardStateContract
     public let actions: ContestActionsContract
     public let payout_table: [PayoutTierContract]
@@ -34,7 +35,7 @@ public struct ContestDetailResponseContract: Decodable {
     enum CodingKeys: String, CodingKey {
         case contest_id
         case type
-        case template_sport
+        case sport
         case leaderboard_state
         case actions
         case payout_table
@@ -49,7 +50,7 @@ public struct ContestDetailResponseContract: Decodable {
     public init(
         contest_id: String,
         type: String,
-        template_sport: String? = nil,
+        sport: String,
         leaderboard_state: LeaderboardStateContract,
         actions: ContestActionsContract,
         payout_table: [PayoutTierContract],
@@ -62,7 +63,7 @@ public struct ContestDetailResponseContract: Decodable {
     ) {
         self.contest_id = contest_id
         self.type = type
-        self.template_sport = template_sport
+        self.sport = sport
         self.leaderboard_state = leaderboard_state
         self.actions = actions
         self.payout_table = payout_table
@@ -78,7 +79,7 @@ public struct ContestDetailResponseContract: Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         contest_id = try c.decode(String.self, forKey: .contest_id)
         type = try c.decode(String.self, forKey: .type)
-        template_sport = try c.decodeIfPresent(String.self, forKey: .template_sport)
+        sport = try c.decode(String.self, forKey: .sport)
         leaderboard_state = try c.decode(LeaderboardStateContract.self, forKey: .leaderboard_state)
         actions = try c.decode(ContestActionsContract.self, forKey: .actions)
         // Required fields — no fallback

@@ -1182,6 +1182,7 @@ components:
         - contest_id
         - template_id
         - type
+        - sport
         - organizer_id
         - entry_fee_cents
         - payout_structure
@@ -1216,6 +1217,9 @@ components:
         type:
           type: string
           description: Contest type from template (e.g., playoff_challenge, pickem)
+        sport:
+          type: string
+          description: Sport type (e.g., nfl, golf, basketball, baseball). Derived deterministically from template_type on backend.
         organizer_id:
           type: string
           format: uuid
@@ -1348,7 +1352,7 @@ components:
         - time_until_lock
         - lock_time
         - template_name
-        - template_sport
+        - sport
         - template_type
         - leaderboard_state
         - actions
@@ -1413,9 +1417,9 @@ components:
         template_name:
           type: string
           description: Name of the template used for this contest
-        template_sport:
+        sport:
           type: string
-          description: Sport type from template (e.g., NFL)
+          description: Sport type (e.g., nfl, golf, basketball, baseball). Derived deterministically from template_type on backend.
         template_type:
           type: string
           description: Template type (e.g., playoff_challenge)

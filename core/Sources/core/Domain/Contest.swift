@@ -119,7 +119,7 @@ public struct Contest: Identifiable, Hashable, Equatable, Sendable {
         }
 
         let templateType = contract.templateType.flatMap { ContestTemplateType(rawValue: $0) } ?? .unknown
-        let sport = Sport(contract.templateSport)
+        let sport = Sport(contract.sport)
 
         return Contest(
             id: UUID(uuidString: contract.id) ?? UUID(),
@@ -153,7 +153,7 @@ public struct Contest: Identifiable, Hashable, Equatable, Sendable {
     /// Fields like organizerId, contestName, status come from the list endpoint (ContestListItemDTO).
     public static func from(_ contract: ContestDetailResponseContract) -> Contest {
         let templateType = ContestTemplateType(rawValue: contract.type) ?? .unknown
-        let sport = Sport(contract.template_sport)
+        let sport = Sport(contract.sport)
 
         return Contest(
             id: UUID(uuidString: contract.contest_id) ?? UUID(),

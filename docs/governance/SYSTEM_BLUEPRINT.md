@@ -297,6 +297,74 @@ The ledger is:
 
 ---
 
+# Sport Derivation Model
+
+## Purpose
+
+Sport type is deterministically derived from `template_type` on the backend. The backend is the authoritative source of truth for sport classification. Clients must never infer, compute, or override sport values.
+
+## Derivation Rules
+
+| Template Type Prefix | Sport Value |
+|---------------------|-------------|
+| NFL_* | nfl |
+| PGA_* | golf |
+| NBA_* | basketball |
+| MLB_* | baseball |
+| (default) | unknown |
+
+## Implementation
+
+**Backend:** `backend/services/helpers/deriveSportFromTemplateType.js`
+
+```javascript
+function deriveSportFromTemplateType(templateType) {
+  if (!templateType) return 'unknown'
+  if (templateType.startsWith('NFL')) return 'nfl'
+  if (templateType.startsWith('PGA')) return 'golf'
+  if (templateType.startsWith('NBA')) return 'basketball'
+  if (templateType.startsWith('MLB')) return 'baseball'
+  return 'unknown'
+}
+```
+
+## API Response
+
+All contest endpoints include `sport` field derived from `template_type`:
+
+```json
+{
+  "contest_id": "uuid",
+  "type": "PGA_TOURNAMENT",
+  "sport": "golf",
+  "template_type": "PGA_TOURNAMENT"
+}
+```
+
+## Client Behavior
+
+**iOS Requirements:**
+- ✅ Accept `sport` field from API response
+- ✅ Display sport value in UI
+- ✅ Use sport for correct player pool selection
+- ❌ Do NOT compute sport from template_type
+- ❌ Do NOT use fallbacks like "default nfl"
+- ❌ Do NOT override backend sport value
+
+**Contract Definition:**
+- `ContestDetailResponseContract.swift` — sport: String (required)
+- `ContestListItemDTO.swift` — sport: String (required)
+- Domain mapping — `Contest.sport = Sport(contract.sport)`
+
+## Governance
+
+- Backend is authoritative for sport classification
+- Clients must trust backend values without inference
+- `template_sport` field is deprecated and removed from API responses
+- Sport derivation is deterministic and replayable
+
+---
+
 # Admin Operations
 
 Web Admin provides operational tooling for:
