@@ -44,6 +44,7 @@ export function Layout() {
       items: [
         { label: 'Discovery', path: '/discovery' },
         { label: 'Trends', path: '/trends' },
+        { label: 'Leaderboards', path: '/operations/leaderboards' },
       ],
     },
     finance: {

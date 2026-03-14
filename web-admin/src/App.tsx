@@ -21,6 +21,7 @@ import { ContestIntegrityPage } from './pages/admin/contest-integrity/ContestInt
 import { PlayerDataPage } from './pages/admin/player-data/PlayerDataPage';
 import { UserOpsPage } from './pages/admin/user-ops/UserOpsPage';
 import { FinancialOpsPage } from './pages/admin/financial-ops/FinancialOpsPage';
+import { PgaLeaderboardPage } from './pages/operations/PgaLeaderboardPage';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -57,6 +58,7 @@ function App() {
             <Route path="admin/user-ops" element={<UserOpsPage />} />
             <Route path="admin/financial-ops" element={<FinancialOpsPage />} />
             <Route path="admin/operations" element={<Admin />} />
+            <Route path="operations/leaderboards" element={<PgaLeaderboardPage />} />
             <Route path="alerts" element={<AlertCenter />} />
             <Route path="users" element={<Users />} />
             <Route path="users/wallet-ledger" element={<UserWalletLedger />} />
