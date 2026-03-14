@@ -449,9 +449,10 @@ final class LineupViewModel: ObservableObject {
     // V2: Add player via operation-based API (NFL) or local state (PGA)
     func addPlayer(_ player: Player) async {
         guard let userId = userId else { return }
+        guard let position = player.position else { return }
 
-        let positionCount = filledCountForPosition(player.position)
-        let limit = limitFor(position: player.position)
+        let positionCount = filledCountForPosition(position)
+        let limit = limitFor(position: position)
 
         guard positionCount < limit else { return }
 
@@ -498,7 +499,7 @@ final class LineupViewModel: ObservableObject {
                 userId: userId,
                 weekNumber: effectiveWeek,
                 playerId: player.id,
-                position: player.position
+                position: position
             )
 
             // Reload to get updated state

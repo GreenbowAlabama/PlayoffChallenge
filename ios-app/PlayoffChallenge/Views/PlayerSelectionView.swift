@@ -525,9 +525,11 @@ class PlayerSelectionViewModel: ObservableObject {
     }
     
     func addPlayer(_ player: Player) {
-        let positionCount = picksForPosition(player.position).count
-        let limit = limitFor(position: player.position)
-        
+        guard let position = player.position else { return }
+
+        let positionCount = picksForPosition(position).count
+        let limit = limitFor(position: position)
+
         guard positionCount < limit else { return }
         
         currentLineup.append(player)
@@ -552,10 +554,11 @@ class PlayerSelectionViewModel: ObservableObject {
             let offset = min(currentWeek - 1, 3)
             let effectiveWeek = playoffStartWeek + offset
             for player in currentLineup {
+                guard let position = player.position else { continue }
                 try await APIService.shared.submitPick(
                     userId: userId,
                     playerId: player.id,
-                    position: player.position,
+                    position: position,
                     weekNumber: effectiveWeek
                 )
             }
