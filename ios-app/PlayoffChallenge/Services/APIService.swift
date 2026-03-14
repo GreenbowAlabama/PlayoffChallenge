@@ -1110,9 +1110,17 @@ func replacePlayer(userId: UUID, oldPlayerId: String, newPlayerId: String, posit
           "player_ids": playerIds
       ]
 
+      // 🔍 LOG 1: What playerIds did we actually receive?
+      print("[PICKS DEBUG] Received playerIds parameter: \(playerIds)")
+
       request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-      print("[MYLINEUP][submitPicks] url=\(url.absoluteString) playerIds=\(playerIds.count)")
+      // 🔍 LOG 2: What did we actually encode?
+      if let jsonString = String(data: request.httpBody ?? Data(), encoding: .utf8) {
+          print("[PICKS DEBUG] Encoded request body: \(jsonString)")
+      }
+
+      print("[MYLINEUP][submitPicks] url=\(url.absoluteString) playerIds=\(playerIds)")
 
       let (data, response) = try await URLSession.shared.data(for: request)
       let code = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -1141,6 +1149,10 @@ func replacePlayer(userId: UUID, oldPlayerId: String, newPlayerId: String, posit
           throw APIError.notFound
 
       default:
+          // 🔍 LOG 3: What did the backend actually say?
+          if let errorBody = String(data: data, encoding: .utf8) {
+              print("[PICKS ERROR] Backend returned \(httpResponse.statusCode): \(errorBody)")
+          }
           throw APIError.serverError(
               "POST /api/custom-contests/\(contestId.uuidString)/picks failed with \(httpResponse.statusCode)"
           )
