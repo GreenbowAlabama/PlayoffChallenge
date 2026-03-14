@@ -690,6 +690,183 @@ async function handleFieldBuildIngestion(ctx, unit) {
 }
 
 /**
+ * Handle SCORING phase ingestion: parse ESPN leaderboard, score golfers, return normalized scores.
+ *
+ * Flow:
+ * 1. Parse ESPN competitors and rounds
+ * 2. Map ESPN player IDs to database golfer IDs via players table
+ * 3. Determine current round and final round status
+ * 4. Build normalized round payload (golfers with holes, par, strokes)
+ * 5. Fetch template scoring rules
+ * 6. Call pgaStandardScoring.scoreRound()
+ * 7. Return golfer-level scores for golfer_event_scores table
+ *
+ * CRITICAL: This function produces GOLFER-LEVEL scores only.
+ * Do NOT map to users. Do NOT create entry totals.
+ * Entry aggregation happens later via pgaEntryAggregation.
+ *
+ * @param {Object} ctx - Ingestion context { contestInstanceId, dbClient, ... }
+ * @param {Object} unit - SCORING unit { providerEventId, providerData }
+ * @returns {Promise<Array>} Golfer scores for golfer_event_scores
+ */
+async function handleScoringIngestion(ctx, unit) {
+  const { contestInstanceId, dbClient } = ctx;
+
+  if (!unit.providerData) {
+    throw new Error('handleScoringIngestion: unit.providerData is required (ESPN leaderboard)');
+  }
+
+  const providerData = unit.providerData;
+  const providerEventId = unit.providerEventId;
+
+  // ── Step 1: Parse ESPN structure ──────────────────────────────────────────
+  const events = providerData.events || [];
+  if (events.length === 0) {
+    return [];
+  }
+
+  const event = events[0];
+  const competitions = event.competitions || [];
+  if (competitions.length === 0) {
+    return [];
+  }
+
+  const competition = competitions[0];
+  const competitors = competition.competitors || [];
+  if (competitors.length === 0) {
+    return [];
+  }
+
+  // ── Step 2: Build ESPN → Database golfer ID map ──────────────────────────
+  // Query players table by espn_id to find golfer IDs in database
+  const espnIds = competitors
+    .map(c => String(c.id))
+    .filter(id => id);
+
+  const espnToDbMap = {};
+  if (espnIds.length > 0) {
+    const playersResult = await dbClient.query(
+      `SELECT id, espn_id FROM players WHERE espn_id = ANY($1)`,
+      [espnIds]
+    );
+
+    for (const row of playersResult.rows) {
+      espnToDbMap[row.espn_id] = row.id;
+    }
+  }
+
+  // ── Step 3: Determine current round number ───────────────────────────────
+  // Round number = highest period in competitors' linescores
+  let currentRound = 1;
+  for (const competitor of competitors) {
+    if (competitor.linescores && Array.isArray(competitor.linescores)) {
+      for (const linescore of competitor.linescores) {
+        if (linescore.period && linescore.period > currentRound) {
+          currentRound = linescore.period;
+        }
+      }
+    }
+  }
+
+  // ── Step 4: Determine final round status ──────────────────────────────────
+  // ESPN uses STATUS_FINAL when tournament is complete
+  const is_final_round = event.status?.type?.name === 'STATUS_FINAL' || false;
+
+  // ── Step 5: Build golfers array for scoreRound() ─────────────────────────
+  // For each competitor, extract round data and build holes array
+  const golfers = [];
+
+  for (const competitor of competitors) {
+    const espnPlayerId = String(competitor.id);
+    const dbGolferId = espnToDbMap[espnPlayerId];
+
+    // Skip golfers not in contest field
+    if (!dbGolferId) {
+      continue;
+    }
+
+    // Find round data for current round
+    const roundData =
+      competitor.linescores && competitor.linescores.find(ls => ls.period === currentRound);
+
+    if (!roundData || !roundData.linescores) {
+      // No score data for this round yet
+      continue;
+    }
+
+    // Extract holes with par and strokes
+    const holes = [];
+    for (const hole of roundData.linescores) {
+      // Only include holes with valid strokes
+      if (typeof hole.value === 'number' && isFinite(hole.value)) {
+        // Par: try to extract from hole object, default to 4
+        const parValue = hole.par || 4;
+
+        holes.push({
+          hole_number: holes.length + 1,
+          par: parValue,
+          strokes: Math.round(hole.value)
+        });
+      }
+    }
+
+    // Only push golfer if holes were scored
+    if (holes.length === 0) {
+      continue;
+    }
+
+    // Get golfer position for finish bonus
+    const position = competitor.position ? parseInt(competitor.position, 10) : 0;
+
+    golfers.push({
+      golfer_id: dbGolferId,
+      holes,
+      position
+    });
+  }
+
+  if (golfers.length === 0) {
+    return [];
+  }
+
+  // ── Step 6: Fetch template scoring rules ──────────────────────────────────
+  const configResult = await dbClient.query(
+    `SELECT scoring_config FROM tournament_configs WHERE contest_instance_id = $1`,
+    [contestInstanceId]
+  );
+
+  let templateRules = {};
+  if (configResult.rows.length > 0 && configResult.rows[0].scoring_config) {
+    templateRules = configResult.rows[0].scoring_config;
+  }
+
+  // ── Step 7: Score the round using pgaStandardScoring ─────────────────────
+  const pgaStandardScoring = require('../../scoring/strategies/pgaStandardScoring');
+
+  const scoringResult = pgaStandardScoring.scoreRound({
+    normalizedRoundPayload: {
+      event_id: providerEventId,
+      round_number: currentRound,
+      golfers,
+      is_final_round
+    },
+    templateRules
+  });
+
+  // ── Step 8: Add contest context to golfer scores ──────────────────────────
+  // Return scores shaped for golfer_event_scores table insertion
+  return scoringResult.golfer_scores.map(score => ({
+    contest_instance_id: contestInstanceId,
+    golfer_id: score.golfer_id,
+    round_number: currentRound,
+    hole_points: score.hole_points,
+    bonus_points: score.bonus_points,
+    finish_bonus: score.finish_bonus,
+    total_points: score.total_points
+  }));
+}
+
+/**
  * Ingest one work unit: create immutable snapshot of provider data for settlement binding.
  *
  * Per PGA v1 Section 4.1:
@@ -820,29 +997,73 @@ async function ingestWorkUnit(ctx, unit) {
     'VALID'
   ]);
 
-  // Return placeholder scores (actual scoring implementation out of scope for Batch 2)
-  // In production, this would parse providerData and normalize to { user_id, player_id, points, ... }
-  return [];
+  // ── Step 8: Parse scores from leaderboard and return ──────────────────────
+  // SCORING phase now calls handleScoringIngestion() to produce golfer scores
+  return await handleScoringIngestion(ctx, unit);
 }
 
 /**
  * Upsert normalized scores to the database.
  *
  * For PLAYER_POOL phase: normalizedScores is empty, so this is a no-op.
- * For SCORING phase: not yet implemented (out of scope for Batch 2).
+ * For SCORING phase: batch insert golfer scores into golfer_event_scores table.
  *
- * @param {Object} _ctx - Ingestion context
- * @param {Array} _normalizedScores - Array of normalized score objects
+ * Uses single batch INSERT with ON CONFLICT for idempotency:
+ * - UNIQUE (contest_instance_id, golfer_id, round_number)
+ * - Updates on re-ingestion produce same result
+ * - Executes 1 query instead of N queries
+ *
+ * @param {Object} ctx - Ingestion context { contestInstanceId, dbClient, ... }
+ * @param {Array} normalizedScores - Array of golfer score objects
  * @returns {Promise<void>}
  */
-async function upsertScores(_ctx, _normalizedScores) {
-  // PLAYER_POOL phase returns empty scores array - nothing to upsert
-  if (!_normalizedScores || _normalizedScores.length === 0) {
+async function upsertScores(ctx, normalizedScores) {
+  // PLAYER_POOL and FIELD_BUILD phases return empty scores array - nothing to upsert
+  if (!normalizedScores || normalizedScores.length === 0) {
     return;
   }
 
-  // SCORING phase: not yet implemented
-  throw new Error("Ingestion adapter 'pga_espn' SCORING phase is not yet implemented");
+  const { dbClient } = ctx;
+
+  const values = [];
+  const placeholders = [];
+
+  normalizedScores.forEach((score, i) => {
+    const offset = i * 7;
+
+    placeholders.push(
+      `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7})`
+    );
+
+    values.push(
+      score.contest_instance_id,
+      score.golfer_id,
+      score.round_number,
+      score.hole_points,
+      score.bonus_points,
+      score.finish_bonus,
+      score.total_points
+    );
+  });
+
+  await dbClient.query(`
+    INSERT INTO golfer_event_scores (
+      contest_instance_id,
+      golfer_id,
+      round_number,
+      hole_points,
+      bonus_points,
+      finish_bonus,
+      total_points
+    )
+    VALUES ${placeholders.join(',')}
+    ON CONFLICT (contest_instance_id, golfer_id, round_number)
+    DO UPDATE SET
+      hole_points = EXCLUDED.hole_points,
+      bonus_points = EXCLUDED.bonus_points,
+      finish_bonus = EXCLUDED.finish_bonus,
+      total_points = EXCLUDED.total_points
+  `, values);
 }
 
 module.exports = {
