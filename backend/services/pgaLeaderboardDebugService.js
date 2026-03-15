@@ -112,51 +112,23 @@ async function getPgaLeaderboardWithScores(pool) {
     return [];
   }
 
-  // Step 4: Query golfer_event_scores for fantasy scores
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // IMPORTANT: golfer_event_scores ID format and join safety
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //
-  // golfer_event_scores.golfer_id uses ESPN normalized format:
-  //     espn_<athleteId>
-  //
-  // Example values:
-  //     espn_1030
-  //     espn_10372
-  //     espn_11253
-  //
-  // Do NOT attempt to join against players.id (UUID)!
-  // This will fail silently and return no matches:
-  //     ❌ LEFT JOIN players p ON p.id = ges.golfer_id
-  //        (UUID type vs text "espn_<id>" type mismatch)
-  //
-  // Player names MUST come from ESPN snapshot payload:
-  //     ✅ competitor.athlete.displayName (from leaderboard payload)
-  //     ✅ competitor.displayName (fallback)
-  //
-  // This is enforced by architecture at multiple levels:
-  // 1. pgaEspnIngestion.js — writes golfer_id as espn_<athleteId>
-  // 2. pgaLeaderboardDebugService.js — reads golfer_id same format
-  // 3. Snapshot data — provides player names
-  //
-  // Violating this contract will cause:
-  // - fantasy_score = 0 for all golfers
-  // - Silent query failure (no error, just no matches)
-  // - Leaderboard diagnostics showing empty scoring data
-  //
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Step 4: Query golfer_event_scores with player names and score relative to par
   const scoresResult = await pool.query(
     `SELECT
        ges.golfer_id,
+       COALESCE(p.full_name, 'Unknown') as player_name,
+       -SUM(COALESCE(ges.hole_points, 0)) as score_to_par,
        SUM(
          COALESCE(ges.hole_points, 0) +
          COALESCE(ges.bonus_points, 0) +
          COALESCE(ges.finish_bonus, 0)
        ) as fantasy_score
      FROM golfer_event_scores ges
+     LEFT JOIN players p
+       ON p.espn_id::text = REPLACE(ges.golfer_id, 'espn_', '')
      WHERE ges.contest_instance_id = $1
        AND ges.golfer_id = ANY($2)
-     GROUP BY ges.golfer_id`,
+     GROUP BY ges.golfer_id, p.full_name`,
     [contestId, golferIds]
   );
 
@@ -166,13 +138,14 @@ async function getPgaLeaderboardWithScores(pool) {
   scoresResult.rows.forEach(row => {
     if (row.golfer_id) {
       scoresMap[row.golfer_id] = {
-        event_points: row.fantasy_score || 0,
+        player_name: row.player_name || 'Unknown',
+        score_to_par: row.score_to_par || 0,
         fantasy_score: row.fantasy_score || 0
       };
     }
   });
 
-  // Step 6: Merge snapshot leaderboard (with strokes) + scores overlay
+  // Step 6: Build result from scores query (player names and scores from normalized tables)
   const result = [];
 
   for (const competitor of leaderboardPayload.competitors) {
@@ -183,53 +156,27 @@ async function getPgaLeaderboardWithScores(pool) {
 
     const normalizedGolferId = `espn_${competitorId}`;
 
-    // Calculate total strokes from ESPN linescores structure
-    let totalStrokes = 0;
+    // Get scores and player name from database query
+    const scoreData = scoresMap[normalizedGolferId] || { player_name: 'Unknown', score_to_par: 0, fantasy_score: 0 };
 
-    // Check if ESPN provides total directly (optimization)
-    if (typeof competitor.total === 'number') {
-      totalStrokes = competitor.total;
-    } else {
-      // Compute from linescores: competitor.linescores[].linescores[].value
-      // where period = round, linescores = holes, value = strokes
-      if (Array.isArray(competitor.linescores)) {
-        for (const round of competitor.linescores) {
-          if (!Array.isArray(round.linescores)) continue;
-
-          for (const hole of round.linescores) {
-            if (typeof hole.value === 'number') {
-              totalStrokes += hole.value;
-            }
-          }
-        }
-      }
-    }
-
-    // Get overlay scores (fantasy points from per-roster scoring)
-    const scoreData = scoresMap[normalizedGolferId] || { event_points: 0, fantasy_score: 0 };
-
-    // Get player name from snapshot data
-    // Competitor data comes from ESPN payload, not from players database
-    const playerName = competitor.athlete?.displayName || competitor.displayName || 'Unknown';
-
-    // Step 7: Build response object matching OpenAPI schema exactly
-    // Position will be calculated after sorting by strokes
+    // Step 7: Build response object with score relative to par
+    // Position will be calculated after sorting by score_to_par
     result.push({
       golfer_id: normalizedGolferId,
-      player_name: playerName,
+      player_name: scoreData.player_name,
       position: 0,  // Computed below after sorting
-      total_strokes: totalStrokes,
+      score: scoreData.score_to_par,
       fantasy_score: scoreData.fantasy_score
     });
   }
 
-  // Step 8: Compute leaderboard position from stroke totals
-  // Golf leaderboards rank by lowest strokes (best = lowest)
-  // Golfers with 0 strokes (not started) sort to bottom
+  // Step 8: Compute leaderboard position from score relative to par
+  // Golf leaderboards rank by lowest score (best = lowest/most negative)
+  // Golfers with 0 score (not started) sort to bottom
   result.sort((a, b) => {
-    if (a.total_strokes === 0) return 1;
-    if (b.total_strokes === 0) return -1;
-    return a.total_strokes - b.total_strokes;
+    if (a.score === 0) return 1;
+    if (b.score === 0) return -1;
+    return a.score - b.score;
   });
 
   // Assign rank numbers after sorting

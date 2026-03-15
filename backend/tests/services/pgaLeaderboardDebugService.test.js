@@ -68,12 +68,12 @@ describe('pgaLeaderboardDebugService', () => {
       // Verify extraction and normalization
       expect(result).toHaveLength(2);
 
-      // Verify results are sorted by total_strokes (ascending) and ranked
+      // Verify results are sorted by score (ascending, lower is better) and ranked
       expect(result[0]).toEqual({
         golfer_id: `espn_${athleteId1}`,
         player_name: 'Unknown',
         position: 1,
-        total_strokes: 7,
+        score: 0,
         fantasy_score: 75
       });
 
@@ -81,7 +81,7 @@ describe('pgaLeaderboardDebugService', () => {
         golfer_id: `espn_${athleteId2}`,
         player_name: 'Unknown',
         position: 2,
-        total_strokes: 8,
+        score: 0,
         fantasy_score: 70
       });
 
@@ -217,9 +217,9 @@ describe('pgaLeaderboardDebugService', () => {
         })
         .mockResolvedValueOnce({
           rows: [
-            { golfer_id: `espn_${athleteId1}`, fantasy_score: 0, player_name: null },
-            { golfer_id: `espn_${athleteId2}`, fantasy_score: 0, player_name: null },
-            { golfer_id: `espn_${athleteId3}`, fantasy_score: 0, player_name: null }
+            { golfer_id: `espn_${athleteId1}`, player_name: null, score_to_par: 0, fantasy_score: 0 },
+            { golfer_id: `espn_${athleteId2}`, player_name: null, score_to_par: -16, fantasy_score: 0 },
+            { golfer_id: `espn_${athleteId3}`, player_name: null, score_to_par: 0, fantasy_score: 0 }
           ]
         });
 
@@ -227,20 +227,20 @@ describe('pgaLeaderboardDebugService', () => {
 
       expect(result).toHaveLength(3);
 
-      // Verify sorting by strokes (lowest first)
-      // athleteId2: 56 strokes (3*16 + 4*2) = position 1
-      // athleteId1: 72 strokes (4*18) = position 2
-      // athleteId3: 0 strokes (not started) = position 3 (last)
+      // Verify sorting by score (lowest/most negative first)
+      // athleteId2: -16 (16 under par) = position 1
+      // athleteId1: 0 (even par) = position 2
+      // athleteId3: 0 (not started) = position 3 (last)
       expect(result[0].golfer_id).toBe(`espn_${athleteId2}`);
-      expect(result[0].total_strokes).toBe(56);
+      expect(result[0].score).toBe(-16);
       expect(result[0].position).toBe(1);
 
       expect(result[1].golfer_id).toBe(`espn_${athleteId1}`);
-      expect(result[1].total_strokes).toBe(72);
+      expect(result[1].score).toBe(0);
       expect(result[1].position).toBe(2);
 
       expect(result[2].golfer_id).toBe(`espn_${athleteId3}`);
-      expect(result[2].total_strokes).toBe(0);
+      expect(result[2].score).toBe(0);
       expect(result[2].position).toBe(3);  // Not started, last position
     });
 
