@@ -14,17 +14,30 @@
  * Fantasy score is cumulative across all rounds per golfer.
  * Computed as: SUM(total_points) GROUP BY golfer_id
  * Matches settlement aggregation model.
+ */
+
+/**
+ * ⚠️ ESPN PGA PAYLOAD CONTRACT
  *
- * ⚠️ CRITICAL ESPN PAYLOAD STRUCTURE NOTE:
+ * Snapshots contain payload.competitors[]
  *
- * ESPN PGA payload structure:
- * - Snapshots contain payload.competitors[], NOT payload.golfers[]
- * - competitor.athlete.id must be normalized to espn_<athlete_id>
- *   to match golfer_event_scores.golfer_id
+ * Stroke structure:
  *
- * Changing this mapping will break leaderboard JOINs.
- * See docs/architecture/ESPN-PGA-Ingestion.md for payload contract.
- * See docs/architecture/PGA_SCORING_PIPELINE.md for ID normalization rule.
+ * competitor.linescores[]
+ *   → round
+ *     linescores[]
+ *       → hole
+ *         value = strokes
+ *
+ * DO NOT attempt to read competitor.holes[].
+ *
+ * Golfer IDs must be normalized:
+ * espn_<athlete_id>
+ *
+ * Breaking either rule will cause leaderboard joins to fail.
+ *
+ * See: docs/architecture/providers/espn_pga_payload.md
+ * See: docs/architecture/scoring/golfer_identity.md
  */
 
 /**
@@ -66,6 +79,7 @@ async function getPgaLeaderboardWithScores(pool) {
   const contestId = contestResult.rows[0].contest_id;
 
   // Step 2: Get the latest leaderboard snapshot for this contest (raw tournament data)
+  // Snapshot domain: tournament leaderboard with stroke data (JSON structure)
   const snapshotResult = await pool.query(
     `SELECT payload
      FROM event_data_snapshots
@@ -98,41 +112,34 @@ async function getPgaLeaderboardWithScores(pool) {
     return [];
   }
 
-  // Step 4: Fetch player names for only those golfers
-  const playersResult = await pool.query(
-    `SELECT id as golfer_id, full_name as player_name
-     FROM players
-     WHERE id = ANY($1)`,
-    [golferIds]
-  );
-
-  const playerNameMap = {};
-  playersResult.rows.forEach(row => {
-    playerNameMap[row.golfer_id] = row.player_name;
-  });
-
-  // Step 5: Query golfer_event_scores with LEFT JOIN to golfer_scores overlay
-  // This ensures we always have the tournament leaderboard, overlaying fantasy points when available
+  // Steps 4-5 (Optimized): Single combined query for scores + names
+  // This replaces two separate queries with one efficient query
+  // Scoring domain: fantasy scoring layer (relational data)
   const scoresResult = await pool.query(
     `SELECT
        ges.golfer_id,
-       SUM(ges.total_points) as event_total_points,
-       COALESCE(SUM(gs.total_points), 0) as fantasy_score
+       COALESCE(SUM(ges.total_points), 0) as fantasy_score,
+       p.full_name as player_name
      FROM golfer_event_scores ges
-     LEFT JOIN golfer_scores gs ON gs.golfer_id = ges.golfer_id
-       AND gs.contest_instance_id = ges.contest_instance_id
+     LEFT JOIN players p ON p.id = ges.golfer_id
      WHERE ges.contest_instance_id = $1
        AND ges.golfer_id = ANY($2)
-     GROUP BY ges.golfer_id`,
+     GROUP BY ges.golfer_id, p.full_name`,
     [contestId, golferIds]
   );
 
+  // Build lookup maps from combined query result
+  const playerNameMap = {};
   const scoresMap = {};
+
   scoresResult.rows.forEach(row => {
-    scoresMap[row.golfer_id] = {
-      event_points: row.event_total_points || 0,
-      fantasy_score: row.fantasy_score || 0
-    };
+    if (row.golfer_id) {
+      playerNameMap[row.golfer_id] = row.player_name || 'Unknown';
+      scoresMap[row.golfer_id] = {
+        event_points: row.fantasy_score || 0,
+        fantasy_score: row.fantasy_score || 0
+      };
+    }
   });
 
   // Step 6: Merge snapshot leaderboard (with strokes) + scores overlay
@@ -172,13 +179,29 @@ async function getPgaLeaderboardWithScores(pool) {
     const scoreData = scoresMap[normalizedGolferId] || { event_points: 0, fantasy_score: 0 };
 
     // Step 7: Build response object matching OpenAPI schema exactly
+    // Position will be calculated after sorting by strokes
     result.push({
       golfer_id: normalizedGolferId,
       player_name: playerNameMap[normalizedGolferId] || 'Unknown',
-      position: competitor.position || 0,
+      position: 0,  // Computed below after sorting
       total_strokes: totalStrokes,
       fantasy_score: scoreData.fantasy_score
     });
+  }
+
+  // Step 8: Compute leaderboard position from stroke totals
+  // Golf leaderboards rank by lowest strokes (best = lowest)
+  // Golfers with 0 strokes (not started) sort to bottom
+  result.sort((a, b) => {
+    if (a.total_strokes === 0) return 1;
+    if (b.total_strokes === 0) return -1;
+    return a.total_strokes - b.total_strokes;
+  });
+
+  // Assign rank numbers after sorting
+  let rank = 1;
+  for (const row of result) {
+    row.position = rank++;
   }
 
   return result;

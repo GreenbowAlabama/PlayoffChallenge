@@ -55,13 +55,11 @@ describe('pgaLeaderboardDebugService', () => {
             }
           }]
         })
-        // Mock Step 4: Player names (query returns empty, will use 'Unknown')
-        .mockResolvedValueOnce({ rows: [] })
-        // Mock Step 5: golfer_event_scores join
+        // Mock Steps 4-5 (Combined): golfer_event_scores + player names in one query
         .mockResolvedValueOnce({
           rows: [
-            { golfer_id: `espn_${athleteId1}`, event_total_points: 150, fantasy_score: 75 },
-            { golfer_id: `espn_${athleteId2}`, event_total_points: 140, fantasy_score: 70 }
+            { golfer_id: `espn_${athleteId1}`, fantasy_score: 75, player_name: null },
+            { golfer_id: `espn_${athleteId2}`, fantasy_score: 70, player_name: null }
           ]
         });
 
@@ -70,6 +68,7 @@ describe('pgaLeaderboardDebugService', () => {
       // Verify extraction and normalization
       expect(result).toHaveLength(2);
 
+      // Verify results are sorted by total_strokes (ascending) and ranked
       expect(result[0]).toEqual({
         golfer_id: `espn_${athleteId1}`,
         player_name: 'Unknown',
@@ -86,8 +85,9 @@ describe('pgaLeaderboardDebugService', () => {
         fantasy_score: 70
       });
 
-      // Verify that golfer_event_scores query was called with normalized espn_<id> format
-      const scoresQueryCall = mockPool.query.mock.calls[3];
+      // Verify that combined scores + names query was called with normalized espn_<id> format
+      // Query calls: [0] contest, [1] snapshot, [2] scores+names
+      const scoresQueryCall = mockPool.query.mock.calls[2];
       const queryParams = scoresQueryCall[1];
       const golferIds = queryParams[1];
       expect(golferIds).toContain(`espn_${athleteId1}`);
@@ -115,10 +115,9 @@ describe('pgaLeaderboardDebugService', () => {
             }
           }]
         })
-        .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
           rows: [
-            { golfer_id: `espn_${fallbackId}`, event_total_points: 100, fantasy_score: 50 }
+            { golfer_id: `espn_${fallbackId}`, fantasy_score: 50, player_name: null }
           ]
         });
 
@@ -171,6 +170,80 @@ describe('pgaLeaderboardDebugService', () => {
       expect(result).toEqual([]);
     });
 
+    it('should sort golfers by total strokes and assign positions correctly', async () => {
+      const contestId = randomUUID();
+      const athleteId1 = '10030';  // 280 strokes
+      const athleteId2 = '20045';  // 275 strokes (should be position 1)
+      const athleteId3 = '30050';  // 0 strokes (not started, should be last)
+
+      mockPool.query
+        .mockResolvedValueOnce({
+          rows: [{ contest_id: contestId }]
+        })
+        .mockResolvedValueOnce({
+          rows: [{
+            payload: {
+              competitors: [
+                {
+                  id: 'id1',
+                  athlete: { id: athleteId1 },
+                  linescores: [
+                    { linescores: [{ value: 4 }, { value: 4 }, { value: 4 }, { value: 4 },
+                                  { value: 4 }, { value: 4 }, { value: 4 }, { value: 4 },
+                                  { value: 4 }, { value: 4 }, { value: 4 }, { value: 4 },
+                                  { value: 4 }, { value: 4 }, { value: 4 }, { value: 4 },
+                                  { value: 4 }, { value: 4 }] }
+                  ]
+                },
+                {
+                  id: 'id2',
+                  athlete: { id: athleteId2 },
+                  linescores: [
+                    { linescores: [{ value: 3 }, { value: 3 }, { value: 3 }, { value: 3 },
+                                  { value: 3 }, { value: 3 }, { value: 3 }, { value: 3 },
+                                  { value: 3 }, { value: 4 }, { value: 4 }, { value: 3 },
+                                  { value: 3 }, { value: 3 }, { value: 3 }, { value: 3 },
+                                  { value: 3 }, { value: 3 }] }
+                  ]
+                },
+                {
+                  id: 'id3',
+                  athlete: { id: athleteId3 },
+                  linescores: []  // 0 strokes
+                }
+              ]
+            }
+          }]
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            { golfer_id: `espn_${athleteId1}`, fantasy_score: 0, player_name: null },
+            { golfer_id: `espn_${athleteId2}`, fantasy_score: 0, player_name: null },
+            { golfer_id: `espn_${athleteId3}`, fantasy_score: 0, player_name: null }
+          ]
+        });
+
+      const result = await pgaLeaderboardDebugService.getPgaLeaderboardWithScores(mockPool);
+
+      expect(result).toHaveLength(3);
+
+      // Verify sorting by strokes (lowest first)
+      // athleteId2: 56 strokes (3*16 + 4*2) = position 1
+      // athleteId1: 72 strokes (4*18) = position 2
+      // athleteId3: 0 strokes (not started) = position 3 (last)
+      expect(result[0].golfer_id).toBe(`espn_${athleteId2}`);
+      expect(result[0].total_strokes).toBe(56);
+      expect(result[0].position).toBe(1);
+
+      expect(result[1].golfer_id).toBe(`espn_${athleteId1}`);
+      expect(result[1].total_strokes).toBe(72);
+      expect(result[1].position).toBe(2);
+
+      expect(result[2].golfer_id).toBe(`espn_${athleteId3}`);
+      expect(result[2].total_strokes).toBe(0);
+      expect(result[2].position).toBe(3);  // Not started, last position
+    });
+
     it('should skip competitors with missing ID entirely', async () => {
       const contestId = randomUUID();
       const validId = '12345';
@@ -197,10 +270,9 @@ describe('pgaLeaderboardDebugService', () => {
             }
           }]
         })
-        .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
           rows: [
-            { golfer_id: `espn_${validId}`, event_total_points: 100, fantasy_score: 50 }
+            { golfer_id: `espn_${validId}`, fantasy_score: 50, player_name: null }
           ]
         });
 

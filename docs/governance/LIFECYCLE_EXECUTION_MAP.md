@@ -718,31 +718,110 @@ Rationale: User should be able to enter PGA tournament even if NFL week is locke
 ### Data Flow
 
 ```
-ESPN Leaderboard API
-        ↓
-event_data_snapshots.payload.competitors[]
-(ESPN raw athlete IDs in competitor.athlete.id)
-        ↓
+ESPN Ingestion
+      ↓
+event_data_snapshots.payload
+      ↓
+competitors[]
+      ↓
 Extract competitor.athlete.id
-        ↓
-Normalize → espn_<athlete_id>
-(CRITICAL: matches golfer_event_scores.golfer_id format)
-        ↓
+      ↓
+Normalize → espn_<id>
+(CRITICAL: matches golfer_event_scores.golfer_id)
+      ↓
+Compute total_strokes
+  from linescores[].linescores[].value
+      ↓
 pgaEspnIngestion.handleScoringIngestion()
-        ↓
+      ↓
 golfer_event_scores
-(individual golfer scores per round, indexed by normalized ID)
-        ↓
+(individual golfer scores per round)
+      ↓
 pgaRosterScoringService.scoreContestRosters()
-(aggregate golfers into user rosters via entry_rosters)
-        ↓
+(aggregate golfers into user rosters)
+      ↓
 golfer_scores
 (user-level rostered player scores)
-        ↓
-Leaderboard queries (pgaLeaderboardDebugService)
-        ↓
+      ↓
+Leaderboard Service (pgaLeaderboardDebugService)
+      ↓
+Query 1: Snapshot
+Query 2: Scores + Names
+      ↓
+Application merge & ranking
+      ↓
+Leaderboard response
+      ↓
 WebAdmin display
 ```
+
+### Leaderboard Diagnostics Flow
+
+The PGA leaderboard service operates on a **two-query architecture** that maintains clean separation between tournament data and scoring data.
+
+**Query 1: Contest Lookup**
+```sql
+SELECT ci.id as contest_id
+FROM contest_instances ci
+JOIN contest_templates ct ON ct.id = ci.template_id
+WHERE ct.sport IN ('PGA', 'pga', 'GOLF', 'golf')
+  AND ci.status IN ('LIVE', 'COMPLETE')
+ORDER BY ci.tournament_start_time DESC
+LIMIT 1
+```
+
+**Query 2: Snapshot Fetch (Tournament Domain)**
+```sql
+SELECT payload
+FROM event_data_snapshots
+WHERE contest_instance_id = $1
+ORDER BY ingested_at DESC
+LIMIT 1
+```
+
+Source of truth for:
+- competitor list
+- stroke totals (computed from linescores)
+- round / hole linescore data
+
+**Query 3: Scores + Player Names (Scoring Domain)**
+```sql
+SELECT
+  ges.golfer_id,
+  COALESCE(SUM(ges.total_points), 0) AS fantasy_score,
+  p.full_name AS player_name
+FROM golfer_event_scores ges
+LEFT JOIN players p ON p.id = ges.golfer_id
+WHERE ges.contest_instance_id = $1
+  AND ges.golfer_id = ANY($2)
+GROUP BY ges.golfer_id, p.full_name
+```
+
+Provides:
+- fantasy scores (aggregated from golfer_event_scores)
+- player names (from players table)
+
+**Application Merge**
+
+Application logic merges three independent data sources:
+
+1. **Tournament Snapshot** — competitors array with stroke data
+2. **Fantasy Scores** — golfer_event_scores aggregation
+3. **Player Names** — players table
+
+For each competitor in the snapshot:
+- Extract golfer_id from snapshot
+- Normalize to espn_<athlete_id> format
+- Look up fantasy_score and player_name from query results
+- Compute total_strokes from linescores[].linescores[].value
+- Apply ranking by total_strokes (ascending)
+
+**Architecture Benefits**
+
+✅ **Domain Separation** — Tournament data (JSON) stays separate from scoring data (relational)
+✅ **Query Efficiency** — 2 queries total (after contest lookup), down from 4
+✅ **Determinism** — Each query has clear scope and filtering
+✅ **Maintainability** — Data sources are explicit and traceable
 
 ### ESPN Payload Structure (CRITICAL)
 
