@@ -35,12 +35,14 @@
  * @returns {Promise<Array>} Array of leaderboard entries with fantasy scores
  */
 async function getPgaLeaderboardWithScores(pool) {
-  // Step 1: Locate the active PGA contest (by tournament_start_time, most recent)
+  // Step 1: Locate the active PGA/GOLF contest (by tournament_start_time, most recent)
+  // Uses explicit sport whitelist to support multiple storage variants without implicit normalization.
+  // Supported values: 'PGA', 'pga', 'GOLF', 'golf' (all golf variants in system).
   const contestResult = await pool.query(
     `SELECT ci.id as contest_id
      FROM contest_instances ci
      JOIN contest_templates ct ON ct.id = ci.template_id
-     WHERE ct.sport = 'PGA'
+     WHERE ct.sport IN ('PGA', 'pga', 'GOLF', 'golf')
        AND ci.status IN ('LIVE', 'COMPLETE')
      ORDER BY ci.tournament_start_time DESC
      LIMIT 1`
