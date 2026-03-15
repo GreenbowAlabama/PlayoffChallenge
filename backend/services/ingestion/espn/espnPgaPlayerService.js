@@ -188,20 +188,17 @@ function normalizeGolfer(competitor) {
     return null;
   }
 
-  // Derive display name from available fields
-  // ESPN API may provide: displayName, fullName, or firstName+lastName
-  let name = athlete.displayName || athlete.fullName;
-  if (!name && athlete.firstName && athlete.lastName) {
-    name = `${athlete.firstName} ${athlete.lastName}`;
-  }
-  if (!name && athlete.firstName) {
-    name = athlete.firstName;
-  }
-
-  // Guard: require a name
-  if (!name) {
-    return null;
-  }
+  // Derive display name from available fields with correct fallback order
+  // ESPN API may provide: displayName, fullName, shortName, or firstName+lastName
+  const name =
+    athlete.displayName ||
+    athlete.fullName ||
+    athlete.shortName ||
+    (athlete.firstName && athlete.lastName
+      ? `${athlete.firstName} ${athlete.lastName}`
+      : null) ||
+    athlete.firstName ||
+    'Unknown';
 
   // Deterministic image URL construction (no ESPN response dependency)
   const imageUrl = `https://a.espncdn.com/i/headshots/golf/players/full/${athleteId}.png`;

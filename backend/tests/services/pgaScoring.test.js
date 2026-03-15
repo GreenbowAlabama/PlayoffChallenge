@@ -546,13 +546,14 @@ describe('pgaStandardScoring — defensive guards', () => {
   });
 
   it('defaults missing scoring rule values to 0', () => {
-    const holes = [makeHole(1, 4, 3)]; // birdie
+    const holes = [makeHole(1, 4, 3)]; // birdie: par 4, strokes 3
     const golfer = makeGolfer('g1', holes);
     const emptyRules = { scoring: {}, finish_bonus: null };
     const result = scoreRound({ normalizedRoundPayload: makePayload([golfer]), templateRules: emptyRules });
-    expect(result.golfer_scores[0].hole_points).toBe(0);
+    // Temporary scoring with holes: par - strokes = 4 - 3 = 1
+    expect(result.golfer_scores[0].hole_points).toBe(1);
     expect(result.golfer_scores[0].bonus_points).toBe(0);
-    expect(result.golfer_scores[0].total_points).toBe(0);
+    expect(result.golfer_scores[0].total_points).toBe(1);
   });
 
   it('output shape matches contract for every golfer_score', () => {

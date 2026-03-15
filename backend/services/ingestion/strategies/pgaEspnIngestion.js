@@ -873,19 +873,9 @@ async function handleScoringIngestion(ctx, unit) {
       }
     }
 
-    // If no holes from linescores but competitor.score exists, use aggregate score
-    // This allows scoring to work even when ESPN doesn't provide hole-by-hole data
-    if (holes.length === 0 && hasScore) {
-      // Use competitor.score as a single aggregate score
-      holes.push({
-        hole_number: 1,
-        par: 72, // Standard 18-hole par
-        strokes: Math.round(competitor.score)
-      });
-    }
-
-    // Only push golfer if holes were scored
-    if (holes.length === 0) {
+    // Leave holes empty if ESPN linescores are missing
+    // The scoring layer will detect empty holes and use leaderboard score directly
+    if (holes.length === 0 && !hasScore) {
       skippedNoHoles++;
       continue;
     }
@@ -896,7 +886,8 @@ async function handleScoringIngestion(ctx, unit) {
     golfers.push({
       golfer_id: golferId,
       holes,
-      position
+      position,
+      score: competitor.score
     });
   }
 

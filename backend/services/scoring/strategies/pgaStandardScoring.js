@@ -130,12 +130,20 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
     let hole_points = 0;
     let bonus_points = 0;
 
-    // TEMPORARY SCORING: Use simple par-based calculation if no template rules
+    // TEMPORARY SCORING: Use leaderboard score when holes are missing
     if (!hasTemplateRules) {
-      // hole_points = (par_total - strokes_total)
-      const parTotal = validHoles.reduce((sum, hole) => sum + hole.par, 0);
-      const strokesTotal = validHoles.reduce((sum, hole) => sum + hole.strokes, 0);
-      hole_points = parTotal - strokesTotal;
+      // If holes are available, use hole-by-hole calculation
+      if (validHoles.length > 0) {
+        const parTotal = validHoles.reduce((sum, hole) => sum + hole.par, 0);
+        const strokesTotal = validHoles.reduce((sum, hole) => sum + hole.strokes, 0);
+        hole_points = parTotal - strokesTotal;
+      } else if (golfer.score !== undefined && golfer.score !== null) {
+        // Use leaderboard score (relative to par) when hole data is missing
+        const scoreToPar = parseInt(golfer.score, 10) || 0;
+        hole_points = -scoreToPar;
+      } else {
+        hole_points = 0;
+      }
       bonus_points = 0;
     } else {
       // STANDARD SCORING: Use template rules for per-hole scoring
