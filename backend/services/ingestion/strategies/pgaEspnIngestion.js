@@ -903,6 +903,14 @@ async function handleScoringIngestion(ctx, unit) {
     total_points: score.total_points
   }));
 
+  // [SCORING DEBUG] Log parsed scores from ESPN
+  console.log(
+    "[SCORING DEBUG] Parsed leaderboard players:",
+    finalScores.length,
+    "| contest:",
+    contestInstanceId
+  );
+
   return finalScores;
 }
 
@@ -1042,10 +1050,13 @@ async function ingestWorkUnit(ctx, unit) {
 
   // ── Step 8: Handle duplicate payload (idempotency) ────────────────────────
   // If insert returned zero rows, payload was already processed.
-  // Skip further processing and return empty scores.
+  // Continue scoring parse anyway — scores may have changed during the round.
   if (result.rows.length === 0) {
-    console.debug(`[pgaEspnIngestion] Duplicate payload skipped for contest ${contestInstanceId}`);
-    return [];
+    console.debug(
+      `[pgaEspnIngestion] Duplicate payload detected for contest ${contestInstanceId}, continuing scoring parse`
+    );
+    // DO NOT return here
+    // Continue execution so scoring parser still runs
   }
 
   // ── Step 9: Parse scores from leaderboard and return ──────────────────────

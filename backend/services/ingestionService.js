@@ -458,7 +458,25 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       // ── Run adapter pipeline ────────────────────────────────────────────────
       try {
         const normalizedScores = await adapter.ingestWorkUnit(ctx, enrichedUnit);
+
+        // [SCORING DEBUG] Step 1: Check adapter output
+        console.log(
+          "[SCORING DEBUG] normalizedScores length:",
+          normalizedScores ? normalizedScores.length : "NULL",
+          "| phase:",
+          enrichedUnit.phase || "UNKNOWN"
+        );
+
+        // [SCORING DEBUG] Step 2: Before database write
+        console.log(
+          "[SCORING DEBUG] About to write scores:",
+          normalizedScores ? normalizedScores.length : 0
+        );
+
         await adapter.upsertScores(ctx, normalizedScores);
+
+        // [SCORING DEBUG] Step 3: After database write
+        console.log("[SCORING DEBUG] Score insert complete");
 
         await executeQuery(
           client,
