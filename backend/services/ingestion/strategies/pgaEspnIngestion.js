@@ -8,7 +8,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { scoreContestRosters } = require('../../scoring/pgaRosterScoringService');
+const { scoreContestRosters } = require('../../../scoring/pgaRosterScoringService');
 
 /**
  * Canonicalize JSON for deterministic hashing.
