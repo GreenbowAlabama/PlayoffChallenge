@@ -18,8 +18,17 @@
 'use strict';
 
 const axios = require('axios');
+const https = require('https');
 
 const logger = console; // TODO: Replace with structured logger
+
+// Custom HTTPS agent to fix ESPN/Cloudflare CDN timeout issues
+// Axios defaults to Node's HTTP agent which struggles with HTTP/2
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 10,
+  timeout: 30000
+});
 
 /**
  * Sleep for specified milliseconds.
@@ -181,6 +190,7 @@ async function fetchCalendar({ leagueId, seasonYear, timeout = 5000 }) {
 
     const response = await axios.get(url, {
       timeout,
+      httpsAgent,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Accept': 'application/json',
@@ -221,6 +231,7 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
 
     const response = await axios.get(url, {
       timeout,
+      httpsAgent,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Accept': 'application/json',

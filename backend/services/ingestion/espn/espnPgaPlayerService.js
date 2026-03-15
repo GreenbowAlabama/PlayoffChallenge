@@ -15,8 +15,16 @@
 'use strict';
 
 const axios = require('axios');
+const https = require('https');
 
 const logger = console; // TODO: Replace with structured logger
+
+// Custom HTTPS agent to fix ESPN/Cloudflare CDN timeout issues
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 10,
+  timeout: 30000
+});
 
 /**
  * Fetch golfers from ESPN PGA scoreboard endpoint.
@@ -36,6 +44,7 @@ async function fetchGolfers() {
       'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard',
       {
         timeout: 10000,
+        httpsAgent,
         headers: {
           'User-Agent': 'playoff-challenge/2.0'
         }
@@ -97,6 +106,7 @@ async function fetchTournamentField(eventId) {
       'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard',
       {
         timeout: 10000,
+        httpsAgent,
         headers: {
           'User-Agent': 'playoff-challenge/2.0'
         }
