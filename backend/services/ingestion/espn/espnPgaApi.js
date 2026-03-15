@@ -31,6 +31,30 @@ const httpsAgent = new https.Agent({
 });
 
 /**
+ * In-cycle leaderboard cache (request-level, not persistent).
+ * Prevents duplicate ESPN API calls for the same eventId within a single ingestion cycle.
+ *
+ * Cache key: eventId (e.g., "401811938")
+ * Cache entry: Full ESPN leaderboard response
+ *
+ * Usage:
+ *   - Cleared at cycle start by calling clearLeaderboardCache()
+ *   - Automatically hit when multiple contests reference same eventId
+ *   - No setup needed; transparent to callers
+ */
+const leaderboardCache = new Map();
+
+/**
+ * Clear the leaderboard cache.
+ * Called at the start of each ingestion cycle to prevent stale data.
+ *
+ * @returns {void}
+ */
+function clearLeaderboardCache() {
+  leaderboardCache.clear();
+}
+
+/**
  * Sleep for specified milliseconds.
  *
  * @param {number} ms - Milliseconds to sleep
@@ -211,6 +235,9 @@ async function fetchCalendar({ leagueId, seasonYear, timeout = 5000 }) {
 /**
  * Fetch ESPN event leaderboard (including competitor scores).
  *
+ * Checks in-cycle cache first to prevent duplicate API calls when multiple contests
+ * reference the same provider_event_id.
+ *
  * @param {Object} options
  *   {
  *     eventId: string (ESPN event ID, e.g., "401811941")
@@ -222,6 +249,12 @@ async function fetchCalendar({ leagueId, seasonYear, timeout = 5000 }) {
 async function fetchLeaderboard({ eventId, timeout = 15000 }) {
   if (!eventId) {
     throw new Error('fetchLeaderboard: eventId is required');
+  }
+
+  // Check cache first to prevent duplicate API calls
+  if (leaderboardCache.has(eventId)) {
+    logger.debug(`[espnPgaApi] Cache HIT for leaderboard: eventId=${eventId}`);
+    return leaderboardCache.get(eventId);
   }
 
   logger.info(`[espnPgaApi] Fetching leaderboard: eventId=${eventId}`);
@@ -247,6 +280,10 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
     logger.info(
       `[espnPgaApi] Leaderboard fetched: eventId=${eventId}`
     );
+
+    // Cache the result for subsequent calls in this cycle
+    leaderboardCache.set(eventId, response.data);
+
     return response.data;
   }, 3);
 }
@@ -254,6 +291,7 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
 module.exports = {
   fetchCalendar,
   fetchLeaderboard,
+  clearLeaderboardCache,
   withRetry, // Export for testing
   parseRetryAfter // Export for testing
 };

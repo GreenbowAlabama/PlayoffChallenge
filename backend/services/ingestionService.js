@@ -200,6 +200,18 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
   const phase = options?.phase || 'BOTH';
 
+  // ── Clear ESPN leaderboard cache at cycle start ─────────────────────────────
+  // Ensures fresh data for each ingestion cycle and prevents cross-cycle contamination
+  try {
+    const espnPgaApi = require('./ingestion/espn/espnPgaApi');
+    if (espnPgaApi && typeof espnPgaApi.clearLeaderboardCache === 'function') {
+      espnPgaApi.clearLeaderboardCache();
+    }
+  } catch (err) {
+    // Silently ignore if espnPgaApi is unavailable (e.g., in test mocks)
+    // Cache clearing is an optimization, not a blocker
+  }
+
   const client = await pool.connect();
 
   try {
