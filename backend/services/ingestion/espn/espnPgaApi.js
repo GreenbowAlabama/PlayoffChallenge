@@ -229,6 +229,8 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
   return withRetry(async () => {
     const url = `https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard`;
 
+    console.log("[espnPgaApi] requesting URL:", url);
+
     const response = await axios.get(url, {
       timeout,
       httpsAgent,
