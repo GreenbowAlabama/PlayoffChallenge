@@ -236,4 +236,60 @@ describe('pgaEspnIngestion.getWorkUnits()', () => {
     // Without SCORING unit, scores never populate and contests cannot progress
     await expect(pgaEspnIngestion.getWorkUnits(ctx)).rejects.toThrow('ESPN API unavailable');
   });
+
+  test('multiple contests sharing provider_event_id trigger only one ESPN leaderboard fetch', async () => {
+    const providerEventId = 'espn_pga_401811937';
+    const espnEventId = '401811937';
+
+    // Mock golfers
+    const mockGolfers = Array.from({ length: 10 }, (_, i) => ({
+      external_id: String(20000 + i),
+      name: `Golfer ${i + 1}`,
+      sport: 'GOLF',
+      position: 'G'
+    }));
+
+    espnPgaPlayerService.fetchTournamentField.mockResolvedValue(mockGolfers);
+
+    // Mock leaderboard (ESPN response structure)
+    const mockLeaderboard = {
+      events: [
+        {
+          id: espnEventId,
+          status: { type: { name: 'STATUS_IN_PROGRESS' } },
+          competitions: [
+            {
+              competitors: [
+                {
+                  id: '20000',
+                  position: 1,
+                  linescores: [{ period: 1, linescores: Array(18).fill({ value: 4, par: 4 }) }]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    espnPgaApi.fetchLeaderboard.mockResolvedValue(mockLeaderboard);
+
+    // Use SAME ctx object to simulate a single ingestion cycle
+    // Cache is stored in ctx.__eventCache and reused across calls
+    const ctx = { contestInstanceId: 'contest-1', providerEventId };
+
+    // Reset mock call count
+    espnPgaApi.fetchLeaderboard.mockClear();
+
+    // Call getWorkUnits first time (should fetch from ESPN)
+    const units1 = await pgaEspnIngestion.getWorkUnits(ctx);
+    expect(units1.length).toBeGreaterThan(0);
+    expect(espnPgaApi.fetchLeaderboard).toHaveBeenCalledTimes(1);
+
+    // Call getWorkUnits second time with SAME ctx (should hit cache, no additional fetch)
+    // This simulates a second contest in the same cycle sharing the event
+    const units2 = await pgaEspnIngestion.getWorkUnits(ctx);
+    expect(units2.length).toBeGreaterThan(0);
+    expect(espnPgaApi.fetchLeaderboard).toHaveBeenCalledTimes(1); // Still 1, cache was hit
+  });
 });

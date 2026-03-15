@@ -347,12 +347,29 @@ async function getWorkUnits(ctx) {
   // ── SCORING Phase: Fetch leaderboard and create SCORING work unit ──────────
   // Guarantees exactly one SCORING unit per polling cycle.
   // This ensures handleScoringIngestion() executes and scores populate golfer_event_scores.
+  //
+  // Event-scoped caching: Multiple contests sharing the same provider_event_id
+  // will share the same leaderboard fetch within a single ingestion cycle.
+  // Cache is stored in ctx.__eventCache (lifecycle = one cycle).
   try {
     const espnEventId = providerEventId.includes('espn_pga_')
       ? providerEventId.replace(/^espn_pga_/, '')
       : providerEventId;
 
-    const leaderboard = await espnPgaApi.fetchLeaderboard({ eventId: espnEventId });
+    // Initialize cycle-scoped cache if not present
+    if (!ctx.__eventCache) {
+      ctx.__eventCache = new Map();
+    }
+
+    // Check cache for this event
+    let leaderboard;
+    if (ctx.__eventCache.has(espnEventId)) {
+      leaderboard = ctx.__eventCache.get(espnEventId);
+    } else {
+      // Fetch from ESPN and cache for remaining contests in this cycle
+      leaderboard = await espnPgaApi.fetchLeaderboard({ eventId: espnEventId });
+      ctx.__eventCache.set(espnEventId, leaderboard);
+    }
 
     // Create SCORING unit with fetched leaderboard
     units.push({
