@@ -137,6 +137,13 @@ async function fetchTournamentField(eventId) {
 
     return normalized;
   } catch (err) {
+    // If event not found in scoreboard (expected for SCHEDULED tournaments), log at debug level
+    if (err.message.includes('not found in scoreboard')) {
+      logger.debug(`[espnPgaPlayerService] Event ${eventId} not yet available in ESPN scoreboard`);
+      return [];
+    }
+
+    // For actual network/API errors, log at error level
     logger.error(`[espnPgaPlayerService] Error fetching tournament field for event ${eventId}:`, err.message);
     throw err;
   }

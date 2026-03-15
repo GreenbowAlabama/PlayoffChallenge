@@ -1006,7 +1006,8 @@ async function ingestWorkUnit(ctx, unit) {
     .digest('hex');
 
   // ── Step 7: Insert metadata into ingestion_events ──────────────────────
-  // This remains unchanged per requirements (Option B).
+  // ON CONFLICT DO NOTHING ensures idempotency: duplicate payloads are skipped silently.
+  // If duplicate detected (result.rows.length === 0), skip further processing.
   const result = await dbClient.query(`
     INSERT INTO ingestion_events (
       id,
@@ -1027,6 +1028,8 @@ async function ingestWorkUnit(ctx, unit) {
       $6,
       NOW()
     )
+    ON CONFLICT ON CONSTRAINT unique_payload_per_contest
+    DO NOTHING
     RETURNING id, payload_hash
   `, [
     contestInstanceId,
@@ -1037,7 +1040,15 @@ async function ingestWorkUnit(ctx, unit) {
     'VALID'
   ]);
 
-  // ── Step 8: Parse scores from leaderboard and return ──────────────────────
+  // ── Step 8: Handle duplicate payload (idempotency) ────────────────────────
+  // If insert returned zero rows, payload was already processed.
+  // Skip further processing and return empty scores.
+  if (result.rows.length === 0) {
+    console.debug(`[pgaEspnIngestion] Duplicate payload skipped for contest ${contestInstanceId}`);
+    return [];
+  }
+
+  // ── Step 9: Parse scores from leaderboard and return ──────────────────────
   // SCORING phase now calls handleScoringIngestion() to produce golfer scores
   return await handleScoringIngestion(ctx, unit);
 }
