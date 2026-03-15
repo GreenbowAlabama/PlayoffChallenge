@@ -520,14 +520,179 @@ All 17 PGA scoring tests pass:
 
 **After fix:**
 - golfer_event_scores.golfer_id = `espn_1030`, `espn_10372`, etc.
-- leaderboard query WHERE clause now finds matching IDs
-- fantasy_score values populate correctly
-- Diagnostic leaderboard displays complete scoring data
+- Scoring pipeline writes 123 scores per ingestion cycle
+- Leaderboard aggregation query correctly sums fantasy_score
+- Diagnostic leaderboard displays complete scoring data with non-zero fantasy scores
 
 **Performance Improvement:**
 - One fewer database query per scoring ingestion
 - Eliminated unnecessary players table lookup
 - Direct normalization from ESPN payload
+
+---
+
+### PGA Leaderboard Aggregation Fix (Follow-up)
+
+**Date:** 2026-03-15 (final)
+**Issue:** Leaderboard returning fantasy_score = 0 despite scores being inserted
+**Root Cause:** Broken LEFT JOIN on incompatible ID types
+**Status:** RESOLVED
+
+#### Problem
+
+Even after normalizing golfer_id to `espn_<athleteId>` format, the leaderboard still showed fantasy_score = 0.
+
+Investigation revealed the leaderboard query had a broken JOIN:
+
+```javascript
+❌ WRONG
+LEFT JOIN players p ON p.id = ges.golfer_id
+```
+
+**Why it was broken:**
+- `golfer_event_scores.golfer_id` = text format `"espn_1030"`
+- `players.id` = UUID type
+- Type mismatch → join silently returns no matches
+- SUM aggregates 0 rows → returns 0 or NULL
+
+#### Fix Applied
+
+**File:** `backend/services/pgaLeaderboardDebugService.js`
+
+1. **Removed broken players join** (line 124)
+   - Eliminated LEFT JOIN players p ON p.id = ges.golfer_id
+
+2. **Simplified aggregation query** (lines 120-129)
+   ```sql
+   SELECT ges.golfer_id,
+          COALESCE(SUM(ges.total_points), 0) as fantasy_score
+   FROM golfer_event_scores ges
+   WHERE ges.contest_instance_id = $1
+     AND ges.golfer_id = ANY($2)
+   GROUP BY ges.golfer_id
+   ```
+
+3. **Fixed player name source** (line 181)
+   - Changed from database lookup (failed)
+   - To snapshot data: `competitor.athlete.displayName`
+
+4. **Added protective comment** (lines 117-155)
+   - Explains golfer_id format and why database joins fail
+   - Documents correct player name source
+   - Prevents future regressions
+
+#### Architecture Documentation Updates
+
+1. **docs/architecture/PGA_SCORING_PIPELINE.md**
+   - Added "Golfer Identity Standard" section
+   - Explains `espn_<athleteId>` format and usage
+   - Documents why database joins don't work
+   - Prevents future incorrect implementations
+
+2. **Protective Comments**
+   - Extensive comment block in leaderboard service
+   - Lists examples, warnings, and correct patterns
+   - Details what happens if violated (silent failures)
+
+#### Tests
+
+All 22 PGA scoring tests pass:
+- ✅ PGA Roster Scoring Pipeline: 5/5
+- ✅ PGA Leaderboard Debug Admin: 5/5
+- ✅ pgaEspnIngestion: 5/5
+- ✅ pgaLeaderboardDebugService: 7/7
+
+#### Result
+
+**Leaderboard now works correctly:**
+- Query matches golfer_id in `espn_<athleteId>` format
+- SUM(total_points) aggregates actual scores from golfer_event_scores
+- Player names come from ESPN snapshot payload
+- Fantasy scores display correctly in diagnostics
+
+**PGA Scoring Pipeline Complete:**
+```
+ESPN API
+   ↓
+ingestion worker
+   ↓
+golfer_event_scores (with espn_<athleteId> IDs)
+   ↓
+leaderboard aggregation (direct SUM, no joins)
+   ↓
+admin diagnostics + contest scoring
+```
+
+---
+
+## PGA Leaderboard Aggregation Fix
+
+**Date:** 2026-03-15
+**Issue:** Leaderboard diagnostics returned fantasy_score = 0 for all golfers despite scoring inserts succeeding
+**Root Cause:** Broken LEFT JOIN prevented aggregation query from matching golfer IDs
+**Status:** RESOLVED
+
+### Issue
+
+Leaderboard query contained a faulty JOIN:
+
+```sql
+LEFT JOIN players p ON p.id = ges.golfer_id
+```
+
+**Problem:**
+- `golfer_event_scores.golfer_id` = text format: `"espn_1030"`
+- `players.id` = UUID format
+- Type mismatch caused JOIN to silently return no matches
+- Aggregation SUM operated on zero rows
+- Result: `fantasy_score = 0` for all golfers
+
+### Resolution
+
+**Removed the broken join:**
+```sql
+❌ REMOVED
+LEFT JOIN players p ON p.id = ges.golfer_id
+```
+
+**Simplified to direct aggregation:**
+```sql
+✅ IMPLEMENTED
+SELECT
+    ges.golfer_id,
+    COALESCE(SUM(ges.total_points), 0) AS fantasy_score
+FROM golfer_event_scores ges
+WHERE ges.contest_instance_id = $1
+  AND ges.golfer_id = ANY($2)
+GROUP BY ges.golfer_id
+```
+
+**Updated player name source:**
+```javascript
+// ✅ Get from ESPN snapshot payload
+const playerName = competitor.athlete?.displayName || 'Unknown';
+```
+
+### Result
+
+- ✅ Leaderboard query now matches golfer_id in `espn_<athleteId>` format
+- ✅ SUM(total_points) aggregates actual scores from golfer_event_scores
+- ✅ Player names sourced from ESPN snapshot (not database)
+- ✅ Fantasy scores display correctly in diagnostics
+- ✅ All 22 PGA scoring tests pass
+
+### Protective Measures
+
+**Added extensive documentation:**
+- Comment block in `pgaLeaderboardDebugService.js` (lines 117-155)
+- Explains golfer_id format and why database joins fail
+- Documents correct player name source
+- Prevents future incorrect implementations
+
+**Updated architecture docs:**
+- Added "Golfer Identity Standard" section to PGA_SCORING_PIPELINE.md
+- Added "PGA Identity Standard" section to LIFECYCLE_EXECUTION_MAP.md
+- Explains ESPN-normalized format and critical rules
 
 ---
 

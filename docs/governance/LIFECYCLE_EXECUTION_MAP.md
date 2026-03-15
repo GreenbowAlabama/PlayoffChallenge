@@ -875,3 +875,53 @@ Only executes during SCORING phase of PGA ingestion (not PLAYER_POOL or FIELD_BU
 ✅ Idempotent (UPSERT with conflict resolution)
 ✅ Transaction-safe (same DB client as ingestion)
 ✅ Scales without performance degradation
+
+### PGA Identity Standard
+
+All golfer scoring uses a canonical ESPN-normalized identity format:
+
+```
+golfer_id = espn_<athleteId>
+```
+
+This identity flows through the entire pipeline:
+
+```
+ESPN API
+    ↓
+ingestion worker
+    ↓
+golfer_event_scores
+    ↓
+leaderboard aggregation
+```
+
+**Key Properties:**
+- Source: `competitor.athlete.id` from ESPN leaderboard API
+- Format: Text string with `espn_` prefix (e.g., `espn_1030`, `espn_10372`)
+- Storage: `golfer_event_scores.golfer_id` (primary scoring table)
+- Usage: Leaderboard services aggregate scoring data using this ID
+
+**Critical Rules:**
+
+1. **Ingestion normalizes during scoring:**
+   - ESPN provides raw numeric ID: `"1030"`
+   - Pipeline normalizes: `const golferId = espn_${athleteId}`
+   - Stores in golfer_event_scores.golfer_id
+
+2. **Leaderboard aggregation uses normalized ID:**
+   - Must aggregate from `golfer_event_scores` using `golfer_id = ANY($1)`
+   - Do NOT join with `players.id` (UUID type mismatch)
+   - Player names come from ESPN snapshot payload only
+
+3. **No database joins on players table:**
+   ```sql
+   ❌ WRONG: LEFT JOIN players p ON p.id = ges.golfer_id
+      (UUID vs espn_<id> type mismatch = silent query failure)
+
+   ✅ CORRECT: Direct aggregation from golfer_event_scores
+              Player names from snapshot: competitor.athlete.displayName
+   ```
+
+**Failure Mode:**
+If violated, leaderboard aggregation silently returns zero rows, causing `fantasy_score = 0` for all golfers.

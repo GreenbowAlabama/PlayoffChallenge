@@ -42,6 +42,55 @@ Contest Leaderboard
 
 ---
 
+## Golfer Identity Standard
+
+The platform uses a **canonical golfer identity format** across all scoring systems:
+
+```
+golfer_id = espn_<athleteId>
+```
+
+### Examples
+
+```
+espn_1030
+espn_10372
+espn_11253
+```
+
+### Where This Format Is Used
+
+| System | Location | Purpose |
+|--------|----------|---------|
+| **Ingestion** | `pgaEspnIngestion.js` | Normalize ESPN athlete IDs during scoring |
+| **Storage** | `golfer_event_scores.golfer_id` | Canonical scoring identity |
+| **Leaderboard** | `pgaLeaderboardDebugService.js` | Match snapshot competitors to scores |
+| **Overlay** | Admin diagnostics | Display fantasy scores with leaderboard |
+
+### Why This Format
+
+1. **Provider-agnostic** — Supports multiple providers (ESPN, PGA Tour, etc.)
+2. **Deterministic** — Same ID from same source always produces same format
+3. **Traceable** — Prefix explicitly shows which provider the ID came from
+4. **JOIN-safe** — Consistent format prevents ID mismatch bugs
+
+### Important: No Database Joins on Players Table
+
+❌ **WRONG:**
+```sql
+LEFT JOIN players p ON p.id = ges.golfer_id  -- UUID vs espn_<id> mismatch
+```
+
+✅ **CORRECT:**
+```sql
+-- Get player names from ESPN snapshot, not database
+competitor.athlete.displayName
+```
+
+The `players.id` is a UUID and will never match `golfer_event_scores.golfer_id` (text format).
+
+---
+
 ## Scoring Orchestration
 
 SCORING is orchestrated by `ingestionService.runScoring()` rather than adapter work unit generation.

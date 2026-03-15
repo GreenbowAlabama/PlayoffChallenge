@@ -112,29 +112,55 @@ async function getPgaLeaderboardWithScores(pool) {
     return [];
   }
 
-  // Steps 4-5 (Optimized): Single combined query for scores + names
-  // This replaces two separate queries with one efficient query
-  // Scoring domain: fantasy scoring layer (relational data)
+  // Step 4: Query golfer_event_scores for fantasy scores
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // IMPORTANT: golfer_event_scores ID format and join safety
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //
+  // golfer_event_scores.golfer_id uses ESPN normalized format:
+  //     espn_<athleteId>
+  //
+  // Example values:
+  //     espn_1030
+  //     espn_10372
+  //     espn_11253
+  //
+  // Do NOT attempt to join against players.id (UUID)!
+  // This will fail silently and return no matches:
+  //     ❌ LEFT JOIN players p ON p.id = ges.golfer_id
+  //        (UUID type vs text "espn_<id>" type mismatch)
+  //
+  // Player names MUST come from ESPN snapshot payload:
+  //     ✅ competitor.athlete.displayName (from leaderboard payload)
+  //     ✅ competitor.displayName (fallback)
+  //
+  // This is enforced by architecture at multiple levels:
+  // 1. pgaEspnIngestion.js — writes golfer_id as espn_<athleteId>
+  // 2. pgaLeaderboardDebugService.js — reads golfer_id same format
+  // 3. Snapshot data — provides player names
+  //
+  // Violating this contract will cause:
+  // - fantasy_score = 0 for all golfers
+  // - Silent query failure (no error, just no matches)
+  // - Leaderboard diagnostics showing empty scoring data
+  //
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const scoresResult = await pool.query(
     `SELECT
        ges.golfer_id,
-       COALESCE(SUM(ges.total_points), 0) as fantasy_score,
-       p.full_name as player_name
+       COALESCE(SUM(ges.total_points), 0) as fantasy_score
      FROM golfer_event_scores ges
-     LEFT JOIN players p ON p.id = ges.golfer_id
      WHERE ges.contest_instance_id = $1
        AND ges.golfer_id = ANY($2)
-     GROUP BY ges.golfer_id, p.full_name`,
+     GROUP BY ges.golfer_id`,
     [contestId, golferIds]
   );
 
-  // Build lookup maps from combined query result
-  const playerNameMap = {};
+  // Build lookup map from scores query result
   const scoresMap = {};
 
   scoresResult.rows.forEach(row => {
     if (row.golfer_id) {
-      playerNameMap[row.golfer_id] = row.player_name || 'Unknown';
       scoresMap[row.golfer_id] = {
         event_points: row.fantasy_score || 0,
         fantasy_score: row.fantasy_score || 0
@@ -178,11 +204,15 @@ async function getPgaLeaderboardWithScores(pool) {
     // Get overlay scores (fantasy points from per-roster scoring)
     const scoreData = scoresMap[normalizedGolferId] || { event_points: 0, fantasy_score: 0 };
 
+    // Get player name from snapshot data
+    // Competitor data comes from ESPN payload, not from players database
+    const playerName = competitor.athlete?.displayName || competitor.displayName || 'Unknown';
+
     // Step 7: Build response object matching OpenAPI schema exactly
     // Position will be calculated after sorting by strokes
     result.push({
       golfer_id: normalizedGolferId,
-      player_name: playerNameMap[normalizedGolferId] || 'Unknown',
+      player_name: playerName,
       position: 0,  // Computed below after sorting
       total_strokes: totalStrokes,
       fantasy_score: scoreData.fantasy_score
