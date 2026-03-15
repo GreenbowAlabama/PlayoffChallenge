@@ -101,47 +101,136 @@ Response: { events: [{ id: "401811937", competitors: [~120 objects] }] }  ← PO
 
 ### Overview
 
-The ingestion pipeline consists of three phases:
+The ingestion pipeline consists of three critical phases:
 
 ```
-Provider Fetch (ESPN Scoreboard)
-       ↓
 PLAYER_POOL Phase
-(field snapshot)
+(fetch field, generate player units)
        ↓
 FIELD_BUILD Phase
 (construct contest field)
        ↓
-PLAYER_POOL ingestion_event
-(record full field snapshot)
+SCORING Phase ⭐ CRITICAL
+(fetch leaderboard, generate scores)
        ↓
-[Later] SCORING Phase
-(leaderboard snapshots)
-       ↓
-[Later] event_data_snapshots
-       ↓
-[Later] Settlement Pipeline
+Settlement Pipeline
 ```
 
-**Phase 1: PLAYER_POOL** (Runs during SCHEDULED status)
-- Fetches tournament field from ESPN scoreboard
-- Upserts each golfer to `players` table
-- Creates one work unit per golfer
+---
+
+### Phase 1: PLAYER_POOL
+
+**Status:** Adapter-generated via `getWorkUnits()`
+
+**Execution:**
+- Fetches tournament field from ESPN scoreboard via `espnPgaPlayerService.fetchTournamentField()`
+- Validates minimum competitor count (≥10 golfers)
+- Generates one work unit per golfer
 - Returns empty scores (no scoring data in SCHEDULED status)
 
-**Phase 2: FIELD_BUILD** (Runs after PLAYER_POOL units complete)
-- Constructs `field_selections` from ingested golfers
-- Creates PLAYER_POOL snapshot ingestion_event
-- Event captures the entire tournament field at a point in time
-- Payload includes provider_event_id and full golfer list
+**Database Operations:**
+- Upserts each golfer to `players` table (ON CONFLICT DO UPDATE)
+- Records external_player_id in ingestion_runs for FIELD_BUILD phase scope
 
-**Phase 3: SCORING** (Runs during LOCKED/LIVE status)
-- Orchestrated by `ingestionService.runScoring()` (NOT adapter)
-- Service fetches leaderboard updates from ESPN via `fetchLeaderboard()`
-- Service constructs SCORING work unit with { phase: 'SCORING', providerEventId, providerData }
-- Adapter consumes unit to compute golfer scores
-- Creates event_data_snapshots for scoring data
-- Creates SCORING ingestion_events for settlement binding
+**Invariants Enforced:**
+- Competitor count must be ≥ 10 (prevents undersized fields)
+- External IDs must be present (prevents incomplete golfer records)
+
+**Example Output:**
+```
+Work units generated: 144 (one per golfer in field)
+```
+
+---
+
+### Phase 2: FIELD_BUILD
+
+**Status:** Adapter-generated via `getWorkUnits()`
+
+**Execution:**
+- Queries ingestion_runs for completed PLAYER_POOL units
+- Fetches golfers from players table (scope-limited by contest_instance_id)
+- Builds field_selections with primary + alternates
+- Creates PLAYER_POOL snapshot ingestion_event
+
+**Database Operations:**
+- Updates field_selections with selection_json (ON CONFLICT DO UPDATE)
+- Inserts PLAYER_POOL ingestion_event (ON CONFLICT DO NOTHING)
+
+**Invariants Enforced:**
+- Primary field must contain players (prevents empty field)
+- Field must be deterministically ordered (by golfer ID)
+
+**Example Output:**
+```
+field_selections: 144 primary golfers
+PLAYER_POOL ingestion_event: { provider_event_id, golfers }
+```
+
+---
+
+### Phase 3: SCORING ⭐ CRITICAL
+
+**Status:** Adapter-generated via `getWorkUnits()` (NEW: March 15, 2026)
+
+**Execution:**
+- `getWorkUnits()` calls `espnPgaApi.fetchLeaderboard({ eventId })`
+- Fetches current ESPN leaderboard with competitor scores
+- Generates exactly ONE SCORING work unit per polling cycle
+- Work unit structure: `{ phase: 'SCORING', providerEventId, providerData }`
+
+**Key Change (March 15, 2026):**
+Previously, SCORING units were NOT guaranteed to be generated. The ingestion pipeline would complete PLAYER_POOL and FIELD_BUILD but skip SCORING, causing `handleScoringIngestion()` to never execute and scores to never populate `golfer_event_scores`.
+
+**Now: SCORING is guaranteed.**
+- SCORING unit generation is part of `getWorkUnits()`
+- ESPN leaderboard is fetched during work unit generation phase
+- Failure to fetch leaderboard throws error (SCORING is critical)
+- Single SCORING unit per cycle ensures deterministic scoring updates
+
+**Adapter Processing:**
+- `handleScoringIngestion()` parses ESPN leaderboard
+- Maps ESPN competitor IDs to database golfer IDs
+- Extracts round-level hole-by-hole scores
+- Calls `pgaStandardScoring.scoreRound()` for point calculation
+- Returns golfer-level scores for `golfer_event_scores` table
+
+**Database Operations:**
+- Inserts event_data_snapshots (immutable scoring snapshot)
+- Inserts ingestion_events (SCORING event metadata)
+- Batch inserts golfer_event_scores (ON CONFLICT DO UPDATE)
+- Creates compensating entries for settlement binding
+
+**Invariants Enforced:**
+- Exactly one SCORING unit per polling cycle (no duplicates)
+- Leaderboard fetch must succeed (no graceful degradation for SCORING)
+- Scores must be immutable snapshots (append-only ledger)
+
+**Example Output:**
+```
+[SCORING] Leaderboard fetched (eventId=401811937, competitors=144)
+[SCORING] Snapshot created (hash=abc123def...)
+[SCORING] golfer_event_scores updated (144 golfers)
+```
+
+**Failure Handling:**
+- If `fetchLeaderboard()` fails, `getWorkUnits()` throws error
+- Prevents contest from progressing without scoring capability
+- No silent degradation (SCORING is non-optional)
+
+---
+
+### Pipeline Ordering Guarantee
+
+Work units are processed in strict order:
+1. All PLAYER_POOL units (N) — players ingested
+2. FIELD_BUILD unit (1) — field constructed
+3. SCORING unit (1) — scores computed
+
+This ordering ensures:
+- Field exists before scoring references it
+- Golfers exist before scores are computed
+- Scores are computed from complete leaderboard data
 
 ---
 

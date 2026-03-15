@@ -371,18 +371,12 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
       if (insertResult.rows.length === 0) {
         // INSERT conflict: another worker already started or completed
-        console.log(
-          `[IngestionWorker] CONFLICT_INSERT contest=${contestInstanceId} work_unit=${workUnitKey}`
-        );
         skippedWorkUnits.push(workUnitKey);
         summary.skipped++;
         continue;
       }
 
       const runId = insertResult.rows[0].id;
-      console.log(
-        `[IngestionWorker] START contest=${contestInstanceId} work_unit=${workUnitKey} run_id=${runId}`
-      );
 
       // ── Run adapter pipeline ────────────────────────────────────────────────
       try {
@@ -396,10 +390,6 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
           [runId]
         );
 
-        console.log(
-          `[IngestionWorker] COMPLETE contest=${contestInstanceId} work_unit=${workUnitKey} run_id=${runId}`
-        );
-
         // Track ingested players for field population (all phases)
         if (enrichedUnit.externalPlayerId) {
           ingestedPlayerIds.push('espn_' + enrichedUnit.externalPlayerId);
@@ -407,8 +397,6 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
         summary.processed++;
       } catch (unitErr) {
-        console.error(`[ingestionService] Work unit failed: ${workUnitKey}`, unitErr.message);
-
         await client.query(
           `UPDATE ingestion_runs
            SET status = 'ERROR', error_message = $1
@@ -416,10 +404,7 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
           [unitErr.message.slice(0, 1000), runId]
         );
 
-        console.error(
-          `[IngestionWorker] ERROR contest=${contestInstanceId} work_unit=${workUnitKey} run_id=${runId} error=${unitErr.message.slice(0, 100)}`
-        );
-
+        console.error(`[INGESTION] Work unit error: ${workUnitKey}: ${unitErr.message.slice(0, 100)}`);
         summary.errors.push({ workUnitKey, error: unitErr.message });
       }
     }

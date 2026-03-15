@@ -281,6 +281,7 @@ async function getWorkUnits(ctx) {
   // Each unit with a unique externalPlayerId will only be processed once
 
   const espnPgaPlayerService = require('../espn/espnPgaPlayerService');
+  const espnPgaApi = require('../espn/espnPgaApi');
   let golfers = [];
 
   try {
@@ -313,7 +314,6 @@ async function getWorkUnits(ctx) {
       `[PGA INGESTION] INVALID_COMPETITOR_COUNT event=${providerEventId} count=${competitorCount} expected_minimum=10`
     );
   }
-  console.log(`[PGA INGESTION] Competitor count validation passed: event=${providerEventId} count=${competitorCount}`);
 
   // Emit one unit per golfer
   // Idempotency: each unit with unique externalPlayerId is processed only once
@@ -342,6 +342,28 @@ async function getWorkUnits(ctx) {
     providerEventId: providerEventId,
     providerData: null
   });
+
+  // ── SCORING Phase: Fetch leaderboard and create SCORING work unit ──────────
+  // Guarantees exactly one SCORING unit per polling cycle.
+  // This ensures handleScoringIngestion() executes and scores populate golfer_event_scores.
+  try {
+    const espnEventId = providerEventId.includes('espn_pga_')
+      ? providerEventId.replace(/^espn_pga_/, '')
+      : providerEventId;
+
+    const leaderboard = await espnPgaApi.fetchLeaderboard({ eventId: espnEventId });
+
+    // Create SCORING unit with fetched leaderboard
+    units.push({
+      phase: 'SCORING',
+      providerEventId: providerEventId,
+      providerData: leaderboard
+    });
+  } catch (err) {
+    // Re-throw: SCORING unit is critical for the platform
+    // Without it, scores never populate and contests cannot progress
+    throw err;
+  }
 
   return units;
 }
@@ -482,9 +504,8 @@ async function handlePlayerPoolIngestion(ctx, unit) {
       golfer.sport,                // sport (GOLF)
       golfer.position,             // position (G for golfer)
     ]);
-    console.log(`[pgaEspnIngestion] Upserted golfer ${golfer.external_id}`);
   } catch (err) {
-    console.error(`[pgaEspnIngestion] Failed to upsert golfer ${golfer.external_id}:`, err.message);
+    console.error(`[pgaEspnIngestion] Upsert failed for golfer ${golfer.external_id}:`, err.message);
     throw err;
   }
 
@@ -608,7 +629,7 @@ async function handleFieldBuildIngestion(ctx, unit) {
     JSON.stringify(selectionJson)
   ]);
 
-  console.log(`[pgaEspnIngestion] FIELD_BUILD complete for contest ${contestInstanceId}: ${playerIds.length} golfers selected`);
+  // Logging summarized in ingestion_runs update below
 
   // ── Create ingestion_event for PLAYER_POOL snapshot ──────────────────────────
   //
@@ -719,40 +740,32 @@ async function handleScoringIngestion(ctx, unit) {
   const providerData = unit.providerData;
   const providerEventId = unit.providerEventId;
 
-  console.log(`[pgaEspnIngestion] handleScoringIngestion START: providerEventId=${providerEventId}`);
-  console.log(`[pgaEspnIngestion] providerData has ${Object.keys(providerData).length} keys: ${Object.keys(providerData).join(', ')}`);
-
   // ── Step 1: Parse ESPN structure and find correct event ─────────────────────
   const events = providerData.events || [];
-  console.log(`[pgaEspnIngestion] Found ${events.length} events in leaderboard response`);
   if (events.length === 0) {
-    console.warn(`[pgaEspnIngestion] No events in leaderboard, returning empty`);
+    console.warn(`[SCORING] No events in leaderboard response, returning empty`);
     return [];
   }
 
   // Strip espn_pga_ prefix from providerEventId to match ESPN API response format
   const eventId = providerEventId.replace(/^espn_pga_/, '');
-  console.log(`[pgaEspnIngestion] Looking for eventId=${eventId} (stripped from ${providerEventId})`);
-  console.log(`[pgaEspnIngestion] Event IDs available: ${events.map(e => e.id).join(', ')}`);
 
   // Find event matching eventId (not just events[0])
   const event = events.find(e => e.id === eventId);
   if (!event) {
     throw new Error(`handleScoringIngestion: Event ${providerEventId} not found in leaderboard response`);
   }
-  console.log(`[pgaEspnIngestion] Found matching event, competitions=${event.competitions?.length || 0}`);
 
   const competitions = event.competitions || [];
   if (competitions.length === 0) {
-    console.warn(`[pgaEspnIngestion] No competitions in event, returning empty`);
+    console.warn(`[SCORING] No competitions in event, returning empty`);
     return [];
   }
 
   const competition = competitions[0];
   const competitors = competition.competitors || [];
-  console.log(`[pgaEspnIngestion] Found ${competitors.length} competitors in competition`);
   if (competitors.length === 0) {
-    console.warn(`[pgaEspnIngestion] No competitors in competition, returning empty`);
+    console.warn(`[SCORING] No competitors in competition, returning empty`);
     return [];
   }
 
@@ -768,7 +781,6 @@ async function handleScoringIngestion(ctx, unit) {
       `SELECT id, espn_id FROM players WHERE espn_id = ANY($1)`,
       [espnIds]
     );
-    console.log(`[pgaEspnIngestion] Matched ${playersResult.rows.length} competitors to database golfers`);
 
     for (const row of playersResult.rows) {
       espnToDbMap[row.espn_id] = row.id;
@@ -787,7 +799,6 @@ async function handleScoringIngestion(ctx, unit) {
       }
     }
   }
-  console.log(`[pgaEspnIngestion] Current round number: ${currentRound}`);
 
   // ── Step 4: Determine final round status ──────────────────────────────────
   // ESPN uses STATUS_FINAL when tournament is complete
@@ -851,10 +862,8 @@ async function handleScoringIngestion(ctx, unit) {
     });
   }
 
-  console.log(`[pgaEspnIngestion] Step 5 processed ${golfers.length} golfers with score data (skipped: ${skippedNoRoundData} no round data, ${skippedNoHoles} no holes)`);
-
   if (golfers.length === 0) {
-    console.warn(`[pgaEspnIngestion] No golfers with score data, returning empty`);
+    console.warn(`[SCORING] No golfers with score data (skipped: ${skippedNoRoundData} no round, ${skippedNoHoles} no holes)`);
     return [];
   }
 
@@ -893,8 +902,6 @@ async function handleScoringIngestion(ctx, unit) {
     finish_bonus: score.finish_bonus,
     total_points: score.total_points
   }));
-
-  console.log(`[pgaEspnIngestion] handleScoringIngestion returning ${finalScores.length} scores for contest=${contestInstanceId}`);
 
   return finalScores;
 }
