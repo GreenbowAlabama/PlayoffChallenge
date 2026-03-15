@@ -27,6 +27,7 @@ function LeaderboardTable({ entries }: { entries: PgaLeaderboardEntry[] }) {
             <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Player</th>
             <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Position</th>
             <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Score</th>
+            <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Finish Bonus</th>
             <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Fantasy Score</th>
           </tr>
         </thead>
@@ -39,6 +40,7 @@ function LeaderboardTable({ entries }: { entries: PgaLeaderboardEntry[] }) {
               </td>
               <td className="px-4 py-3 text-sm text-right text-gray-900 font-medium">{entry.position}</td>
               <td className="px-4 py-3 text-sm text-right text-gray-900">{entry.score > 0 ? '+' : ''}{entry.score}</td>
+              <td className="px-4 py-3 text-sm text-right text-gray-900 text-green-600 font-medium">{entry.finish_bonus}</td>
               <td className="px-4 py-3 text-sm text-right text-gray-900 font-semibold text-indigo-600">{entry.fantasy_score}</td>
             </tr>
           ))}

@@ -814,87 +814,22 @@ async function handleScoringIngestion(ctx, unit) {
     }
   }
 
-  // ── Step 3: Determine final round status ──────────────────────────────────
+  // ── Step 3: Query which rounds already exist in golfer_event_scores ───────
+  // IDEMPOTENCY SAFEGUARD: Only score new rounds, skip already-processed ones
+  const existingRoundsResult = await dbClient.query(
+    `SELECT DISTINCT round_number
+     FROM golfer_event_scores
+     WHERE contest_instance_id = $1`,
+    [contestInstanceId]
+  );
+
+  const scoredRounds = new Set(
+    existingRoundsResult.rows.map(r => Number(r.round_number))
+  );
+
+  // ── Step 4: Determine final round status ──────────────────────────────────
   // ESPN uses STATUS_FINAL when tournament is complete
   const is_final_round = event.status?.type?.name === 'STATUS_FINAL' || false;
-
-  // ── Step 4: Build golfers array for scoreRound() ─────────────────────────
-  // For each competitor, extract round data and build holes array
-  // CRITICAL: golfer_id must be normalized to espn_<athleteId> format
-  // to match leaderboard service expectations (pgaLeaderboardDebugService.js line 107)
-  const golfers = [];
-
-  let skippedNoRoundData = 0;
-  let skippedNoHoles = 0;
-
-  for (const competitor of competitors) {
-    const espnPlayerId = String(competitor.id);
-
-    // Normalize golfer_id to ESPN format: espn_<athleteId>
-    // This is the canonical scoring identity, matching leaderboard service format.
-    // Do NOT use players.id (internal numeric ID); use ESPN athlete ID directly.
-    const golferId = `espn_${espnPlayerId}`;
-
-    // Check if golfer has score data: either linescores or top-level score field
-    const hasLinescores =
-      competitor.linescores &&
-      competitor.linescores.length > 0;
-
-    const hasScore =
-      competitor.score !== undefined &&
-      competitor.score !== null;
-
-    // Skip only if golfer has neither linescores nor score
-    if (!hasLinescores && !hasScore) {
-      skippedNoRoundData++;
-      continue;
-    }
-
-    // Extract holes with par and strokes from linescores (if available)
-    const holes = [];
-    if (hasLinescores) {
-      const roundData =
-        competitor.linescores.find(ls => ls.period === currentRound);
-
-      if (roundData && roundData.linescores) {
-        for (const hole of roundData.linescores) {
-          // Only include holes with valid strokes
-          if (typeof hole.value === 'number' && isFinite(hole.value)) {
-            // Par: try to extract from hole object, default to 4
-            const parValue = hole.par || 4;
-
-            holes.push({
-              hole_number: holes.length + 1,
-              par: parValue,
-              strokes: Math.round(hole.value)
-            });
-          }
-        }
-      }
-    }
-
-    // Leave holes empty if ESPN linescores are missing
-    // The scoring layer will detect empty holes and use leaderboard score directly
-    if (holes.length === 0 && !hasScore) {
-      skippedNoHoles++;
-      continue;
-    }
-
-    // Get golfer position for finish bonus
-    const position = competitor.position ? parseInt(competitor.position, 10) : 0;
-
-    golfers.push({
-      golfer_id: golferId,
-      holes,
-      position,
-      score: competitor.score
-    });
-  }
-
-  if (golfers.length === 0) {
-    console.warn(`[SCORING] No golfers with score data (skipped: ${skippedNoRoundData} no round, ${skippedNoHoles} no holes)`);
-    return [];
-  }
 
   // ── Step 5: Fetch template scoring strategy ──────────────────────────────────
   const configResult = await dbClient.query(
@@ -910,37 +845,152 @@ async function handleScoringIngestion(ctx, unit) {
     templateRules = configResult.rows[0].scoring_strategy_key;
   }
 
-  // ── Step 6: Score the round using pgaStandardScoring ─────────────────────
   const pgaStandardScoring = require('../../scoring/strategies/pgaStandardScoring');
+  const allFinalScores = [];
 
-  const scoringResult = pgaStandardScoring.scoreRound({
-    normalizedRoundPayload: {
-      event_id: providerEventId,
-      round_number: currentRound,
-      golfers,
-      is_final_round
-    },
-    templateRules
-  });
+  // ── Step 6: Score only new rounds (rounds 1 to currentRound not yet scored) ──
+  for (let roundNum = 1; roundNum <= currentRound; roundNum++) {
+    // IDEMPOTENCY CHECK: Skip if this round already has scores
+    // EXCEPTION: Allow final round to be reprocessed if tournament becomes STATUS_FINAL
+    // This ensures finish_bonus is applied even if round 4 was scored before tournament marked final
+    const isFinalRoundCandidate = roundNum === currentRound;
+    const shouldSkip = scoredRounds.has(roundNum) && !(isFinalRoundCandidate && is_final_round);
 
-  // ── Step 7: Add contest context to golfer scores ──────────────────────────
-  // Return scores shaped for golfer_event_scores table insertion
-  const finalScores = scoringResult.golfer_scores.map(score => ({
-    contest_instance_id: contestInstanceId,
-    golfer_id: score.golfer_id,
-    round_number: currentRound,
-    hole_points: score.hole_points,
-    bonus_points: score.bonus_points,
-    finish_bonus: score.finish_bonus,
-    total_points: score.total_points
-  }));
+    if (shouldSkip) {
+      console.log(`[SCORING] Round ${roundNum}: Already scored, skipping (idempotency)`);
+      continue;
+    }
 
-  // [SCORING DEBUG] Log parsed scores from ESPN
+    // Log if reprocessing final round due to tournament becoming final
+    if (scoredRounds.has(roundNum) && isFinalRoundCandidate && is_final_round) {
+      console.log(`[SCORING] Round ${roundNum}: Reprocessing final round to apply finish_bonus (tournament now marked STATUS_FINAL)`);
+    }
+
+    // ── Step 6a: Build golfers array for this specific round ────────────────
+    const golfers = [];
+    let skippedNoRoundData = 0;
+    let skippedNoHoles = 0;
+
+    for (const competitor of competitors) {
+      const espnPlayerId = String(competitor.id);
+      const golferId = `espn_${espnPlayerId}`;
+
+      // Check if golfer has score data: either linescores or top-level score field
+      const hasLinescores =
+        competitor.linescores &&
+        competitor.linescores.length > 0;
+
+      const hasScore =
+        competitor.score !== undefined &&
+        competitor.score !== null;
+
+      // Skip only if golfer has neither linescores nor score
+      if (!hasLinescores && !hasScore) {
+        skippedNoRoundData++;
+        continue;
+      }
+
+      // Extract holes with par and strokes from THIS SPECIFIC ROUND
+      const holes = [];
+      if (hasLinescores) {
+        const roundData =
+          competitor.linescores.find(ls => ls.period === roundNum);
+
+        if (roundData && roundData.linescores) {
+          for (const hole of roundData.linescores) {
+            // Only include holes with valid strokes
+            if (typeof hole.value === 'number' && isFinite(hole.value)) {
+              const parValue = hole.par || 4;
+              holes.push({
+                hole_number: holes.length + 1,
+                par: parValue,
+                strokes: Math.round(hole.value)
+              });
+            }
+          }
+        }
+      }
+
+      // Leave holes empty if ESPN linescores are missing for this round
+      if (holes.length === 0 && !hasScore) {
+        skippedNoHoles++;
+        continue;
+      }
+
+      // Get golfer position for finish bonus (only apply on final round)
+      const position = (roundNum === currentRound && is_final_round) ?
+        (competitor.position ? parseInt(competitor.position, 10) : 0) : 0;
+
+      golfers.push({
+        golfer_id: golferId,
+        holes,
+        position,
+        score: competitor.score
+      });
+    }
+
+    if (golfers.length === 0) {
+      console.warn(`[SCORING] Round ${roundNum}: No golfers with score data`);
+      continue;
+    }
+
+    // ── Step 6b: Score this round using pgaStandardScoring ──────────────────
+    const scoringResult = pgaStandardScoring.scoreRound({
+      normalizedRoundPayload: {
+        event_id: providerEventId,
+        round_number: roundNum,
+        golfers,
+        is_final_round: roundNum === currentRound && is_final_round
+      },
+      templateRules
+    });
+
+    // ── Step 6c: Add contest context to golfer scores for this round ────────
+    const roundScores = scoringResult.golfer_scores.map(score => ({
+      contest_instance_id: contestInstanceId,
+      golfer_id: score.golfer_id,
+      round_number: roundNum,
+      hole_points: score.hole_points,
+      bonus_points: score.bonus_points,
+      finish_bonus: score.finish_bonus,
+      total_points: score.total_points
+    }));
+
+    allFinalScores.push(...roundScores);
+    console.log(`[SCORING] Round ${roundNum}: Scored ${roundScores.length} golfers`);
+  }
+
+  if (allFinalScores.length === 0) {
+    console.log(`[SCORING] No new rounds to score (all rounds already processed)`);
+    return [];
+  }
+
+  const finalScores = allFinalScores;
+
+  // [SCORING DEBUG] Log all scores scored
   console.log(
-    "[SCORING DEBUG] Parsed leaderboard players:",
+    "[SCORING DEBUG] Total scores across all new rounds:",
     finalScores.length,
     "| contest:",
     contestInstanceId
+  );
+
+  // [SCORING DEBUG] Log round distribution before DB write
+  const roundDistribution = finalScores.reduce((acc, row) => {
+    acc[row.round_number] = (acc[row.round_number] || 0) + 1;
+    return acc;
+  }, {});
+  console.log('[SCORING DEBUG] finalScores round distribution:', roundDistribution);
+
+  // [SCORING DEBUG] Log sample rows to verify round_number field exists
+  console.log(
+    '[SCORING DEBUG] sample finalScores (first 12):',
+    finalScores.slice(0, 12).map(r => ({
+      golfer_id: r.golfer_id,
+      round_number: r.round_number,
+      hole_points: r.hole_points,
+      finish_bonus: r.finish_bonus
+    }))
   );
 
   return finalScores;

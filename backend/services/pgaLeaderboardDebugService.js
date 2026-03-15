@@ -112,12 +112,13 @@ async function getPgaLeaderboardWithScores(pool) {
     return [];
   }
 
-  // Step 4: Query golfer_event_scores with player names and score relative to par
+  // Step 4: Query golfer_event_scores with player names, score, and finish bonus
   const scoresResult = await pool.query(
     `SELECT
        ges.golfer_id,
        COALESCE(p.full_name, 'Unknown') as player_name,
        -SUM(COALESCE(ges.hole_points, 0)) as score_to_par,
+       SUM(COALESCE(ges.finish_bonus, 0)) as finish_bonus,
        SUM(
          COALESCE(ges.hole_points, 0) +
          COALESCE(ges.bonus_points, 0) +
@@ -140,6 +141,7 @@ async function getPgaLeaderboardWithScores(pool) {
       scoresMap[row.golfer_id] = {
         player_name: row.player_name || 'Unknown',
         score_to_par: row.score_to_par || 0,
+        finish_bonus: row.finish_bonus || 0,
         fantasy_score: row.fantasy_score || 0
       };
     }
@@ -159,13 +161,14 @@ async function getPgaLeaderboardWithScores(pool) {
     // Get scores and player name from database query
     const scoreData = scoresMap[normalizedGolferId] || { player_name: 'Unknown', score_to_par: 0, fantasy_score: 0 };
 
-    // Step 7: Build response object with score relative to par
+    // Step 7: Build response object with score, finish bonus, and fantasy score
     // Position will be calculated after sorting by score_to_par
     result.push({
       golfer_id: normalizedGolferId,
       player_name: scoreData.player_name,
       position: 0,  // Computed below after sorting
       score: scoreData.score_to_par,
+      finish_bonus: scoreData.finish_bonus,
       fantasy_score: scoreData.fantasy_score
     });
   }

@@ -11,6 +11,7 @@ export interface PgaLeaderboardEntry {
   player_name: string;
   position: number;
   score: number;
+  finish_bonus: number;
   fantasy_score: number;
 }
 
