@@ -10,7 +10,7 @@ export interface PgaLeaderboardEntry {
   golfer_id: string;
   player_name: string;
   position: number;
-  total_strokes: number;
+  score: number;
   fantasy_score: number;
 }
 
