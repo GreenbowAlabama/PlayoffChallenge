@@ -377,6 +377,7 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
       // ── GUARD 1: Pre-check for existing COMPLETE or RUNNING rows ──────────────
       // Query before INSERT to detect and skip already-processed work units
+      // EXCEPTION: SCORING units must always run (scores update every cycle)
       const preCheckResult = await executeQuery(
         client,
         `SELECT status
@@ -389,26 +390,33 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
       if (preCheckResult.rows.length > 0) {
         const existingStatus = preCheckResult.rows[0].status;
-        if (existingStatus === 'COMPLETE') {
-          skippedWorkUnits.push(workUnitKey);
-          summary.skipped++;
-          continue;
+
+        // SCORING units must run every cycle (scores update as tournament progresses)
+        // All other phases (PLAYER_POOL, FIELD_BUILD) are idempotent and can be skipped
+        if (enrichedUnit.phase !== 'SCORING') {
+          if (existingStatus === 'COMPLETE') {
+            skippedWorkUnits.push(workUnitKey);
+            summary.skipped++;
+            continue;
+          }
+          if (existingStatus === 'RUNNING') {
+            skippedWorkUnits.push(workUnitKey);
+            summary.skipped++;
+            continue;
+          }
+          if (existingStatus === 'ERROR') {
+            skippedWorkUnits.push(workUnitKey);
+            summary.skipped++;
+            continue;
+          }
         }
-        if (existingStatus === 'RUNNING') {
-          skippedWorkUnits.push(workUnitKey);
-          summary.skipped++;
-          continue;
-        }
-        if (existingStatus === 'ERROR') {
-          skippedWorkUnits.push(workUnitKey);
-          summary.skipped++;
-          continue;
-        }
+        // SCORING units fall through and are always processed
       }
 
       // ── GUARD 2: Atomic RUNNING insert ──────────────────────────────────────
       // Try to insert as RUNNING.
       // ON CONFLICT DO NOTHING ensures idempotency (skip if another worker inserted)
+      // EXCEPTION: SCORING units must always run (skip INSERT conflict check for SCORING)
       const insertResult = await executeQuery(
         client,
         `INSERT INTO ingestion_runs
@@ -421,14 +429,31 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
         { contestInstanceId, workUnitKey }
       );
 
+      let runId;
       if (insertResult.rows.length === 0) {
         // INSERT conflict: another worker already started or completed
-        skippedWorkUnits.push(workUnitKey);
-        summary.skipped++;
-        continue;
+        // EXCEPTION: Allow SCORING units to proceed anyway (scores must update every cycle)
+        if (enrichedUnit.phase !== 'SCORING') {
+          skippedWorkUnits.push(workUnitKey);
+          summary.skipped++;
+          continue;
+        }
+        // For SCORING units: fetch existing runId and proceed (re-processing is safe)
+        const existingRun = await executeQuery(
+          client,
+          `SELECT id FROM ingestion_runs
+           WHERE contest_instance_id = $1 AND work_unit_key = $2
+           LIMIT 1`,
+          [contestInstanceId, workUnitKey],
+          { contestInstanceId, workUnitKey }
+        );
+        if (existingRun.rows.length === 0) {
+          throw new Error(`SCORING unit runId lookup failed for ${workUnitKey}`);
+        }
+        runId = existingRun.rows[0].id;
+      } else {
+        runId = insertResult.rows[0].id;
       }
-
-      const runId = insertResult.rows[0].id;
 
       // ── Run adapter pipeline ────────────────────────────────────────────────
       try {
