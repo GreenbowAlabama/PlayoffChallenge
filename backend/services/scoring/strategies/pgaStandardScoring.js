@@ -92,6 +92,12 @@ function computeFinishBonus(position, finishBonusTable) {
  * `normalizedRoundPayload.is_final_round = true` on the highest round.
  * This strategy never assumes or hardcodes a round number.
  *
+ * TEMPORARY SCORING (v0.1):
+ * When template rules are not defined, uses simple par-based scoring:
+ * - hole_points = (par_total - strokes_total) * 1
+ * - bonus_points = 0
+ * - finish_bonus = finish position bonus (if final round)
+ *
  * @param {Object} params
  * @param {Object} params.normalizedRoundPayload
  * @param {Object} params.templateRules
@@ -108,6 +114,9 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
   const scoring          = (templateRules && templateRules.scoring)      || {};
   const finishBonusTable = (templateRules && templateRules.finish_bonus) || null;
 
+  // Check if we have template rules for complex scoring
+  const hasTemplateRules = scoring && Object.keys(scoring).length > 0;
+
   const golfer_scores = golfers.map((golfer) => {
     const { golfer_id, holes = [], position } = golfer;
 
@@ -119,22 +128,32 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
     );
 
     let hole_points = 0;
-    let bogeyFree   = true;
-
-    for (const hole of validHoles) {
-      const delta = hole.strokes - hole.par;
-      hole_points += holePoints(delta, scoring);
-      if (delta > 0) bogeyFree = false;
-    }
-
     let bonus_points = 0;
 
-    if (bogeyFree) {
-      bonus_points += safeNum(scoring.bogey_free_round_bonus);
-    }
+    // TEMPORARY SCORING: Use simple par-based calculation if no template rules
+    if (!hasTemplateRules) {
+      // hole_points = (par_total - strokes_total)
+      const parTotal = validHoles.reduce((sum, hole) => sum + hole.par, 0);
+      const strokesTotal = validHoles.reduce((sum, hole) => sum + hole.strokes, 0);
+      hole_points = parTotal - strokesTotal;
+      bonus_points = 0;
+    } else {
+      // STANDARD SCORING: Use template rules for per-hole scoring
+      let bogeyFree = true;
 
-    if (scoring.streak_bonus) {
-      bonus_points += computeStreakBonus(validHoles, scoring.streak_bonus);
+      for (const hole of validHoles) {
+        const delta = hole.strokes - hole.par;
+        hole_points += holePoints(delta, scoring);
+        if (delta > 0) bogeyFree = false;
+      }
+
+      if (bogeyFree) {
+        bonus_points += safeNum(scoring.bogey_free_round_bonus);
+      }
+
+      if (scoring.streak_bonus) {
+        bonus_points += computeStreakBonus(validHoles, scoring.streak_bonus);
+      }
     }
 
     const finish_bonus = is_final_round
