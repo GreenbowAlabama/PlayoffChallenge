@@ -18,7 +18,7 @@ const axios = require('axios');
 
 const logger = console; // TODO: Replace with structured logger
 
-const httpsAgent = require('../../utils/httpAgent');
+const httpsAgent = require('../../../utils/httpAgent');
 
 /**
  * Fetch golfers from ESPN PGA scoreboard endpoint.
