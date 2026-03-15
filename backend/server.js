@@ -3459,7 +3459,7 @@ function startServer() {
     if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID) {
       setTimeout(() => startLifecycleReconciler(pool), 5000); // Start after 5 seconds
       setTimeout(async () => { await startDiscoveryWorker(pool); }, 5000); // Start after 5 seconds
-      setTimeout(() => startIngestionWorker(pool), 5000); // Start after 5 seconds
+      setTimeout(() => startIngestionWorker(pool), 10000); // Start after 10 seconds
       setTimeout(() => startWithdrawalProcessor(pool), 5000); // Start after 5 seconds
     }
   });

@@ -15,16 +15,10 @@
 'use strict';
 
 const axios = require('axios');
-const https = require('https');
 
 const logger = console; // TODO: Replace with structured logger
 
-// Custom HTTPS agent to fix ESPN/Cloudflare CDN timeout issues
-const httpsAgent = new https.Agent({
-  keepAlive: true,
-  maxSockets: 10,
-  timeout: 30000
-});
+const httpsAgent = require('../../utils/httpAgent');
 
 /**
  * Fetch golfers from ESPN PGA scoreboard endpoint.

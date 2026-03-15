@@ -18,17 +18,10 @@
 'use strict';
 
 const axios = require('axios');
-const https = require('https');
 
 const logger = console; // TODO: Replace with structured logger
 
-// Custom HTTPS agent to fix ESPN/Cloudflare CDN timeout issues
-// Axios defaults to Node's HTTP agent which struggles with HTTP/2
-const httpsAgent = new https.Agent({
-  keepAlive: true,
-  maxSockets: 10,
-  timeout: 30000
-});
+const httpsAgent = require('../../utils/httpAgent');
 
 /**
  * In-cycle leaderboard cache (request-level, not persistent).

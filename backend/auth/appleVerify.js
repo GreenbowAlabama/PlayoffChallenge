@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
+const httpsAgent = require('../utils/httpAgent');
 
 // In-memory cache for Apple JWKs (public keys)
 const appleJwksClient = jwksClient({
@@ -158,7 +159,8 @@ async function exchangeAppleAuthCode(code, clientId, clientSecret, redirectUri) 
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded'
     },
-    body: params.toString()
+    body: params.toString(),
+    agent: httpsAgent
   });
 
   if (!response.ok) {
