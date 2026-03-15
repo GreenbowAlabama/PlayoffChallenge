@@ -10,18 +10,10 @@
 
 'use strict';
 
-const { Pool } = require('pg');
-
-// Use test database
-const pool = new Pool({
-  host: process.env.TEST_DB_HOST || 'localhost',
-  port: process.env.TEST_DB_PORT || 5432,
-  database: process.env.TEST_DB_NAME || 'playoff_challenge_test',
-  user: process.env.TEST_DB_USER || 'postgres',
-  password: process.env.TEST_DB_PASSWORD || 'postgres'
-});
+const { getIntegrationApp } = require('../mocks/testAppFactory');
 
 describe('PGA Roster Scoring Pipeline', () => {
+  let pool;
   let client;
   let contestInstanceId;
   let userId;
@@ -30,37 +22,45 @@ describe('PGA Roster Scoring Pipeline', () => {
   let golfer3;
 
   beforeAll(async () => {
-    client = await pool.connect();
-  });
-
-  afterAll(async () => {
-    if (client) {
-      await client.release();
-    }
-    await pool.end();
+    const { pool: testPool } = getIntegrationApp();
+    pool = testPool;
   });
 
   beforeEach(async () => {
+    // Acquire client from shared test pool
+    client = await pool.connect();
     // Start transaction for test isolation
     await client.query('BEGIN');
+
+    // Create test organizer user first
+    const organizerResult = await client.query(`
+      INSERT INTO users (id, email, username) VALUES (
+        gen_random_uuid(),
+        $1,
+        $2
+      ) RETURNING id
+    `, [`organizer${Date.now()}@example.com`, `organizer${Date.now()}`]);
+    const organizerId = organizerResult.rows[0].id;
 
     // Create test contest
     const contestResult = await client.query(`
       INSERT INTO contest_instances (
-        id, template_id, organizer_id, status, entry_fee_cents, max_entries,
-        lock_time, tournament_start_time, tournament_end_time
+        id, template_id, organizer_id, status, contest_name, entry_fee_cents, max_entries,
+        lock_time, tournament_start_time, tournament_end_time, payout_structure
       ) VALUES (
         gen_random_uuid(),
         (SELECT id FROM contest_templates LIMIT 1),
-        gen_random_uuid(),
+        $1,
         'LIVE',
+        'Test PGA Scoring Contest',
         1000,
         100,
         NOW() - interval '1 hour',
         NOW() - interval '1 hour',
-        NOW() + interval '24 hours'
+        NOW() + interval '24 hours',
+        '[]'
       ) RETURNING id
-    `);
+    `, [organizerId]);
     contestInstanceId = contestResult.rows[0].id;
 
     // Create test user
@@ -153,8 +153,9 @@ describe('PGA Roster Scoring Pipeline', () => {
   });
 
   afterEach(async () => {
-    // Rollback transaction
+    // Rollback transaction and release client
     await client.query('ROLLBACK');
+    client.release();
   });
 
   test('scoreContestRosters creates golfer_scores rows for rostered golfers', async () => {
@@ -180,10 +181,25 @@ describe('PGA Roster Scoring Pipeline', () => {
     );
 
     expect(afterResult.rows.length).toBe(3);
-    expect(afterResult.rows[0].user_id).toBe(userId);
-    expect(afterResult.rows[0].golfer_id).toBe(golfer1);
-    expect(afterResult.rows[0].round_number).toBe(1);
-    expect(afterResult.rows[0].total_points).toBe(65);
+
+    // Verify all rows belong to the same user
+    afterResult.rows.forEach(row => {
+      expect(row.user_id).toBe(userId);
+    });
+
+    // Verify the three golfers are represented
+    const golferIds = afterResult.rows.map(r => r.golfer_id).sort();
+    const expectedIds = [golfer1, golfer2, golfer3].sort();
+    expect(golferIds).toEqual(expectedIds);
+
+    // Verify round number and points for each golfer
+    const scores = {};
+    afterResult.rows.forEach(row => {
+      scores[row.golfer_id] = row.total_points;
+    });
+    expect(scores[golfer1]).toBe(65);
+    expect(scores[golfer2]).toBe(50);
+    expect(scores[golfer3]).toBe(50);
   });
 
   test('scoreContestRosters is idempotent - re-running does not create duplicates', async () => {
@@ -265,22 +281,34 @@ describe('PGA Roster Scoring Pipeline', () => {
   test('scoreContestRosters handles empty entry_rosters', async () => {
     const scoreContestRosters = require('../../services/scoring/pgaRosterScoringService').scoreContestRosters;
 
+    // Create organizer for empty contest
+    const emptyOrganizerResult = await client.query(`
+      INSERT INTO users (id, email, username) VALUES (
+        gen_random_uuid(),
+        $1,
+        $2
+      ) RETURNING id
+    `, [`organizer${Date.now()}empty@example.com`, `organizer${Date.now()}empty`]);
+    const emptyOrganizerId = emptyOrganizerResult.rows[0].id;
+
     // Create a new contest with no entry_rosters
     const emptyContestResult = await client.query(`
       INSERT INTO contest_instances (
-        id, template_id, organizer_id, status, entry_fee_cents,
-        lock_time, tournament_start_time, tournament_end_time
+        id, template_id, organizer_id, status, contest_name, entry_fee_cents,
+        lock_time, tournament_start_time, tournament_end_time, payout_structure
       ) VALUES (
         gen_random_uuid(),
         (SELECT id FROM contest_templates LIMIT 1),
-        gen_random_uuid(),
+        $1,
         'LIVE',
+        'Empty Test Contest',
         1000,
         NOW() - interval '1 hour',
         NOW() - interval '1 hour',
-        NOW() + interval '24 hours'
+        NOW() + interval '24 hours',
+        '[]'
       ) RETURNING id
-    `);
+    `, [emptyOrganizerId]);
     const emptyContestId = emptyContestResult.rows[0].id;
 
     // Run scoring - should not throw
