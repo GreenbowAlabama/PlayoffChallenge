@@ -292,9 +292,22 @@ async function getWorkUnits(ctx) {
       ? providerEventId.replace(/^espn_pga_/, '')
       : providerEventId;
 
-    // Fetch tournament field from ESPN leaderboard (optimized for player pool)
-    // Returns complete field with tee times and positions
-    golfers = await espnPgaPlayerService.fetchTournamentField(espnEventId);
+    // ── Event-scoped caching for PLAYER_POOL ────────────────────────────────
+    // Multiple contests sharing the same provider_event_id will reuse the cached
+    // field within a single ingestion cycle. Cache is lifecycle-scoped to one cycle.
+    if (!ctx.__eventCache) {
+      ctx.__eventCache = new Map();
+    }
+
+    const fieldCacheKey = `field:${espnEventId}`;
+    if (ctx.__eventCache.has(fieldCacheKey)) {
+      golfers = ctx.__eventCache.get(fieldCacheKey);
+    } else {
+      // Fetch tournament field from ESPN leaderboard (optimized for player pool)
+      // Returns complete field with tee times and positions
+      golfers = await espnPgaPlayerService.fetchTournamentField(espnEventId);
+      ctx.__eventCache.set(fieldCacheKey, golfers);
+    }
   } catch (err) {
     console.warn('[pgaEspnIngestion] Failed to fetch tournament field for PLAYER_POOL units:', err.message);
     // Don't throw - allow graceful degradation
@@ -361,14 +374,15 @@ async function getWorkUnits(ctx) {
       ctx.__eventCache = new Map();
     }
 
-    // Check cache for this event
+    // Check cache for this event (using namespaced key to avoid collisions)
+    const leaderboardCacheKey = `leaderboard:${espnEventId}`;
     let leaderboard;
-    if (ctx.__eventCache.has(espnEventId)) {
-      leaderboard = ctx.__eventCache.get(espnEventId);
+    if (ctx.__eventCache.has(leaderboardCacheKey)) {
+      leaderboard = ctx.__eventCache.get(leaderboardCacheKey);
     } else {
       // Fetch from ESPN and cache for remaining contests in this cycle
       leaderboard = await espnPgaApi.fetchLeaderboard({ eventId: espnEventId });
-      ctx.__eventCache.set(espnEventId, leaderboard);
+      ctx.__eventCache.set(leaderboardCacheKey, leaderboard);
     }
 
     // Create SCORING unit with fetched leaderboard

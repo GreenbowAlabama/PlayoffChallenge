@@ -19,8 +19,10 @@
 /**
  * Get PGA leaderboard with computed fantasy scores
  *
- * Fetches the most recent PGA contest and returns current leaderboard
- * with cumulative fantasy scores across all rounds.
+ * ALWAYS displays the PGA tournament leaderboard using golfer_event_scores,
+ * and overlays fantasy scoring from golfer_scores when it exists.
+ *
+ * Works even when no contest entries exist (golfer_event_scores is independent of entries).
  *
  * Returns response matching OpenAPI PgaLeaderboardEntry schema exactly:
  * - golfer_id (string)
@@ -50,7 +52,7 @@ async function getPgaLeaderboardWithScores(pool) {
 
   const contestId = contestResult.rows[0].contest_id;
 
-  // Step 2: Get the latest leaderboard snapshot for this contest
+  // Step 2: Get the latest leaderboard snapshot for this contest (raw tournament data)
   const snapshotResult = await pool.query(
     `SELECT payload
      FROM event_data_snapshots
@@ -79,8 +81,7 @@ async function getPgaLeaderboardWithScores(pool) {
     return [];
   }
 
-  // Step 4: Fetch player names for only those golfers (constrained query)
-  // Note: players.id is the golfer_id, players.full_name is the player name
+  // Step 4: Fetch player names for only those golfers
   const playersResult = await pool.query(
     `SELECT id as golfer_id, full_name as player_name
      FROM players
@@ -93,24 +94,31 @@ async function getPgaLeaderboardWithScores(pool) {
     playerNameMap[row.golfer_id] = row.player_name;
   });
 
-  // Step 5: Aggregate fantasy scores (cumulative across all rounds)
+  // Step 5: Query golfer_event_scores with LEFT JOIN to golfer_scores overlay
+  // This ensures we always have the tournament leaderboard, overlaying fantasy points when available
   const scoresResult = await pool.query(
     `SELECT
-       golfer_id,
-       SUM(total_points) as fantasy_score
-     FROM golfer_scores
-     WHERE contest_instance_id = $1
-       AND golfer_id = ANY($2)
-     GROUP BY golfer_id`,
+       ges.golfer_id,
+       SUM(ges.total_points) as event_total_points,
+       COALESCE(SUM(gs.total_points), 0) as fantasy_score
+     FROM golfer_event_scores ges
+     LEFT JOIN golfer_scores gs ON gs.golfer_id = ges.golfer_id
+       AND gs.contest_instance_id = ges.contest_instance_id
+     WHERE ges.contest_instance_id = $1
+       AND ges.golfer_id = ANY($2)
+     GROUP BY ges.golfer_id`,
     [contestId, golferIds]
   );
 
   const scoresMap = {};
   scoresResult.rows.forEach(row => {
-    scoresMap[row.golfer_id] = row.fantasy_score || 0;
+    scoresMap[row.golfer_id] = {
+      event_points: row.event_total_points || 0,
+      fantasy_score: row.fantasy_score || 0
+    };
   });
 
-  // Step 6: Merge snapshot leaderboard + scores
+  // Step 6: Merge snapshot leaderboard (with strokes) + scores overlay
   const result = [];
 
   for (const golfer of leaderboardPayload.golfers) {
@@ -120,25 +128,25 @@ async function getPgaLeaderboardWithScores(pool) {
 
     // Calculate total strokes from holes in snapshot
     let totalStrokes = 0;
-    let totalPar = 0;
 
     if (golfer.holes && Array.isArray(golfer.holes)) {
       for (const hole of golfer.holes) {
-        if (typeof hole.strokes === 'number' && typeof hole.par === 'number') {
+        if (typeof hole.strokes === 'number') {
           totalStrokes += hole.strokes;
-          totalPar += hole.par;
         }
       }
     }
 
+    // Get overlay scores (fantasy points from per-roster scoring)
+    const scoreData = scoresMap[golfer.golfer_id] || { event_points: 0, fantasy_score: 0 };
+
     // Step 7: Build response object matching OpenAPI schema exactly
-    // No additional fields allowed
     result.push({
       golfer_id: golfer.golfer_id,
       player_name: playerNameMap[golfer.golfer_id] || 'Unknown',
       position: golfer.position || 0,
       total_strokes: totalStrokes,
-      fantasy_score: scoresMap[golfer.golfer_id] || 0
+      fantasy_score: scoreData.fantasy_score
     });
   }
 
