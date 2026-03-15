@@ -890,15 +890,18 @@ async function handleScoringIngestion(ctx, unit) {
     return [];
   }
 
-  // ── Step 6: Fetch template scoring rules ──────────────────────────────────
+  // ── Step 6: Fetch template scoring strategy ──────────────────────────────────
   const configResult = await dbClient.query(
-    `SELECT scoring_config FROM tournament_configs WHERE contest_instance_id = $1`,
+    `SELECT ct.scoring_strategy_key
+     FROM contest_instances ci
+     JOIN contest_templates ct ON ci.template_id = ct.id
+     WHERE ci.id = $1`,
     [contestInstanceId]
   );
 
   let templateRules = {};
-  if (configResult.rows.length > 0 && configResult.rows[0].scoring_config) {
-    templateRules = configResult.rows[0].scoring_config;
+  if (configResult.rows.length > 0 && configResult.rows[0].scoring_strategy_key) {
+    templateRules = configResult.rows[0].scoring_strategy_key;
   }
 
   // ── Step 7: Score the round using pgaStandardScoring ─────────────────────
