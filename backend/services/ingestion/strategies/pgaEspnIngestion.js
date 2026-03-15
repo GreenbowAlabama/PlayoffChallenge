@@ -179,28 +179,31 @@ function validateConfig(input) {
  * @throws {Error} If required structure is missing
  */
 function normalizeEspnPayload(providerData) {
-  // Validate base structure
-  if (!providerData || typeof providerData !== 'object' || !Array.isArray(providerData.events)) {
-    throw new Error('events array is missing or empty');
+  // Validate base structure and extract competitors (handles both formats)
+  if (!providerData || typeof providerData !== 'object') {
+    throw new Error('providerData is required and must be an object');
   }
 
-  const events = providerData.events;
-  if (!events || events.length === 0) {
-    throw new Error('events array is missing or empty');
-  }
+  let competitors = [];
 
-  const event = events[0];
-  if (!event || !Array.isArray(event.competitions)) {
-    throw new Error('competitions array is missing');
+  // New format: competitors directly at root (ESPN /scoreboard endpoint)
+  if (Array.isArray(providerData.competitors) && providerData.competitors.length > 0) {
+    competitors = providerData.competitors;
   }
-
-  const competition = event.competitions[0];
-  if (!competition || !Array.isArray(competition.competitors)) {
-    throw new Error('competitors array is missing');
+  // Old format: nested under events > competitions
+  else if (Array.isArray(providerData.events) && providerData.events.length > 0) {
+    const event = providerData.events[0];
+    if (!event || !Array.isArray(event.competitions) || event.competitions.length === 0) {
+      throw new Error('competitors array is missing in events format');
+    }
+    const competition = event.competitions[0];
+    if (!competition || !Array.isArray(competition.competitors) || competition.competitors.length === 0) {
+      throw new Error('competitors array is missing in competitions');
+    }
+    competitors = competition.competitors;
+  } else {
+    throw new Error('competitors array is missing in both formats (direct or nested)');
   }
-
-  // Extract and normalize competitors
-  const competitors = competition.competitors || [];
   const normalizedCompetitors = [];
 
   competitors.forEach(competitor => {
@@ -772,32 +775,33 @@ async function handleScoringIngestion(ctx, unit) {
   const providerData = unit.providerData;
   const providerEventId = unit.providerEventId;
 
-  // ── Step 1: Parse ESPN structure and find correct event ─────────────────────
-  const events = providerData.events || [];
-  if (events.length === 0) {
-    console.warn(`[SCORING] No events in leaderboard response, returning empty`);
-    return [];
+  // ── Step 1: Parse ESPN structure (handles both old and new formats) ────────
+  // ESPN endpoints return different structures:
+  // - New format (/scoreboard): { competitors: [...] }
+  // - Old format (full event): { events: [{competitions: [{competitors: [...]}]}] }
+  // Extract competitors regardless of which format we receive.
+
+  let competitors = [];
+
+  // Try new format first: direct competitors at root (most common now)
+  if (Array.isArray(providerData.competitors) && providerData.competitors.length > 0) {
+    competitors = providerData.competitors;
+    console.log(`[SCORING] Using scoreboard format (direct competitors)`);
+  }
+  // Fallback to old format: nested under events > competitions
+  else if (Array.isArray(providerData.events) && providerData.events.length > 0) {
+    const eventId = providerEventId.replace(/^espn_pga_/, '');
+    const event = providerData.events.find(e => e.id === eventId);
+
+    if (event && Array.isArray(event.competitions) && event.competitions.length > 0) {
+      const competition = event.competitions[0];
+      competitors = competition.competitors || [];
+      console.log(`[SCORING] Using event format (nested competitions)`);
+    }
   }
 
-  // Strip espn_pga_ prefix from providerEventId to match ESPN API response format
-  const eventId = providerEventId.replace(/^espn_pga_/, '');
-
-  // Find event matching eventId (not just events[0])
-  const event = events.find(e => e.id === eventId);
-  if (!event) {
-    throw new Error(`handleScoringIngestion: Event ${providerEventId} not found in leaderboard response`);
-  }
-
-  const competitions = event.competitions || [];
-  if (competitions.length === 0) {
-    console.warn(`[SCORING] No competitions in event, returning empty`);
-    return [];
-  }
-
-  const competition = competitions[0];
-  const competitors = competition.competitors || [];
   if (competitors.length === 0) {
-    console.warn(`[SCORING] No competitors in competition, returning empty`);
+    console.warn(`[SCORING] No competitors found in either format, returning empty`);
     return [];
   }
 
