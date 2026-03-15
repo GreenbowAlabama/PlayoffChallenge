@@ -801,25 +801,7 @@ async function handleScoringIngestion(ctx, unit) {
     return [];
   }
 
-  // ── Step 2: Build ESPN → Database golfer ID map ──────────────────────────
-  // Query players table by espn_id to find golfer IDs in database
-  const espnIds = competitors
-    .map(c => String(c.id))
-    .filter(id => id);
-
-  const espnToDbMap = {};
-  if (espnIds.length > 0) {
-    const playersResult = await dbClient.query(
-      `SELECT id, espn_id FROM players WHERE espn_id = ANY($1)`,
-      [espnIds]
-    );
-
-    for (const row of playersResult.rows) {
-      espnToDbMap[row.espn_id] = row.id;
-    }
-  }
-
-  // ── Step 3: Determine current round number ───────────────────────────────
+  // ── Step 2: Determine current round number ───────────────────────────────
   // Round number = highest period in competitors' linescores
   let currentRound = 1;
   for (const competitor of competitors) {
@@ -832,12 +814,14 @@ async function handleScoringIngestion(ctx, unit) {
     }
   }
 
-  // ── Step 4: Determine final round status ──────────────────────────────────
+  // ── Step 3: Determine final round status ──────────────────────────────────
   // ESPN uses STATUS_FINAL when tournament is complete
   const is_final_round = event.status?.type?.name === 'STATUS_FINAL' || false;
 
-  // ── Step 5: Build golfers array for scoreRound() ─────────────────────────
+  // ── Step 4: Build golfers array for scoreRound() ─────────────────────────
   // For each competitor, extract round data and build holes array
+  // CRITICAL: golfer_id must be normalized to espn_<athleteId> format
+  // to match leaderboard service expectations (pgaLeaderboardDebugService.js line 107)
   const golfers = [];
 
   let skippedNoRoundData = 0;
@@ -845,12 +829,11 @@ async function handleScoringIngestion(ctx, unit) {
 
   for (const competitor of competitors) {
     const espnPlayerId = String(competitor.id);
-    const dbGolferId = espnToDbMap[espnPlayerId];
 
-    // Skip golfers not in contest field
-    if (!dbGolferId) {
-      continue;
-    }
+    // Normalize golfer_id to ESPN format: espn_<athleteId>
+    // This is the canonical scoring identity, matching leaderboard service format.
+    // Do NOT use players.id (internal numeric ID); use ESPN athlete ID directly.
+    const golferId = `espn_${espnPlayerId}`;
 
     // Check if golfer has score data: either linescores or top-level score field
     const hasLinescores =
@@ -911,7 +894,7 @@ async function handleScoringIngestion(ctx, unit) {
     const position = competitor.position ? parseInt(competitor.position, 10) : 0;
 
     golfers.push({
-      golfer_id: dbGolferId,
+      golfer_id: golferId,
       holes,
       position
     });
@@ -922,7 +905,7 @@ async function handleScoringIngestion(ctx, unit) {
     return [];
   }
 
-  // ── Step 6: Fetch template scoring strategy ──────────────────────────────────
+  // ── Step 5: Fetch template scoring strategy ──────────────────────────────────
   const configResult = await dbClient.query(
     `SELECT ct.scoring_strategy_key
      FROM contest_instances ci
@@ -936,7 +919,7 @@ async function handleScoringIngestion(ctx, unit) {
     templateRules = configResult.rows[0].scoring_strategy_key;
   }
 
-  // ── Step 7: Score the round using pgaStandardScoring ─────────────────────
+  // ── Step 6: Score the round using pgaStandardScoring ─────────────────────
   const pgaStandardScoring = require('../../scoring/strategies/pgaStandardScoring');
 
   const scoringResult = pgaStandardScoring.scoreRound({
@@ -949,7 +932,7 @@ async function handleScoringIngestion(ctx, unit) {
     templateRules
   });
 
-  // ── Step 8: Add contest context to golfer scores ──────────────────────────
+  // ── Step 7: Add contest context to golfer scores ──────────────────────────
   // Return scores shaped for golfer_event_scores table insertion
   const finalScores = scoringResult.golfer_scores.map(score => ({
     contest_instance_id: contestInstanceId,
@@ -1166,6 +1149,25 @@ async function upsertScores(ctx, normalizedScores) {
     );
   });
 
+  // ── CANONICAL SCORING IDENTITY ──────────────────────────────────────────
+  // CRITICAL INVARIANT:
+  // golfer_event_scores.golfer_id MUST ALWAYS BE in format: espn_<athleteId>
+  //
+  // This format is the single source of truth for golfer identity across:
+  // - pgaLeaderboardDebugService.js (expects espn_<athleteId> at line 107)
+  // - leaderboard overlays and scoring displays
+  // - player roster matching
+  //
+  // DO NOT use players.id (internal numeric ID) for golfer_event_scores.
+  // The players.id lookup was removed in favor of direct ESPN ID normalization
+  // to ensure consistency and prevent ID format mismatches.
+  //
+  // If you need to change this format, update ALL of:
+  // 1. pgaEspnIngestion.js (handleScoringIngestion, lines 830-836)
+  // 2. pgaLeaderboardDebugService.js (getPgaLeaderboardWithScores, line 107)
+  // 3. All schema references and tests
+  //
+  // Future-proof this decision: normalize at ingestion time, not query time.
   await dbClient.query(`
     INSERT INTO golfer_event_scores (
       contest_instance_id,

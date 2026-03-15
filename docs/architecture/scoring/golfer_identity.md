@@ -87,18 +87,23 @@ const normalizedId = `espn_${rawEspnId}`;
 
 ### ✅ Services That Normalize
 
-1. **pgaLeaderboardDebugService.js** (lines 79-84)
-   - Extracts `competitor.athlete.id` from snapshots
-   - Normalizes to `espn_` format
-   - Queries `golfer_event_scores` with normalized IDs
+1. **pgaEspnIngestion.js** (handleScoringIngestion, lines 830-836)
+   - **PRIMARY PRODUCER** of normalized golfer IDs
+   - Extracts `competitor.id` from ESPN leaderboard payload
+   - Normalizes to `espn_<athleteId>` format at ingestion time
+   - Writes normalized IDs directly to `golfer_event_scores`
+   - **Key design:** Normalize at ingestion, not query time
 
-2. **pgaEspnIngestion.js** (handleScoringIngestion)
-   - Parses ESPN leaderboard data
-   - Normalizes golfer IDs before writing to `golfer_event_scores`
+2. **pgaLeaderboardDebugService.js** (getPgaLeaderboardWithScores, line 107)
+   - Extracts `competitor.athlete.id` from snapshots
+   - Normalizes to same `espn_<athleteId>` format
+   - Queries `golfer_event_scores` with normalized IDs
+   - Used for diagnostic/overlay purposes
 
 3. **pgaRosterScoringService.js** (scoreContestRosters)
    - JOINs entry rosters to golfer event scores
    - Assumes golfer IDs are already normalized
+   - Reads pre-normalized IDs from entry_rosters
 
 ### ❌ Services That Must NOT Normalize
 

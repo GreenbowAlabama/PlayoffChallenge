@@ -17,20 +17,28 @@ Fetch provider_event_id from tournament_configs
     ↓
 fetchLeaderboard() (ESPN API)
     ↓
-Construct SCORING work unit
+Construct SCORING work unit with leaderboard payload
     ↓
 run() → pgaEspnIngestion (adapter)
     ↓
 handleScoringIngestion()
+    ├─ Parse competitors from payload
+    ├─ Normalize golfer_id: espn_<athleteId>
+    ├─ Extract holes and strokes
+    └─ Call pgaStandardScoring.scoreRound()
     ↓
-pgaStandardScoring.scoreRound()
+scoreRound() → compute points per golfer
     ↓
-golfer_event_scores
+upsertScores() → batch insert to golfer_event_scores
+    ↓
+golfer_event_scores (canonical storage)
     ↓
 pgaEntryAggregation (future phase)
     ↓
 Contest Leaderboard
 ```
+
+**Key Simplification:** No players table lookup. Golfer IDs are normalized directly from ESPN payload during ingestion.
 
 ---
 
@@ -107,50 +115,46 @@ Each competitor contains hole-level scoring data.
 
 ---
 
-### 2. Golfer Mapping & ID Normalization
+### 2. Golfer ID Normalization (Canonical Identity)
 
-Provider IDs must be mapped to internal golfer IDs.
+Provider IDs must be normalized to the canonical platform format.
 
-**ID Normalization Rule (CRITICAL):**
+**ID Normalization Rule (FROZEN):**
 
 ESPN leaderboard payloads provide raw athlete IDs (numeric strings):
 ```
-competitor.athlete.id = "10030"
+competitor.id = "10030"
 ```
 
-These must be normalized to the platform format:
+These are normalized directly to the platform format:
 ```
 golfer_id = "espn_10030"
 ```
 
-**Why normalization is required:**
-- `golfer_event_scores.golfer_id` stores normalized provider IDs
-- The leaderboard diagnostic service (`pgaLeaderboardDebugService.js`) extracts from `payload.competitors[]` and normalizes all IDs
-- Failure to normalize causes JOIN mismatches between snapshots and scoring tables
+**Why normalization at ingestion time:**
+- `golfer_event_scores.golfer_id` stores the canonical `espn_<athleteId>` format
+- The leaderboard diagnostic service (`pgaLeaderboardDebugService.js`) generates the same format when parsing snapshots
+- Consistency between scoring pipeline and leaderboard overlays prevents JOIN mismatches
+- Direct normalization eliminates unnecessary database lookups
 
 **Normalization Implementation:**
 ```javascript
-const golferIds = leaderboardPayload.competitors
-  .map(c => {
-    const id = c.athlete?.id || c.id;
-    return id ? `espn_${id}` : null;
-  })
-  .filter(Boolean);
+// In handleScoringIngestion (lines 830-836)
+const espnPlayerId = String(competitor.id);
+const golferId = `espn_${espnPlayerId}`;
+
+golfers.push({
+  golfer_id: golferId,  // ← Canonical format written directly
+  holes,
+  position
+});
 ```
 
-**Query after normalization:**
-
-```sql
-SELECT id, espn_id
-FROM players
-WHERE id = ANY($1)  -- Where $1 = [espn_10030, espn_10031, ...]
-```
-
-**Result:**
-
-ESPN `athlete.id` (normalized) → Platform `golfer_id`
-
-Golfers not present in the `players` table are skipped.
+**Key Design Decision:**
+- Normalize at **ingestion time**, not query time
+- No database lookup needed
+- Format is deterministic from ESPN payload
+- All services (ingestion, leaderboard, scoring) use same format
 
 ---
 
