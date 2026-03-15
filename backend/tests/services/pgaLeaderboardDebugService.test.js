@@ -39,13 +39,17 @@ describe('pgaLeaderboardDebugService', () => {
                   id: 'irrelevant',
                   athlete: { id: athleteId1 },
                   position: 1,
-                  holes: [{ strokes: 3 }, { strokes: 4 }]
+                  linescores: [
+                    { linescores: [{ value: 3 }, { value: 4 }] }
+                  ]
                 },
                 {
                   id: 'irrelevant2',
                   athlete: { id: athleteId2 },
                   position: 2,
-                  holes: [{ strokes: 5 }, { strokes: 3 }]
+                  linescores: [
+                    { linescores: [{ value: 5 }, { value: 3 }] }
+                  ]
                 }
               ]
             }
@@ -105,7 +109,7 @@ describe('pgaLeaderboardDebugService', () => {
                 {
                   id: fallbackId,
                   position: 1,
-                  holes: []
+                  linescores: []
                 }
               ]
             }
@@ -182,12 +186,12 @@ describe('pgaLeaderboardDebugService', () => {
                 {
                   // No id, no athlete.id — should be skipped
                   position: 1,
-                  holes: []
+                  linescores: []
                 },
                 {
                   athlete: { id: validId },
                   position: 2,
-                  holes: []
+                  linescores: []
                 }
               ]
             }

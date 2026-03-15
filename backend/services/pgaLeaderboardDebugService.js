@@ -146,13 +146,24 @@ async function getPgaLeaderboardWithScores(pool) {
 
     const normalizedGolferId = `espn_${competitorId}`;
 
-    // Calculate total strokes from holes in snapshot
+    // Calculate total strokes from ESPN linescores structure
     let totalStrokes = 0;
 
-    if (competitor.holes && Array.isArray(competitor.holes)) {
-      for (const hole of competitor.holes) {
-        if (typeof hole.strokes === 'number') {
-          totalStrokes += hole.strokes;
+    // Check if ESPN provides total directly (optimization)
+    if (typeof competitor.total === 'number') {
+      totalStrokes = competitor.total;
+    } else {
+      // Compute from linescores: competitor.linescores[].linescores[].value
+      // where period = round, linescores = holes, value = strokes
+      if (Array.isArray(competitor.linescores)) {
+        for (const round of competitor.linescores) {
+          if (!Array.isArray(round.linescores)) continue;
+
+          for (const hole of round.linescores) {
+            if (typeof hole.value === 'number') {
+              totalStrokes += hole.value;
+            }
+          }
         }
       }
     }
