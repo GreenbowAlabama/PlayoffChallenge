@@ -148,7 +148,11 @@ async function getPgaLeaderboardWithScores(pool) {
   const scoresResult = await pool.query(
     `SELECT
        ges.golfer_id,
-       COALESCE(SUM(ges.total_points), 0) as fantasy_score
+       SUM(
+         COALESCE(ges.hole_points, 0) +
+         COALESCE(ges.bonus_points, 0) +
+         COALESCE(ges.finish_bonus, 0)
+       ) as fantasy_score
      FROM golfer_event_scores ges
      WHERE ges.contest_instance_id = $1
        AND ges.golfer_id = ANY($2)
