@@ -820,30 +820,53 @@ async function handleScoringIngestion(ctx, unit) {
       continue;
     }
 
-    // Find round data for current round
-    const roundData =
-      competitor.linescores && competitor.linescores.find(ls => ls.period === currentRound);
+    // Check if golfer has score data: either linescores or top-level score field
+    const hasLinescores =
+      competitor.linescores &&
+      competitor.linescores.length > 0;
 
-    if (!roundData || !roundData.linescores) {
-      // No score data for this round yet
+    const hasScore =
+      competitor.score !== undefined &&
+      competitor.score !== null;
+
+    // Skip only if golfer has neither linescores nor score
+    if (!hasLinescores && !hasScore) {
       skippedNoRoundData++;
       continue;
     }
 
-    // Extract holes with par and strokes
+    // Extract holes with par and strokes from linescores (if available)
     const holes = [];
-    for (const hole of roundData.linescores) {
-      // Only include holes with valid strokes
-      if (typeof hole.value === 'number' && isFinite(hole.value)) {
-        // Par: try to extract from hole object, default to 4
-        const parValue = hole.par || 4;
+    if (hasLinescores) {
+      const roundData =
+        competitor.linescores.find(ls => ls.period === currentRound);
 
-        holes.push({
-          hole_number: holes.length + 1,
-          par: parValue,
-          strokes: Math.round(hole.value)
-        });
+      if (roundData && roundData.linescores) {
+        for (const hole of roundData.linescores) {
+          // Only include holes with valid strokes
+          if (typeof hole.value === 'number' && isFinite(hole.value)) {
+            // Par: try to extract from hole object, default to 4
+            const parValue = hole.par || 4;
+
+            holes.push({
+              hole_number: holes.length + 1,
+              par: parValue,
+              strokes: Math.round(hole.value)
+            });
+          }
+        }
       }
+    }
+
+    // If no holes from linescores but competitor.score exists, use aggregate score
+    // This allows scoring to work even when ESPN doesn't provide hole-by-hole data
+    if (holes.length === 0 && hasScore) {
+      // Use competitor.score as a single aggregate score
+      holes.push({
+        hole_number: 1,
+        par: 72, // Standard 18-hole par
+        strokes: Math.round(competitor.score)
+      });
     }
 
     // Only push golfer if holes were scored
