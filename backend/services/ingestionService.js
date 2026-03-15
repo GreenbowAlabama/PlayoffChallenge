@@ -20,6 +20,33 @@ const { resolveStrategyKey } = require('./ingestionStrategyResolver');
 const { selectField } = require('./golfEngine/selectField');
 
 /**
+ * Diagnostic wrapper for database queries.
+ * Logs the failing SQL statement and parameters on error with context.
+ *
+ * @param {Object} client - Database client
+ * @param {string} sql - SQL query string
+ * @param {Array} params - Query parameters
+ * @param {Object} context - Diagnostic context { contestInstanceId, workUnitKey }
+ * @returns {Promise<Object>} Query result
+ * @throws {Error} If query fails (after logging)
+ */
+async function executeQuery(client, sql, params = [], context = {}) {
+  try {
+    return await client.query(sql, params);
+  } catch (err) {
+    console.error('[Ingestion SQL ERROR]', {
+      contestInstanceId: context.contestInstanceId,
+      workUnitKey: context.workUnitKey,
+      sql,
+      params,
+      message: err.message,
+      code: err.code
+    });
+    throw err;
+  }
+}
+
+/**
  * Fetch all active GOLF players from the database.
  *
  * Used as fallback when re-runs have no newly ingested players (idempotency guard skipped them).
@@ -28,7 +55,8 @@ const { selectField } = require('./golfEngine/selectField');
  * @returns {Promise<Array<string>>} Array of player UUIDs
  */
 async function fetchExistingGolfPlayerIds(pool) {
-  const result = await pool.query(
+  const result = await executeQuery(
+    pool,
     `SELECT id FROM players WHERE sport = 'GOLF' AND is_active = true AND id LIKE 'espn_%' ORDER BY id`
   );
   return result.rows.map(r => r.id);
@@ -54,12 +82,14 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
 
 
   // Fetch tournament config for selectField validation
-  const configResult = await dbClient.query(
+  const configResult = await executeQuery(
+    dbClient,
     `SELECT provider_event_id, ingestion_endpoint, event_start_date, event_end_date, round_count,
             cut_after_round, leaderboard_schema_version, field_source
      FROM tournament_configs
      WHERE contest_instance_id = $1`,
-    [contestInstanceId]
+    [contestInstanceId],
+    { contestInstanceId }
   );
 
   if (configResult.rows.length === 0) {
@@ -70,9 +100,11 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   const tourConfig = configResult.rows[0];
 
   // Fetch all players that were ingested (by id, which includes espn_ prefix)
-  const playersResult = await dbClient.query(
+  const playersResult = await executeQuery(
+    dbClient,
     `SELECT id, full_name, espn_id, image_url FROM players WHERE id = ANY($1) AND sport = 'GOLF' ORDER BY id`,
-    [espnPlayerIds]
+    [espnPlayerIds],
+    { contestInstanceId }
   );
 
   const players = playersResult.rows;
@@ -131,12 +163,14 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   };
 
   // Update field_selections with new selection_json
-  const updateResult = await dbClient.query(
+  const updateResult = await executeQuery(
+    dbClient,
     `UPDATE field_selections
      SET selection_json = $1
      WHERE contest_instance_id = $2
      RETURNING id`,
-    [JSON.stringify(enhancedField), contestInstanceId]
+    [JSON.stringify(enhancedField), contestInstanceId],
+    { contestInstanceId }
   );
 
   if (updateResult.rows.length === 0) {
@@ -172,7 +206,8 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
     await client.query('BEGIN');
 
     // ── Load and lock contest instance ────────────────────────────────────────
-    const ciResult = await client.query(
+    const ciResult = await executeQuery(
+      client,
       `SELECT
          ci.*,
          ct.sport,
@@ -185,7 +220,8 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
        LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
        WHERE ci.id = $1
        FOR UPDATE OF ci`,
-      [contestInstanceId]
+      [contestInstanceId],
+      { contestInstanceId }
     );
 
     if (ciResult.rows.length === 0) {
@@ -329,12 +365,14 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
       // ── GUARD 1: Pre-check for existing COMPLETE or RUNNING rows ──────────────
       // Query before INSERT to detect and skip already-processed work units
-      const preCheckResult = await client.query(
+      const preCheckResult = await executeQuery(
+        client,
         `SELECT status
          FROM ingestion_runs
          WHERE contest_instance_id = $1 AND work_unit_key = $2
          LIMIT 1`,
-        [contestInstanceId, workUnitKey]
+        [contestInstanceId, workUnitKey],
+        { contestInstanceId, workUnitKey }
       );
 
       if (preCheckResult.rows.length > 0) {
@@ -359,14 +397,16 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       // ── GUARD 2: Atomic RUNNING insert ──────────────────────────────────────
       // Try to insert as RUNNING.
       // ON CONFLICT DO NOTHING ensures idempotency (skip if another worker inserted)
-      const insertResult = await client.query(
+      const insertResult = await executeQuery(
+        client,
         `INSERT INTO ingestion_runs
            (id, contest_instance_id, ingestion_strategy_key, work_unit_key, status, started_at)
          VALUES
            (gen_random_uuid(), $1, $2, $3, 'RUNNING', NOW())
          ON CONFLICT (contest_instance_id, work_unit_key) DO NOTHING
          RETURNING id`,
-        [contestInstanceId, strategyKey, workUnitKey]
+        [contestInstanceId, strategyKey, workUnitKey],
+        { contestInstanceId, workUnitKey }
       );
 
       if (insertResult.rows.length === 0) {
@@ -383,11 +423,13 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
         const normalizedScores = await adapter.ingestWorkUnit(ctx, enrichedUnit);
         await adapter.upsertScores(ctx, normalizedScores);
 
-        await client.query(
+        await executeQuery(
+          client,
           `UPDATE ingestion_runs
            SET status = 'COMPLETE', completed_at = NOW()
            WHERE id = $1`,
-          [runId]
+          [runId],
+          { contestInstanceId, workUnitKey }
         );
 
         // Track ingested players for field population (all phases)
@@ -397,11 +439,13 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
         summary.processed++;
       } catch (unitErr) {
-        await client.query(
+        await executeQuery(
+          client,
           `UPDATE ingestion_runs
            SET status = 'ERROR', error_message = $1
            WHERE id = $2`,
-          [unitErr.message.slice(0, 1000), runId]
+          [unitErr.message.slice(0, 1000), runId],
+          { contestInstanceId, workUnitKey }
         );
 
         console.error(`[INGESTION] Work unit error: ${workUnitKey}: ${unitErr.message.slice(0, 100)}`);
@@ -440,18 +484,22 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
     const normalizedSport = String(row.sport).toUpperCase();
     if (normalizedSport === 'PGA' || normalizedSport === 'GOLF') {
       try {
-        const fieldResult = await client.query(
+        const fieldResult = await executeQuery(
+          client,
           `SELECT selection_json FROM field_selections WHERE contest_instance_id = $1`,
-          [contestInstanceId]
+          [contestInstanceId],
+          { contestInstanceId }
         );
 
         if (fieldResult.rows.length > 0) {
-          const eventCheck = await client.query(
+          const eventCheck = await executeQuery(
+            client,
             `SELECT id
              FROM ingestion_events
              WHERE contest_instance_id = $1
              AND event_type = 'PLAYER_POOL'`,
-            [contestInstanceId]
+            [contestInstanceId],
+            { contestInstanceId }
           );
 
           if (eventCheck.rows.length === 0) {
@@ -461,7 +509,8 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
             .update(JSON.stringify(fieldResult.rows[0].selection_json))
             .digest('hex');
 
-          await client.query(
+          await executeQuery(
+            client,
             `INSERT INTO ingestion_events (
               id,
               contest_instance_id,
@@ -485,7 +534,8 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
               contestInstanceId,
               fieldResult.rows[0].selection_json,
               payloadHash
-            ]
+            ],
+            { contestInstanceId }
           );
 
           console.log(
@@ -550,13 +600,15 @@ async function initializeTournamentField(pool, contestInstanceId) {
     await client.query('BEGIN');
 
     // Load contest instance + template with tournament dates
-    const ciResult = await client.query(
+    const ciResult = await executeQuery(
+      client,
       `SELECT ci.id, ci.provider_event_id, ci.tournament_start_time, ci.tournament_end_time,
               ct.sport, ct.template_type
        FROM contest_instances ci
        JOIN contest_templates ct ON ci.template_id = ct.id
        WHERE ci.id = $1`,
-      [contestInstanceId]
+      [contestInstanceId],
+      { contestInstanceId }
     );
 
     if (ciResult.rows.length === 0) {
@@ -595,7 +647,8 @@ async function initializeTournamentField(pool, contestInstanceId) {
       .digest('hex');
 
     // Insert tournament_configs (idempotent: ON CONFLICT DO NOTHING)
-    const tcResult = await client.query(
+    const tcResult = await executeQuery(
+      client,
       `INSERT INTO tournament_configs (
         id, contest_instance_id, provider_event_id, ingestion_endpoint,
         event_start_date, event_end_date, round_count, cut_after_round,
@@ -608,7 +661,8 @@ async function initializeTournamentField(pool, contestInstanceId) {
       )
       ON CONFLICT DO NOTHING
       RETURNING id`,
-      [contestInstanceId, effectiveProviderId, ingestionEndpoint, eventStartDate, eventEndDate, hash]
+      [contestInstanceId, effectiveProviderId, ingestionEndpoint, eventStartDate, eventEndDate, hash],
+      { contestInstanceId }
     );
 
     // Get tournament_config_id (either from insert or from existing row)
@@ -618,10 +672,12 @@ async function initializeTournamentField(pool, contestInstanceId) {
       console.log(`[Discovery] Tournament config created for contest ${contestInstanceId}: ${ingestionEndpoint}`);
     } else {
       // If ON CONFLICT triggered, fetch the existing row
-      const existingResult = await client.query(
+      const existingResult = await executeQuery(
+        client,
         `SELECT id FROM tournament_configs
          WHERE contest_instance_id = $1`,
-        [contestInstanceId]
+        [contestInstanceId],
+        { contestInstanceId }
       );
       if (existingResult.rows.length === 0) {
         await client.query('ROLLBACK');
@@ -632,7 +688,8 @@ async function initializeTournamentField(pool, contestInstanceId) {
     }
 
     // Insert field_selections with placeholder structure (idempotent)
-    const fsResult = await client.query(
+    const fsResult = await executeQuery(
+      client,
       `INSERT INTO field_selections (
         id, contest_instance_id, tournament_config_id, selection_json, created_at
       )
@@ -641,7 +698,8 @@ async function initializeTournamentField(pool, contestInstanceId) {
       )
       ON CONFLICT DO NOTHING
       RETURNING id`,
-      [contestInstanceId, tourneyConfigId, JSON.stringify({ primary: [] })]
+      [contestInstanceId, tourneyConfigId, JSON.stringify({ primary: [] })],
+      { contestInstanceId }
     );
 
     if (fsResult.rows.length > 0) {
@@ -693,7 +751,8 @@ async function refreshAllScheduledContestFields(pool, sport) {
   }
 
   // Query all SCHEDULED contests for this sport
-  const scheduledResult = await pool.query(
+  const scheduledResult = await executeQuery(
+    pool,
     `SELECT ci.id
      FROM contest_instances ci
      JOIN contest_templates ct ON ct.id = ci.template_id
@@ -701,7 +760,8 @@ async function refreshAllScheduledContestFields(pool, sport) {
      WHERE ci.status = 'SCHEDULED'
        AND ct.sport = $1
      ORDER BY ci.created_at`,
-    [sport]
+    [sport],
+    { sport }
   );
 
   if (scheduledResult.rows.length === 0) {
