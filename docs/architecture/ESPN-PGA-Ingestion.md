@@ -285,6 +285,84 @@ async function fetchTournamentField(eventId) {
 
 ---
 
+## ESPN PGA Leaderboard Payload Structure
+
+**CRITICAL:** The ESPN leaderboard payload does not contain a `golfers[]` array.
+
+The correct structure is **`payload.competitors[]`** with the following format:
+
+### Leaderboard Payload Schema
+
+**Source:** `event_data_snapshots.payload`
+
+**Structure:**
+```json
+{
+  "competitors": [
+    {
+      "id": "12345",
+      "athlete": {
+        "id": "10030",
+        "displayName": "Scottie Scheffler"
+      },
+      "position": 1,
+      "holes": [
+        { "number": 1, "strokes": 3 },
+        { "number": 2, "strokes": 4 },
+        ...
+      ]
+    },
+    ...
+  ]
+}
+```
+
+### Key Fields Used by the Platform
+
+| Field | Type | Purpose | Example |
+|-------|------|---------|---------|
+| `competitor.athlete.id` | string | ESPN athlete identifier | "10030" |
+| `competitor.position` | integer | Leaderboard rank | 1 |
+| `competitor.holes[]` | array | Round-by-round stroke data | See schema above |
+| `competitor.holes[].strokes` | integer | Strokes on hole | 3 |
+
+### Golfer ID Normalization (CRITICAL)
+
+ESPN payloads provide raw athlete IDs (numeric strings).
+
+**All IDs must be normalized to the platform format:**
+
+```
+espn_<athlete_id>
+```
+
+**Example:**
+```
+ESPN payload:
+  competitor.athlete.id = "10030"
+
+Platform identifier:
+  golfer_id = "espn_10030"
+```
+
+**Why normalization is required:**
+- `golfer_event_scores.golfer_id` stores normalized provider IDs
+- Failure to normalize will cause leaderboard JOIN mismatches
+- The leaderboard service extracts competitor.athlete.id and normalizes to `espn_` prefix
+
+**Current Implementation:**
+See `pgaLeaderboardDebugService.js` for live normalization logic:
+```javascript
+const golferIds = leaderboardPayload.competitors
+  .map(c => {
+    const id = c.athlete?.id || c.id;
+    return id ? `espn_${id}` : null;
+  })
+  .filter(Boolean);
+```
+
+---
+
 ## Data Normalization
 
 ### Golfer Normalization

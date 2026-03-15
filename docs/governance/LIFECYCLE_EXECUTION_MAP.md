@@ -720,21 +720,55 @@ Rationale: User should be able to enter PGA tournament even if NFL week is locke
 ```
 ESPN Leaderboard API
         ↓
+event_data_snapshots.payload.competitors[]
+(ESPN raw athlete IDs in competitor.athlete.id)
+        ↓
+Extract competitor.athlete.id
+        ↓
+Normalize → espn_<athlete_id>
+(CRITICAL: matches golfer_event_scores.golfer_id format)
+        ↓
 pgaEspnIngestion.handleScoringIngestion()
         ↓
 golfer_event_scores
-(individual golfer scores per round)
+(individual golfer scores per round, indexed by normalized ID)
         ↓
 pgaRosterScoringService.scoreContestRosters()
-(aggregate golfers into user rosters)
+(aggregate golfers into user rosters via entry_rosters)
         ↓
 golfer_scores
 (user-level rostered player scores)
         ↓
-Leaderboard queries
+Leaderboard queries (pgaLeaderboardDebugService)
         ↓
 WebAdmin display
 ```
+
+### ESPN Payload Structure (CRITICAL)
+
+**Source:** `event_data_snapshots.payload`
+
+**Structure:** Snapshots contain `payload.competitors[]`, NOT `payload.golfers[]`
+
+**Key fields:**
+- `competitor.athlete.id` — ESPN athlete identifier (numeric string, e.g., "10030")
+- `competitor.position` — Leaderboard rank
+- `competitor.holes[]` — Round-by-round scoring
+
+**ID Normalization (MANDATORY):**
+
+All ESPN athlete IDs must be normalized to platform format before database operations:
+
+```
+ESPN: competitor.athlete.id = "10030"
+Platform: golfer_id = "espn_10030"
+```
+
+Failure to normalize causes JOIN failures between `event_data_snapshots` and `golfer_event_scores`.
+
+**Implementation reference:**
+- Leaderboard service: `backend/services/pgaLeaderboardDebugService.js` (lines 79-84)
+- Scoring service: `backend/services/ingestion/strategies/pgaEspnIngestion.js` (handleScoringIngestion)
 
 ### Roster Scoring Layer
 

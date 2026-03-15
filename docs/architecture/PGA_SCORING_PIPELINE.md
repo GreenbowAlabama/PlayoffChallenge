@@ -107,21 +107,48 @@ Each competitor contains hole-level scoring data.
 
 ---
 
-### 2. Golfer Mapping
+### 2. Golfer Mapping & ID Normalization
 
 Provider IDs must be mapped to internal golfer IDs.
 
-**Query:**
+**ID Normalization Rule (CRITICAL):**
+
+ESPN leaderboard payloads provide raw athlete IDs (numeric strings):
+```
+competitor.athlete.id = "10030"
+```
+
+These must be normalized to the platform format:
+```
+golfer_id = "espn_10030"
+```
+
+**Why normalization is required:**
+- `golfer_event_scores.golfer_id` stores normalized provider IDs
+- The leaderboard diagnostic service (`pgaLeaderboardDebugService.js`) extracts from `payload.competitors[]` and normalizes all IDs
+- Failure to normalize causes JOIN mismatches between snapshots and scoring tables
+
+**Normalization Implementation:**
+```javascript
+const golferIds = leaderboardPayload.competitors
+  .map(c => {
+    const id = c.athlete?.id || c.id;
+    return id ? `espn_${id}` : null;
+  })
+  .filter(Boolean);
+```
+
+**Query after normalization:**
 
 ```sql
 SELECT id, espn_id
 FROM players
-WHERE espn_id = ANY($1)
+WHERE id = ANY($1)  -- Where $1 = [espn_10030, espn_10031, ...]
 ```
 
 **Result:**
 
-ESPN Player ID → Internal Golfer ID
+ESPN `athlete.id` (normalized) → Platform `golfer_id`
 
 Golfers not present in the `players` table are skipped.
 

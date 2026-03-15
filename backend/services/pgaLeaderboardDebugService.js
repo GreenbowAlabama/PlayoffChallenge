@@ -14,6 +14,17 @@
  * Fantasy score is cumulative across all rounds per golfer.
  * Computed as: SUM(total_points) GROUP BY golfer_id
  * Matches settlement aggregation model.
+ *
+ * ⚠️ CRITICAL ESPN PAYLOAD STRUCTURE NOTE:
+ *
+ * ESPN PGA payload structure:
+ * - Snapshots contain payload.competitors[], NOT payload.golfers[]
+ * - competitor.athlete.id must be normalized to espn_<athlete_id>
+ *   to match golfer_event_scores.golfer_id
+ *
+ * Changing this mapping will break leaderboard JOINs.
+ * See docs/architecture/ESPN-PGA-Ingestion.md for payload contract.
+ * See docs/architecture/PGA_SCORING_PIPELINE.md for ID normalization rule.
  */
 
 /**
@@ -70,14 +81,18 @@ async function getPgaLeaderboardWithScores(pool) {
 
   const leaderboardPayload = snapshotResult.rows[0].payload;
 
-  // Step 3: Extract golfers from payload
-  if (!leaderboardPayload || !leaderboardPayload.golfers || !Array.isArray(leaderboardPayload.golfers)) {
+  // Step 3: Extract golfers from payload.competitors (ESPN leaderboard format)
+  // Normalize IDs to espn_<athlete_id> format to match golfer_event_scores.golfer_id
+  if (!leaderboardPayload || !leaderboardPayload.competitors || !Array.isArray(leaderboardPayload.competitors)) {
     return [];
   }
 
-  const golferIds = leaderboardPayload.golfers
-    .map(g => g.golfer_id)
-    .filter(id => id);
+  const golferIds = leaderboardPayload.competitors
+    .map(c => {
+      const id = c.athlete?.id || c.id;
+      return id ? `espn_${id}` : null;
+    })
+    .filter(Boolean);
 
   if (golferIds.length === 0) {
     return [];
@@ -123,16 +138,19 @@ async function getPgaLeaderboardWithScores(pool) {
   // Step 6: Merge snapshot leaderboard (with strokes) + scores overlay
   const result = [];
 
-  for (const golfer of leaderboardPayload.golfers) {
-    if (!golfer.golfer_id) {
+  for (const competitor of leaderboardPayload.competitors) {
+    const competitorId = competitor.athlete?.id || competitor.id;
+    if (!competitorId) {
       continue;
     }
+
+    const normalizedGolferId = `espn_${competitorId}`;
 
     // Calculate total strokes from holes in snapshot
     let totalStrokes = 0;
 
-    if (golfer.holes && Array.isArray(golfer.holes)) {
-      for (const hole of golfer.holes) {
+    if (competitor.holes && Array.isArray(competitor.holes)) {
+      for (const hole of competitor.holes) {
         if (typeof hole.strokes === 'number') {
           totalStrokes += hole.strokes;
         }
@@ -140,13 +158,13 @@ async function getPgaLeaderboardWithScores(pool) {
     }
 
     // Get overlay scores (fantasy points from per-roster scoring)
-    const scoreData = scoresMap[golfer.golfer_id] || { event_points: 0, fantasy_score: 0 };
+    const scoreData = scoresMap[normalizedGolferId] || { event_points: 0, fantasy_score: 0 };
 
     // Step 7: Build response object matching OpenAPI schema exactly
     result.push({
-      golfer_id: golfer.golfer_id,
-      player_name: playerNameMap[golfer.golfer_id] || 'Unknown',
-      position: golfer.position || 0,
+      golfer_id: normalizedGolferId,
+      player_name: playerNameMap[normalizedGolferId] || 'Unknown',
+      position: competitor.position || 0,
       total_strokes: totalStrokes,
       fantasy_score: scoreData.fantasy_score
     });
