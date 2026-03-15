@@ -384,6 +384,41 @@ Workers **may** modify files in these lanes:
 
 ---
 
+### 9. PGA Scoring Layer
+
+**Authority:** `backend/services/scoring/pgaRosterScoringService.js`
+
+**Status:** FROZEN
+
+**System:**
+Aggregates golfer event scores into user roster scores for leaderboard display.
+
+**Responsibility:**
+Populate `golfer_scores` table by joining `entry_rosters` (user selections) with `golfer_event_scores` (ESPN data).
+
+**Invocation Point:**
+Automatically triggered from `backend/services/ingestion/strategies/pgaEspnIngestion.js` in the `upsertScores` function after scoring data is written.
+
+**Contract:**
+```javascript
+async function scoreContestRosters(contestInstanceId, client)
+```
+
+**Characteristics:**
+- Set-based SQL JOIN (no loops)
+- Idempotent UPSERT on (contest_instance_id, user_id, golfer_id, round_number)
+- Transaction-safe (uses same database client as ingestion)
+- Scales to any user count
+
+**Protection:**
+The scoring function signature and idempotency semantics are frozen. Changes to the scoring query must maintain:
+1. Set-based SQL (no loops)
+2. Idempotent UPSERT semantics
+3. Output to golfer_scores table only
+4. Transaction safety (same client usage)
+
+---
+
 ## Failure Mode: What Happens if Worker Violates Lock?
 
 If a worker attempts to modify a protected file:

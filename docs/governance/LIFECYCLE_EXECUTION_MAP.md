@@ -710,3 +710,55 @@ Rationale: User should be able to enter PGA tournament even if NFL week is locke
 - ✅ Each contest evaluated independently (isolation maintained)
 
 **Implementation Reference:** `/Users/iancarter/Documents/workspace/playoff-challenge/backend/services/picksService.js` (lines 561-593 and 698-721)
+
+---
+
+## PGA Scoring Ingestion Pipeline
+
+### Data Flow
+
+```
+ESPN Leaderboard API
+        ↓
+pgaEspnIngestion.handleScoringIngestion()
+        ↓
+golfer_event_scores
+(individual golfer scores per round)
+        ↓
+pgaRosterScoringService.scoreContestRosters()
+(aggregate golfers into user rosters)
+        ↓
+golfer_scores
+(user-level rostered player scores)
+        ↓
+Leaderboard queries
+        ↓
+WebAdmin display
+```
+
+### Roster Scoring Layer
+
+**Service:** `backend/services/scoring/pgaRosterScoringService.js`
+
+**Function:** `scoreContestRosters(contestInstanceId, client)`
+
+**Invocation:**
+Automatically called from `backend/services/ingestion/strategies/pgaEspnIngestion.js` in `upsertScores()` immediately after golfer event scores are written.
+
+**Execution:**
+- Single set-based SQL JOIN
+- Idempotent UPSERT semantics
+- No loops, transaction-safe
+- Scales to any user count
+
+**Responsibility:**
+Joins `entry_rosters.player_ids` (array) with `golfer_event_scores.golfer_id` to populate `golfer_scores` table with user-level scores.
+
+**Trigger Point:**
+Only executes during SCORING phase of PGA ingestion (not PLAYER_POOL or FIELD_BUILD phases).
+
+**Governance:**
+✅ Set-based SQL (no loops)
+✅ Idempotent (UPSERT with conflict resolution)
+✅ Transaction-safe (same DB client as ingestion)
+✅ Scales without performance degradation

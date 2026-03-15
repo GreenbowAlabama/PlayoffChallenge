@@ -61,6 +61,7 @@ subgraph Core Systems
 CONTEST_ENGINE[Contest Engine]
 DISCOVERY[Discovery Worker]
 INGESTION[Player Ingestion]
+SCORING[Roster Scoring]
 LEADERBOARD[Leaderboard Service]
 end
 
@@ -88,7 +89,9 @@ CONTEST_ENGINE --> DB
 DISCOVERY --> CONTEST_ENGINE
 DISCOVERY --> INGESTION
 
-INGESTION --> DB
+INGESTION --> SCORING
+SCORING --> LEADERBOARD
+SCORING --> DB
 
 WALLET_API --> LEDGER
 LEDGER --> DB

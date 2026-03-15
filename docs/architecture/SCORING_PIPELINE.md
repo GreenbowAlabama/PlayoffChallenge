@@ -21,6 +21,38 @@ The adapter consumes this unit to compute golfer scores and insert them into `go
 
 ---
 
+## PGA Roster Scoring Layer
+
+**Location:** `backend/services/scoring/pgaRosterScoringService.js`
+
+**Purpose:** Aggregates golfer event scores into user roster scores for leaderboard display.
+
+**Input Tables:**
+- `entry_rosters` (user roster selections)
+- `golfer_event_scores` (ESPN-ingested golfer scores per round)
+
+**Output Table:**
+- `golfer_scores` (user-level rostered player scores)
+
+**Execution Trigger:**
+Automatically invoked from the PGA ingestion strategy (`pgaEspnIngestion.js`) immediately after `golfer_event_scores` are written during the SCORING phase.
+
+**Function Signature:**
+```javascript
+async function scoreContestRosters(contestInstanceId, client)
+```
+
+**Characteristics:**
+- Set-based SQL JOIN (no loops)
+- Idempotent UPSERT semantics
+- Transaction-safe (uses same database client as ingestion)
+- Scales to any user count without performance degradation
+
+**Implementation Detail:**
+Joins `entry_rosters.player_ids` (array) with `golfer_event_scores.golfer_id` using PostgreSQL's `ANY()` operator, then UPSERTs results into `golfer_scores` with conflict resolution on `(contest_instance_id, user_id, golfer_id, round_number)`.
+
+---
+
 ## PGA Leaderboard Diagnostics
 
 The system exposes an operational diagnostic endpoint allowing administrators to verify scoring correctness during live tournaments.
@@ -49,8 +81,14 @@ event_data_snapshots
        ↓
 Scoring engine (pga_standard_v1)
        ↓
+golfer_event_scores
+(individual golfer points per round)
+       ↓
+pgaRosterScoringService.scoreContestRosters()
+(aggregate golfers into user rosters)
+       ↓
 golfer_scores
-(individual player points)
+(user-level rostered player scores)
        ↓
 Leaderboard aggregation
 ```

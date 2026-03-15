@@ -8,6 +8,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { scoreContestRosters } = require('../../scoring/pgaRosterScoringService');
 
 /**
  * Canonicalize JSON for deterministic hashing.
@@ -1152,6 +1153,11 @@ async function upsertScores(ctx, normalizedScores) {
       finish_bonus = EXCLUDED.finish_bonus,
       total_points = EXCLUDED.total_points
   `, values);
+
+  // Populate user roster scores from golfer event scores
+  if (normalizedScores?.length > 0 && ctx?.contestInstanceId) {
+    await scoreContestRosters(ctx.contestInstanceId, dbClient);
+  }
 }
 
 module.exports = {
