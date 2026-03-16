@@ -177,9 +177,22 @@ export function PlatformHealthPage() {
               <div className="border-t pt-3">
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">Status</h4>
                 <div className="text-sm text-gray-600">
-                  <span className="inline-flex items-center gap-2 text-green-700">
-                    <span className="inline-block w-2 h-2 rounded-full bg-green-600"></span>
-                    All system invariants healthy
+                  <span className={`inline-flex items-center gap-2 ${
+                    invariants.overall_status === 'HEALTHY' ? 'text-green-700' :
+                    invariants.overall_status === 'WARNING' ? 'text-amber-700' :
+                    invariants.overall_status === 'CRITICAL' ? 'text-red-700' :
+                    'text-gray-700'
+                  }`}>
+                    <span className={`inline-block w-2 h-2 rounded-full ${
+                      invariants.overall_status === 'HEALTHY' ? 'bg-green-600' :
+                      invariants.overall_status === 'WARNING' ? 'bg-amber-600' :
+                      invariants.overall_status === 'CRITICAL' ? 'bg-red-600' :
+                      'bg-gray-600'
+                    }`}></span>
+                    {invariants.overall_status === 'HEALTHY' && 'All system invariants healthy'}
+                    {invariants.overall_status === 'WARNING' && 'System invariants degraded - review anomalies'}
+                    {invariants.overall_status === 'CRITICAL' && 'System invariants critical - immediate attention required'}
+                    {!['HEALTHY', 'WARNING', 'CRITICAL'].includes(invariants.overall_status) && 'Unknown invariant status'}
                   </span>
                 </div>
               </div>
