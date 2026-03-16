@@ -71,10 +71,10 @@ async function writeSystemAudit(pool, contestInstanceId, fromStatus, toStatus, a
  * @throws {Error} - If settlement readiness check fails (caught by attemptSystemTransitionWithErrorRecovery)
  */
 async function isContestGamesComplete(pool, contest) {
-  // Step 1: Check if end_time has passed (time gate)
+  // Step 1: Check if tournament_end_time has passed (time gate)
   const now = Date.now();
-  if (!contest.end_time || now < new Date(contest.end_time).getTime()) {
-    // Games are still in progress or end_time not yet reached
+  if (!contest.tournament_end_time || now < new Date(contest.tournament_end_time).getTime()) {
+    // Games are still in progress or tournament_end_time not yet reached
     return false;
   }
 
@@ -132,9 +132,9 @@ function advanceContestLifecycleIfNeeded(contest) {
       return null;
 
     case 'LIVE':
-      // Suggest COMPLETE if end_time has passed
+      // Suggest COMPLETE if tournament_end_time has passed
       // Settlement readiness validation happens in attemptSystemTransitionWithErrorRecovery
-      if (contest.end_time && now >= new Date(contest.end_time).getTime()) {
+      if (contest.tournament_end_time && now >= new Date(contest.tournament_end_time).getTime()) {
         return 'COMPLETE';
       }
       return null;

@@ -16,13 +16,13 @@ const customContestService = require('../../services/customContestService');
 
 describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
   describe('Unit Tests: isContestGamesComplete() - Time Gate (No Mocks)', () => {
-    test('returns false when end_time is null', async () => {
+    test('returns false when tournament_end_time is null', async () => {
       const { isContestGamesComplete } = require('../../services/helpers/contestLifecycleAdvancer');
 
       const contest = {
         id: 'test-id',
         status: 'LIVE',
-        end_time: null
+        tournament_end_time: null
       };
 
       const mockPool = {};
@@ -30,14 +30,14 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
       expect(result).toBe(false);
     });
 
-    test('returns false when end_time is not yet reached', async () => {
+    test('returns false when tournament_end_time is not yet reached', async () => {
       const { isContestGamesComplete } = require('../../services/helpers/contestLifecycleAdvancer');
 
       const futureTime = new Date(Date.now() + 60000); // 1 minute in future
       const contest = {
         id: 'test-id',
         status: 'LIVE',
-        end_time: futureTime
+        tournament_end_time: futureTime
       };
 
       const mockPool = {};
@@ -53,7 +53,7 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
         const contest = {
           id: 'test-id',
           status: 'LIVE',
-          end_time: pastTime
+          tournament_end_time: pastTime
         };
 
         // isReadyForSettlement now throws when scores are incomplete
@@ -81,7 +81,7 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
       const contest = {
         id: 'test-id',
         status: 'LIVE',
-        end_time: pastTime
+        tournament_end_time: pastTime
       };
 
       const mockPool = {};
@@ -107,7 +107,7 @@ describe('GAP-08: Settlement-Triggered Lifecycle Failures', () => {
       const contest = {
         id: 'test-id',
         status: 'LIVE',
-        end_time: pastTime
+        tournament_end_time: pastTime
       };
 
       const mockPool = {};

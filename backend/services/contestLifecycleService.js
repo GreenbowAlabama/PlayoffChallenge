@@ -174,7 +174,7 @@ async function transitionLiveToComplete(pool, now) {
 
   // Find all LIVE contests eligible for completion
   const eligibleResult = await pool.query(
-    `SELECT id, entry_fee_cents, payout_structure, template_id, status
+    `SELECT id, entry_fee_cents, payout_structure, template_id, status, tournament_end_time
      FROM contest_instances
      WHERE status = $1
        AND tournament_end_time IS NOT NULL
