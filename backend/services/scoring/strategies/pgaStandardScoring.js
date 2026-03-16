@@ -179,26 +179,23 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
       return aStrokes - bStrokes;
     });
 
-    // Assign positions with tie handling
-    let rank = 1;
-    for (let i = 0; i < sorted.length; i++) {
-      const currStrokes = (typeof sorted[i].tournament_strokes === 'number' && isFinite(sorted[i].tournament_strokes)) ? sorted[i].tournament_strokes : 0;
+    // Assign positions with tie handling using correct tournament ranking algorithm
+    let position = 1;
+    let previousStrokes = null;
+    let playersSeen = 0;
 
-      if (i > 0) {
-        const prevStrokes = (typeof sorted[i - 1].tournament_strokes === 'number' && isFinite(sorted[i - 1].tournament_strokes)) ? sorted[i - 1].tournament_strokes : 0;
-        if (currStrokes === prevStrokes) {
-          // Tied with previous golfer, use same position
-          sorted[i].position = sorted[i - 1].position;
-        } else {
-          // New position (accounting for ties)
-          sorted[i].position = rank;
-        }
-      } else {
-        // First golfer gets position 1
-        sorted[i].position = rank;
+    for (const golfer of sorted) {
+      const strokes = (typeof golfer.tournament_strokes === 'number' && isFinite(golfer.tournament_strokes)) ? golfer.tournament_strokes : 0;
+
+      if (previousStrokes !== null && strokes !== previousStrokes) {
+        // Strokes differ from previous golfer: advance position to account for ties
+        position = playersSeen + 1;
       }
 
-      rank = i + 2;
+      golfer.position = position;
+
+      previousStrokes = strokes;
+      playersSeen++;
     }
 
     // Map positions back to original golfers array
