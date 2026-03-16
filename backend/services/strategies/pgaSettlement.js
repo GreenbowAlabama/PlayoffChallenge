@@ -16,29 +16,6 @@
  * @returns {Promise<Array<{user_id: string, total_score: number}>>}
  */
 async function pgaSettlementFn(contestInstanceId, client) {
-  // Guard: Handle empty contests (no participants)
-  // Empty contests settle immediately with no payouts
-  const entryCountResult = await client.query(
-    `
-    SELECT COUNT(*)::int AS entry_count
-    FROM entry_rosters
-    WHERE contest_instance_id = $1
-    `,
-    [contestInstanceId]
-  );
-
-  const entryCount = entryCountResult.rows[0].entry_count;
-
-  if (entryCount === 0) {
-    const logger = require('../../../utils/logger');
-    logger.info('[Settlement] Empty contest detected, completing without payouts', {
-      contestInstanceId
-    });
-
-    // Return empty settlement result for zero-participant contests
-    return [];
-  }
-
   // Query all golfer round scores for this contest
   // Expected schema: golfer_scores with columns:
   // user_id, golfer_id, round_number, total_points (or hole_points, bonus_points, finish_bonus)

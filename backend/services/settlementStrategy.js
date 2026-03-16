@@ -399,8 +399,37 @@ async function executeSettlementTx({
     throw new Error('SETTLEMENT_REQUIRES_SNAPSHOT_HASH: Settlement refuses to execute without snapshot_hash binding (PGA v1 Section 4.1)');
   }
 
+  // 6b. GLOBAL EMPTY CONTEST GUARD - All sports strategies inherit this protection
+  // Check if contest has any participants (canonical indicator of participation)
+  // contest_participants = 1 row per actual user entry
+  // entry_rosters = multiple rows per entry (roster composition)
+  const participantCountResult = await client.query(
+    `
+    SELECT COUNT(*)::int AS participant_count
+    FROM contest_participants
+    WHERE contest_instance_id = $1
+    `,
+    [contestInstanceId]
+  );
+
+  const contestParticipantCount = participantCountResult.rows[0].participant_count;
+
   // 7. COMPUTE SETTLEMENT - dispatch to validated strategy
-  const scoreRows = await settleFn(contestInstanceId, client);
+  // For empty contests, skip strategy invocation and use empty scoreRows
+  // All settlement functions and subsequent steps handle empty arrays correctly
+  let scoreRows;
+
+  if (contestParticipantCount === 0) {
+    const logger = require('../../utils/logger');
+    logger.info('[Settlement] Empty contest detected, using empty scoreRows', {
+      contestInstanceId,
+      settlementStrategyKey
+    });
+
+    scoreRows = [];
+  } else {
+    scoreRows = await settleFn(contestInstanceId, client);
+  }
 
   // 8. CALL COMPUTE SETTLEMENT with snapshot binding (required)
   // scoringRunId will be set to settlement_records.id after INSERT
