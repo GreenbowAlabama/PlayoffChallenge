@@ -235,7 +235,7 @@ async function discoverTournament(input, pool, now, organizerId) {
         'PGA_DAILY', // template_type: unique for discovered daily tournaments (not PGA_TOURNAMENT)
         'pga_standard_v1', // scoring_strategy_key: hardcoded for PGA
         'auto_discovery', // lock_strategy_key: indicates auto-discovered
-        'pga_settlement', // settlement_strategy_key: hardcoded for PGA
+        'pga_standard_v1', // settlement_strategy_key: hardcoded for PGA
         5000, // default_entry_fee_cents: $50
         1000, // allowed_entry_fee_min_cents: $10
         50000, // allowed_entry_fee_max_cents: $500
@@ -315,7 +315,7 @@ async function discoverTournament(input, pool, now, organizerId) {
           RETURNING id`,
           [
             normalized.name, 'GOLF', 'PGA_DAILY', 'pga_standard_v1',
-            'auto_discovery', 'pga_settlement',
+            'auto_discovery', 'pga_standard_v1',
             5000, 1000, 50000,
             JSON.stringify([{ payout_percentages: { "1": 50, "2": 30, "3": 20 }, min_entries: 2 }]),
             false, // is_active: false to avoid constraint violation (activate via setup.js)
