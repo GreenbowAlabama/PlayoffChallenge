@@ -1077,8 +1077,28 @@ async function ingestWorkUnit(ctx, unit) {
     .digest('hex');
 
   // ── Step 4: Derive provider_final_flag from ESPN event status ──────────
-  // ESPN uses event.status.type.name = "STATUS_FINAL" when tournament is complete
-  const providerFinalFlag = providerData.events?.[0]?.status?.type?.name === 'STATUS_FINAL' || false;
+  // Extract numeric event ID from provider ID (format: espn_pga_401811937 → 401811937)
+  const eventIdNumeric = providerEventId
+    ? String(providerEventId).replace(/^espn_pga_/, '')
+    : null;
+
+  // Find the matching event by ID in the events array
+  const targetEvent = providerData.events?.find(
+    e => String(e.id) === String(eventIdNumeric)
+  );
+
+  // Ingestion invariant guard: provider contract must include requested event
+  // If this fails, the provider response is invalid or ESPN API changed
+  // Failing hard here prevents downstream corruption of snapshots → lifecycle → settlement
+  if (!targetEvent) {
+    throw new Error(
+      `ESPN ingestion invariant violation: event ${eventIdNumeric} not found in response. ` +
+      `Events available: ${providerData.events?.map(e => e.id).join(', ') || '(none)'}`
+    );
+  }
+
+  // Determine finality from the correct event (invariant guard above ensures it exists)
+  const providerFinalFlag = targetEvent.status?.type?.name === 'STATUS_FINAL' || false;
 
   // ── Step 5: Insert immutable snapshot into event_data_snapshots ────────
   // ON CONFLICT ensures idempotency: duplicate hashes for same contest are silently skipped.
