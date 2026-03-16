@@ -932,21 +932,10 @@ async function handleScoringIngestion(ctx, unit) {
         continue;
       }
 
-      // Extract finish position from ESPN payload (check multiple possible fields)
-      const finishPosition =
-        competitor?.curatedRank?.current ??
-        competitor?.order ??
-        competitor?.position ??
-        null;
-
-      // Only use position for final round scoring (finish_bonus only applies then)
-      const position = (roundNum === currentRound && is_final_round && finishPosition) ?
-        parseInt(finishPosition, 10) : 0;
-
       golfers.push({
         golfer_id: golferId,
         holes,
-        position,
+        position: 0,  // Position will be computed by scoring strategy for final round
         score: competitor.score
       });
     }

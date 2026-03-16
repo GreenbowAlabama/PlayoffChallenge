@@ -116,6 +116,7 @@ function computeStreakBonus(validHoles, streakBonus) {
   return bonus;
 }
 
+
 /**
  * Return the finish-position bonus from the template's finish_bonus table.
  * Returns 0 if position is not in the table or the table is absent.
@@ -168,8 +169,50 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
   // Check if we have template rules for complex scoring
   const hasTemplateRules = scoring && Object.keys(scoring).length > 0;
 
+  // ── Compute leaderboard ranking from cumulative strokes (final round only) ────
+  if (is_final_round && Array.isArray(golfers) && golfers.length > 0) {
+    // Calculate total strokes for each golfer
+    for (const golfer of golfers) {
+      let totalStrokes = 0;
+      if (golfer.holes && Array.isArray(golfer.holes)) {
+        for (const hole of golfer.holes) {
+          if (typeof hole.strokes === 'number' && isFinite(hole.strokes)) {
+            totalStrokes += hole.strokes;
+          }
+        }
+      }
+      golfer.total_strokes = totalStrokes;
+    }
+
+    // Sort by cumulative strokes (ascending, lower is better)
+    const sorted = [...golfers].sort((a, b) => a.total_strokes - b.total_strokes);
+
+    // Assign positions with tie handling
+    let rank = 1;
+    for (let i = 0; i < sorted.length; i++) {
+      if (i > 0 && sorted[i].total_strokes === sorted[i - 1].total_strokes) {
+        // Tied with previous golfer, use same position
+        sorted[i].position = sorted[i - 1].position;
+      } else {
+        // New position (accounting for ties)
+        sorted[i].position = rank;
+      }
+      rank = i + 2;
+    }
+
+    // Map positions back to original golfers array
+    const positionMap = {};
+    sorted.forEach(g => {
+      positionMap[g.golfer_id] = g.position;
+    });
+
+    golfers.forEach(g => {
+      g.position = positionMap[g.golfer_id] || 0;
+    });
+  }
+
   const golfer_scores = golfers.map((golfer) => {
-    const { golfer_id, holes = [], position } = golfer;
+    const { golfer_id, holes = [], position = 0 } = golfer;
 
     // Only score holes that carry valid numeric par and strokes
     const validHoles = holes.filter(
