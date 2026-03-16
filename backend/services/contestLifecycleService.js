@@ -197,13 +197,16 @@ async function transitionLiveToComplete(pool, now) {
         // If error recovery is calling us with ERROR, don't do settlement - just acknowledge
         // (the actual ERROR transition will be done by updateFn elsewhere)
         if (targetStatus === 'ERROR') {
-          // Return the contest row to acknowledge the transition
-          // The actual status update to ERROR is handled by error recovery
+          // Perform actual status update to ERROR (idempotent: only if not already terminal)
           const result = await pool.query(
-            'SELECT * FROM contest_instances WHERE id = $1',
-            [contestId]
+            `UPDATE contest_instances
+             SET status = $1, updated_at = NOW()
+             WHERE id = $2 AND status NOT IN ('COMPLETE', 'CANCELLED', 'ERROR')
+             RETURNING *`,
+            ['ERROR', contestId]
           );
-          return result.rows[0] || null;
+          // Return row if updated, or noop marker if already in terminal state
+          return result.rows[0] || { noop: true };
         }
 
         // targetStatus is COMPLETE - perform settlement
@@ -251,8 +254,9 @@ async function transitionLiveToComplete(pool, now) {
         settlementCallback
       );
 
-      // Only count successful completions (not noop or missing-snapshot results)
-      if (result && !result.noop) {
+      // Only count transitions where status actually changed to COMPLETE
+      // Verify both that a row was returned AND status is now COMPLETE
+      if (result && result.status === 'COMPLETE') {
         changedIds.push(contestRow.id);
       }
     } catch (err) {

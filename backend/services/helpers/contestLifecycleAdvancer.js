@@ -189,9 +189,12 @@ async function attemptSystemTransitionWithErrorRecovery(pool, contestRow, nextSt
     // GAP-08: Settlement validation must occur inside recovery boundary
     // If attempting LIVE→COMPLETE, verify settlement is ready before DB update
     if (nextStatus === 'COMPLETE' && contestRow.status === 'LIVE') {
-      // This call may throw if settlement is not ready
-      // The error will be caught below and trigger ERROR recovery
-      await isContestGamesComplete(pool, contestRow);
+      // Check if settlement is ready (may return false if preconditions unmet)
+      const ready = await isContestGamesComplete(pool, contestRow);
+      if (!ready) {
+        // Settlement preconditions not met, keep contest in LIVE state
+        return { noop: true, reason: 'settlement_not_ready' };
+      }
     }
 
     // Attempt the primary time-driven transition
