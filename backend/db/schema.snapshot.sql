@@ -498,6 +498,9 @@ CREATE TABLE public.contest_instances (
     settle_time timestamp with time zone,
     is_platform_owned boolean DEFAULT false NOT NULL,
     tournament_start_time timestamp with time zone,
+    -- AUTHORITATIVE: Provider tournament end timestamp
+    -- Used by lifecycle worker to transition LIVE → COMPLETE
+    -- Do NOT add alternative end_time fields; this is the single source of truth
     tournament_end_time timestamp with time zone,
     is_primary_marketing boolean DEFAULT false NOT NULL,
     provider_event_id text,

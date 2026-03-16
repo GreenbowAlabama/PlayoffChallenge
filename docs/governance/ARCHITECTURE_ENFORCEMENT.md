@@ -229,4 +229,72 @@ if (walletLiability + contestPools !== deposits - withdrawals) {
 
 ---
 
+## Phase X+1 — Temporal Authority Enforcement (Lifecycle Time Fields)
+
+### Purpose
+
+Prevent lifecycle timing drift by enforcing that provider timestamps are the single source of truth for contest state transitions.
+
+This prevents the "dual-time-field" bug where lifecycle services reference different timestamp fields than discovery ingestion, causing silent state machine failures.
+
+### Rule: Provider Timestamps Are Authoritative
+
+Contest lifecycle transitions must reference **only** provider-sourced timestamps:
+
+**Allowed event timestamps:**
+- `tournament_start_time` — authoritative provider start time
+- `tournament_end_time` — authoritative provider end time
+- `lock_time` — computed from `tournament_start_time` (system-set, read-only after instance creation)
+
+**Forbidden derived fields:**
+- `end_time` — PROHIBITED (creates duplicate time authority)
+- `contest_end_time` — PROHIBITED (creates temporal drift)
+- Custom computed end times — PROHIBITED
+
+### Rationale
+
+Lifecycle services and discovery ingestion must reference the **same timestamp fields** to prevent:
+
+1. **Silent state transitions** — contest stuck in LIVE because code checks wrong field
+2. **Temporal drift** — discovery sees `tournament_end_time`, lifecycle checks `end_time`
+3. **Duplicate field maintenance** — two fields with overlapping semantics = sync bugs
+
+### Enforcement
+
+**Transition time gate queries must reference:**
+
+```sql
+-- ✅ CORRECT: Directly reference provider timestamps
+SELECT id, status FROM contest_instances
+WHERE status = 'LIVE'
+  AND tournament_end_time < NOW();
+
+-- ❌ WRONG: Don't introduce alternative time fields
+SELECT id, status FROM contest_instances
+WHERE status = 'LIVE'
+  AND end_time < NOW();  -- This field doesn't exist in schema
+```
+
+**Code pattern enforcement:**
+
+All lifecycle time comparisons must use injected `now` parameter and provider timestamp fields:
+
+```javascript
+// ✅ CORRECT
+if (contest.tournament_end_time && now >= new Date(contest.tournament_end_time).getTime()) {
+  return 'COMPLETE';
+}
+
+// ❌ WRONG
+if (contest.end_time && now >= new Date(contest.end_time).getTime()) {
+  return 'COMPLETE';  // Bug: end_time doesn't exist
+}
+```
+
+### Authority Reference
+
+See **DISCOVERY_LIFECYCLE_BOUNDARY.md § 3.3** for complete Contest Completion Time Authority model.
+
+---
+
 

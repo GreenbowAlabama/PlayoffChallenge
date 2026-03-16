@@ -274,6 +274,27 @@ async function checkLifecycleInvariant(pool) {
         );
     `);
 
+    // Rule 3: CRITICAL GUARD - LIVE contests stuck for >60 minutes (regression detector)
+    // Prevents silent lifecycle stalls that could go unnoticed
+    const criticallyStuckResult = await pool.query(`
+      SELECT
+        ci.id,
+        ci.contest_name,
+        ci.status,
+        ci.tournament_end_time,
+        EXTRACT(EPOCH FROM (NOW() - ci.tournament_end_time)) / 60 as minutes_overdue
+      FROM contest_instances ci
+      WHERE ci.status = 'LIVE'
+        AND ci.tournament_end_time < NOW() - INTERVAL '60 minutes'
+        AND NOT EXISTS (
+          SELECT 1 FROM contest_state_transitions cst
+          WHERE cst.contest_instance_id = ci.id
+            AND cst.from_state = 'LIVE'
+            AND cst.to_state = 'COMPLETE'
+            AND cst.created_at >= ci.tournament_end_time
+        );
+    `);
+
     // Count TOTAL LIVE contests (not just stuck ones)
     const totalLiveResult = await pool.query(`
       SELECT COUNT(*) as total_count
@@ -291,6 +312,7 @@ async function checkLifecycleInvariant(pool) {
     const allAnomalies = [];
     const stuckLockedCount = lockedResult.rowCount;
     const stuckLiveCount = liveResult.rowCount;
+    const criticallyStuckCount = criticallyStuckResult.rowCount;
     const totalLockedContests = parseInt(totalLockedResult.rows[0].total_count, 10);
     const totalLiveContests = parseInt(totalLiveResult.rows[0].total_count, 10);
 
@@ -303,14 +325,16 @@ async function checkLifecycleInvariant(pool) {
         expected_status: 'LIVE',
         problem: 'LOCKED_PAST_START',
         time_overdue_minutes: Math.floor(row.minutes_overdue),
+        severity: 'warning',
         details: {
           tournament_start_time: row.tournament_start_time
         }
       });
     });
 
-    // Add LIVE anomalies
+    // Add LIVE anomalies (with severity based on how overdue)
     liveResult.rows.forEach(row => {
+      const isCritical = row.minutes_overdue > 60;
       allAnomalies.push({
         contest_id: row.id,
         contest_name: row.contest_name,
@@ -318,15 +342,20 @@ async function checkLifecycleInvariant(pool) {
         expected_status: 'COMPLETE',
         problem: 'LIVE_PAST_END',
         time_overdue_minutes: Math.floor(row.minutes_overdue),
+        severity: isCritical ? 'critical' : 'warning',
         details: {
-          tournament_end_time: row.tournament_end_time
+          tournament_end_time: row.tournament_end_time,
+          is_critically_stuck: isCritical
         }
       });
     });
 
     // Determine status
     let status = 'HEALTHY';
-    if (stuckLockedCount + stuckLiveCount > 5) {
+    if (criticallyStuckCount > 0) {
+      // CRITICAL: Any contest stuck for >60 minutes is an ERROR
+      status = 'ERROR';
+    } else if (stuckLockedCount + stuckLiveCount > 5) {
       status = 'ERROR';
     } else if (stuckLockedCount + stuckLiveCount > 0) {
       status = 'STUCK_TRANSITIONS';
@@ -340,7 +369,8 @@ async function checkLifecycleInvariant(pool) {
         total_locked_contests: totalLockedContests,
         total_live_contests: totalLiveContests,
         stuck_locked_count: stuckLockedCount,
-        stuck_live_count: stuckLiveCount
+        stuck_live_count: stuckLiveCount,
+        critically_stuck_live_count: criticallyStuckCount
       }
     };
   } catch (error) {
@@ -353,7 +383,8 @@ async function checkLifecycleInvariant(pool) {
         total_locked_contests: 0,
         total_live_contests: 0,
         stuck_locked_count: 0,
-        stuck_live_count: 0
+        stuck_live_count: 0,
+        critically_stuck_live_count: 0
       }
     };
   }

@@ -80,6 +80,7 @@ describe('systemInvariantService', () => {
     it('should return HEALTHY status when no anomalies', async () => {
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // locked contests
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // live contests
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // critically stuck (NEW)
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 0 }] }); // total live
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 0 }] }); // total locked
 
@@ -88,6 +89,7 @@ describe('systemInvariantService', () => {
       expect(result.status).toBe('HEALTHY');
       expect(result.details.stuck_locked_count).toBe(0);
       expect(result.details.stuck_live_count).toBe(0);
+      expect(result.details.critically_stuck_live_count).toBe(0);
       expect(result.details.total_locked_contests).toBe(0);
       expect(result.details.total_live_contests).toBe(0);
       expect(result.anomalies).toEqual([]);
@@ -106,6 +108,7 @@ describe('systemInvariantService', () => {
         }]
       });
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // live contests
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // critically stuck (NEW)
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 2 }] }); // total live
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 5 }] }); // total locked
 
@@ -113,6 +116,7 @@ describe('systemInvariantService', () => {
 
       expect(result.status).toBe('STUCK_TRANSITIONS');
       expect(result.details.stuck_locked_count).toBe(1);
+      expect(result.details.critically_stuck_live_count).toBe(0);
       expect(result.details.total_locked_contests).toBe(5);
       expect(result.details.total_live_contests).toBe(2);
       expect(result.anomalies).toHaveLength(1);
@@ -127,10 +131,11 @@ describe('systemInvariantService', () => {
           id: '550e8400-e29b-41d4-a716-446655440000',
           contest_name: 'Test Contest',
           status: 'LIVE',
-          tournament_end_time: new Date(Date.now() - 3600000), // 1 hour ago
-          minutes_overdue: 60
+          tournament_end_time: new Date(Date.now() - 1800000), // 30 minutes ago (not critically stuck)
+          minutes_overdue: 30
         }]
       });
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // critically stuck (NEW)
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 3 }] }); // total live
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 0 }] }); // total locked
 
@@ -138,7 +143,9 @@ describe('systemInvariantService', () => {
 
       expect(result.status).toBe('STUCK_TRANSITIONS');
       expect(result.details.stuck_live_count).toBe(1);
+      expect(result.details.critically_stuck_live_count).toBe(0);
       expect(result.anomalies[0].problem).toBe('LIVE_PAST_END');
+      expect(result.anomalies[0].severity).toBe('warning'); // 30 minutes is not critical
     });
 
     it('should return ERROR status when > 5 contests stuck', async () => {
@@ -151,13 +158,38 @@ describe('systemInvariantService', () => {
       }));
 
       mockPool.query.mockResolvedValueOnce({ rowCount: 6, rows: stuckContests });
-      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // live
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // critically stuck (NEW)
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 1 }] }); // total live
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 10 }] }); // total locked
 
       const result = await systemInvariantService.checkLifecycleInvariant(mockPool);
 
       expect(result.status).toBe('ERROR');
+    });
+
+    it('should return ERROR status when any LIVE contest is critically stuck (>60 minutes)', async () => {
+      const criticallySturkContest = {
+        id: 'critical-contest-123',
+        contest_name: 'Critically Stuck Contest',
+        status: 'LIVE',
+        tournament_end_time: new Date(Date.now() - 7200000), // 2 hours ago
+        minutes_overdue: 120
+      };
+
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // locked contests
+      mockPool.query.mockResolvedValueOnce({ rowCount: 1, rows: [criticallySturkContest] }); // live contests
+      mockPool.query.mockResolvedValueOnce({ rowCount: 1, rows: [criticallySturkContest] }); // critically stuck (NEW)
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 1 }] }); // total live
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [{ total_count: 0 }] }); // total locked
+
+      const result = await systemInvariantService.checkLifecycleInvariant(mockPool);
+
+      // CRITICAL: Any contest stuck >60 minutes triggers ERROR immediately
+      expect(result.status).toBe('ERROR');
+      expect(result.details.critically_stuck_live_count).toBe(1);
+      expect(result.anomalies[0].severity).toBe('critical');
+      expect(result.anomalies[0].details.is_critically_stuck).toBe(true);
     });
   });
 

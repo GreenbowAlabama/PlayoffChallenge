@@ -75,6 +75,35 @@ Provider cancellation cascade may update instance.status → CANCELLED
 
 ---
 
+### 3.3 Contest Completion Time Authority
+
+Contest completion is determined by the authoritative provider timestamp: **`tournament_end_time`**
+
+This field originates from the discovery / ingestion pipeline and represents the official tournament end time.
+
+**Rule:**
+Lifecycle services must NOT compute or maintain an independent contest end time.
+
+**Completion Trigger:**
+```
+IF status = 'LIVE'
+  AND tournament_end_time < NOW()
+THEN transition contest to COMPLETE
+```
+
+**Authority Model:**
+- `tournament_end_time` is the single source of truth for LIVE → COMPLETE transition
+- No separate `contest.end_time` field exists in the schema
+- Lifecycle reconciler directly compares `tournament_end_time < NOW()`
+- Settlement validation occurs within the transition boundary (error recovery)
+
+**Audit Trail:**
+- Transition timestamp captured via `contest_state_transitions.created_at`
+- Contest updated_at field records the transition moment
+- No independent end_time tracking required
+
+---
+
 ## 4. Creation Authority
 
 ### Discovery MAY:

@@ -138,6 +138,7 @@ This is intentional and safe due to:
 | **Settlement Binding** | ✅ executeSettlement validates snapshot_id + snapshot_hash inside transaction |
 | **Governance** | docs/governance/CLAUDE_RULES.md § 7 (Settlement Engine Rule), § 16 (Frozen Invariants) |
 | **Notes** | If snapshot missing, leaves contest LIVE and continues (non-fatal). Errors logged but don't block batch. |
+| **Time Authority** | ✅ `tournament_end_time` is the authoritative provider timestamp (REQUIRED). No `end_time` field exists in schema. Lifecycle reconciler directly references `tournament_end_time`. See DISCOVERY_LIFECYCLE_BOUNDARY.md § 3.3. |
 
 #### executeSettlement Enhancements (Backward Compatible)
 
