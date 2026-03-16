@@ -176,16 +176,19 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
   const hasTemplateRules = scoring && Object.keys(scoring).length > 0;
 
   // ── Compute leaderboard ranking from cumulative tournament strokes (final round only) ────
+  // CRITICAL: When is_final_round === true, ALWAYS recompute positions from tournament_strokes.
+  // Ignore any position values coming from ESPN (curatedRank, order, position).
+  // ESPN positions often have many ties (position 2), which we must override.
   if (is_final_round && Array.isArray(golfers) && golfers.length > 0) {
-    // Sort by cumulative tournament strokes (ascending, lower is better)
-    // tournament_strokes is computed by ingestion layer from all rounds of ESPN payload
+    // Step 1: Create a sorted copy by cumulative tournament strokes (ascending, lower is better)
     const sorted = [...golfers].sort((a, b) => {
       const aStrokes = (typeof a.tournament_strokes === 'number' && isFinite(a.tournament_strokes)) ? a.tournament_strokes : 0;
       const bStrokes = (typeof b.tournament_strokes === 'number' && isFinite(b.tournament_strokes)) ? b.tournament_strokes : 0;
       return aStrokes - bStrokes;
     });
 
-    // Assign positions with tie handling using correct tournament ranking algorithm
+    // Step 2: Assign positions with proper tie handling
+    // Track: position (current rank), previousStrokes (for tie detection), playersSeen (count)
     let position = 1;
     let previousStrokes = null;
     let playersSeen = 0;
@@ -193,26 +196,35 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
     for (const golfer of sorted) {
       const strokes = (typeof golfer.tournament_strokes === 'number' && isFinite(golfer.tournament_strokes)) ? golfer.tournament_strokes : 0;
 
+      // When strokes differ from previous golfer, advance position to skip after ties
+      // Example: [270, 271, 271, 273] → positions [1, 2, 2, 4]
       if (previousStrokes !== null && strokes !== previousStrokes) {
-        // Strokes differ from previous golfer: advance position to account for ties
         position = playersSeen + 1;
       }
 
       golfer.position = position;
-
       previousStrokes = strokes;
       playersSeen++;
     }
 
-    // Map positions back to original golfers array
+    // Step 3: Map computed positions back to original golfers array using golfer_id
+    // This ensures the original array (used for scoring) has correct positions
     const positionMap = {};
-    sorted.forEach(g => {
-      positionMap[g.golfer_id] = g.position;
-    });
+    for (const golfer of sorted) {
+      positionMap[golfer.golfer_id] = golfer.position;
+    }
 
-    golfers.forEach(g => {
-      g.position = positionMap[g.golfer_id] || 0;
-    });
+    // Explicitly set position on every golfer in the original array
+    // This overrides any position values from ESPN (which often have ties)
+    for (const golfer of golfers) {
+      const computedPosition = positionMap[golfer.golfer_id];
+      if (typeof computedPosition === 'number') {
+        golfer.position = computedPosition;
+      } else {
+        // Golfer has no match in positionMap (shouldn't happen, but default to unranked)
+        golfer.position = 0;
+      }
+    }
   }
 
   const golfer_scores = golfers.map((golfer) => {
