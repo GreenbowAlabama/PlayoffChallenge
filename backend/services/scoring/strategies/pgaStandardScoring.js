@@ -227,6 +227,18 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
     }
   }
 
+  // ── DEBUG INSTRUMENTATION: Inspect computed positions before scoring ──
+  if (is_final_round) {
+    console.log(
+      '[SCORING DEBUG] sample positions (first 20 golfers):',
+      golfers.slice(0, 20).map(g => ({
+        golfer_id: g.golfer_id,
+        tournament_strokes: g.tournament_strokes,
+        position: g.position
+      }))
+    );
+  }
+
   const golfer_scores = golfers.map((golfer) => {
     const { golfer_id, holes = [], position = 0 } = golfer;
 
