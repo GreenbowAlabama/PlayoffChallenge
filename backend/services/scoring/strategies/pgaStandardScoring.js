@@ -169,34 +169,35 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
   // Check if we have template rules for complex scoring
   const hasTemplateRules = scoring && Object.keys(scoring).length > 0;
 
-  // ── Compute leaderboard ranking from cumulative strokes (final round only) ────
+  // ── Compute leaderboard ranking from cumulative tournament strokes (final round only) ────
   if (is_final_round && Array.isArray(golfers) && golfers.length > 0) {
-    // Calculate total strokes for each golfer
-    for (const golfer of golfers) {
-      let totalStrokes = 0;
-      if (golfer.holes && Array.isArray(golfer.holes)) {
-        for (const hole of golfer.holes) {
-          if (typeof hole.strokes === 'number' && isFinite(hole.strokes)) {
-            totalStrokes += hole.strokes;
-          }
-        }
-      }
-      golfer.total_strokes = totalStrokes;
-    }
-
-    // Sort by cumulative strokes (ascending, lower is better)
-    const sorted = [...golfers].sort((a, b) => a.total_strokes - b.total_strokes);
+    // Sort by cumulative tournament strokes (ascending, lower is better)
+    // tournament_strokes is computed by ingestion layer from all rounds of ESPN payload
+    const sorted = [...golfers].sort((a, b) => {
+      const aStrokes = (typeof a.tournament_strokes === 'number' && isFinite(a.tournament_strokes)) ? a.tournament_strokes : 0;
+      const bStrokes = (typeof b.tournament_strokes === 'number' && isFinite(b.tournament_strokes)) ? b.tournament_strokes : 0;
+      return aStrokes - bStrokes;
+    });
 
     // Assign positions with tie handling
     let rank = 1;
     for (let i = 0; i < sorted.length; i++) {
-      if (i > 0 && sorted[i].total_strokes === sorted[i - 1].total_strokes) {
-        // Tied with previous golfer, use same position
-        sorted[i].position = sorted[i - 1].position;
+      const currStrokes = (typeof sorted[i].tournament_strokes === 'number' && isFinite(sorted[i].tournament_strokes)) ? sorted[i].tournament_strokes : 0;
+
+      if (i > 0) {
+        const prevStrokes = (typeof sorted[i - 1].tournament_strokes === 'number' && isFinite(sorted[i - 1].tournament_strokes)) ? sorted[i - 1].tournament_strokes : 0;
+        if (currStrokes === prevStrokes) {
+          // Tied with previous golfer, use same position
+          sorted[i].position = sorted[i - 1].position;
+        } else {
+          // New position (accounting for ties)
+          sorted[i].position = rank;
+        }
       } else {
-        // New position (accounting for ties)
+        // First golfer gets position 1
         sorted[i].position = rank;
       }
+
       rank = i + 2;
     }
 

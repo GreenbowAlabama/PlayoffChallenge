@@ -932,9 +932,24 @@ async function handleScoringIngestion(ctx, unit) {
         continue;
       }
 
+      // Compute cumulative tournament strokes from all rounds in ESPN payload
+      let tournamentStrokes = 0;
+      if (hasLinescores && competitor.linescores && Array.isArray(competitor.linescores)) {
+        for (const linescore of competitor.linescores) {
+          if (linescore.linescores && Array.isArray(linescore.linescores)) {
+            for (const hole of linescore.linescores) {
+              if (typeof hole.value === 'number' && isFinite(hole.value)) {
+                tournamentStrokes += Math.round(hole.value);
+              }
+            }
+          }
+        }
+      }
+
       golfers.push({
         golfer_id: golferId,
         holes,
+        tournament_strokes: tournamentStrokes,  // Cumulative tournament strokes for ranking
         position: 0,  // Position will be computed by scoring strategy for final round
         score: competitor.score
       });
