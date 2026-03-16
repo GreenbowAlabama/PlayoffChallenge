@@ -9,6 +9,47 @@
 const { scoreRound } = require('../../services/scoring/strategies/pgaStandardScoring');
 
 describe('PGA Standard Scoring - Finishing Positions', () => {
+  describe('finish bonus table verification', () => {
+    it('applies correct finish bonuses for positions 1-15 and ranges', () => {
+      // Create golfers with distinct tournament strokes so they get positions 1-20
+      const golfers = [];
+      for (let i = 0; i < 20; i++) {
+        golfers.push({
+          golfer_id: `g${i + 1}`,
+          holes: [{ par: 4, strokes: 68 }],
+          tournament_strokes: 270 + i,  // 270, 271, 272, ..., 289
+          position: 0
+        });
+      }
+
+      const normalizedRoundPayload = {
+        event_id: 'test_event',
+        round_number: 4,
+        golfers: golfers,
+        is_final_round: true
+      };
+
+      const result = scoreRound({
+        normalizedRoundPayload,
+        templateRules: {}
+      });
+
+      // Expected finish bonuses by position
+      const expectedByPosition = {
+        1: 25, 2: 18, 3: 16, 4: 14, 5: 12, 6: 10, 7: 8, 8: 7, 9: 6, 10: 5,
+        11: 4, 12: 4, 13: 4, 14: 4, 15: 4,
+        16: 3, 17: 3, 18: 3, 19: 3, 20: 3
+      };
+
+      result.golfer_scores.forEach((score, idx) => {
+        const position = idx + 1;  // Position = index + 1 (1-based)
+        const expectedBonus = expectedByPosition[position];
+        expect(score.finish_bonus).toBe(expectedBonus,
+          `Position ${position} should have finish_bonus ${expectedBonus}, got ${score.finish_bonus}`);
+      });
+    });
+  });
+
   describe('scoreRound with finishing positions', () => {
     it('ranks golfers by tournament_strokes (not current round holes) with ties [270,271,271,273]→[1,2,2,4]', () => {
       // CRITICAL BUG FIX: Tournament ranking must use cumulative tournament strokes,

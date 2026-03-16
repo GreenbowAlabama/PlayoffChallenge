@@ -31,6 +31,7 @@ const scoring_strategy_key = 'pga_standard_v1';
  * - 51+: +0
  */
 const DEFAULT_FINISH_BONUS = {
+  // Positions 1-10 (unique bonuses)
   1: 25,
   2: 18,
   3: 16,
@@ -42,17 +43,22 @@ const DEFAULT_FINISH_BONUS = {
   9: 6,
   10: 5,
 
+  // Positions 11-15 (all → 4)
   11: 4, 12: 4, 13: 4, 14: 4, 15: 4,
 
+  // Positions 16-25 (all → 3)
   16: 3, 17: 3, 18: 3, 19: 3, 20: 3,
   21: 3, 22: 3, 23: 3, 24: 3, 25: 3,
 
+  // Positions 26-40 (all → 2)
   26: 2, 27: 2, 28: 2, 29: 2, 30: 2,
   31: 2, 32: 2, 33: 2, 34: 2, 35: 2,
   36: 2, 37: 2, 38: 2, 39: 2, 40: 2,
 
+  // Positions 41-50 (all → 1)
   41: 1, 42: 1, 43: 1, 44: 1, 45: 1,
   46: 1, 47: 1, 48: 1, 49: 1, 50: 1
+  // Positions > 50 return 0 (handled by computeFinishBonus default)
 };
 
 /**
