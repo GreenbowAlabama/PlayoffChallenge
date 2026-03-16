@@ -867,7 +867,7 @@ async function handleScoringIngestion(ctx, unit) {
 
     // CRITICAL: Resolve strategy key to strategy module to get rules object
     // Strategy modules export rules function that returns {scoring, finish_bonus, ...}
-    const { getStrategy } = require('../scoringStrategyRegistry');
+    const { getStrategy } = require('../../scoringStrategyRegistry');
     const strategyModule = getStrategy(strategyKey);
 
     // Strategy modules export a rules(contestRow) function that returns the rules object
