@@ -10,6 +10,52 @@
 const scoring_strategy_key = 'pga_standard_v1';
 
 /**
+ * Default finish position bonus table for PGA fantasy scoring.
+ * Applied when template rules don't define a custom finish_bonus configuration.
+ *
+ * Official PGA Tour finish bonuses:
+ * - 1st: +25
+ * - 2nd: +18
+ * - 3rd: +16
+ * - 4th: +14
+ * - 5th: +12
+ * - 6th: +10
+ * - 7th: +8
+ * - 8th: +7
+ * - 9th: +6
+ * - 10th: +5
+ * - 11–15: +4
+ * - 16–25: +3
+ * - 26–40: +2
+ * - 41–50: +1
+ * - 51+: +0
+ */
+const DEFAULT_FINISH_BONUS = {
+  1: 25,
+  2: 18,
+  3: 16,
+  4: 14,
+  5: 12,
+  6: 10,
+  7: 8,
+  8: 7,
+  9: 6,
+  10: 5,
+
+  11: 4, 12: 4, 13: 4, 14: 4, 15: 4,
+
+  16: 3, 17: 3, 18: 3, 19: 3, 20: 3,
+  21: 3, 22: 3, 23: 3, 24: 3, 25: 3,
+
+  26: 2, 27: 2, 28: 2, 29: 2, 30: 2,
+  31: 2, 32: 2, 33: 2, 34: 2, 35: 2,
+  36: 2, 37: 2, 38: 2, 39: 2, 40: 2,
+
+  41: 1, 42: 1, 43: 1, 44: 1, 45: 1,
+  46: 1, 47: 1, 48: 1, 49: 1, 50: 1
+};
+
+/**
  * Coerce a value to a safe numeric score, defaulting to 0 for anything
  * that is not a finite number.
  */
@@ -112,7 +158,12 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
   } = normalizedRoundPayload;
 
   const scoring          = (templateRules && templateRules.scoring)      || {};
-  const finishBonusTable = (templateRules && templateRules.finish_bonus) || null;
+
+  // Use template-provided finish_bonus if available, otherwise use strategy defaults
+  const finishBonusTable =
+    templateRules && typeof templateRules === 'object' && templateRules.finish_bonus
+      ? templateRules.finish_bonus
+      : DEFAULT_FINISH_BONUS;
 
   // Check if we have template rules for complex scoring
   const hasTemplateRules = scoring && Object.keys(scoring).length > 0;
