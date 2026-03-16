@@ -1255,7 +1255,7 @@ async function upsertScores(ctx, normalizedScores) {
     return;
   }
 
-  const { dbClient } = ctx;
+  const { dbClient, providerEventId } = ctx;
 
   const values = [];
   const placeholders = [];
@@ -1317,8 +1317,21 @@ async function upsertScores(ctx, normalizedScores) {
   `, values);
 
   // Populate user roster scores from golfer event scores
-  if (normalizedScores?.length > 0 && ctx?.contestInstanceId) {
-    await scoreContestRosters(ctx.contestInstanceId, dbClient);
+  if (normalizedScores?.length > 0 && providerEventId) {
+    // Fan out roster scoring to ALL LIVE/LOCKED contests tied to this event, not just the current one
+    // COMPLETE contests must not be rescored (settled state is immutable)
+    const contests = await dbClient.query(
+      `SELECT id FROM contest_instances WHERE provider_event_id = $1 AND status IN ('LIVE','LOCKED')`,
+      [providerEventId]
+    );
+
+    console.info(
+      `[ROSTER_SCORING] Running roster scoring for ${contests.rows.length} contests for event ${providerEventId}`
+    );
+
+    for (const row of contests.rows) {
+      await scoreContestRosters(row.id, dbClient);
+    }
   }
 }
 

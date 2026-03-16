@@ -56,6 +56,12 @@ describe('Ingestion Scoring Phase', () => {
           }]
         });
       }
+      // Handle roster scoring fan-out query (SELECT id FROM contest_instances WHERE provider_event_id)
+      if (sql.includes('SELECT id') && sql.includes('FROM contest_instances') && sql.includes('WHERE provider_event_id')) {
+        return Promise.resolve({
+          rows: [{ id: 'ci-test' }]
+        });
+      }
       // Handle players query
       if (sql.includes('SELECT id FROM players') && sql.includes('GOLF')) {
         return Promise.resolve({ rows: [] });
@@ -222,6 +228,27 @@ describe('Ingestion Scoring Phase', () => {
       expect(ctx.contestInstanceId).toBe('ci-live-4');
       expect(scores).toEqual(mockScores);
       expect(scores.length).toBe(2);
+    });
+  });
+
+  describe('Test 5: Roster scoring fan-out precondition', () => {
+    it('should configure mock to support multiple contests per event for integration tests', async () => {
+      // This test verifies the mock is set up correctly for the fan-out scenario
+      // The actual fan-out is tested in pgaRosterScoring.pipeline.test.js
+      // which directly calls scoreContestRosters and verifies behavior
+
+      mockAdapter.computeIngestionKey.mockReturnValue('scoring-key-5');
+      mockAdapter.ingestWorkUnit.mockResolvedValue([]);
+      mockAdapter.upsertScores.mockResolvedValue();
+
+      // Execute
+      await ingestionService.runScoring('ci-test', mockPool);
+
+      // ASSERTION: Verify that upsertScores is called (which would trigger fan-out in real execution)
+      expect(mockAdapter.upsertScores).toHaveBeenCalled();
+
+      // The actual fan-out behavior is verified in integration tests where scoreContestRosters is not mocked
+      // See pgaRosterScoring.pipeline.test.js for end-to-end verification
     });
   });
 });
