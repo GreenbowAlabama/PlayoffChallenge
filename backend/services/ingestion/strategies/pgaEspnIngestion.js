@@ -832,8 +832,25 @@ async function handleScoringIngestion(ctx, unit) {
   );
 
   // ── Step 4: Determine final round status ──────────────────────────────────
-  // ESPN uses STATUS_FINAL when tournament is complete
-  const is_final_round = event.status?.type?.name === 'STATUS_FINAL' || false;
+  // Tournament is final when NOW() >= tournament_end_time (deterministic, not ESPN-dependent)
+  const endTimeResult = await dbClient.query(
+    `SELECT tournament_end_time
+     FROM contest_instances
+     WHERE id = $1`,
+    [contestInstanceId]
+  );
+
+  let is_final_round = false;
+  if (endTimeResult.rows.length > 0 && endTimeResult.rows[0].tournament_end_time) {
+    const endTime = new Date(endTimeResult.rows[0].tournament_end_time);
+    const now = new Date();
+    is_final_round = now >= endTime;
+    console.log(
+      `[SCORING] Tournament end check: endTime=${endTime.toISOString()}, now=${now.toISOString()}, is_final=${is_final_round}`
+    );
+  } else {
+    console.log(`[SCORING] No tournament_end_time found for contest, is_final=false`);
+  }
 
   // ── Step 5: Fetch template scoring strategy ──────────────────────────────────
   const configResult = await dbClient.query(
@@ -855,8 +872,8 @@ async function handleScoringIngestion(ctx, unit) {
   // ── Step 6: Score only new rounds (rounds 1 to currentRound not yet scored) ──
   for (let roundNum = 1; roundNum <= currentRound; roundNum++) {
     // IDEMPOTENCY CHECK: Skip if this round already has scores
-    // EXCEPTION: Allow final round to be reprocessed if tournament becomes STATUS_FINAL
-    // This ensures finish_bonus is applied even if round 4 was scored before tournament marked final
+    // EXCEPTION: Allow final round to be reprocessed if tournament passes tournament_end_time
+    // This ensures finish_bonus is applied even if round 4 was scored before tournament ended
     const isFinalRoundCandidate = roundNum === currentRound;
     const shouldSkip = scoredRounds.has(roundNum) && !(isFinalRoundCandidate && is_final_round);
 
