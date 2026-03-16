@@ -9,6 +9,7 @@
 
 const crypto = require('crypto');
 const { scoreContestRosters } = require('../../scoring/pgaRosterScoringService');
+const logger = require('../../../utils/logger');
 
 /**
  * Canonicalize JSON for deterministic hashing.
@@ -1076,29 +1077,68 @@ async function ingestWorkUnit(ctx, unit) {
     .update(JSON.stringify(canonicalizedNormalized))
     .digest('hex');
 
-  // ── Step 4: Derive provider_final_flag from ESPN event status ──────────
+  // ── Step 4: Derive provider_final_flag from ESPN event API (authoritative source) ──
+  // CRITICAL: Event completion must ONLY come from ESPN event API endpoint:
+  // https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/{eventId}
+  //
+  // NOT from the leaderboard endpoint. This ensures contests settle even if
+  // ESPN leaderboard endpoints break (which already happened during this tournament).
+  //
+  // Safety guard: If event API returns completed=true, we set the flag even if
+  // the leaderboard payload is missing status data.
+  //
   // Extract numeric event ID from provider ID (format: espn_pga_401811937 → 401811937)
   const eventIdNumeric = providerEventId
     ? String(providerEventId).replace(/^espn_pga_/, '')
     : null;
 
-  // Find the matching event by ID in the events array
-  const targetEvent = providerData.events?.find(
-    e => String(e.id) === String(eventIdNumeric)
-  );
+  let providerFinalFlag = false;
+  let eventCompletedViaApi = false;
 
-  // Ingestion invariant guard: provider contract must include requested event
-  // If this fails, the provider response is invalid or ESPN API changed
-  // Failing hard here prevents downstream corruption of snapshots → lifecycle → settlement
-  if (!targetEvent) {
-    throw new Error(
-      `ESPN ingestion invariant violation: event ${eventIdNumeric} not found in response. ` +
-      `Events available: ${providerData.events?.map(e => e.id).join(', ') || '(none)'}`
-    );
+  // Attempt to fetch event metadata from ESPN event API (primary source of truth)
+  if (eventIdNumeric) {
+    try {
+      const espnPgaApi = require('../espn/espnPgaApi');
+      const eventMetadata = await espnPgaApi.fetchEventMetadata({ eventId: eventIdNumeric });
+
+      // Extract completion flag from event API response (authoritative)
+      if (eventMetadata.status?.type?.completed === true) {
+        providerFinalFlag = true;
+        eventCompletedViaApi = true;
+        logger.info(
+          `[pgaEspnIngestion] Event API returned completed=true for eventId=${eventIdNumeric}`
+        );
+      } else if (eventMetadata.status?.type?.name === 'STATUS_FINAL') {
+        providerFinalFlag = true;
+        eventCompletedViaApi = true;
+        logger.info(
+          `[pgaEspnIngestion] Event API returned STATUS_FINAL for eventId=${eventIdNumeric}`
+        );
+      }
+    } catch (err) {
+      // Event API call failed. Will attempt fallback to leaderboard payload below.
+      logger.warn(
+        `[pgaEspnIngestion] Event API fetch failed for eventId=${eventIdNumeric}, ` +
+        `attempting leaderboard fallback: ${err.message}`
+      );
+    }
   }
 
-  // Determine finality from the correct event (invariant guard above ensures it exists)
-  const providerFinalFlag = targetEvent.status?.type?.name === 'STATUS_FINAL' || false;
+  // Fallback: if event API did not confirm completion, check leaderboard payload
+  if (!eventCompletedViaApi && eventIdNumeric) {
+    const targetEvent = providerData.events?.find(
+      e => String(e.id) === String(eventIdNumeric)
+    );
+
+    if (targetEvent) {
+      // Check leaderboard payload for status (fallback only)
+      if (targetEvent.status?.type?.completed === true) {
+        providerFinalFlag = true;
+      } else if (targetEvent.status?.type?.name === 'STATUS_FINAL') {
+        providerFinalFlag = true;
+      }
+    }
+  }
 
   // ── Step 5: Insert immutable snapshot into event_data_snapshots ────────
   // ON CONFLICT ensures idempotency: duplicate hashes for same contest are silently skipped.

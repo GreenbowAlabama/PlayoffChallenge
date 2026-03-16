@@ -281,9 +281,56 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
   }, 3);
 }
 
+/**
+ * Fetch ESPN event metadata (completion status, tournament info).
+ *
+ * This endpoint provides the authoritative tournament completion signal via
+ * status.type.completed. This is separate from the leaderboard endpoint and
+ * is used to determine if a contest should move to COMPLETE state.
+ *
+ * @param {Object} options
+ *   {
+ *     eventId: string (ESPN event ID, e.g., "401811941")
+ *     timeout: number (ms, default 5000)
+ *   }
+ * @returns {Promise<Object>} ESPN event metadata { status: {type: {completed, name}}, ... }
+ * @throws {Error} If fetch fails (after retries or non-transient error)
+ */
+async function fetchEventMetadata({ eventId, timeout = 5000 }) {
+  if (!eventId) {
+    throw new Error('fetchEventMetadata: eventId is required');
+  }
+
+  logger.info(`[espnPgaApi] Fetching event metadata: eventId=${eventId}`);
+
+  return withRetry(async () => {
+    const url = `https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/${eventId}`;
+
+    const response = await axios.get(url, {
+      timeout,
+      httpsAgent,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://www.espn.com/',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      }
+    });
+
+    logger.info(
+      `[espnPgaApi] Event metadata fetched: eventId=${eventId}, completed=${response.data.status?.type?.completed || false}`
+    );
+
+    return response.data;
+  }, 3);
+}
+
 module.exports = {
   fetchCalendar,
   fetchLeaderboard,
+  fetchEventMetadata,
   clearLeaderboardCache,
   withRetry, // Export for testing
   parseRetryAfter // Export for testing
