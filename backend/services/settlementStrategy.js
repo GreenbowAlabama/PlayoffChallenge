@@ -607,6 +607,28 @@ async function executeSettlement(contestInstance, pool, snapshotId, snapshotHash
   }
 }
 
+/**
+ * Check if a contest is ready for settlement
+ *
+ * Verifies that all participants have final scores before settlement can proceed.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} contestId - Contest instance UUID
+ * @returns {Promise<boolean>} True if all entries have scores, false otherwise
+ */
+async function isReadyForSettlement(pool, contestId) {
+  const result = await pool.query(`
+    SELECT COUNT(*) = 0 AS ready
+    FROM contest_entries ce
+    LEFT JOIN lineup_scores ls
+      ON ce.id = ls.entry_id
+    WHERE ce.contest_instance_id = $1
+        AND ls.score IS NULL
+  `, [contestId]);
+
+  return result.rows[0].ready;
+}
+
 module.exports = {
   // Settlement execution
   executeSettlement,
@@ -624,5 +646,8 @@ module.exports = {
   canonicalizeJson,
 
   // Validation
-  isValidStrategy
+  isValidStrategy,
+
+  // Settlement readiness check
+  isReadyForSettlement
 };
