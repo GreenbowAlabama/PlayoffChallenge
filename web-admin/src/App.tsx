@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider } from './auth/AuthContext';
 import { Login } from './pages/Login';
 import { Users } from './pages/Users';
 import UserWalletLedger from './pages/UserWalletLedger';
@@ -38,40 +39,42 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Layout />
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<Navigate to="/admin" replace />} />
-            <Route path="funding" element={<Funding />} />
-            <Route path="admin" element={<AdminControlRoomPage />} />
-            <Route path="admin/platform-health" element={<PlatformHealthPage />} />
-            <Route path="admin/contest-ops" element={<ContestOpsPage />} />
-            <Route path="admin/contest-integrity" element={<ContestIntegrityPage />} />
-            <Route path="admin/player-data" element={<PlayerDataPage />} />
-            <Route path="admin/user-ops" element={<UserOpsPage />} />
-            <Route path="admin/financial-ops" element={<FinancialOpsPage />} />
-            <Route path="admin/operations" element={<Admin />} />
-            <Route path="operations/leaderboards" element={<PgaLeaderboardPage />} />
-            <Route path="alerts" element={<AlertCenter />} />
-            <Route path="users" element={<Users />} />
-            <Route path="users/wallet-ledger" element={<UserWalletLedger />} />
-            <Route path="diagnostics/users/:userId" element={<DiagnosticsUserDetail />} />
-            <Route path="diagnostics/contest-pools" element={<ContestPoolDiagnostics />} />
-            <Route path="lineups" element={<Lineups />} />
-            <Route path="trends" element={<Trends />} />
-            <Route path="discovery" element={<ViewDiscovered />} />
-            <Route path="contest-ops/:contestId" element={<ContestOpsDetailPage />} />
-            <Route path="create-contest-type" element={<CreateContestType />} />
-            <Route path="staging-cleanup" element={<StagingCleanup />} />
-          </Route>
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="/admin" replace />} />
+              <Route path="funding" element={<Funding />} />
+              <Route path="admin" element={<AdminControlRoomPage />} />
+              <Route path="admin/platform-health" element={<PlatformHealthPage />} />
+              <Route path="admin/contest-ops" element={<ContestOpsPage />} />
+              <Route path="admin/contest-integrity" element={<ContestIntegrityPage />} />
+              <Route path="admin/player-data" element={<PlayerDataPage />} />
+              <Route path="admin/user-ops" element={<UserOpsPage />} />
+              <Route path="admin/financial-ops" element={<FinancialOpsPage />} />
+              <Route path="admin/operations" element={<Admin />} />
+              <Route path="operations/leaderboards" element={<PgaLeaderboardPage />} />
+              <Route path="alerts" element={<AlertCenter />} />
+              <Route path="users" element={<Users />} />
+              <Route path="users/wallet-ledger" element={<UserWalletLedger />} />
+              <Route path="diagnostics/users/:userId" element={<DiagnosticsUserDetail />} />
+              <Route path="diagnostics/contest-pools" element={<ContestPoolDiagnostics />} />
+              <Route path="lineups" element={<Lineups />} />
+              <Route path="trends" element={<Trends />} />
+              <Route path="discovery" element={<ViewDiscovered />} />
+              <Route path="contest-ops/:contestId" element={<ContestOpsDetailPage />} />
+              <Route path="create-contest-type" element={<CreateContestType />} />
+              <Route path="staging-cleanup" element={<StagingCleanup />} />
+            </Route>
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
   );

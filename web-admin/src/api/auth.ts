@@ -1,4 +1,5 @@
 import { apiRequest } from './client';
+import { logout, isAuthenticated } from '../auth/session';
 import type { AuthResponse, AppleAuthRequest } from '../types';
 
 export async function loginWithApple(idToken: string): Promise<AuthResponse> {
@@ -14,10 +15,4 @@ export async function loginWithApple(idToken: string): Promise<AuthResponse> {
   return response;
 }
 
-export function logout(): void {
-  localStorage.removeItem('admin_token');
-}
-
-export function isAuthenticated(): boolean {
-  return !!localStorage.getItem('admin_token');
-}
+export { logout, isAuthenticated };

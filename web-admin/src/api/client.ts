@@ -1,3 +1,5 @@
+import { handleSessionExpired } from '../auth/session';
+
 const API_URL = import.meta.env.VITE_API_BASE_URL;
 
 export class ApiError extends Error {
@@ -29,6 +31,12 @@ export async function apiRequest<T>(
     ...options,
     headers,
   });
+
+  // Handle session expiration
+  if (response.status === 401) {
+    handleSessionExpired();
+    throw new ApiError(401, 'Session expired. Redirecting to login...');
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
