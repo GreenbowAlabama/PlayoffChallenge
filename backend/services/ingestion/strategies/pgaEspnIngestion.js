@@ -878,13 +878,7 @@ async function handleScoringIngestion(ctx, unit) {
     const shouldSkip = scoredRounds.has(roundNum) && !(isFinalRoundCandidate && is_final_round);
 
     if (shouldSkip) {
-      console.log(`[SCORING] Round ${roundNum}: Already scored, skipping (idempotency)`);
       continue;
-    }
-
-    // Log if reprocessing final round due to tournament becoming final
-    if (scoredRounds.has(roundNum) && isFinalRoundCandidate && is_final_round) {
-      console.log(`[SCORING] Round ${roundNum}: Reprocessing final round to apply finish_bonus (tournament now marked STATUS_FINAL)`);
     }
 
     // ── Step 6a: Build golfers array for this specific round ────────────────
@@ -938,9 +932,16 @@ async function handleScoringIngestion(ctx, unit) {
         continue;
       }
 
-      // Get golfer position for finish bonus (only apply on final round)
-      const position = (roundNum === currentRound && is_final_round) ?
-        (competitor.position ? parseInt(competitor.position, 10) : 0) : 0;
+      // Extract finish position from ESPN payload (check multiple possible fields)
+      const finishPosition =
+        competitor?.curatedRank?.current ??
+        competitor?.order ??
+        competitor?.position ??
+        null;
+
+      // Only use position for final round scoring (finish_bonus only applies then)
+      const position = (roundNum === currentRound && is_final_round && finishPosition) ?
+        parseInt(finishPosition, 10) : 0;
 
       golfers.push({
         golfer_id: golferId,
@@ -951,7 +952,6 @@ async function handleScoringIngestion(ctx, unit) {
     }
 
     if (golfers.length === 0) {
-      console.warn(`[SCORING] Round ${roundNum}: No golfers with score data`);
       continue;
     }
 
@@ -978,40 +978,24 @@ async function handleScoringIngestion(ctx, unit) {
     }));
 
     allFinalScores.push(...roundScores);
-    console.log(`[SCORING] Round ${roundNum}: Scored ${roundScores.length} golfers`);
   }
 
   if (allFinalScores.length === 0) {
-    console.log(`[SCORING] No new rounds to score (all rounds already processed)`);
     return [];
   }
 
   const finalScores = allFinalScores;
 
-  // [SCORING DEBUG] Log all scores scored
-  console.log(
-    "[SCORING DEBUG] Total scores across all new rounds:",
-    finalScores.length,
-    "| contest:",
-    contestInstanceId
-  );
-
-  // [SCORING DEBUG] Log round distribution before DB write
-  const roundDistribution = finalScores.reduce((acc, row) => {
+  // Log summary of scoring run
+  const roundCounts = finalScores.reduce((acc, row) => {
     acc[row.round_number] = (acc[row.round_number] || 0) + 1;
     return acc;
   }, {});
-  console.log('[SCORING DEBUG] finalScores round distribution:', roundDistribution);
 
-  // [SCORING DEBUG] Log sample rows to verify round_number field exists
   console.log(
-    '[SCORING DEBUG] sample finalScores (first 12):',
-    finalScores.slice(0, 12).map(r => ({
-      golfer_id: r.golfer_id,
-      round_number: r.round_number,
-      hole_points: r.hole_points,
-      finish_bonus: r.finish_bonus
-    }))
+    `[SCORING] PGA scoring complete | contest=${contestInstanceId} | ` +
+    `total_scores=${finalScores.length} | rounds=${Object.keys(roundCounts).sort().join(',')} | ` +
+    `final_round=${is_final_round}`
   );
 
   return finalScores;
