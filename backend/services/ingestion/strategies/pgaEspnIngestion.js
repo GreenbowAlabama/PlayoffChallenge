@@ -1141,7 +1141,12 @@ async function ingestWorkUnit(ctx, unit) {
   }
 
   // ── Step 5: Insert immutable snapshot into event_data_snapshots ────────
-  // ON CONFLICT ensures idempotency: duplicate hashes for same contest are silently skipped.
+  // Snapshot is keyed by contest + hash. If same hash appears again:
+  // - If NOT final: skip (DO NOTHING) - scores haven't changed
+  // - If NOW final: UPDATE flag to true - event just completed
+  //
+  // This ensures lifecycle can find final snapshots even if they were
+  // previously ingested before event completion was detected.
   await dbClient.query(`
     INSERT INTO event_data_snapshots (
       id,
@@ -1160,7 +1165,9 @@ async function ingestWorkUnit(ctx, unit) {
       $5,
       NOW()
     )
-    ON CONFLICT (contest_instance_id, snapshot_hash) DO NOTHING
+    ON CONFLICT (contest_instance_id, snapshot_hash) DO UPDATE
+    SET provider_final_flag = EXCLUDED.provider_final_flag
+    WHERE EXCLUDED.provider_final_flag = true
   `, [
     contestInstanceId,
     snapshotHash,
