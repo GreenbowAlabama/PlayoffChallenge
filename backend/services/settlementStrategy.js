@@ -610,23 +610,43 @@ async function executeSettlement(contestInstance, pool, snapshotId, snapshotHash
 /**
  * Check if a contest is ready for settlement
  *
- * Verifies that scoring data exists for the contest before settlement can proceed.
+ * Handles two cases:
+ * 1. Empty contests (0 participants) → immediately ready
+ * 2. Contests with entries → require golfer_scores to exist
  *
  * @param {Object} pool - Database connection pool
  * @param {string} contestId - Contest instance UUID
- * @returns {Promise<boolean>} True if golfer_event_scores exist for the contest, false otherwise
+ * @returns {Promise<boolean>} True if contest is ready for settlement, false otherwise
  */
 async function isReadyForSettlement(pool, contestId) {
-  const result = await pool.query(
+  // Check if contest has entries
+  const entryResult = await pool.query(
     `
-    SELECT COUNT(*) > 0 AS ready
-    FROM golfer_event_scores
+    SELECT COUNT(*)::int AS entry_count
+    FROM entry_rosters
     WHERE contest_instance_id = $1
     `,
     [contestId]
   );
 
-  return result.rows[0].ready;
+  const entryCount = entryResult.rows[0].entry_count;
+
+  // If no participants, settlement is immediately ready
+  if (entryCount === 0) {
+    return true;
+  }
+
+  // Otherwise verify roster scoring exists
+  const scoreResult = await pool.query(
+    `
+    SELECT COUNT(*) > 0 AS ready
+    FROM golfer_scores
+    WHERE contest_instance_id = $1
+    `,
+    [contestId]
+  );
+
+  return scoreResult.rows[0].ready;
 }
 
 module.exports = {
