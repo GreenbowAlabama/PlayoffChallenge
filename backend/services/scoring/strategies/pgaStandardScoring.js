@@ -184,55 +184,95 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
   const hasTemplateRules = scoring && Object.keys(scoring).length > 0;
 
   // ── Compute leaderboard ranking from cumulative tournament strokes (final round only) ────
-  // CRITICAL: When is_final_round === true, ALWAYS recompute positions from tournament_strokes.
+  // CRITICAL: When is_final_round === true, recompute positions from tournament_strokes if available.
   // Ignore any position values coming from ESPN (curatedRank, order, position).
   // ESPN positions often have many ties (position 2), which we must override.
+  // CRITICAL FIX: Invalid tournament_strokes (NaN, null, undefined) must NOT default to 0,
+  // as this creates false position-1 ties and corrupts finish_bonus distribution.
+  // If tournament_strokes are not available, use the positions as provided (for backward compatibility with unit tests).
   if (is_final_round && Array.isArray(golfers) && golfers.length > 0) {
-    // Step 1: Create a sorted copy by cumulative tournament strokes (ascending, lower is better)
-    const sorted = [...golfers].sort((a, b) => {
-      const aStrokes = (typeof a.tournament_strokes === 'number' && isFinite(a.tournament_strokes)) ? a.tournament_strokes : 0;
-      const bStrokes = (typeof b.tournament_strokes === 'number' && isFinite(b.tournament_strokes)) ? b.tournament_strokes : 0;
-      return aStrokes - bStrokes;
-    });
+    // Check if ANY golfers have valid tournament_strokes
+    const hasAnyValidTournamentStrokes = golfers.some(
+      g => typeof g.tournament_strokes === 'number' && isFinite(g.tournament_strokes)
+    );
 
-    // Step 2: Assign positions with proper tie handling
-    // Track: position (current rank), previousStrokes (for tie detection), playersSeen (count)
-    let position = 1;
-    let previousStrokes = null;
-    let playersSeen = 0;
+    // Only recompute positions if we have tournament_strokes data
+    if (hasAnyValidTournamentStrokes) {
+      // Step 0: Separate valid from invalid golfers
+      // A valid golfer has tournament_strokes that is a finite number
+      const validGolfers = [];
+      const invalidGolfers = [];
 
-    for (const golfer of sorted) {
-      const strokes = (typeof golfer.tournament_strokes === 'number' && isFinite(golfer.tournament_strokes)) ? golfer.tournament_strokes : 0;
+      for (const golfer of golfers) {
+        const strokes = golfer.tournament_strokes;
+        const isValid = typeof strokes === 'number' && isFinite(strokes);
 
-      // When strokes differ from previous golfer, advance position to skip after ties
-      // Example: [270, 271, 271, 273] → positions [1, 2, 2, 4]
-      if (previousStrokes !== null && strokes !== previousStrokes) {
-        position = playersSeen + 1;
+        if (isValid) {
+          validGolfers.push(golfer);
+        } else {
+          invalidGolfers.push(golfer);
+        }
       }
 
-      golfer.position = position;
-      previousStrokes = strokes;
-      playersSeen++;
-    }
+      // Step 1: Create a sorted copy of VALID golfers by cumulative tournament strokes (ascending)
+      const sorted = [...validGolfers].sort((a, b) => {
+        const aStrokes = a.tournament_strokes;  // Already validated as finite number
+        const bStrokes = b.tournament_strokes;  // Already validated as finite number
+        return aStrokes - bStrokes;
+      });
 
-    // Step 3: Map computed positions back to original golfers array using golfer_id
-    // This ensures the original array (used for scoring) has correct positions
-    const positionMap = {};
-    for (const golfer of sorted) {
-      positionMap[golfer.golfer_id] = golfer.position;
-    }
+      // Step 2: Assign positions to valid golfers with proper tie handling
+      // Track: position (current rank), previousStrokes (for tie detection), playersSeen (count)
+      let position = 1;
+      let previousStrokes = null;
+      let playersSeen = 0;
 
-    // Explicitly set position on every golfer in the original array
-    // This overrides any position values from ESPN (which often have ties)
-    for (const golfer of golfers) {
-      const computedPosition = positionMap[golfer.golfer_id];
-      if (typeof computedPosition === 'number') {
-        golfer.position = computedPosition;
-      } else {
-        // Golfer has no match in positionMap (shouldn't happen, but default to unranked)
-        golfer.position = 0;
+      for (const golfer of sorted) {
+        const strokes = golfer.tournament_strokes;
+
+        // When strokes differ from previous golfer, advance position to skip after ties
+        // Example: [270, 271, 271, 273] → positions [1, 2, 2, 4]
+        if (previousStrokes !== null && strokes !== previousStrokes) {
+          position = playersSeen + 1;
+        }
+
+        golfer.position = position;
+        previousStrokes = strokes;
+        playersSeen++;
+      }
+
+      // Step 3: Handle invalid golfers
+      // Assign them positions >= 51 so they get 0 finish bonus from the table
+      // (DEFAULT_FINISH_BONUS only has explicit entries for 1-50, so 51+ returns 0)
+      const startInvalidPosition = Math.max(51, playersSeen + 1);  // At least 51 to get 0 bonus
+      for (let i = 0; i < invalidGolfers.length; i++) {
+        const golfer = invalidGolfers[i];
+        golfer.position = startInvalidPosition + i;
+      }
+
+      // Step 4: Map computed positions back to original golfers array using golfer_id
+      // This ensures the original array (used for scoring) has correct positions
+      const positionMap = {};
+      for (const golfer of sorted) {
+        positionMap[golfer.golfer_id] = golfer.position;
+      }
+      for (const golfer of invalidGolfers) {
+        positionMap[golfer.golfer_id] = golfer.position;
+      }
+
+      // Explicitly set position on every golfer in the original array
+      // This overrides any position values from ESPN (which often have ties)
+      for (const golfer of golfers) {
+        const computedPosition = positionMap[golfer.golfer_id];
+        if (typeof computedPosition === 'number') {
+          golfer.position = computedPosition;
+        } else {
+          // Golfer has no match in positionMap (shouldn't happen, but default to unranked high)
+          golfer.position = 999;
+        }
       }
     }
+    // If no tournament_strokes data, use positions as provided
   }
 
   const golfer_scores = golfers.map((golfer) => {

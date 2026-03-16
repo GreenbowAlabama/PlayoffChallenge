@@ -852,7 +852,7 @@ async function handleScoringIngestion(ctx, unit) {
     console.log(`[SCORING] No tournament_end_time found for contest, is_final=false`);
   }
 
-  // ── Step 5: Fetch template scoring strategy ──────────────────────────────────
+  // ── Step 5: Fetch template scoring strategy and resolve to rules object ────────
   const configResult = await dbClient.query(
     `SELECT ct.scoring_strategy_key
      FROM contest_instances ci
@@ -863,7 +863,20 @@ async function handleScoringIngestion(ctx, unit) {
 
   let templateRules = {};
   if (configResult.rows.length > 0 && configResult.rows[0].scoring_strategy_key) {
-    templateRules = configResult.rows[0].scoring_strategy_key;
+    const strategyKey = configResult.rows[0].scoring_strategy_key;
+
+    // CRITICAL: Resolve strategy key to strategy module to get rules object
+    // Strategy modules export rules function that returns {scoring, finish_bonus, ...}
+    const { getStrategy } = require('../scoringStrategyRegistry');
+    const strategyModule = getStrategy(strategyKey);
+
+    // Strategy modules export a rules(contestRow) function that returns the rules object
+    // For now, we call rules without contest row (can be null for default rules)
+    if (strategyModule && typeof strategyModule.rules === 'function') {
+      templateRules = strategyModule.rules(null) || {};
+    } else {
+      console.warn(`[SCORING] Strategy module ${strategyKey} does not export rules function`);
+    }
   }
 
   const pgaStandardScoring = require('../../scoring/strategies/pgaStandardScoring');
