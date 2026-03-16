@@ -1,8 +1,20 @@
 #!/usr/bin/env node
 
-const { Pool } = require('pg');
+// Load .env manually (dotenv may not be available)
 const fs = require('fs');
 const path = require('path');
+const envPath = path.join(__dirname, '../../backend/.env');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  envContent.split('\n').forEach(line => {
+    const match = line.match(/^([^=]+)=(.*)$/);
+    if (match) {
+      process.env[match[1]] = match[2].replace(/^"(.*)"$/, '$1');
+    }
+  });
+}
+
+const { Pool } = require('pg');
 
 const scriptName = path.basename(__filename, '.js');
 const logFile = path.join(__dirname, `${scriptName}.log`);
@@ -22,7 +34,8 @@ const run = async () => {
   }
 
   const providerEventId = process.argv[2];
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const connectionString = process.env.DATABASE_URL_TEST || process.env.DATABASE_URL;
+  const pool = new Pool({ connectionString });
   try {
     originalLog('====================================');
     originalLog(`${scriptName}: ${providerEventId}`);

@@ -18,9 +18,7 @@
 'use strict';
 
 const axios = require('axios');
-
-const logger = console; // TODO: Replace with structured logger
-
+const logger = require('../../../utils/logger');
 const httpsAgent = require('../../../utils/httpAgent');
 
 /**

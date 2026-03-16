@@ -1166,8 +1166,7 @@ async function ingestWorkUnit(ctx, unit) {
       NOW()
     )
     ON CONFLICT (contest_instance_id, snapshot_hash) DO UPDATE
-    SET provider_final_flag = EXCLUDED.provider_final_flag
-    WHERE EXCLUDED.provider_final_flag = true
+    SET provider_final_flag = event_data_snapshots.provider_final_flag OR EXCLUDED.provider_final_flag
   `, [
     contestInstanceId,
     snapshotHash,
