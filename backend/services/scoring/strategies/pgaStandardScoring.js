@@ -166,11 +166,19 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
 
   const scoring          = (templateRules && templateRules.scoring)      || {};
 
-  // Use template-provided finish_bonus if available, otherwise use strategy defaults
-  const finishBonusTable =
-    templateRules && typeof templateRules === 'object' && templateRules.finish_bonus
-      ? templateRules.finish_bonus
-      : DEFAULT_FINISH_BONUS;
+  // Build finish bonus table: always start with DEFAULT_FINISH_BONUS.
+  // Only override with template values if they are explicitly valid numbers.
+  // This prevents incomplete/malformed template tables from breaking bonus distribution.
+  let finishBonusTable = { ...DEFAULT_FINISH_BONUS };
+  if (templateRules && typeof templateRules === 'object' && templateRules.finish_bonus) {
+    const templateBonuses = templateRules.finish_bonus;
+    // Safely overlay template values only where they exist and are valid
+    for (const [posStr, bonus] of Object.entries(templateBonuses)) {
+      if (typeof bonus === 'number' && isFinite(bonus)) {
+        finishBonusTable[posStr] = bonus;
+      }
+    }
+  }
 
   // Check if we have template rules for complex scoring
   const hasTemplateRules = scoring && Object.keys(scoring).length > 0;
@@ -225,18 +233,6 @@ function scoreRound({ normalizedRoundPayload, templateRules }) {
         golfer.position = 0;
       }
     }
-  }
-
-  // ── DEBUG INSTRUMENTATION: Inspect computed positions before scoring ──
-  if (is_final_round) {
-    console.log(
-      '[SCORING DEBUG] sample positions (first 20 golfers):',
-      golfers.slice(0, 20).map(g => ({
-        golfer_id: g.golfer_id,
-        tournament_strokes: g.tournament_strokes,
-        position: g.position
-      }))
-    );
   }
 
   const golfer_scores = golfers.map((golfer) => {
