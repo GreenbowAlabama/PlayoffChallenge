@@ -152,7 +152,7 @@ export function PlatformHealthPage() {
             title="System Invariants"
             tooltip="Financial and operational constraint validation"
           >
-            <ServiceHealth name="Status" status={platformHealth.services.invariants} />
+            <ServiceHealth name="Status" status={invariants ? getPlatformHealthStatus(invariants) : 'unknown'} />
           </AdminPanel>
 
           {/* Server Time */}
