@@ -6,7 +6,8 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { getPlatformHealth } from '../../api/platform-health';
+import { getPlatformHealth, getPlatformHealthStatus } from '../../api/platform-health';
+import { systemInvariantsApi } from '../../api/system-invariants';
 import { getPlayerDataOpsSnapshot } from '../../api/player-data-ops';
 import { getUserOpsSnapshot } from '../../api/user-ops';
 import { getSystemInstances } from '../../api/discovery';
@@ -59,6 +60,13 @@ export function SystemStatusBanner() {
     refetchInterval: 10000,
   });
 
+  // Fetch System Invariants (for financial health as source of truth)
+  const { data: invariants, isLoading: invariantsLoading, error: invariantsError } = useQuery({
+    queryKey: ['systemStatus', 'invariants'],
+    queryFn: () => systemInvariantsApi.getCurrentStatus(),
+    refetchInterval: 10000,
+  });
+
   // Fetch Player Data Ops
   const { data: playerData, isLoading: playerDataLoading, error: playerDataError } = useQuery({
     queryKey: ['systemStatus', 'playerData'],
@@ -80,13 +88,20 @@ export function SystemStatusBanner() {
     refetchInterval: 10000,
   });
 
-  // Determine Platform Health tower status
-  const platformStatus: TowerStatus = getTowerStatus(platformLoading, platformError as Error | null, () => {
-    if (!platformHealth) return null;
-    if (platformHealth.status === 'healthy') return { name: 'Platform Health', status: 'healthy', icon: '🟢' };
-    if (platformHealth.status === 'degraded') return { name: 'Platform Health', status: 'degraded', icon: '🟡' };
-    return { name: 'Platform Health', status: 'error', icon: '🔴' };
-  });
+  // Determine Platform Health tower status (use financial invariant as source of truth)
+  const platformStatus: TowerStatus = getTowerStatus(
+    platformLoading || invariantsLoading,
+    (platformError || invariantsError) as Error | null,
+    () => {
+      if (!invariants) return null;
+      const healthStatus = getPlatformHealthStatus(invariants);
+      return {
+        name: 'Platform Health',
+        status: healthStatus,
+        icon: healthStatus === 'healthy' ? '🟢' : '🟡'
+      };
+    }
+  );
 
   // Determine Contest Ops tower status
   const contestStatus: TowerStatus = getTowerStatus(contestsLoading, contestsError as Error | null, () => {

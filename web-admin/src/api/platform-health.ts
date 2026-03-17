@@ -29,6 +29,18 @@ export async function getPlatformHealth(): Promise<PlatformHealthResponse> {
 }
 
 /**
+ * Determine Platform Health status from financial invariant (source of truth)
+ *
+ * Financial balance (difference_cents) is the authoritative health indicator.
+ * If balanced (difference_cents === 0), system is healthy.
+ * Otherwise, system is degraded.
+ */
+export function getPlatformHealthStatus(data: any): 'healthy' | 'degraded' {
+  const diff = data?.invariants?.financial?.values?.difference_cents;
+  return diff === 0 ? 'healthy' : 'degraded';
+}
+
+/**
  * Map platform health status to UI color and label.
  */
 export function getHealthDisplay(status: string) {

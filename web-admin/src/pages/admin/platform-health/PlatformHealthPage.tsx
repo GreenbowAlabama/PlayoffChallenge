@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getPlatformHealth, getHealthDisplay } from '../../../api/platform-health';
+import { getPlatformHealth, getHealthDisplay, getPlatformHealthStatus } from '../../../api/platform-health';
 import { systemInvariantsApi } from '../../../api/system-invariants';
 import { AdminPanel } from '../../../components/admin/AdminPanel';
 import { RefreshIndicator } from '../../../components/admin/RefreshIndicator';
@@ -177,23 +177,20 @@ export function PlatformHealthPage() {
               <div className="border-t pt-3">
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">Status</h4>
                 <div className="text-sm text-gray-600">
-                  <span className={`inline-flex items-center gap-2 ${
-                    invariants.overall_status === 'HEALTHY' ? 'text-green-700' :
-                    invariants.overall_status === 'WARNING' ? 'text-amber-700' :
-                    invariants.overall_status === 'CRITICAL' ? 'text-red-700' :
-                    'text-gray-700'
-                  }`}>
-                    <span className={`inline-block w-2 h-2 rounded-full ${
-                      invariants.overall_status === 'HEALTHY' ? 'bg-green-600' :
-                      invariants.overall_status === 'WARNING' ? 'bg-amber-600' :
-                      invariants.overall_status === 'CRITICAL' ? 'bg-red-600' :
-                      'bg-gray-600'
-                    }`}></span>
-                    {invariants.overall_status === 'HEALTHY' && 'All system invariants healthy'}
-                    {invariants.overall_status === 'WARNING' && 'System invariants degraded - review anomalies'}
-                    {invariants.overall_status === 'CRITICAL' && 'System invariants critical - immediate attention required'}
-                    {!['HEALTHY', 'WARNING', 'CRITICAL'].includes(invariants.overall_status) && 'Unknown invariant status'}
-                  </span>
+                  {(() => {
+                    const healthStatus = getPlatformHealthStatus(invariants);
+                    const isHealthy = healthStatus === 'healthy';
+                    return (
+                      <span className={`inline-flex items-center gap-2 ${
+                        isHealthy ? 'text-green-700' : 'text-amber-700'
+                      }`}>
+                        <span className={`inline-block w-2 h-2 rounded-full ${
+                          isHealthy ? 'bg-green-600' : 'bg-amber-600'
+                        }`}></span>
+                        {isHealthy ? 'System healthy - financial balance verified' : 'System degraded - financial drift detected'}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
