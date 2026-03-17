@@ -54,12 +54,14 @@ export function PlatformHealthPage() {
 
   // Update lastUpdated timestamp when data changes
   useEffect(() => {
-    if (platformHealth) {
+    if (invariants) {
       setLastUpdated(new Date().toLocaleString());
     }
-  }, [platformHealth?.timestamp]);
+  }, [invariants?.last_check_timestamp]);
 
-  const healthDisplay = platformHealth ? getHealthDisplay(platformHealth.status) : null;
+  // Determine overall status from financial invariant (source of truth)
+  const overallStatus = invariants ? getPlatformHealthStatus(invariants) : null;
+  const healthDisplay = overallStatus ? getHealthDisplay(overallStatus) : null;
 
   return (
     <div className="space-y-6">
@@ -73,7 +75,7 @@ export function PlatformHealthPage() {
       </div>
 
       {/* Overall Status */}
-      {platformHealth && healthDisplay && (
+      {invariants && healthDisplay && (
         <div
           className="rounded-lg border-2 p-6 flex items-center gap-4"
           style={{ backgroundColor: healthDisplay.bgColor, borderColor: healthDisplay.color }}
@@ -89,7 +91,7 @@ export function PlatformHealthPage() {
               {healthDisplay.label}
             </h2>
             <p className="text-sm" style={{ color: healthDisplay.color, opacity: 0.8 }}>
-              {platformHealth.timestamp && formatServerTime(platformHealth.timestamp)}
+              {invariants.last_check_timestamp && formatServerTime(invariants.last_check_timestamp)}
             </p>
           </div>
         </div>
