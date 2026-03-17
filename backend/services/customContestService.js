@@ -40,6 +40,7 @@
 
 const crypto = require('crypto');
 const config = require('../config');
+const appConfig = require('../config/appConfig');
 const { validateContestTimeInvariants } = require('./helpers/timeInvariantValidator');
 const { mapContestToApiResponse, mapContestToApiResponseForList } = require('./helpers/contestApiResponseMapper');
 const LedgerRepository = require('../repositories/LedgerRepository');
@@ -291,12 +292,12 @@ function getEnvPrefix() {
 
 /**
  * Generate a full join URL for a contest instance
- * Uses centralized config for JOIN_BASE_URL
+ * Uses centralized appConfig for APP_BASE_URL
  * @param {string} token - The join token
- * @returns {string} Full join URL (e.g., https://app.playoffchallenge.com/join/dev_abc123...)
+ * @returns {string} Full join URL (e.g., https://app.67enterprises.com/join/dev_abc123...)
  */
 function generateJoinUrl(token) {
-  return config.buildJoinUrl(token);
+  return appConfig.buildJoinUrl(token);
 }
 
 /**

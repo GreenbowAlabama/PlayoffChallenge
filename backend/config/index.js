@@ -82,38 +82,11 @@ function validateEnvironment() {
 }
 
 /**
- * Join Base URL for generating shareable join links
- * This should be the public-facing URL where users access the app
+ * DEPRECATED: Join URL configuration moved to config/appConfig.js
+ * Use appConfig.buildJoinUrl() instead
  *
- * Format: https://app.67enterprises.com (no trailing slash)
- * REQUIRED: Must be set in all environments (dev, staging, prod)
+ * All join URL generation must use the canonical appConfig module.
  */
-function getJoinBaseUrl() {
-  const url = process.env.JOIN_BASE_URL;
-  if (!url) {
-    throw new Error(
-      'JOIN_BASE_URL environment variable is required but not set. ' +
-      'Set it to the public-facing app URL (e.g., https://app.67enterprises.com)'
-    );
-  }
-  // Remove trailing slash and any surrounding quotes (in case of misconfiguration)
-  const cleanUrl = url.replace(/^["']|["']$/g, '').replace(/\/$/, '');
-  return cleanUrl;
-}
-
-/**
- * Generate a canonical join URL for a contest token
- * Uses canonical path: /join/:token
- * The /join/:token endpoint redirects to the app store or handles deep linking.
- * @param {string} token - The join token
- * @returns {string} Full join URL
- */
-function buildJoinUrl(token) {
-  if (!token) {
-    throw new Error('Token is required to build join URL');
-  }
-  return `${getJoinBaseUrl()}/join/${token}`;
-}
 
 /**
  * Server port
@@ -185,10 +158,6 @@ module.exports = {
 
   // Authentication
   getAdminJwtSecret,
-
-  // Join URLs
-  getJoinBaseUrl,
-  buildJoinUrl,
 
   // Rate limiting
   getJoinRateLimitConfig,

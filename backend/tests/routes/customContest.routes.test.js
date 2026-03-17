@@ -84,7 +84,7 @@ describe('Custom Contest Routes', () => {
 
   beforeEach(() => {
     process.env.APP_ENV = 'dev';
-    process.env.JOIN_BASE_URL = 'https://app.playoffchallenge.com';
+    process.env.APP_BASE_URL = 'https://app.67enterprises.com';
     mockPool = createMockPool();
 
     app = express();
@@ -97,7 +97,7 @@ describe('Custom Contest Routes', () => {
   afterEach(() => {
     mockPool.reset();
     delete process.env.APP_ENV;
-    delete process.env.JOIN_BASE_URL;
+    delete process.env.APP_BASE_URL;
   });
 
   describe('GET /api/custom-contests/templates', () => {

@@ -26,8 +26,8 @@ describe('PGA Contest Lifecycle — Tournament Field Initialization', () => {
   let pgaTemplateId;
 
   beforeAll(async () => {
-    // Set JOIN_BASE_URL for this test suite
-    process.env.JOIN_BASE_URL = 'https://test.example.com';
+    // Set APP_BASE_URL for this test suite
+    process.env.APP_BASE_URL = 'https://app.67enterprises.com';
     const { pool: testPool } = getIntegrationApp();
     pool = testPool;
   });

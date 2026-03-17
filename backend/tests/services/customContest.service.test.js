@@ -65,13 +65,14 @@ describe('Custom Contest Service Unit Tests', () => {
   beforeEach(() => {
     mockPool = createMockPool();
     process.env.APP_ENV = 'dev';
-    process.env.JOIN_BASE_URL = 'https://test.example.com';
+    process.env.APP_BASE_URL = 'https://app.67enterprises.com';
   });
 
   afterEach(() => {
     mockPool.reset();
     delete process.env.APP_ENV;
-    delete process.env.JOIN_BASE_URL;
+    delete process.env.APP_BASE_URL;
+    delete require.cache[require.resolve('../../config/appConfig')];
   });
 
   describe('Token Functions', () => {
@@ -2062,25 +2063,33 @@ describe('Custom Contest Service Unit Tests', () => {
 
   describe('generateJoinUrl', () => {
     beforeEach(() => {
-      process.env.JOIN_BASE_URL = 'https://app.playoffchallenge.com';
+      process.env.APP_BASE_URL = 'https://app.67enterprises.com';
     });
 
     afterEach(() => {
-      delete process.env.JOIN_BASE_URL;
+      delete process.env.APP_BASE_URL;
+      delete require.cache[require.resolve('../../config/appConfig')];
     });
 
     it('should generate full join URL from token', () => {
+      delete require.cache[require.resolve('../../config/appConfig')];
       const url = customContestService.generateJoinUrl('dev_abc123def456');
-      expect(url).toBe('https://app.playoffchallenge.com/join/dev_abc123def456');
+      expect(url).toBe('https://app.67enterprises.com/join/dev_abc123def456');
+      expect(url).toContain('app.67enterprises.com');
     });
 
-    it('should use custom JOIN_BASE_URL', () => {
-      process.env.JOIN_BASE_URL = 'https://staging.example.com';
-      // Need to re-require to pick up new env var
-      jest.resetModules();
-      const freshService = require('../../services/customContestService');
-      const url = freshService.generateJoinUrl('stg_xyz789');
+    it('should use custom APP_BASE_URL', () => {
+      // Reset cache to allow new APP_BASE_URL to be picked up
+      const appConfig = require('../../config/appConfig');
+      appConfig.resetCache();
+
+      process.env.APP_BASE_URL = 'https://staging.example.com';
+      const url = customContestService.generateJoinUrl('stg_xyz789');
       expect(url).toBe('https://staging.example.com/join/stg_xyz789');
+
+      // Cleanup: restore original APP_BASE_URL and reset cache
+      process.env.APP_BASE_URL = 'https://app.67enterprises.com';
+      appConfig.resetCache();
     });
   });
 
@@ -3384,7 +3393,7 @@ describe('Custom Contest Service Unit Tests', () => {
     const TOURNAMENT_CONFIG_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 
     beforeEach(() => {
-      process.env.JOIN_BASE_URL = 'https://test.example.com';
+      process.env.APP_BASE_URL = 'https://app.67enterprises.com';
     });
 
     const golfTemplate = {

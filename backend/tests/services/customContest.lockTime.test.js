@@ -18,13 +18,14 @@ describe('lock_time enforcement', () => {
   beforeEach(() => {
     mockPool = createMockPool();
     process.env.APP_ENV = 'dev';
-    process.env.JOIN_BASE_URL = 'https://test.example.com';
+    process.env.APP_BASE_URL = 'https://app.67enterprises.com';
   });
 
   afterEach(() => {
     mockPool.reset();
     delete process.env.APP_ENV;
-    delete process.env.JOIN_BASE_URL;
+    delete process.env.APP_BASE_URL;
+    delete require.cache[require.resolve('../../config/appConfig')];
     jest.restoreAllMocks();
   });
 

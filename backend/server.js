@@ -3438,7 +3438,7 @@ function startServer() {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`APP_ENV: ${process.env.APP_ENV || '(not set)'}`);
-    console.log(`JOIN_BASE_URL: ${process.env.JOIN_BASE_URL || '(not set)'}`);
+    console.log(`APP_BASE_URL: ${process.env.APP_BASE_URL || '(not set)'}`);
 
     // Start live stats polling if in production
     if (process.env.NODE_ENV === 'production') {

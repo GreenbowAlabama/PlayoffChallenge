@@ -45,42 +45,26 @@ describe('Config Module', () => {
     });
   });
 
-  describe('getJoinBaseUrl', () => {
-    it('should return JOIN_BASE_URL if set', () => {
-      process.env.JOIN_BASE_URL = 'https://custom.example.com';
-      const config = require('../../config');
-      expect(config.getJoinBaseUrl()).toBe('https://custom.example.com');
-    });
+  // NOTE: getJoinBaseUrl and buildJoinUrl moved to appConfig.js (see appConfig tests)
 
-    it('should throw error if not set', () => {
-      delete process.env.JOIN_BASE_URL;
-      const config = require('../../config');
-      expect(() => config.getJoinBaseUrl()).toThrow('JOIN_BASE_URL environment variable is required');
-    });
-
-    it('should remove trailing slash from URL', () => {
-      process.env.JOIN_BASE_URL = 'https://example.com/';
-      const config = require('../../config');
-      expect(config.getJoinBaseUrl()).toBe('https://example.com');
-    });
-  });
-
-  describe('buildJoinUrl', () => {
+  describe('buildJoinUrl (via appConfig)', () => {
     beforeEach(() => {
-      process.env.JOIN_BASE_URL = 'https://app.playoffchallenge.com';
+      process.env.APP_BASE_URL = 'https://app.67enterprises.com';
     });
 
     it('should build full join URL from token', () => {
-      const config = require('../../config');
-      const url = config.buildJoinUrl('dev_abc123');
-      expect(url).toBe('https://app.playoffchallenge.com/join/dev_abc123');
+      delete require.cache[require.resolve('../../config/appConfig')];
+      const appConfig = require('../../config/appConfig');
+      const url = appConfig.buildJoinUrl('dev_abc123');
+      expect(url).toBe('https://app.67enterprises.com/join/dev_abc123');
     });
 
     it('should throw if token is missing', () => {
-      const config = require('../../config');
-      expect(() => config.buildJoinUrl(null)).toThrow('Token is required');
-      expect(() => config.buildJoinUrl('')).toThrow('Token is required');
-      expect(() => config.buildJoinUrl(undefined)).toThrow('Token is required');
+      delete require.cache[require.resolve('../../config/appConfig')];
+      const appConfig = require('../../config/appConfig');
+      expect(() => appConfig.buildJoinUrl(null)).toThrow('token is required');
+      expect(() => appConfig.buildJoinUrl('')).toThrow('token is required');
+      expect(() => appConfig.buildJoinUrl(undefined)).toThrow('token is required');
     });
   });
 

@@ -105,7 +105,7 @@ describe('Join Endpoint Parity', () => {
 
   beforeEach(() => {
     process.env.APP_ENV = 'dev';
-    process.env.JOIN_BASE_URL = 'https://app.playoffchallenge.com';
+    process.env.APP_BASE_URL = 'https://app.67enterprises.com';
     mockPool = createMockPool();
     app = buildParityApp(mockPool);
   });
@@ -113,7 +113,7 @@ describe('Join Endpoint Parity', () => {
   afterEach(() => {
     mockPool.reset();
     delete process.env.APP_ENV;
-    delete process.env.JOIN_BASE_URL;
+    delete process.env.APP_BASE_URL;
   });
 
   /**
