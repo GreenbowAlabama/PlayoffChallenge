@@ -9,6 +9,7 @@ import type {
   HistoryResponse,
   HistoryRecord
 } from '../types/SystemInvariants';
+import { getToken } from '../auth/session';
 
 // Get API base from environment
 // For Vite, use VITE_REACT_APP_API_URL (Railway env var becomes VITE_REACT_APP_API_URL at build time)
@@ -18,7 +19,7 @@ const API_BASE = import.meta.env.VITE_REACT_APP_API_URL || 'http://localhost:300
  * Helper: Build headers with optional authorization
  */
 function buildHeaders(): Record<string, string> {
-  const token = localStorage.getItem('admin_token');
+  const token = getToken();
   return {
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     'Content-Type': 'application/json'

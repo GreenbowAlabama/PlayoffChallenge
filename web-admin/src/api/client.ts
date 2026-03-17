@@ -1,4 +1,4 @@
-import { handleSessionExpired } from '../auth/session';
+import { handleSessionExpired, getToken } from '../auth/session';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -16,7 +16,7 @@ export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = localStorage.getItem('admin_token');
+  const token = getToken();
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -32,7 +32,7 @@ export async function apiRequest<T>(
     headers,
   });
 
-  // Handle session expiration
+  // Handle session expiration (401 response)
   if (response.status === 401) {
     handleSessionExpired();
     throw new ApiError(401, 'Session expired. Redirecting to login...');

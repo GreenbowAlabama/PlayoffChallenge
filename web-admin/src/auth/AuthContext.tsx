@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { isAuthenticated as checkIsAuthenticated } from './session';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -10,10 +11,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // Refresh auth state by checking token validity (includes expiration check)
   const refreshAuth = () => {
-    setIsAuthenticated(!!localStorage.getItem('admin_token'));
+    setIsAuthenticated(checkIsAuthenticated());
   };
 
+  // Rehydrate auth state on app load
   useEffect(() => {
     refreshAuth();
   }, []);

@@ -1,4 +1,5 @@
 import { apiRequest } from './client';
+import { getToken } from '../auth/session';
 
 // ============================================
 // FINANCIAL HEALTH TYPES
@@ -287,7 +288,7 @@ export async function getGameConfig(): Promise<GameConfig> {
 
 // Extract admin user ID from stored JWT token
 export function getAdminUserId(): string | null {
-  const token = localStorage.getItem('admin_token');
+  const token = getToken();
   if (!token) return null;
 
   try {

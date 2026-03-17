@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+import { setToken } from '../auth/session';
 
 declare global {
   interface Window {
@@ -26,6 +28,7 @@ export function Login() {
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [appleAuthReady, setAppleAuthReady] = useState(false);
+  const { refreshAuth } = useAuth();
 
   // Check for token in URL (from backend redirect after Apple auth)
   useEffect(() => {
@@ -38,14 +41,18 @@ export function Login() {
 
     if (token) {
       try {
-        console.log('[Login] Storing token in localStorage with key: admin_token');
-        localStorage.setItem('admin_token', token);
+        console.log('[Login] Storing token via setToken()');
+        setToken(token);
         console.log('[Login] Token stored successfully');
-        console.log('[Login] localStorage.admin_token now contains:', localStorage.getItem('admin_token') ? 'token' : 'nothing');
 
+        // Update AuthContext state after storing token
+        console.log('[Login] Calling refreshAuth() to update context state');
+        refreshAuth();
+
+        // Micro delay before navigate for strict mode compatibility
         console.log('[Login] Calling navigate(/admin, { replace: true })');
-        navigate('/admin', { replace: true });
-        console.log('[Login] Navigate called');
+        setTimeout(() => navigate('/admin', { replace: true }), 0);
+        console.log('[Login] Navigate scheduled');
       } catch (err) {
         console.error('[Login] Error in token handling:', err);
       }
@@ -53,7 +60,7 @@ export function Login() {
     }
 
     console.log('[Login] No token found in URL');
-  }, [searchParams, navigate]);
+  }, [searchParams, navigate, refreshAuth]);
 
   useEffect(() => {
     const script = document.createElement('script');
