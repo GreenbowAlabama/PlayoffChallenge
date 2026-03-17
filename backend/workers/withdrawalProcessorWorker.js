@@ -18,6 +18,17 @@
  * - Logs minimal info (counts, errors)
  * - Errors do NOT block other withdrawals
  *
+ * CONSTRAINT: SINGLE INSTANCE ONLY
+ * - Worker must run in exactly ONE instance
+ * - Multi-instance coordination NOT supported in Phase 1
+ * - Running multiple instances will cause race conditions on withdrawal state
+ * - Coordinate via deployment/orchestration (e.g., Kubernetes pod, single EC2 instance)
+ *
+ * Production Requirement:
+ * - In production (NODE_ENV === 'production'), ENABLE_WITHDRAWAL_PROCESSOR must be 'true'
+ * - Failure to enable in production is a fatal error
+ * - Worker will exit process if requirement not met
+ *
  * Financial Invariant:
  * - Ledger DEBIT happens BEFORE Stripe call (in processWithdrawal endpoint)
  * - This worker only executes the Stripe transfer
@@ -32,6 +43,14 @@ let intervalHandle = null;
 /**
  * Start withdrawal processor worker
  *
+ * CONSTRAINT: SINGLE INSTANCE ONLY
+ * - Must run in exactly one instance
+ * - Multi-instance coordination not supported
+ *
+ * Production Requirement:
+ * - In NODE_ENV === 'production', ENABLE_WITHDRAWAL_PROCESSOR must be 'true'
+ * - Throws fatal error and exits if requirement not met
+ *
  * @param {Object} pool - Database connection pool
  * @param {Object} options - Worker options
  * @param {number} [options.intervalMs] - Polling interval in milliseconds (default: 30000)
@@ -39,34 +58,49 @@ let intervalHandle = null;
  * @param {number} [options.maxRetries] - Max Stripe call attempts per withdrawal (default: 3)
  * @param {number} [options.retryDelayMs] - Delay between retries in milliseconds (default: 60000)
  * @returns {void}
+ * @throws {Error} Fatal error if production requirement not met
  */
 function startWithdrawalProcessor(pool, options = {}) {
-  const intervalMs = options.intervalMs || 30000; // 30 seconds default
-  const maxConcurrent = options.maxConcurrent || 5;
-  const maxRetries = options.maxRetries || 3;
-  const retryDelayMs = options.retryDelayMs || 60000; // 1 minute between retries
+  try {
+    const intervalMs = options.intervalMs || 30000; // 30 seconds default
+    const maxConcurrent = options.maxConcurrent || 5;
+    const maxRetries = options.maxRetries || 3;
+    const retryDelayMs = options.retryDelayMs || 60000; // 1 minute between retries
 
-  if (isRunning) {
-    console.log('[WithdrawalProcessor] Already running, skipping start');
-    return;
-  }
+    if (isRunning) {
+      console.log('[WithdrawalProcessor] Already running, skipping start');
+      return;
+    }
 
-  // Check if explicitly enabled
-  if (process.env.ENABLE_WITHDRAWAL_PROCESSOR !== 'true') {
-    console.log('[WithdrawalProcessor] Not enabled (ENABLE_WITHDRAWAL_PROCESSOR !== true)');
-    return;
-  }
+    // PRODUCTION REQUIREMENT: enforce ENABLE_WITHDRAWAL_PROCESSOR=true in production
+    if (process.env.NODE_ENV === 'production' && process.env.ENABLE_WITHDRAWAL_PROCESSOR !== 'true') {
+      const errorMsg = 'FATAL: In production, ENABLE_WITHDRAWAL_PROCESSOR must be explicitly set to "true". Worker cannot start without this requirement.';
+      console.error(`[WithdrawalProcessor] ${errorMsg}`);
+      process.exit(1);
+    }
 
-  isRunning = true;
-  console.log(`[WithdrawalProcessor] Started (interval: ${intervalMs}ms, max concurrent: ${maxConcurrent}, max retries: ${maxRetries})`);
+    // Check if explicitly enabled (development can gracefully skip)
+    if (process.env.ENABLE_WITHDRAWAL_PROCESSOR !== 'true') {
+      console.log('[WithdrawalProcessor] Not enabled (ENABLE_WITHDRAWAL_PROCESSOR !== true)');
+      return;
+    }
 
-  // Initial run
-  processWithdrawals(pool, maxConcurrent, maxRetries, retryDelayMs);
+    isRunning = true;
+    console.log(`[WithdrawalProcessor] Started (interval: ${intervalMs}ms, max concurrent: ${maxConcurrent}, max retries: ${maxRetries})`);
 
-  // Schedule recurring runs
-  intervalHandle = setInterval(() => {
+    // Initial run
     processWithdrawals(pool, maxConcurrent, maxRetries, retryDelayMs);
-  }, intervalMs);
+
+    // Schedule recurring runs
+    intervalHandle = setInterval(() => {
+      processWithdrawals(pool, maxConcurrent, maxRetries, retryDelayMs);
+    }, intervalMs);
+  } catch (err) {
+    const errorMsg = `[WithdrawalProcessor] FATAL ERROR during startup: ${err.message}`;
+    console.error(errorMsg);
+    console.error(err.stack);
+    process.exit(1);
+  }
 }
 
 /**
@@ -211,21 +245,10 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
     const user = userResult.rows[0];
     const stripeConnectedAccountId = user.stripe_connected_account_id;
 
-    // 2. If REQUESTED, transition to PROCESSING (insert debit idempotently)
+    // 2. If REQUESTED, transition to PROCESSING (debit already inserted at request time)
     if (withdrawal.status === 'REQUESTED') {
-      // Insert ledger DEBIT idempotently (normalize UUIDs to lowercase)
-      const idempotencyKey = `wallet_debit:${withdrawal.id.toLowerCase()}:${withdrawal.user_id.toLowerCase()}`;
-
-      await pool.query(
-        `INSERT INTO ledger (
-           user_id, entry_type, direction, amount_cents, reference_type,
-           reference_id, idempotency_key, created_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-         ON CONFLICT (idempotency_key) DO NOTHING`,
-        [withdrawal.user_id, 'WALLET_WITHDRAWAL', 'DEBIT', withdrawal.amount_cents, 'WALLET', withdrawal.id, idempotencyKey]
-      );
-
-      // Transition to PROCESSING
+      // Ledger DEBIT already inserted by createWithdrawalRequest() (pessimistic reserve)
+      // This worker only transitions state to PROCESSING for Stripe API call
       await pool.query(
         `UPDATE wallet_withdrawals
          SET status = 'PROCESSING', processed_at = NOW(), updated_at = NOW()

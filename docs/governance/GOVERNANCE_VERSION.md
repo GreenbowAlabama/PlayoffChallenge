@@ -1,9 +1,9 @@
 # Governance Version Control
 
-**Governance Version:** 1
+**Governance Version:** 3
 **Architecture Lock:** ACTIVE
-**Effective Date:** 2026-03-12
-**Last Updated:** 2026-03-12
+**Effective Date:** 2026-03-17
+**Last Updated:** 2026-03-17
 
 ---
 
@@ -40,6 +40,21 @@ Changes to any of these require:
 - Contest lifecycle frozen: SCHEDULED, LOCKED, LIVE, COMPLETE, CANCELLED, ERROR
 - All 6 core systems locked
 - Worker escalation protocol installed
+
+### Version 3 (Active)
+
+**Status:** ACTIVE
+**Snapshot ID:** b50ff7e0-77e0-421f-a96a-4a1cb34a2745
+**Contract:** public-api
+
+- OpenAPI contract additions: Stripe account linking endpoints
+  - POST /api/user/stripe-account/onboarding-link
+  - GET /api/user/stripe-account/status
+  - GET /api/user/stripe-account/callback
+- New schemas: StripeOnboardingLinkResponse, StripeAccountStatusResponse, StripeAccountCallbackRequest, StripeAccountCallbackResponse
+- State token CSRF protection for OAuth callbacks
+- Account ownership rules enforced (one-to-one user ↔ Stripe account binding)
+- Contract frozen via `npm run freeze:openapi`
 
 ---
 

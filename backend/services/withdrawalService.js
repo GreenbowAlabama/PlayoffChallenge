@@ -80,9 +80,19 @@ async function computeAvailableBalance(client, userId) {
 /**
  * Create withdrawal request (idempotent)
  *
- * Phase 1: Request creation only (no ledger debit).
+ * Phase 1: Request creation with pessimistic reserve (ledger debit at request time).
  * Funds are frozen as REQUESTED to prevent concurrent withdrawals.
- * Process step handles ledger debit and Stripe API call.
+ * Ledger DEBIT inserted atomically in the same transaction.
+ *
+ * Atomic transaction:
+ * 1. Lock user row
+ * 2. Get withdrawal config
+ * 3. Validate amount limits
+ * 4. Check idempotency
+ * 5. Compute available balance
+ * 6. Insert withdrawal (REQUESTED)
+ * 7. Insert ledger DEBIT
+ * 8. Field verification on conflict
  *
  * @param {Object} pool - Database connection pool
  * @param {string} userId - UUID of user
@@ -94,6 +104,31 @@ async function computeAvailableBalance(client, userId) {
  * @returns {Promise<Object>} Withdrawal or error response
  */
 async function createWithdrawalRequest(pool, userId, input, environment) {
+  // Validate input
+  if (!input.amount_cents || input.amount_cents <= 0) {
+    return {
+      success: false,
+      error_code: WITHDRAWAL_ERROR_CODES.AMOUNT_TOO_SMALL,
+      reason: 'amount_cents must be greater than 0'
+    };
+  }
+
+  if (!['standard', 'instant'].includes(input.method)) {
+    return {
+      success: false,
+      error_code: 'INVALID_METHOD',
+      reason: "method must be 'standard' or 'instant'"
+    };
+  }
+
+  if (!input.idempotency_key) {
+    return {
+      success: false,
+      error_code: 'MISSING_IDEMPOTENCY_KEY',
+      reason: 'idempotency_key is required'
+    };
+  }
+
   // Normalize UUID to lowercase to ensure consistent idempotency keys
   userId = userId.toLowerCase();
 
@@ -119,7 +154,7 @@ async function createWithdrawalRequest(pool, userId, input, environment) {
 
     // 2. Get withdrawal config
     const configResult = await client.query(
-      `SELECT min_withdrawal_cents, max_withdrawal_cents, instant_enabled
+      `SELECT min_withdrawal_cents, max_withdrawal_cents, instant_enabled, instant_fee_percent
        FROM withdrawal_config WHERE environment = $1`,
       [environment]
     );
@@ -135,7 +170,7 @@ async function createWithdrawalRequest(pool, userId, input, environment) {
 
     const config = configResult.rows[0];
 
-    // 3. Validate amount constraints
+    // 3. Validate amount limits
     if (input.amount_cents < config.min_withdrawal_cents) {
       await client.query('ROLLBACK');
       return {
@@ -214,19 +249,92 @@ async function createWithdrawalRequest(pool, userId, input, environment) {
       instantFeeCents = Math.ceil(input.amount_cents * (config.instant_fee_percent / 100));
     }
 
-    // 8. Insert withdrawal request (status = REQUESTED, funds frozen)
+    // 8. Insert withdrawal request (FIRST) - status = REQUESTED, funds frozen
+    const withdrawalId = require('uuid').v4();
     const insertResult = await client.query(
       `INSERT INTO wallet_withdrawals (
-         user_id, amount_cents, method, instant_fee_cents, status, idempotency_key, requested_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         id, user_id, amount_cents, method, instant_fee_cents, status, idempotency_key, requested_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, 'REQUESTED', $6, NOW(), NOW())
+       ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING id, user_id, amount_cents, method, instant_fee_cents, status,
                  stripe_payout_id, idempotency_key, requested_at, processed_at, updated_at`,
-      [userId, input.amount_cents, input.method, instantFeeCents, 'REQUESTED', input.idempotency_key]
+      [withdrawalId, userId, input.amount_cents, input.method, instantFeeCents, input.idempotency_key]
     );
 
-    const withdrawal = insertResult.rows[0];
+    let actualWithdrawalId = withdrawalId;
+
+    if (insertResult.rows.length === 0) {
+      // Idempotency conflict - fetch existing withdrawal
+      const existing = await client.query(
+        `SELECT id FROM wallet_withdrawals
+         WHERE idempotency_key = $1`,
+        [input.idempotency_key]
+      );
+
+      // GAP 2 FIX: Guard against missing withdrawal
+      if (existing.rows.length === 0) {
+        await client.query('ROLLBACK');
+        throw new Error('WITHDRAWAL_NOT_FOUND');
+      }
+
+      actualWithdrawalId = existing.rows[0].id;
+    }
+
+    // 9. Insert ledger DEBIT (SECOND) - pessimistic reserve
+    const debitKey = `wallet_debit:${input.idempotency_key}`;
+
+    const debitResult = await client.query(
+      `INSERT INTO ledger (
+         user_id, entry_type, direction, amount_cents, reference_type,
+         reference_id, idempotency_key, created_at
+       ) VALUES ($1, 'WALLET_WITHDRAWAL', 'DEBIT', $2,
+               'WALLET', $3, $4, NOW())
+       ON CONFLICT (idempotency_key) DO NOTHING
+       RETURNING idempotency_key`,
+      [userId, input.amount_cents, actualWithdrawalId, debitKey]
+    );
+
+    // 10. Field verification on conflict (CRITICAL)
+    if (debitResult.rows.length === 0) {
+      const existingDebit = await client.query(
+        `SELECT entry_type, direction, amount_cents, reference_type, reference_id
+         FROM ledger
+         WHERE idempotency_key = $1`,
+        [debitKey]
+      );
+
+      // GAP 1 FIX: Guard against corrupted state (INSERT nothing, SELECT nothing)
+      if (existingDebit.rows.length === 0) {
+        await client.query('ROLLBACK');
+        throw new Error('LEDGER_INCONSISTENCY: debit was not inserted and does not exist');
+      }
+
+      const d = existingDebit.rows[0];
+
+      if (
+        d.entry_type !== 'WALLET_WITHDRAWAL' ||
+        d.direction !== 'DEBIT' ||
+        parseInt(d.amount_cents, 10) !== input.amount_cents ||
+        d.reference_type !== 'WALLET' ||
+        d.reference_id !== actualWithdrawalId
+      ) {
+        await client.query('ROLLBACK');
+        throw new Error('INVARIANT_VIOLATION: ledger debit fields do not match');
+      }
+    }
 
     await client.query('COMMIT');
+
+    // Fetch final withdrawal state
+    const finalResult = await client.query(
+      `SELECT id, user_id, amount_cents, method, instant_fee_cents, status,
+              stripe_payout_id, idempotency_key, requested_at, processed_at, updated_at
+       FROM wallet_withdrawals
+       WHERE id = $1`,
+      [actualWithdrawalId]
+    );
+
+    const withdrawal = finalResult.rows[0];
 
     return { success: true, withdrawal };
 
@@ -436,10 +544,10 @@ async function callStripePayout(pool, withdrawalId, stripeAccount) {
  *
  * Atomic transaction:
  * 1. Fetch withdrawal in PROCESSING state
- * 2. Insert ledger WALLET_WITHDRAWAL DEBIT (idempotent)
- * 3. Update withdrawal status to PAID
+ * 2. Update withdrawal status to PAID
  *
- * Ledger debit is only written when Stripe confirms payout success.
+ * Ledger debit was already inserted at request time (pessimistic reserve).
+ * This handler only marks the withdrawal as PAID after Stripe confirms success.
  *
  * @param {Object} pool - Database connection pool
  * @param {Object} payout - Stripe payout object
@@ -470,18 +578,9 @@ async function handlePayoutPaid(pool, payout) {
 
     const withdrawal = withdrawalResult.rows[0];
 
-    // 2. Insert ledger WALLET_WITHDRAWAL DEBIT (only on successful payout)
-    const idempotencyKey = `wallet_withdrawal:${withdrawal.id}`;
-    await client.query(
-      `INSERT INTO ledger (
-         user_id, entry_type, direction, amount_cents, reference_type,
-         reference_id, idempotency_key, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (idempotency_key) DO NOTHING`,
-      [withdrawal.user_id, 'WALLET_WITHDRAWAL', 'DEBIT', withdrawal.amount_cents, 'WALLET', withdrawal.id, idempotencyKey]
-    );
-
-    // 3. Update withdrawal status to PAID
+    // 2. Update withdrawal status to PAID
+    // Ledger DEBIT was already written at request time (createWithdrawalRequest)
+    // No ledger operation needed here
     const updateResult = await client.query(
       `UPDATE wallet_withdrawals
        SET status = 'PAID', updated_at = NOW()

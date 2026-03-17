@@ -3455,6 +3455,12 @@ function startServer() {
       setTimeout(startFinancialReconciliationScheduler, 5000); // Start after 5 seconds
     }
 
+    // PRODUCTION ENFORCEMENT: Withdrawal processor REQUIRED in production
+    if (process.env.NODE_ENV === 'production' && process.env.ENABLE_WITHDRAWAL_PROCESSOR !== 'true') {
+      console.error('[FATAL] Withdrawal processor must be enabled in production');
+      process.exit(1);
+    }
+
     // Start lifecycle reconciler if not in test environment and not running under Jest
     if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID) {
       setTimeout(() => startLifecycleReconciler(pool), 5000); // Start after 5 seconds

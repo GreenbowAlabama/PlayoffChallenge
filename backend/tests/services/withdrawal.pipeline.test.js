@@ -23,7 +23,7 @@ describe('Withdrawal pipeline financial ordering', () => {
     await pool.end();
   });
 
-  test('failed payout does not create WALLET_WITHDRAWAL ledger debit', async () => {
+  test('failed payout still has WALLET_WITHDRAWAL ledger debit (pessimistic reserve)', async () => {
     // Each test gets a unique user ID
     const userId = crypto.randomUUID();
     const withdrawalAmount = 30000;
@@ -52,7 +52,7 @@ describe('Withdrawal pipeline financial ordering', () => {
       [userId, 'WALLET_DEPOSIT', 'CREDIT', initialBalance, 'WALLET', userId, `deposit_${userId}`]
     );
 
-    // 4. Create withdrawal request (status = REQUESTED)
+    // 4. Create withdrawal request (status = REQUESTED, ledger DEBIT inserted here)
     const createResult = await withdrawalService.createWithdrawalRequest(
       pool,
       userId,
@@ -70,7 +70,16 @@ describe('Withdrawal pipeline financial ordering', () => {
     expect(createResult.success).toBe(true);
     const withdrawalId = createResult.withdrawal.id;
 
-    // 5. Process withdrawal (moves to PROCESSING)
+    // 5. Verify ledger DEBIT exists immediately after request
+    let debitCount = await pool.query(
+      `SELECT COUNT(*)::int as count
+       FROM ledger
+       WHERE user_id = $1 AND entry_type = 'WALLET_WITHDRAWAL' AND direction = 'DEBIT'`,
+      [userId]
+    );
+    expect(debitCount.rows[0].count).toBe(1);
+
+    // 6. Process withdrawal (moves to PROCESSING)
     const processResult = await withdrawalService.processWithdrawal(
       pool,
       withdrawalId,
@@ -80,14 +89,14 @@ describe('Withdrawal pipeline financial ordering', () => {
     expect(processResult.success).toBe(true);
     expect(processResult.withdrawal.status).toBe('PROCESSING');
 
-    // 6. Update wallet_withdrawals to simulate Stripe transfer attempt
+    // 7. Update wallet_withdrawals to simulate Stripe transfer attempt
     const stripePayoutId = `tr_test_failed_${crypto.randomUUID()}`;
     await pool.query(
       'UPDATE wallet_withdrawals SET stripe_payout_id = $1 WHERE id = $2',
       [stripePayoutId, withdrawalId]
     );
 
-    // 7. Simulate failed payout webhook
+    // 8. Simulate failed payout webhook
     const failResult = await withdrawalService.handlePayoutFailed(
       pool,
       { id: stripePayoutId, failure_reason: 'Insufficient funds', failure_code: 'insufficient_funds' }
@@ -95,8 +104,20 @@ describe('Withdrawal pipeline financial ordering', () => {
 
     expect(failResult.updated).toBe(true);
 
-    // 8. Query ledger for WALLET_WITHDRAWAL DEBIT entries
-    const result = await pool.query(
+    // 9. Simulate worker's permanent failure handling (insert REVERSAL)
+    // This is what the worker does when Stripe call fails permanently
+    const reversalIdempotencyKey = `wallet_withdrawal_reversal:${withdrawalId.toLowerCase()}`;
+    await pool.query(
+      `INSERT INTO ledger (
+         user_id, entry_type, direction, amount_cents, reference_type,
+         reference_id, idempotency_key, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (idempotency_key) DO NOTHING`,
+      [userId, 'WALLET_WITHDRAWAL_REVERSAL', 'CREDIT', withdrawalAmount, 'WALLET', withdrawalId, reversalIdempotencyKey]
+    );
+
+    // 10. Query ledger for WALLET_WITHDRAWAL DEBIT entries
+    const debitResult = await pool.query(
       `SELECT COUNT(*)::int as count
        FROM ledger
        WHERE user_id = $1
@@ -105,13 +126,25 @@ describe('Withdrawal pipeline financial ordering', () => {
       [userId]
     );
 
-    // 9. Assert: Failed payout should have created ZERO debits
-    // Ledger debit only written in handlePayoutPaid() on successful payout
-    // Failed payouts do not create ledger entries
-    expect(result.rows[0].count).toBe(0);
+    // 11. Assert: Failed payout still has the debit (pessimistic reserve)
+    expect(debitResult.rows[0].count).toBe(1);
+
+    // 12. Query ledger for WALLET_WITHDRAWAL_REVERSAL entries
+    const reversalResult = await pool.query(
+      `SELECT COUNT(*)::int as count
+       FROM ledger
+       WHERE user_id = $1
+       AND entry_type = 'WALLET_WITHDRAWAL_REVERSAL'
+       AND direction = 'CREDIT'`,
+      [userId]
+    );
+
+    // 13. Assert: REVERSAL inserted on permanent failure (restores funds)
+    // DEBIT + REVERSAL net to zero (financial invariant)
+    expect(reversalResult.rows[0].count).toBe(1);
   });
 
-  test('successful payout writes exactly one WALLET_WITHDRAWAL ledger debit', async () => {
+  test('ledger DEBIT created at request time, no additional debit after payout success', async () => {
     // Each test gets a unique user ID
     const userId = crypto.randomUUID();
     const withdrawalAmount = 25000;
@@ -140,7 +173,7 @@ describe('Withdrawal pipeline financial ordering', () => {
       [userId, 'WALLET_DEPOSIT', 'CREDIT', initialBalance, 'WALLET', userId, `deposit_${userId}`]
     );
 
-    // 4. Create withdrawal request
+    // 4. Create withdrawal request (ledger DEBIT inserted here)
     const createResult = await withdrawalService.createWithdrawalRequest(
       pool,
       userId,
@@ -155,7 +188,16 @@ describe('Withdrawal pipeline financial ordering', () => {
     expect(createResult.success).toBe(true);
     const withdrawalId = createResult.withdrawal.id;
 
-    // 5. Process withdrawal (moves to PROCESSING)
+    // 5. Verify ledger DEBIT exists immediately (pessimistic reserve)
+    let debitCount = await pool.query(
+      `SELECT COUNT(*)::int as count
+       FROM ledger
+       WHERE user_id = $1 AND entry_type = 'WALLET_WITHDRAWAL' AND direction = 'DEBIT'`,
+      [userId]
+    );
+    expect(debitCount.rows[0].count).toBe(1);
+
+    // 6. Process withdrawal (moves to PROCESSING)
     const processResult = await withdrawalService.processWithdrawal(
       pool,
       withdrawalId,
@@ -164,23 +206,23 @@ describe('Withdrawal pipeline financial ordering', () => {
 
     expect(processResult.success).toBe(true);
 
-    // 6. Verify NO ledger debit yet (debit only on successful payout)
-    let debitCount = await pool.query(
+    // 7. Debit count should still be 1 (no new debits from processWithdrawal)
+    debitCount = await pool.query(
       `SELECT COUNT(*)::int as count
        FROM ledger
        WHERE user_id = $1 AND entry_type = 'WALLET_WITHDRAWAL' AND direction = 'DEBIT'`,
       [userId]
     );
-    expect(debitCount.rows[0].count).toBe(0);
+    expect(debitCount.rows[0].count).toBe(1);
 
-    // 7. Simulate Stripe transfer attempt with stripe_payout_id
+    // 8. Simulate Stripe transfer attempt with stripe_payout_id
     const stripePayoutId = `tr_success_${crypto.randomUUID()}`;
     await pool.query(
       'UPDATE wallet_withdrawals SET stripe_payout_id = $1 WHERE id = $2',
       [stripePayoutId, withdrawalId]
     );
 
-    // 8. Simulate successful payout webhook (this writes the ledger debit)
+    // 9. Simulate successful payout webhook (no new ledger debit)
     const successResult = await withdrawalService.handlePayoutPaid(
       pool,
       { id: stripePayoutId }
@@ -189,7 +231,7 @@ describe('Withdrawal pipeline financial ordering', () => {
     expect(successResult.updated).toBe(true);
     expect(successResult.withdrawal_id).toBe(withdrawalId);
 
-    // 9. Query ledger for WALLET_WITHDRAWAL DEBIT entries
+    // 10. Query ledger for WALLET_WITHDRAWAL DEBIT entries
     debitCount = await pool.query(
       `SELECT COUNT(*)::int as count
        FROM ledger
@@ -197,10 +239,10 @@ describe('Withdrawal pipeline financial ordering', () => {
       [userId]
     );
 
-    // 10. Assert: Successful payout should have created EXACTLY ONE debit
+    // 11. Assert: Still EXACTLY ONE debit (no additional debit from webhook)
     expect(debitCount.rows[0].count).toBe(1);
 
-    // 11. Verify debit amount is correct
+    // 12. Verify debit amount is correct
     const debitDetails = await pool.query(
       `SELECT amount_cents FROM ledger
        WHERE user_id = $1 AND entry_type = 'WALLET_WITHDRAWAL' AND direction = 'DEBIT'`,
@@ -322,7 +364,7 @@ describe('Withdrawal pipeline financial ordering', () => {
     expect(debitCount.rows[0].count).toBe(1);
   });
 
-  test('wallet balance updates only after payout success', async () => {
+  test('wallet balance updates immediately after withdrawal request (pessimistic reserve)', async () => {
     // Each test gets a unique user ID
     const userId = crypto.randomUUID();
     const withdrawalAmount = 15000;
@@ -359,7 +401,7 @@ describe('Withdrawal pipeline financial ordering', () => {
     );
     expect(balanceResult.rows[0].balance).toBe(initialBalance);
 
-    // 5. Create withdrawal request
+    // 5. Create withdrawal request (ledger DEBIT inserted here, balance reserved)
     const createResult = await withdrawalService.createWithdrawalRequest(
       pool,
       userId,
@@ -374,13 +416,13 @@ describe('Withdrawal pipeline financial ordering', () => {
     expect(createResult.success).toBe(true);
     const withdrawalId = createResult.withdrawal.id;
 
-    // 6. After create: balance should still be initial (funds frozen but not debited)
+    // 6. After create: balance should IMMEDIATELY decrease (pessimistic reserve)
     balanceResult = await pool.query(
       `SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount_cents WHEN direction = 'DEBIT' THEN -amount_cents END), 0)::int as balance
        FROM ledger WHERE user_id = $1`,
       [userId]
     );
-    expect(balanceResult.rows[0].balance).toBe(initialBalance);
+    expect(balanceResult.rows[0].balance).toBe(initialBalance - withdrawalAmount);
 
     // 7. Process withdrawal
     const processResult = await withdrawalService.processWithdrawal(
@@ -391,13 +433,13 @@ describe('Withdrawal pipeline financial ordering', () => {
 
     expect(processResult.success).toBe(true);
 
-    // 8. After process: balance should still be initial (no ledger debit yet)
+    // 8. After process: balance should remain the same (no additional debit)
     balanceResult = await pool.query(
       `SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount_cents WHEN direction = 'DEBIT' THEN -amount_cents END), 0)::int as balance
        FROM ledger WHERE user_id = $1`,
       [userId]
     );
-    expect(balanceResult.rows[0].balance).toBe(initialBalance);
+    expect(balanceResult.rows[0].balance).toBe(initialBalance - withdrawalAmount);
 
     // 9. Set stripe payout ID
     const stripePayoutId = `tr_balance_${crypto.randomUUID()}`;
@@ -406,15 +448,15 @@ describe('Withdrawal pipeline financial ordering', () => {
       [stripePayoutId, withdrawalId]
     );
 
-    // 10. Before webhook: balance should still be initial
+    // 10. Before webhook: balance should remain reduced
     balanceResult = await pool.query(
       `SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount_cents WHEN direction = 'DEBIT' THEN -amount_cents END), 0)::int as balance
        FROM ledger WHERE user_id = $1`,
       [userId]
     );
-    expect(balanceResult.rows[0].balance).toBe(initialBalance);
+    expect(balanceResult.rows[0].balance).toBe(initialBalance - withdrawalAmount);
 
-    // 11. Successful payout webhook (ledger debit written here)
+    // 11. Successful payout webhook (no ledger change)
     const successResult = await withdrawalService.handlePayoutPaid(
       pool,
       { id: stripePayoutId }
@@ -422,7 +464,7 @@ describe('Withdrawal pipeline financial ordering', () => {
 
     expect(successResult.updated).toBe(true);
 
-    // 12. After successful payout: balance should decrease by withdrawal amount
+    // 12. After successful payout: balance should remain the same (no ledger debit here)
     balanceResult = await pool.query(
       `SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount_cents WHEN direction = 'DEBIT' THEN -amount_cents END), 0)::int as balance
        FROM ledger WHERE user_id = $1`,
