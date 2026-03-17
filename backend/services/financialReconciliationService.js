@@ -12,7 +12,8 @@ async function getPlatformReconciliation(pool, options = {}) {
         0
       ) as wallet_liability_cents
       FROM ledger
-      WHERE reference_type = 'WALLET' AND reference_id IS NOT NULL
+      WHERE user_id IS NOT NULL
+        AND direction IN ('CREDIT', 'DEBIT')
     `);
     const walletLiabilityCents = parseInt(walletLiabilityResult.rows[0].wallet_liability_cents, 10);
 

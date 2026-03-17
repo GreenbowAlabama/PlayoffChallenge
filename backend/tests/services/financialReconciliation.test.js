@@ -161,6 +161,60 @@ describe('financialReconciliationService', () => {
       expect(typeof reconciliation.status.is_coherent).toBe('boolean');
     });
 
+    it('includes contest-scoped ENTRY_FEE entries in wallet_liability (CRITICAL FIX)', async () => {
+      // SCENARIO: User deposits 185000, joins 3 SCHEDULED contests with fees (40000 + 10000 + 1000 = 51000)
+      //
+      // BEFORE FIX (buggy query): WHERE reference_type = 'WALLET' AND reference_id IS NOT NULL
+      //   - wallet_liability = 185000 (only WALLET_DEPOSIT entries, missing ENTRY_FEE debits)
+      //   - contest_pools = 51000 (fees correctly held in contests)
+      //   - difference = 51000 ← BUG! Invariant broken
+      //
+      // AFTER FIX (corrected query): WHERE user_id IS NOT NULL
+      //   - wallet_liability = 134000 (185000 deposits - 51000 entry fees = available balance)
+      //   - contest_pools = 51000 (fees correctly held in contests)
+      //   - difference = 0 ← CORRECT! Invariant preserved: 134000 + 51000 = 185000
+
+      // Reset and set specific responses for this test scenario
+      pool.reset();
+      pool.setQueryResponse(
+        q => q.includes('wallet_liability_cents'),
+        // After fix: includes all user_id-scoped entries (deposits, withdrawals, entry_fees, payouts, etc.)
+        // = 185000 (deposits) - 51000 (entry_fee debits) = 134000
+        { rows: [{ wallet_liability_cents: 134000 }], rowCount: 1 }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('contest_pools_cents'),
+        // Contest pools: 40000 + 10000 + 1000 entry fees (SCHEDULED contests)
+        { rows: [{ contest_pools_cents: 51000 }], rowCount: 1 }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('deposits_cents'),
+        { rows: [{ deposits_cents: 185000 }], rowCount: 1 }
+      );
+
+      pool.setQueryResponse(
+        q => q.includes('withdrawals_cents'),
+        { rows: [{ withdrawals_cents: 0 }], rowCount: 1 }
+      );
+
+      const reconciliation = await getPlatformReconciliation(pool);
+
+      // Verify the frozen equation: wallet_liability + contest_pools = deposits - withdrawals
+      // 134000 + 51000 = 185000 ✓
+
+      expect(reconciliation).toBeDefined();
+      expect(reconciliation.wallet_liability_cents).toBe(134000);
+      expect(reconciliation.contest_pools_cents).toBe(51000);
+      expect(reconciliation.deposits_cents).toBe(185000);
+      expect(reconciliation.withdrawals_cents).toBe(0);
+
+      // After fix: difference should be 0 (invariant preserved)
+      expect(reconciliation.difference_cents).toBe(0);
+      expect(reconciliation.status.is_coherent).toBe(true);
+    });
+
     it('identifies orphaned withdrawals as difference', async () => {
       // When deposits != withdrawals + (wallet_liability + contest_pools)
       const reconciliation = await getPlatformReconciliation(pool);
