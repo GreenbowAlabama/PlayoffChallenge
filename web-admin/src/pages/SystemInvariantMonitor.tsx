@@ -59,6 +59,27 @@ function formatTimestamp(ts: string | null): string {
   return date.toLocaleString();
 }
 
+/**
+ * Determine overall system health from financial invariant (source of truth)
+ * Financial status is authoritative for platform health
+ */
+function getSystemHealthStatus(data: SystemInvariantsResponse | null): string {
+  if (!data) return 'unknown';
+
+  // Financial status is source of truth
+  const financialStatus = data.invariants?.financial?.status;
+
+  // Defensive fallback: check difference directly
+  if (data.invariants?.financial?.values?.difference_cents === 0) {
+    return 'healthy';
+  }
+
+  // Map financial status to system health
+  return financialStatus === 'BALANCED'
+    ? 'healthy'
+    : 'degraded';
+}
+
 export const SystemInvariantMonitor: React.FC = () => {
   const [data, setData] = useState<SystemInvariantsResponse | null>(null);
   const [history, setHistory] = useState<HistoryRecord[]>([]);
@@ -77,6 +98,7 @@ export const SystemInvariantMonitor: React.FC = () => {
     setError(null);
     try {
       const response = await systemInvariantsApi.getCurrentStatus();
+      console.log('[SystemInvariantMonitor] INVARIANT RESPONSE:', response);
       setData(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -373,39 +395,38 @@ export const SystemInvariantMonitor: React.FC = () => {
         </div>
       )}
 
-      {/* Overall Status Banner */}
+      {/* Overall Status Banner — Based on Financial Invariant (Source of Truth) */}
       {data && (
         <div className="rounded-lg overflow-hidden shadow-lg border-2" style={{
-          borderColor: data.overall_status === 'HEALTHY' ? '#16a34a' : data.overall_status === 'WARNING' ? '#f59e0b' : '#dc2626'
+          borderColor: getSystemHealthStatus(data) === 'healthy' ? '#16a34a' : '#f59e0b'
         }}>
           <div className="p-8" style={{
-            background: data.overall_status === 'HEALTHY'
+            background: getSystemHealthStatus(data) === 'healthy'
               ? 'linear-gradient(135deg, #dcfce7 0%, #86efac 100%)'
-              : data.overall_status === 'WARNING'
-              ? 'linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%)'
-              : 'linear-gradient(135deg, #fee2e2 0%, #fca5a5 100%)'
+              : 'linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%)'
           }}>
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold" style={{
-                  color: data.overall_status === 'HEALTHY' ? '#166534' : data.overall_status === 'WARNING' ? '#92400e' : '#7f1d1d'
+                  color: getSystemHealthStatus(data) === 'healthy' ? '#166534' : '#92400e'
                 }}>
-                  {data.overall_status === 'HEALTHY' ? '✓ All Systems Operational' :
-                   data.overall_status === 'WARNING' ? '⚠ Warning: Check Details Below' :
-                   '✗ Critical Issues Detected'}
+                  {getSystemHealthStatus(data) === 'healthy' ? '✓ All Systems Operational' : '⚠ Warning: Check Details Below'}
                 </h2>
                 <p className="text-sm mt-2" style={{
-                  color: data.overall_status === 'HEALTHY' ? '#166534' : data.overall_status === 'WARNING' ? '#92400e' : '#7f1d1d'
+                  color: getSystemHealthStatus(data) === 'healthy' ? '#166534' : '#92400e'
                 }}>
                   Last check: {formatTimestamp(data.last_check_timestamp)} • Execution: {data.execution_time_ms}ms
+                  {data.invariants?.financial?.values?.difference_cents !== undefined && (
+                    <span className="ml-2">
+                      • Financial difference: {data.invariants.financial.values.difference_cents} cents
+                    </span>
+                  )}
                 </p>
               </div>
               <div className="text-6xl font-bold" style={{
-                color: data.overall_status === 'HEALTHY' ? '#16a34a' : data.overall_status === 'WARNING' ? '#f59e0b' : '#dc2626'
+                color: getSystemHealthStatus(data) === 'healthy' ? '#16a34a' : '#f59e0b'
               }}>
-                {data.overall_status === 'HEALTHY' && '✓'}
-                {data.overall_status === 'WARNING' && '⚠'}
-                {data.overall_status === 'CRITICAL' && '✗'}
+                {getSystemHealthStatus(data) === 'healthy' ? '✓' : '⚠'}
               </div>
             </div>
           </div>
