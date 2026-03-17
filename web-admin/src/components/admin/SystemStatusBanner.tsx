@@ -6,7 +6,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { getPlatformHealth, getPlatformHealthStatus } from '../../api/platform-health';
+import { getPlatformHealthStatus } from '../../api/platform-health';
 import { systemInvariantsApi } from '../../api/system-invariants';
 import { getPlayerDataOpsSnapshot } from '../../api/player-data-ops';
 import { getUserOpsSnapshot } from '../../api/user-ops';
@@ -53,13 +53,6 @@ function StatusIndicator({ status }: { status: 'healthy' | 'degraded' | 'error' 
 }
 
 export function SystemStatusBanner() {
-  // Fetch Platform Health
-  const { data: platformHealth, isLoading: platformLoading, error: platformError } = useQuery({
-    queryKey: ['systemStatus', 'platformHealth'],
-    queryFn: getPlatformHealth,
-    refetchInterval: 10000,
-  });
-
   // Fetch System Invariants (for financial health as source of truth)
   const { data: invariants, isLoading: invariantsLoading, error: invariantsError } = useQuery({
     queryKey: ['systemStatus', 'invariants'],
@@ -90,8 +83,8 @@ export function SystemStatusBanner() {
 
   // Determine Platform Health tower status (use financial invariant as source of truth)
   const platformStatus: TowerStatus = getTowerStatus(
-    platformLoading || invariantsLoading,
-    (platformError || invariantsError) as Error | null,
+    invariantsLoading,
+    invariantsError as Error | null,
     () => {
       if (!invariants) return null;
       const healthStatus = getPlatformHealthStatus(invariants);
