@@ -13,6 +13,13 @@
 
 const { Pool } = require('pg');
 
+// Simple logger object (can be replaced with actual logger instance)
+const logger = {
+  error: (type, data) => {
+    console.error(`[${type}]`, JSON.stringify(data));
+  }
+};
+
 /**
  * Run full invariant check: financial, lifecycle, settlement, pipeline, ledger
  * @param {Pool} pool - PostgreSQL connection pool
@@ -25,10 +32,11 @@ async function runFullInvariantCheck(pool, timestamp = null) {
 
   try {
     // Execute all invariant checks in parallel
-    const [financial, lifecycle, settlement, pipeline, ledger] = await Promise.all([
+    const [financial, lifecycle, settlement, settlementPool, pipeline, ledger] = await Promise.all([
       checkFinancialInvariant(pool),
       checkLifecycleInvariant(pool),
       checkSettlementInvariant(pool),
+      checkSettlementPoolInvariant(pool),
       checkPipelineInvariant(pool),
       checkLedgerInvariant(pool)
     ]);
@@ -40,6 +48,8 @@ async function runFullInvariantCheck(pool, timestamp = null) {
                            lifecycle.status === 'STUCK_TRANSITIONS' ? 'STUCK_TRANSITIONS' : 'ERROR';
     const settlementStatus = settlement.status === 'HEALTHY' ? 'HEALTHY' :
                             settlement.status === 'INCOMPLETE' ? 'INCOMPLETE' : 'ERROR';
+    const settlementPoolStatus = settlementPool.status === 'HEALTHY' ? 'HEALTHY' :
+                                settlementPool.status === 'DEGRADED' ? 'DEGRADED' : 'ERROR';
     const pipelineStatus = pipeline.status === 'HEALTHY' ? 'HEALTHY' :
                           pipeline.status === 'DEGRADED' ? 'DEGRADED' : 'FAILED';
     const ledgerStatus = ledger.status === 'CONSISTENT' ? 'CONSISTENT' :
@@ -50,6 +60,7 @@ async function runFullInvariantCheck(pool, timestamp = null) {
       (financial.status === 'BALANCED') &&
       (lifecycle.status === 'HEALTHY') &&
       (settlement.status === 'HEALTHY') &&
+      (settlementPool.status === 'HEALTHY') &&
       (pipeline.status === 'HEALTHY') &&
       (ledger.status === 'CONSISTENT');
 
@@ -65,6 +76,7 @@ async function runFullInvariantCheck(pool, timestamp = null) {
         financial,
         lifecycle,
         settlement,
+        settlement_pool: settlementPool,
         pipeline,
         ledger
       }
@@ -77,18 +89,21 @@ async function runFullInvariantCheck(pool, timestamp = null) {
       financial_status: financialStatus,
       lifecycle_status: lifecycleStatus,
       settlement_status: settlementStatus,
+      settlement_pool_status: settlementPoolStatus,
       pipeline_status: pipelineStatus,
       ledger_status: ledgerStatus,
       execution_time_ms: executionTime,
       created_at: checkTimestamp,
       wallet_liability_cents: financial.values?.wallet_liability_cents,
       contest_pools_cents: financial.values?.contest_pools_cents,
+      active_contest_pools_cents: financial.details?.active_contest_pools_total_cents,
       deposits_cents: financial.values?.deposits_cents,
       withdrawals_cents: financial.values?.withdrawals_cents,
       invariant_diff_cents: financial.values?.difference_cents,
       stuck_locked_count: lifecycle.details?.stuck_locked_count,
       stuck_live_count: lifecycle.details?.stuck_live_count,
       stuck_settlement_count: settlement.details?.settlement_lag_minutes,
+      settlement_pool_violations: settlementPool.details?.finalized_contests_with_violations,
       pipeline_errors: pipeline.anomalies ? JSON.stringify(pipeline.anomalies) : null,
       ledger_anomalies: ledger.anomalies ? JSON.stringify(ledger.anomalies) : null
     }).catch(err => {
@@ -128,7 +143,7 @@ async function checkFinancialInvariant(pool) {
     `);
     const walletLiability = parseInt(walletLiabilityResult.rows[0].total, 10);
 
-    // Fetch contest_pools
+    // Fetch TOTAL contest_pools (all statuses, informational only)
     const contestPoolsResult = await pool.query(`
       SELECT COALESCE(SUM(
         CASE
@@ -140,6 +155,21 @@ async function checkFinancialInvariant(pool) {
       WHERE entry_type IN ('ENTRY_FEE', 'ENTRY_FEE_REFUND');
     `);
     const contestPools = parseInt(contestPoolsResult.rows[0].total, 10);
+
+    // Fetch ACTIVE contest pools (SCHEDULED, LOCKED, LIVE) for informational reporting
+    const activeContestPoolsResult = await pool.query(`
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN l.entry_type = 'ENTRY_FEE' THEN l.amount_cents
+          WHEN l.entry_type = 'ENTRY_FEE_REFUND' THEN -l.amount_cents
+        END
+      ), 0) as total
+      FROM ledger l
+      INNER JOIN contest_instances ci ON l.reference_id = ci.id
+      WHERE l.entry_type IN ('ENTRY_FEE', 'ENTRY_FEE_REFUND')
+        AND ci.status IN ('SCHEDULED', 'LOCKED', 'LIVE');
+    `);
+    const activeContestPools = parseInt(activeContestPoolsResult.rows[0].total, 10);
 
     // Fetch deposits
     const depositsResult = await pool.query(`
@@ -205,6 +235,7 @@ async function checkFinancialInvariant(pool) {
       },
       details: {
         entry_count_by_type: entryCountByType,
+        active_contest_pools_total_cents: activeContestPools,
         anomalies: status !== 'BALANCED' ? [
           {
             type: status,
@@ -462,6 +493,99 @@ async function checkSettlementInvariant(pool) {
         total_complete_contests: 0,
         total_settled_contests: 0,
         settlement_lag_minutes: 0
+      }
+    };
+  }
+}
+
+/**
+ * Check settlement pool invariant: ONLY finalized contests (COMPLETE, CANCELLED) must have net_pool = 0
+ * ACTIVE contests (SCHEDULED, LOCKED, LIVE) are allowed to hold funds.
+ *
+ * This prevents false positives where SCHEDULED contests correctly hold entry fees.
+ */
+async function checkSettlementPoolInvariant(pool) {
+  try {
+    // Query ONLY finalized contests (COMPLETE, CANCELLED)
+    // Compute net_pool = ENTRY_FEE - ENTRY_FEE_REFUND - PRIZE_PAYOUT + PRIZE_PAYOUT_REVERSAL
+    const resultQuery = `
+      SELECT
+        ci.id,
+        ci.contest_name,
+        ci.status,
+        COALESCE(SUM(CASE
+          WHEN l.entry_type = 'ENTRY_FEE' THEN l.amount_cents
+          WHEN l.entry_type = 'ENTRY_FEE_REFUND' THEN -l.amount_cents
+          WHEN l.entry_type = 'PRIZE_PAYOUT' THEN -l.amount_cents
+          WHEN l.entry_type = 'PRIZE_PAYOUT_REVERSAL' THEN l.amount_cents
+        END), 0) AS net_pool
+      FROM contest_instances ci
+      LEFT JOIN ledger l
+        ON l.reference_id = ci.id
+      WHERE ci.status IN ('COMPLETE', 'CANCELLED')
+      GROUP BY ci.id, ci.contest_name, ci.status
+      HAVING COALESCE(SUM(CASE
+        WHEN l.entry_type = 'ENTRY_FEE' THEN l.amount_cents
+        WHEN l.entry_type = 'ENTRY_FEE_REFUND' THEN -l.amount_cents
+        WHEN l.entry_type = 'PRIZE_PAYOUT' THEN -l.amount_cents
+        WHEN l.entry_type = 'PRIZE_PAYOUT_REVERSAL' THEN l.amount_cents
+      END), 0) != 0;
+    `;
+
+    const result = await pool.query(resultQuery);
+
+    // Each row is a violation: finalized contest with net_pool != 0
+    const violations = result.rows.map(row => {
+      logger.error('INVARIANT_VIOLATION', {
+        contestId: row.id,
+        status: row.status,
+        netPool: row.net_pool
+      });
+
+      return {
+        contest_id: row.id,
+        contest_name: row.contest_name,
+        current_status: row.status,
+        net_pool_cents: row.net_pool,
+        severity: row.net_pool > 0 ? 'funds_not_distributed' : 'over_payout'
+      };
+    });
+
+    // Get total finalized contests checked
+    const totalResult = await pool.query(`
+      SELECT COUNT(*) as total_finalized
+      FROM contest_instances
+      WHERE status IN ('COMPLETE', 'CANCELLED');
+    `);
+
+    const totalFinalized = parseInt(totalResult.rows[0].total_finalized, 10);
+
+    let status = 'HEALTHY';
+    if (violations.length > 0) {
+      status = 'DEGRADED';
+    }
+
+    return {
+      status,
+      timestamp: new Date().toISOString(),
+      violations,
+      details: {
+        finalized_contests_checked: totalFinalized,
+        finalized_contests_with_violations: violations.length,
+        violation_summary: violations.length > 0 ?
+          `${violations.length} finalized contest(s) with non-zero pool balance` : 'All finalized contests settled correctly'
+      }
+    };
+  } catch (error) {
+    console.error('[systemInvariantService] Settlement pool check failed:', error);
+    return {
+      status: 'ERROR',
+      timestamp: new Date().toISOString(),
+      violations: [],
+      details: {
+        finalized_contests_checked: 0,
+        finalized_contests_with_violations: 0,
+        violation_summary: `Query error: ${error.message}`
       }
     };
   }
@@ -825,6 +949,7 @@ module.exports = {
   checkFinancialInvariant,
   checkLifecycleInvariant,
   checkSettlementInvariant,
+  checkSettlementPoolInvariant,
   checkPipelineInvariant,
   checkLedgerInvariant
 };

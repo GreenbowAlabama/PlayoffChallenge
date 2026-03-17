@@ -20,7 +20,8 @@ describe('systemInvariantService', () => {
   describe('checkFinancialInvariant', () => {
     it('should return BALANCED status when equation holds', async () => {
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 1000 }] }); // wallet_liability
-      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // contest_pools
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // contest_pools (total)
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 300 }] }); // active contest_pools
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 2000 }] }); // deposits
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // withdrawals
       mockPool.query.mockResolvedValueOnce({ rows: [] }); // entry breakdown
@@ -32,13 +33,15 @@ describe('systemInvariantService', () => {
       expect(result.values.contest_pools_cents).toBe(500);
       expect(result.values.deposits_cents).toBe(2000);
       expect(result.values.withdrawals_cents).toBe(500);
+      expect(result.details.active_contest_pools_total_cents).toBe(300);
       // 1000 + 500 = 1500, 2000 - 500 = 1500 (balanced)
       expect(result.values.difference_cents).toBe(0);
     });
 
     it('should return DRIFT status for minor imbalances', async () => {
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 1000 }] }); // wallet_liability
-      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // contest_pools
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // contest_pools (total)
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 300 }] }); // active contest_pools
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 2050 }] }); // deposits
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // withdrawals
       mockPool.query.mockResolvedValueOnce({ rows: [] }); // entry breakdown
@@ -52,7 +55,8 @@ describe('systemInvariantService', () => {
 
     it('should return CRITICAL_IMBALANCE for major imbalances', async () => {
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 1000 }] }); // wallet_liability
-      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // contest_pools
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // contest_pools (total)
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 300 }] }); // active contest_pools
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 2500 }] }); // deposits
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // withdrawals
       mockPool.query.mockResolvedValueOnce({ rows: [] }); // entry breakdown
@@ -228,6 +232,132 @@ describe('systemInvariantService', () => {
 
       expect(result.status).toBe('INCOMPLETE');
       expect(result.anomalies).toHaveLength(1);
+    });
+  });
+
+  describe('checkSettlementPoolInvariant', () => {
+    it('PASS: COMPLETE contest with entry_fee fully settled (payout = entry_fee)', async () => {
+      mockPool.query.mockResolvedValueOnce({
+        rowCount: 0,
+        rows: [] // No violations (net_pool = 0 for settled contests)
+      });
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ total_finalized: 1 }]
+      });
+
+      const result = await systemInvariantService.checkSettlementPoolInvariant(mockPool);
+
+      expect(result.status).toBe('HEALTHY');
+      expect(result.violations).toEqual([]);
+      expect(result.details.finalized_contests_checked).toBe(1);
+      expect(result.details.finalized_contests_with_violations).toBe(0);
+    });
+
+    it('FAIL: COMPLETE contest with entry_fee but no payout (net_pool > 0)', async () => {
+      const contestId = '550e8400-e29b-41d4-a716-446655440000';
+      mockPool.query.mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{
+          id: contestId,
+          contest_name: 'Unsettled Contest',
+          status: 'COMPLETE',
+          net_pool: 5000 // $50 not distributed
+        }]
+      });
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ total_finalized: 2 }]
+      });
+
+      const result = await systemInvariantService.checkSettlementPoolInvariant(mockPool);
+
+      expect(result.status).toBe('DEGRADED');
+      expect(result.violations).toHaveLength(1);
+      expect(result.violations[0].contest_id).toBe(contestId);
+      expect(result.violations[0].net_pool_cents).toBe(5000);
+      expect(result.violations[0].severity).toBe('funds_not_distributed');
+      expect(result.details.finalized_contests_with_violations).toBe(1);
+    });
+
+    it('PASS: COMPLETE contest with zero entries (net_pool = 0)', async () => {
+      mockPool.query.mockResolvedValueOnce({
+        rowCount: 0,
+        rows: [] // No ledger rows = net_pool = 0 (valid)
+      });
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ total_finalized: 1 }]
+      });
+
+      const result = await systemInvariantService.checkSettlementPoolInvariant(mockPool);
+
+      expect(result.status).toBe('HEALTHY');
+      expect(result.violations).toEqual([]);
+    });
+
+    it('PASS: SCHEDULED contest with active funds (NOT evaluated)', async () => {
+      // SCHEDULED contests should NOT appear in results (filtered out by WHERE clause)
+      mockPool.query.mockResolvedValueOnce({
+        rowCount: 0,
+        rows: [] // SCHEDULED contests ignored entirely
+      });
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ total_finalized: 0 }] // Only COMPLETE/CANCELLED are checked
+      });
+
+      const result = await systemInvariantService.checkSettlementPoolInvariant(mockPool);
+
+      expect(result.status).toBe('HEALTHY');
+      expect(result.violations).toEqual([]);
+      expect(result.details.finalized_contests_checked).toBe(0);
+    });
+
+    it('PASS: Mixed dataset (active pools + finalized zero pools)', async () => {
+      mockPool.query.mockResolvedValueOnce({
+        rowCount: 0,
+        rows: [] // All finalized contests have net_pool = 0
+      });
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ total_finalized: 5 }] // 5 finalized, 0 violations
+      });
+
+      const result = await systemInvariantService.checkSettlementPoolInvariant(mockPool);
+
+      expect(result.status).toBe('HEALTHY');
+      expect(result.violations).toEqual([]);
+      expect(result.details.finalized_contests_checked).toBe(5);
+      expect(result.details.finalized_contests_with_violations).toBe(0);
+    });
+
+    it('FAIL: CANCELLED contest with unrefunded entry fees', async () => {
+      const contestId = '550e8400-e29b-41d4-a716-446655440001';
+      mockPool.query.mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{
+          id: contestId,
+          contest_name: 'Cancelled Contest',
+          status: 'CANCELLED',
+          net_pool: 10000 // $100 not refunded
+        }]
+      });
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ total_finalized: 1 }]
+      });
+
+      const result = await systemInvariantService.checkSettlementPoolInvariant(mockPool);
+
+      expect(result.status).toBe('DEGRADED');
+      expect(result.violations).toHaveLength(1);
+      expect(result.violations[0].current_status).toBe('CANCELLED');
+      expect(result.violations[0].net_pool_cents).toBe(10000);
+    });
+
+    it('should handle database errors gracefully', async () => {
+      mockPool.query.mockRejectedValueOnce(new Error('DB Connection failed'));
+
+      const result = await systemInvariantService.checkSettlementPoolInvariant(mockPool);
+
+      expect(result.status).toBe('ERROR');
+      expect(result.violations).toEqual([]);
+      expect(result.details.finalized_contests_checked).toBe(0);
     });
   });
 
@@ -414,26 +544,40 @@ describe('systemInvariantService', () => {
   describe('runFullInvariantCheck', () => {
     it('should return result with execution_time_ms and timestamp', async () => {
       // Mock just the database queries for a healthy check
-      // Financial: 5 queries
+      // Financial: 6 queries (added active_contest_pools)
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 1000 }] }); // wallet_liability
-      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // contest_pools
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // contest_pools (total)
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 300 }] }); // active contest_pools
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 2000 }] }); // deposits
       mockPool.query.mockResolvedValueOnce({ rows: [{ total: 500 }] }); // withdrawals
       mockPool.query.mockResolvedValueOnce({ rows: [] }); // entry breakdown
 
-      // Lifecycle: 2 queries
+      // Lifecycle: 5 queries (locked, live, critically stuck, total live, total locked)
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // locked
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // live
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // critically stuck
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total_count: 0 }] }); // total live
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total_count: 0 }] }); // total locked
 
       // Settlement: 2 queries
       mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // anomalies
       mockPool.query.mockResolvedValueOnce({ rows: [{ total_complete: 0, total_settled: 0 }] }); // counts
 
-      // Pipeline: 3 queries
+      // Settlement Pool: 2 queries
+      mockPool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // no violations
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total_finalized: 0 }] }); // total finalized
+
+      // Pipeline: 1 query
       const now = new Date();
-      mockPool.query.mockResolvedValueOnce({ rows: [{ last_run: now, error_count: 0 }] }); // discovery
-      mockPool.query.mockResolvedValueOnce({ rows: [{ last_run: now, total_errors: 0 }] }); // lifecycle
-      mockPool.query.mockResolvedValueOnce({ rows: [{ stuck_units: 0, minutes_oldest: null }] }); // ingestion
+      mockPool.query.mockResolvedValueOnce({
+        rows: [
+          { worker_name: 'discovery_worker', worker_type: 'discovery', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'ingestion_worker', worker_type: 'ingestion', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'lifecycle_reconciler', worker_type: 'lifecycle', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'payout_scheduler', worker_type: 'payout', status: 'HEALTHY', last_run_at: now, error_count: 0 },
+          { worker_name: 'financial_reconciler', worker_type: 'financial', status: 'HEALTHY', last_run_at: now, error_count: 0 }
+        ]
+      });
 
       // Ledger: 6 queries
       mockPool.query.mockResolvedValueOnce({ rows: [{ violation_count: 0 }] }); // entry_fee direction
@@ -457,6 +601,7 @@ describe('systemInvariantService', () => {
       expect(result.invariants).toHaveProperty('financial');
       expect(result.invariants).toHaveProperty('lifecycle');
       expect(result.invariants).toHaveProperty('settlement');
+      expect(result.invariants).toHaveProperty('settlement_pool');
       expect(result.invariants).toHaveProperty('pipeline');
       expect(result.invariants).toHaveProperty('ledger');
     });
