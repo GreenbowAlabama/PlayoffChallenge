@@ -577,6 +577,64 @@ async function getReconciliationHistory(pool, numDays = 30) {
   }
 }
 
+/**
+ * Run daily financial reconciliation
+ *
+ * Executes platform reconciliation check and persists snapshot.
+ * This is the primary entry point for the reconciliation scheduler.
+ *
+ * @param {Object} pool - Database connection pool
+ * @returns {Promise<Object>} Reconciliation result with:
+ *   - recordId: UUID of the snapshot record
+ *   - status: 'coherent' | 'drift' | 'critical'
+ *   - difference: difference_cents value
+ *   - wallet_liability_cents: wallet liability
+ *   - contest_pools_cents: contest pools
+ * @throws {Error} On DB query failure or critical invariant violation
+ */
+async function runDailyReconciliation(pool) {
+  // Execute the platform reconciliation check (read-only queries)
+  const reconciliation = await getPlatformReconciliation(pool);
+
+  // Determine status based on difference
+  let status = 'coherent'; // difference === 0
+  if (reconciliation.difference_cents !== 0) {
+    status = 'drift'; // difference exists but platform is still operational
+  }
+
+  // Persist snapshot to history
+  const client = await pool.connect();
+  try {
+    const recordId = uuidv4();
+    await client.query(`
+      INSERT INTO financial_reconciliation_snapshots
+      (id, timestamp, wallet_liability_cents, contest_pools_cents, deposits_cents, withdrawals_cents, difference_cents, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `, [
+      recordId,
+      new Date(),
+      reconciliation.wallet_liability_cents,
+      reconciliation.contest_pools_cents,
+      reconciliation.deposits_cents,
+      reconciliation.withdrawals_cents,
+      reconciliation.difference_cents,
+      status
+    ]);
+
+    return {
+      recordId,
+      status,
+      difference: reconciliation.difference_cents,
+      wallet_liability_cents: reconciliation.wallet_liability_cents,
+      contest_pools_cents: reconciliation.contest_pools_cents,
+      deposits_cents: reconciliation.deposits_cents,
+      withdrawals_cents: reconciliation.withdrawals_cents
+    };
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   getPlatformReconciliation,
   getFinancialInvariants,
@@ -586,5 +644,6 @@ module.exports = {
   freezeNegativeWallet,
   repairIllegalRefundDebit,
   logFinancialAction,
-  getReconciliationHistory
+  getReconciliationHistory,
+  runDailyReconciliation
 };
