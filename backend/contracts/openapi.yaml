@@ -1149,6 +1149,120 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/user/stripe-account/onboarding-link:
+    post:
+      tags:
+        - Wallet
+      summary: Generate Stripe Connect onboarding link
+      description: Get a link to set up user's Stripe Connected Account for withdrawals
+      operationId: getStripeOnboardingLink
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Onboarding link generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StripeOnboardingLinkResponse'
+        '401':
+          description: Unauthorized - authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/user/stripe-account/status:
+    get:
+      tags:
+        - Wallet
+      summary: Get Stripe account status
+      description: Check if user has linked a Stripe Connected Account
+      operationId: getStripeAccountStatus
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Account status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StripeAccountStatusResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/user/stripe-account/callback:
+    get:
+      tags:
+        - Wallet
+      summary: Handle Stripe Connect OAuth callback
+      description: Process OAuth callback after user completes Stripe account setup
+      operationId: processStripeCallback
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Stripe Connected Account ID from callback
+          example: "acct_1234567890abcdef"
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF state token (for verification)
+          example: "random_32byte_hex_string"
+      responses:
+        '200':
+          description: Callback processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StripeAccountCallbackResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2291,6 +2405,94 @@ components:
           type: object
           description: Prize pool payout configuration
           additionalProperties: true
+
+    StripeOnboardingLinkResponse:
+      type: object
+      description: Response containing Stripe Connect onboarding URL and CSRF state token
+      required:
+        - onboarding_url
+        - state
+      properties:
+        onboarding_url:
+          type: string
+          format: uri
+          description: URL to Stripe Connect onboarding page
+          example: "https://connect.stripe.com/onboarding/..."
+        state:
+          type: string
+          description: CSRF state token for security
+          example: "random_32byte_hex_string"
+
+    StripeAccountStatusResponse:
+      type: object
+      description: Response containing Stripe account status and details
+      required:
+        - linked
+      properties:
+        linked:
+          type: boolean
+          description: Whether user has linked a Stripe account
+        accountId:
+          type: string
+          nullable: true
+          description: Stripe Connected Account ID (if linked)
+          example: "acct_1234567890abcdef"
+        chargesEnabled:
+          type: boolean
+          nullable: true
+          description: Whether account can accept charges
+        payoutsEnabled:
+          type: boolean
+          nullable: true
+          description: Whether account can send payouts
+        ready_for_payouts:
+          type: boolean
+          nullable: true
+          description: Whether account is fully ready to receive payouts (all requirements met)
+          example: true
+        detailsSubmitted:
+          type: boolean
+          nullable: true
+          description: Whether account details have been submitted to Stripe
+          example: true
+        requirementsDue:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: List of pending requirements from Stripe (if any)
+          example: ["individual.verification.document"]
+
+    StripeAccountCallbackRequest:
+      type: object
+      description: Request body for Stripe Connect OAuth callback processing
+      required:
+        - accountId
+        - state
+      properties:
+        accountId:
+          type: string
+          description: Stripe Connected Account ID from callback
+          example: "acct_1234567890abcdef"
+        state:
+          type: string
+          description: CSRF state token (for verification)
+          example: "random_32byte_hex_string"
+
+    StripeAccountCallbackResponse:
+      type: object
+      description: Response confirming successful Stripe account linkage
+      required:
+        - success
+        - accountId
+      properties:
+        success:
+          type: boolean
+          description: Whether callback was processed successfully
+        accountId:
+          type: string
+          description: Stripe Connected Account ID (confirmed)
+          example: "acct_1234567890abcdef"
 
     ErrorResponseWithErrors:
       type: object
