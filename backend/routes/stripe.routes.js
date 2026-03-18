@@ -132,8 +132,8 @@ router.post('/connect/onboard', extractUserId, async (req, res) => {
     const accountLink = await stripeInstance.accountLinks.create({
       account: stripeConnectedAccountId,
       type: 'account_onboarding',
-      refresh_url: 'playoffchallenge://stripe-refresh',
-      return_url: 'playoffchallenge://stripe-return'
+      refresh_url: 'https://example.com/refresh',
+      return_url: 'https://example.com/return'
     });
 
     if (process.env.LOG_AUTH_DEBUG === 'true') {
