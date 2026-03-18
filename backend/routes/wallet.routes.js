@@ -12,8 +12,13 @@ const express = require('express');
 const router = express.Router();
 const LedgerRepository = require('../repositories/LedgerRepository');
 const withdrawalService = require('../services/withdrawalService');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
+const StripeWithdrawalAdapter = require('../services/StripeWithdrawalAdapter');
 const crypto = require('crypto');
+
+/**
+ * Get Stripe instance from adapter (single source of truth)
+ */
+const getStripe = () => StripeWithdrawalAdapter.getStripeInstance();
 
 /**
  * Validate UUID format
@@ -340,7 +345,8 @@ router.post('/fund', extractUserId, async (req, res) => {
 
     let paymentIntent;
     try {
-      paymentIntent = await stripe.paymentIntents.create(
+      const stripeInstance = getStripe();
+      paymentIntent = await stripeInstance.paymentIntents.create(
         {
           amount: amount_cents,
           currency: 'usd',
@@ -471,7 +477,78 @@ router.post('/withdraw', extractUserId, async (req, res) => {
       });
     }
 
-    // 4. Create withdrawal request
+    // 4. Guard: Verify Stripe Connect account is connected and ready
+    try {
+      // Fetch user's Stripe account ID (defensive DB access)
+      const userResult = await pool.query(
+        'SELECT stripe_connected_account_id FROM users WHERE id = $1',
+        [userId]
+      );
+
+      // Defensive: Check pool.query result structure
+      if (!userResult || !userResult.rows || userResult.rows.length === 0) {
+        return res.status(404).json({
+          error_code: 'USER_NOT_FOUND',
+          message: 'User not found'
+        });
+      }
+
+      const stripeAccountId = userResult.rows[0].stripe_connected_account_id;
+
+      // Check if account is connected
+      if (!stripeAccountId) {
+        return res.status(400).json({
+          error_code: 'STRIPE_ACCOUNT_REQUIRED',
+          message: 'Stripe account not connected. Please complete Stripe onboarding.'
+        });
+      }
+
+      // Fetch live Stripe account status
+      let account;
+      try {
+        const stripeInstance = getStripe();
+        account = await stripeInstance.accounts.retrieve(stripeAccountId);
+      } catch (stripeErr) {
+        console.error('[WalletWithdraw] Stripe API error', {
+          userId: userId,
+          accountId: stripeAccountId,
+          error: stripeErr.message
+        });
+
+        // Handle specific Stripe errors
+        if (stripeErr.message && (stripeErr.message.includes('No such account') || stripeErr.message.includes('Invalid stripe account'))) {
+          return res.status(400).json({
+            error_code: 'STRIPE_ACCOUNT_REQUIRED',
+            message: 'Stripe account not found. Please reconnect.'
+          });
+        }
+
+        // For other Stripe errors, return service unavailable
+        return res.status(503).json({
+          error: 'Unable to verify Stripe account. Please try again later.'
+        });
+      }
+
+      // Verify account is ready for payouts
+      if (!account.payouts_enabled || !account.details_submitted) {
+        return res.status(400).json({
+          error_code: 'STRIPE_ACCOUNT_INCOMPLETE',
+          message: 'Stripe account setup incomplete. Please complete onboarding.'
+        });
+      }
+    } catch (err) {
+      // Catch-all for unexpected errors
+      console.error('[WalletWithdraw] Unexpected error checking Stripe account', {
+        userId: userId,
+        error: err.message,
+        stack: err.stack
+      });
+      return res.status(500).json({
+        error: 'Failed to verify Stripe account status'
+      });
+    }
+
+    // 5. Create withdrawal request
     const createResult = await withdrawalService.createWithdrawalRequest(
       pool,
       userId,
@@ -499,7 +576,7 @@ router.post('/withdraw', extractUserId, async (req, res) => {
 
     const withdrawal = createResult.withdrawal;
 
-    // 5. Process withdrawal (insert ledger debit, transition to PROCESSING)
+    // 6. Process withdrawal (insert ledger debit, transition to PROCESSING)
     const processResult = await withdrawalService.processWithdrawal(
       pool,
       withdrawal.id,

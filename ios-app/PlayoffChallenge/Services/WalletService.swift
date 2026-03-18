@@ -222,9 +222,29 @@ final class WalletService: WalletFetching, @unchecked Sendable {
         case 200:
             print("[WalletService:Withdraw] Status 200: Success")
         case 400:
-            let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
-            print("[WalletService:Withdraw] Status 400: \(errorMsg)")
-            throw APIError.validationError("Invalid request")
+            // Try to decode structured error response with error_code
+            struct ErrorResponseDTO: Codable {
+                let error_code: String?
+                let message: String?
+            }
+
+            if let errorResponse = try? JSONDecoder().decode(ErrorResponseDTO.self, from: data) {
+                print("[WalletService:Withdraw] Status 400: error_code=\(errorResponse.error_code ?? "unknown")")
+
+                switch errorResponse.error_code {
+                case "STRIPE_ACCOUNT_REQUIRED":
+                    throw APIError.stripeAccountRequired
+                case "STRIPE_ACCOUNT_INCOMPLETE":
+                    throw APIError.stripeAccountIncomplete
+                default:
+                    throw APIError.validationError(errorResponse.message ?? "Invalid request")
+                }
+            } else {
+                // Fallback if JSON decoding fails
+                let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
+                print("[WalletService:Withdraw] Status 400: \(errorMsg)")
+                throw APIError.validationError("Invalid request")
+            }
         case 401:
             print("[WalletService:Withdraw] Status 401: Unauthorized")
             throw APIError.unauthorized

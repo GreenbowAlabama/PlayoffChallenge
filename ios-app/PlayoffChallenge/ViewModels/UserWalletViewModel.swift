@@ -454,6 +454,16 @@ final class UserWalletViewModel: ObservableObject {
 
             // Refresh wallet to reflect deducted balance
             await fetchWallet()
+        } catch APIError.stripeAccountRequired {
+            await MainActor.run {
+                self.errorMessage = "Stripe account not connected. Please complete Stripe onboarding to enable withdrawals."
+                self.isWithdrawing = false
+            }
+        } catch APIError.stripeAccountIncomplete {
+            await MainActor.run {
+                self.errorMessage = "Stripe account setup incomplete. Please complete onboarding to enable withdrawals."
+                self.isWithdrawing = false
+            }
         } catch APIError.insufficientFunds {
             await MainActor.run {
                 self.errorMessage = "Insufficient wallet funds"

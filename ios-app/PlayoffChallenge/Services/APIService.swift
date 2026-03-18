@@ -19,6 +19,8 @@ case restrictedState(String)
 case needsEligibility
 case validationError(String)
 case insufficientFunds
+case stripeAccountRequired
+case stripeAccountIncomplete
 
     var errorDescription: String? {
         switch self {
@@ -42,6 +44,10 @@ case insufficientFunds
             return message
         case .insufficientFunds:
             return "Insufficient wallet funds"
+        case .stripeAccountRequired:
+            return "Stripe account not connected"
+        case .stripeAccountIncomplete:
+            return "Stripe account setup incomplete"
         }
     }
 }

@@ -10,6 +10,11 @@ const express = require('express');
 const walletRoutes = require('../../routes/wallet.routes');
 const { createMockUserToken } = require('../mocks/testAppFactory');
 
+// Mock StripeWithdrawalAdapter to prevent real Stripe calls
+jest.mock('../../services/StripeWithdrawalAdapter', () => ({
+  getStripeInstance: jest.fn()
+}));
+
 describe('Wallet Withdraw Endpoint', () => {
   let app;
   let mockPool;
@@ -95,23 +100,56 @@ describe('Wallet Withdraw Endpoint', () => {
     });
 
     it('should return 422 if insufficient balance', async () => {
-      // Mock: withdrawalService.createWithdrawalRequest returns INSUFFICIENT_BALANCE error
-      // In a real test, we'd mock the service or use integration test
+      // Mock: User has valid, ready Stripe account
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{
+          stripe_connected_account_id: 'acct_test_sufficient'
+        }]
+      });
 
+      // Mock Stripe account is ready for payouts
+      const StripeWithdrawalAdapter = require('../../services/StripeWithdrawalAdapter');
+      StripeWithdrawalAdapter.getStripeInstance.mockReturnValue({
+        accounts: {
+          retrieve: jest.fn().mockResolvedValue({
+            payouts_enabled: true,
+            details_submitted: true,
+            charges_enabled: true
+          })
+        }
+      });
+
+      // Attempt withdrawal with massive amount (will trigger INSUFFICIENT_BALANCE from service)
       const response = await request(app)
         .post('/api/wallet/withdraw')
         .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
         .send({ amount_cents: 999999999, method: 'standard' });
 
-      // Response should be either 422 or 500 depending on mock setup
-      // For now, just verify the request structure is valid
+      // Should reach withdrawalService and fail with insufficient funds
       expect([422, 500]).toContain(response.status);
     });
 
     it('should accept both standard and instant methods', async () => {
+      // Mock Stripe adapter once for both iterations
+      const StripeWithdrawalAdapter = require('../../services/StripeWithdrawalAdapter');
+      StripeWithdrawalAdapter.getStripeInstance.mockReturnValue({
+        accounts: {
+          retrieve: jest.fn().mockResolvedValue({
+            payouts_enabled: true,
+            details_submitted: true,
+            charges_enabled: true
+          })
+        }
+      });
+
       for (const method of ['standard', 'instant']) {
-        mockPool.query.mockClear();
+        // Mock pool.query for each iteration
+        mockPool.query.mockResolvedValueOnce({
+          rows: [{
+            stripe_connected_account_id: `acct_test_${method}`
+          }]
+        });
 
         const response = await request(app)
           .post('/api/wallet/withdraw')
@@ -164,6 +202,110 @@ describe('Wallet Withdraw Endpoint', () => {
 
       // Both should have same status/structure
       expect(response1.status).toBe(response2.status);
+    });
+
+    // STRIPE CONNECT GUARD TESTS
+
+    it('should return 400 STRIPE_ACCOUNT_REQUIRED if user has no Stripe account', async () => {
+      // Mock: User exists but has no stripe_connected_account_id
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ stripe_connected_account_id: null }]
+      });
+
+      // Mock Stripe instance (though it won't be called since account_id is null)
+      const StripeWithdrawalAdapter = require('../../services/StripeWithdrawalAdapter');
+      StripeWithdrawalAdapter.getStripeInstance.mockReturnValue({
+        accounts: {
+          retrieve: jest.fn()
+        }
+      });
+
+      const response = await request(app)
+        .post('/api/wallet/withdraw')
+        .set('Authorization', `Bearer ${userToken}`)
+        .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
+        .send({ amount_cents: 5000, method: 'standard' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error_code).toBe('STRIPE_ACCOUNT_REQUIRED');
+      expect(response.body.message).toContain('not connected');
+    });
+
+    it('should return 400 STRIPE_ACCOUNT_INCOMPLETE if payouts not enabled', async () => {
+      const stripeAccountId = 'acct_test123';
+
+      // Mock: User has Stripe account
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ stripe_connected_account_id: stripeAccountId }]
+      });
+
+      // Mock StripeWithdrawalAdapter.getStripeInstance() and accounts.retrieve
+      const StripeWithdrawalAdapter = require('../../services/StripeWithdrawalAdapter');
+      StripeWithdrawalAdapter.getStripeInstance.mockReturnValue({
+        accounts: {
+          retrieve: jest.fn().mockResolvedValue({
+            payouts_enabled: false,
+            details_submitted: true,
+            charges_enabled: true
+          })
+        }
+      });
+
+      const response = await request(app)
+        .post('/api/wallet/withdraw')
+        .set('Authorization', `Bearer ${userToken}`)
+        .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
+        .send({ amount_cents: 5000, method: 'standard' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error_code).toBe('STRIPE_ACCOUNT_INCOMPLETE');
+      expect(response.body.message).toContain('incomplete');
+    });
+
+    it('should return 400 STRIPE_ACCOUNT_INCOMPLETE if details not submitted', async () => {
+      const stripeAccountId = 'acct_test456';
+
+      // Mock: User has Stripe account
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ stripe_connected_account_id: stripeAccountId }]
+      });
+
+      // Mock StripeWithdrawalAdapter.getStripeInstance() and accounts.retrieve
+      const StripeWithdrawalAdapter = require('../../services/StripeWithdrawalAdapter');
+      StripeWithdrawalAdapter.getStripeInstance.mockReturnValue({
+        accounts: {
+          retrieve: jest.fn().mockResolvedValue({
+            payouts_enabled: true,
+            details_submitted: false,
+            charges_enabled: true
+          })
+        }
+      });
+
+      const response = await request(app)
+        .post('/api/wallet/withdraw')
+        .set('Authorization', `Bearer ${userToken}`)
+        .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
+        .send({ amount_cents: 5000, method: 'standard' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error_code).toBe('STRIPE_ACCOUNT_INCOMPLETE');
+    });
+
+    it('should validate Idempotency-Key before checking Stripe account', async () => {
+      // This test verifies that Idempotency-Key validation happens first
+      // (before Stripe account validation)
+
+      const response = await request(app)
+        .post('/api/wallet/withdraw')
+        .set('Authorization', `Bearer ${userToken}`)
+        // MISSING Idempotency-Key header
+        .send({ amount_cents: 5000, method: 'standard' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.reason).toContain('Idempotency-Key');
+      // Should NOT try to check Stripe account
+      expect(mockPool.query).not.toHaveBeenCalled();
     });
   });
 });

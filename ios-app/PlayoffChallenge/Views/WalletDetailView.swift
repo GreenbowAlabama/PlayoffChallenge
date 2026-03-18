@@ -12,10 +12,13 @@ import Core
 
 struct WalletDetailView: View {
     @ObservedObject var viewModel: UserWalletViewModel
+    @EnvironmentObject var stripeConnectVM: StripeConnectViewModel
     @Environment(\.dismiss) var dismiss
 
     @State private var showDepositSheet = false
     @State private var showWithdrawSheet = false
+    @State private var showOnboardingSheet = false
+    @State private var onboardingURL: URL? = nil
     @State private var depositAmount: String = "10.00"
     @State private var withdrawAmount: String = ""
 
@@ -70,11 +73,56 @@ struct WalletDetailView: View {
         .sheet(isPresented: $showWithdrawSheet) {
             withdrawSheet
         }
+        .onChange(of: stripeConnectVM.state) { _, newState in
+            // When onboarding link is ready, open it
+            if case .onboarding = newState {
+                showOnboardingSheet = true
+            }
+        }
+        .sheet(isPresented: $showOnboardingSheet) {
+            if let stripeStatus = stripeConnectVM.accountStatus,
+               stripeStatus.connected {
+                // After returning from onboarding, check status again
+                Text("Returning to Wallet")
+                    .task {
+                        await stripeConnectVM.onOnboardingCompleted()
+                        showOnboardingSheet = false
+                    }
+            } else {
+                // Placeholder for SafariViewController (requires UIViewControllerRepresentable)
+                // For now, show a message
+                VStack(spacing: DesignTokens.Spacing.lg) {
+                    Text("Opening Stripe Onboarding...")
+                        .font(.headline)
+
+                    Text("A browser window will open for you to complete your Stripe setup. After completing, return to this app.")
+                        .font(.body)
+                        .multilineTextAlignment(.center)
+
+                    Button("I've Completed Onboarding") {
+                        Task {
+                            await stripeConnectVM.onOnboardingCompleted()
+                            showOnboardingSheet = false
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(DesignTokens.Spacing.md)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(DesignTokens.Radius.md)
+
+                    Spacer()
+                }
+                .padding(DesignTokens.Spacing.lg)
+            }
+        }
         .task {
             print("[WalletDetailView] View appeared, loading wallet data")
             await viewModel.fetchWallet()
             // Fetch transactions after balance loads
             await viewModel.fetchTransactions()
+            // Check Stripe Connect status
+            await stripeConnectVM.checkStatus()
         }
     }
 
@@ -82,42 +130,94 @@ struct WalletDetailView: View {
 
     @ViewBuilder
     private var walletActionButtonsView: some View {
-        HStack(spacing: DesignTokens.Spacing.md) {
-            // Add Funds button
-            Button(action: {
-                print("[WalletDetailView] Add Funds button tapped")
-                showDepositSheet = true
-            }) {
-                HStack {
-                    Image(systemName: "plus.circle.fill")
-                    Text("Add Funds")
-                }
-                .frame(maxWidth: .infinity)
-                .padding(DesignTokens.Spacing.md)
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(DesignTokens.Radius.md)
-            }
-            .disabled(viewModel.isDepositing || viewModel.isWithdrawing)
-
-            // TEMP: Withdraw UI hidden for TestFlight while withdrawal pipeline is hardened.
-            // Re-enable after withdrawal flow is finalized.
-            if false {
+        VStack(spacing: DesignTokens.Spacing.md) {
+            HStack(spacing: DesignTokens.Spacing.md) {
+                // Add Funds button
                 Button(action: {
-                    print("[WalletDetailView] Withdraw button tapped")
-                    showWithdrawSheet = true
+                    print("[WalletDetailView] Add Funds button tapped")
+                    showDepositSheet = true
                 }) {
                     HStack {
-                        Image(systemName: "arrow.up.circle.fill")
-                        Text("Withdraw")
+                        Image(systemName: "plus.circle.fill")
+                        Text("Add Funds")
                     }
                     .frame(maxWidth: .infinity)
                     .padding(DesignTokens.Spacing.md)
-                    .background(Color.orange)
+                    .background(Color.blue)
                     .foregroundColor(.white)
                     .cornerRadius(DesignTokens.Radius.md)
                 }
-                .disabled(viewModel.isWithdrawing || viewModel.isDepositing)
+                .disabled(viewModel.isDepositing || viewModel.isWithdrawing || stripeConnectVM.isLoading)
+
+                // Withdraw or Connect button (depends on Stripe status)
+                if stripeConnectVM.shouldShowConnectButton {
+                    Button(action: {
+                        print("[WalletDetailView] Connect Bank Account button tapped")
+                        Task {
+                            await stripeConnectVM.initiateOnboarding()
+                            // After getting link, open it
+                            if case .onboarding = stripeConnectVM.state {
+                                showOnboardingSheet = true
+                            }
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: "link.badge.plus")
+                            Text("Connect Bank")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(DesignTokens.Spacing.md)
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(DesignTokens.Radius.md)
+                    }
+                    .disabled(stripeConnectVM.isLoading)
+                } else if stripeConnectVM.isReadyForWithdrawal {
+                    Button(action: {
+                        print("[WalletDetailView] Withdraw button tapped")
+                        showWithdrawSheet = true
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.up.circle.fill")
+                            Text("Withdraw")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(DesignTokens.Spacing.md)
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(DesignTokens.Radius.md)
+                    }
+                    .disabled(viewModel.isWithdrawing || viewModel.isDepositing)
+                }
+            }
+
+            // Show incomplete banner if account setup incomplete
+            if stripeConnectVM.shouldShowIncompleteBanner {
+                VStack(spacing: DesignTokens.Spacing.sm) {
+                    Text("Complete your Stripe setup to enable withdrawals")
+                        .font(.subheadline)
+                        .foregroundColor(.orange)
+
+                    Button(action: {
+                        print("[WalletDetailView] Continue Setup button tapped")
+                        Task {
+                            await stripeConnectVM.initiateOnboarding()
+                            if case .onboarding = stripeConnectVM.state {
+                                showOnboardingSheet = true
+                            }
+                        }
+                    }) {
+                        Text("Continue Setup")
+                            .frame(maxWidth: .infinity)
+                            .padding(DesignTokens.Spacing.sm)
+                            .background(Color.orange)
+                            .foregroundColor(.white)
+                            .cornerRadius(DesignTokens.Radius.sm)
+                    }
+                }
+                .padding(DesignTokens.Spacing.md)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(DesignTokens.Radius.md)
             }
         }
     }
