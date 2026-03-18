@@ -377,5 +377,52 @@ describe('StripeWebhookService', () => {
       // Should still update stripe_events status
       expect(mockClient.query).toHaveBeenCalledWith('COMMIT');
     });
+
+    it('should handle account.updated event without DB mutations (audit-only)', async () => {
+      const event = {
+        id: 'evt_account_updated_123',
+        type: 'account.updated',
+        data: {
+          object: {
+            id: 'acct_test_123',
+            payouts_enabled: true,
+            charges_enabled: true,
+            details_submitted: true
+          }
+        }
+      };
+
+      stripe.webhooks.constructEvent.mockReturnValue(event);
+
+      let ledgerInsertCalls = 0;
+      let userUpdateCalls = 0;
+      mockClient.query.mockImplementation(async (sql) => {
+        if (sql.includes('BEGIN') || sql.includes('COMMIT') || sql.includes('ROLLBACK')) {
+          return {};
+        }
+        if (sql.includes('INSERT INTO stripe_events')) {
+          return {
+            rows: [{ id: 'stripe_events_id_account_update', stripe_event_id: event.id }]
+          };
+        }
+        if (sql.includes('INSERT INTO ledger')) {
+          ledgerInsertCalls++;
+        }
+        if (sql.includes('UPDATE users') && sql.includes('stripe')) {
+          userUpdateCalls++;
+        }
+        return { rows: [] };
+      });
+
+      const result = await StripeWebhookService.handleStripeEvent(Buffer.from('{}'), 'sig', mockPool);
+
+      expect(result.status).toBe('processed');
+      // Should NOT create ledger entries (audit-only)
+      expect(ledgerInsertCalls).toBe(0);
+      // Should NOT mutate users table (live-fetch model)
+      expect(userUpdateCalls).toBe(0);
+      // Should commit transaction (event recorded in stripe_events)
+      expect(mockClient.query).toHaveBeenCalledWith('COMMIT');
+    });
   });
 });

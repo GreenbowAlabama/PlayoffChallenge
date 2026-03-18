@@ -248,7 +248,41 @@ function extractErrorReason(error) {
   return 'stripe_unknown_error';
 }
 
+/**
+ * Handle Stripe account.updated webhook event.
+ *
+ * Invoked when Stripe account status changes (payouts_enabled, charges_enabled, etc.).
+ *
+ * Implementation: Audit-only (no database mutations).
+ *
+ * Rationale:
+ * - Stripe account status is authoritative and queried live via /api/stripe/connect/status
+ * - No caching layer to avoid sync bugs between Stripe and DB
+ * - Webhook provides audit trail and extensibility for future notifications
+ *
+ * @param {Object} params - Account update parameters
+ * @param {string} params.stripeAccountId - Stripe connected account ID (acct_*)
+ * @param {boolean} params.payoutsEnabled - Whether payouts are enabled
+ * @param {boolean} params.chargesEnabled - Whether charges are enabled
+ * @returns {Promise<void>}
+ */
+async function handleAccountUpdate({ stripeAccountId, payoutsEnabled, chargesEnabled }) {
+  // Audit logging only (no side effects)
+  if (process.env.LOG_WEBHOOK_DEBUG === 'true') {
+    console.log('[StripeWithdrawalAdapter] account status update received', {
+      stripeAccountId,
+      payoutsEnabled,
+      chargesEnabled
+    });
+  }
+
+  // No database mutations (live-fetch model)
+  // Status is queried live from Stripe at /api/stripe/connect/status
+  return;
+}
+
 module.exports = {
   createTransfer,
-  getStripeInstance
+  getStripeInstance,
+  handleAccountUpdate
 };

@@ -7,6 +7,9 @@
 const request = require('supertest');
 const express = require('express');
 
+// Mock Stripe BEFORE any imports
+jest.mock('stripe');
+
 describe('Stripe Connect Routes', () => {
   let app;
   let mockPool;
@@ -15,16 +18,23 @@ describe('Stripe Connect Routes', () => {
   let stripeAccountsRetrieveStub;
 
   beforeEach(() => {
-    // Reset all mocks
+    // Clear require cache to ensure fresh modules
     jest.clearAllMocks();
+    jest.resetModules();
 
-    // Mock stripe module
-    jest.mock('stripe');
-    const stripeMock = jest.fn();
+    // Create fresh stubs
     stripeOnboardCreateStub = jest.fn();
     stripeAccountLinksCreateStub = jest.fn();
     stripeAccountsRetrieveStub = jest.fn();
 
+    // Mock database pool
+    mockPool = {
+      query: jest.fn()
+    };
+
+    // Re-mock stripe after reset
+    jest.mock('stripe');
+    const stripeMock = require('stripe');
     stripeMock.mockReturnValue({
       accounts: {
         create: stripeOnboardCreateStub,
@@ -35,27 +45,10 @@ describe('Stripe Connect Routes', () => {
       }
     });
 
-    // Mock database pool
-    mockPool = {
-      query: jest.fn()
-    };
-
     // Create Express app with routes
     app = express();
     app.use(express.json());
     app.locals.pool = mockPool;
-
-    // Mock the stripe module in the routes
-    jest.mock('stripe');
-    require('stripe').mockReturnValue({
-      accounts: {
-        create: stripeOnboardCreateStub,
-        retrieve: stripeAccountsRetrieveStub
-      },
-      accountLinks: {
-        create: stripeAccountLinksCreateStub
-      }
-    });
 
     // Load routes
     const stripeRoutes = require('../../routes/stripe.routes');
@@ -94,7 +87,7 @@ describe('Stripe Connect Routes', () => {
 
       const response = await request(app)
         .post('/api/stripe/connect/onboard')
-        .set('Authorization', `Bearer ${userId}`);
+        .set('X-User-Id', userId);
 
       expect(response.status).toBe(200);
       expect(response.body.url).toBe('https://connect.stripe.com/onboarding/acct_new123');
@@ -106,8 +99,8 @@ describe('Stripe Connect Routes', () => {
       expect(stripeAccountLinksCreateStub).toHaveBeenCalledWith({
         account: 'acct_new123',
         type: 'account_onboarding',
-        refresh_url: expect.stringContaining('/stripe/reauth'),
-        return_url: expect.stringContaining('/wallet')
+        refresh_url: expect.stringContaining('/stripe/refresh'),
+        return_url: expect.stringContaining('/stripe/complete')
       });
     });
 
@@ -132,7 +125,7 @@ describe('Stripe Connect Routes', () => {
 
       const response = await request(app)
         .post('/api/stripe/connect/onboard')
-        .set('Authorization', `Bearer ${userId}`);
+        .set('X-User-Id', userId);
 
       expect(response.status).toBe(200);
       expect(response.body.url).toBe('https://connect.stripe.com/onboarding/acct_existing');
@@ -142,8 +135,8 @@ describe('Stripe Connect Routes', () => {
       expect(stripeAccountLinksCreateStub).toHaveBeenCalledWith({
         account: 'acct_existing',
         type: 'account_onboarding',
-        refresh_url: expect.stringContaining('/stripe/reauth'),
-        return_url: expect.stringContaining('/wallet')
+        refresh_url: expect.stringContaining('/stripe/refresh'),
+        return_url: expect.stringContaining('/stripe/complete')
       });
     });
 
@@ -152,6 +145,27 @@ describe('Stripe Connect Routes', () => {
 
       expect(response.status).toBe(401);
       expect(response.body.error).toBe('Authentication required');
+    });
+  });
+
+  describe('GET /api/stripe/complete', () => {
+    test('should return HTML fallback page with deep link redirect', async () => {
+      const response = await request(app).get('/api/stripe/complete');
+
+      expect(response.status).toBe(200);
+      expect(response.type).toContain('text/html');
+      expect(response.text).toContain('playoffchallenge://stripe/complete');
+      expect(response.text).toContain('Setup Complete');
+      expect(response.text).toContain('Returning to app');
+    });
+
+    test('should include spinner and fallback button in HTML', async () => {
+      const response = await request(app).get('/api/stripe/complete');
+
+      expect(response.status).toBe(200);
+      expect(response.text).toContain('class="spinner"');
+      expect(response.text).toContain('fallback-button');
+      expect(response.text).toContain('Open App');
     });
   });
 
@@ -179,7 +193,7 @@ describe('Stripe Connect Routes', () => {
 
       const response = await request(app)
         .get('/api/stripe/connect/status')
-        .set('Authorization', `Bearer ${userId}`);
+        .set('X-User-Id', userId);
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({
@@ -205,7 +219,7 @@ describe('Stripe Connect Routes', () => {
 
       const response = await request(app)
         .get('/api/stripe/connect/status')
-        .set('Authorization', `Bearer ${userId}`);
+        .set('X-User-Id', userId);
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({

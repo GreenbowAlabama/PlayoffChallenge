@@ -18,6 +18,7 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const StripeEventsRepository = require('../repositories/StripeEventsRepository');
 const PaymentIntentsRepository = require('../repositories/PaymentIntentsRepository');
 const LedgerRepository = require('../repositories/LedgerRepository');
+const StripeWithdrawalAdapter = require('./StripeWithdrawalAdapter');
 const { PAYMENT_ERROR_CODES } = require('./paymentErrorCodes');
 
 /**
@@ -79,6 +80,11 @@ async function handleStripeEvent(rawBody, stripeSignature, pool) {
     if (event.type === 'payment_intent.succeeded') {
       // Process canonical event inside transaction
       await processPaymentIntentSucceeded(client, event, stripeEventsRow.id);
+    } else if (event.type === 'account.updated') {
+      // Audit-only handler for Stripe Connect account updates
+      // No database mutations (live-fetch model)
+      // Handler is idempotent and non-blocking
+      await processAccountUpdated(client, event, stripeEventsRow.id);
     }
 
     // Step 5: Commit transaction
@@ -288,6 +294,46 @@ async function handleEntryFeeSuccess(client, event) {
     // Other database error - rethrow
     throw err;
   }
+}
+
+/**
+ * Process account.updated event.
+ *
+ * Stripe account status changes (payouts_enabled, charges_enabled, etc.)
+ * are received as webhook events.
+ *
+ * Implementation: Audit-only (no database mutations).
+ *
+ * Rationale:
+ * - Account status is queried live from Stripe API
+ * - No caching layer (avoids sync bugs between Stripe and DB)
+ * - Webhook provides audit trail and future extensibility
+ * - iOS client calls GET /api/stripe/connect/status for current state
+ *
+ * @param {Object} client - Database transaction client
+ * @param {Object} event - Stripe event object
+ * @param {string} stripeEventsId - stripe_events.id (for auditing)
+ * @returns {Promise<void>}
+ */
+async function processAccountUpdated(client, event, stripeEventsId) {
+  const account = event.data.object;
+
+  if (process.env.NODE_ENV === 'test' || process.env.LOG_WEBHOOK_DEBUG === 'true') {
+    console.log('[StripeWebhookService] account.updated event received', {
+      stripe_event_id: event.id,
+      account_id: account.id,
+      payouts_enabled: account.payouts_enabled,
+      charges_enabled: account.charges_enabled,
+      details_submitted: account.details_submitted
+    });
+  }
+
+  // Route to withdrawal adapter (audit-only, no DB mutations)
+  await StripeWithdrawalAdapter.handleAccountUpdate({
+    stripeAccountId: account.id,
+    payoutsEnabled: account.payouts_enabled,
+    chargesEnabled: account.charges_enabled
+  });
 }
 
 module.exports = {

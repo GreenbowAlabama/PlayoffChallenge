@@ -129,11 +129,14 @@ router.post('/connect/onboard', extractUserId, async (req, res) => {
     // CRITICAL: Use iOS custom URL scheme (playoffchallenge://) instead of localhost
     // This ensures Stripe redirect works on physical devices, not just simulator
     const stripeInstance = getStripe();
+    const returnUrl = process.env.STRIPE_RETURN_URL || 'https://api.example.com/stripe/complete';
+    const refreshUrl = process.env.STRIPE_REFRESH_URL || 'https://api.example.com/stripe/refresh';
+
     const accountLink = await stripeInstance.accountLinks.create({
       account: stripeConnectedAccountId,
       type: 'account_onboarding',
-      refresh_url: 'https://example.com/refresh',
-      return_url: 'https://example.com/return'
+      refresh_url: refreshUrl,
+      return_url: returnUrl
     });
 
     if (process.env.LOG_AUTH_DEBUG === 'true') {
@@ -232,6 +235,139 @@ router.get('/connect/status', extractUserId, async (req, res) => {
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
+});
+
+/**
+ * GET /stripe/complete
+ *
+ * Fallback page after Stripe onboarding redirect.
+ *
+ * Stripe redirects to return_url after user completes onboarding.
+ * This endpoint attempts to redirect to iOS deep link, with an HTML fallback
+ * for web browsers that cannot handle the custom URL scheme.
+ *
+ * Response (200):
+ * - HTML page that attempts deep link redirect
+ * - Fallback "Open App" button if deep link fails
+ */
+router.get('/complete', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Setup Complete</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+          }
+          .container {
+            text-align: center;
+            background: white;
+            border-radius: 12px;
+            padding: 40px 24px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 90%;
+          }
+          .icon {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 24px;
+            background: #667eea;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+          }
+          h2 {
+            color: #1a202c;
+            font-size: 24px;
+            margin-bottom: 12px;
+          }
+          p {
+            color: #718096;
+            font-size: 16px;
+            line-height: 1.5;
+            margin-bottom: 32px;
+          }
+          .loading {
+            color: #667eea;
+            font-size: 14px;
+            margin-bottom: 16px;
+          }
+          .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e2e8f0;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+          }
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+          .fallback-button {
+            display: none;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.2s;
+          }
+          .fallback-button:hover {
+            background: #5568d3;
+          }
+        </style>
+        <script>
+          window.addEventListener('load', function() {
+            // Attempt deep link redirect after short delay
+            var deepLinkUrl = 'playoffchallenge://stripe/complete';
+            window.location.href = deepLinkUrl;
+
+            // If deep link fails (user not on iOS app), show fallback after 1.5s
+            setTimeout(function() {
+              document.querySelector('.loading').style.display = 'none';
+              document.querySelector('.fallback-button').style.display = 'inline-block';
+            }, 1500);
+          });
+        </script>
+      </head>
+      <body>
+        <div class="container">
+          <div class="icon">✓</div>
+          <h2>Setup Complete!</h2>
+          <p>Your Stripe account is ready to use.</p>
+          <div class="loading">
+            <span class="spinner"></span>
+            Returning to app...
+          </div>
+          <a id="fallback" href="playoffchallenge://stripe/complete" class="fallback-button">
+            Open App
+          </a>
+        </div>
+      </body>
+    </html>
+  `);
 });
 
 module.exports = router;
