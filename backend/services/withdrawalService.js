@@ -212,20 +212,27 @@ async function createWithdrawalRequest(pool, userId, input, environment) {
 
     if (existingResult.rows.length > 0) {
       const existing = existingResult.rows[0];
-      await client.query('COMMIT');
 
-      // If existing is REQUESTED or PROCESSING, return success (idempotent)
-      if (['REQUESTED', 'PROCESSING'].includes(existing.status)) {
-        return { success: true, withdrawal: existing };
+      // Verify ledger consistency: exactly one DEBIT must exist
+      const ledgerCheck = await client.query(
+        `SELECT COUNT(*)::int as count
+         FROM ledger
+         WHERE reference_id = $1
+         AND entry_type = 'WALLET_WITHDRAWAL'
+         AND direction = 'DEBIT'`,
+        [existing.id]
+      );
+
+      if (ledgerCheck.rows[0].count !== 1) {
+        await client.query('ROLLBACK');
+        throw new Error('INVARIANT_VIOLATION: missing or duplicate debit for existing withdrawal');
       }
 
-      // If existing is PAID or FAILED, return conflict (user must use new key)
-      return {
-        success: false,
-        error_code: WITHDRAWAL_ERROR_CODES.DUPLICATE_REQUEST,
-        reason: 'A withdrawal with this idempotency key already exists',
-        existing_withdrawal: existing
-      };
+      await client.query('COMMIT');
+
+      // Return existing withdrawal (idempotent success)
+      // This is true idempotency: same request always returns same response
+      return { success: true, withdrawal: existing };
     }
 
     // 6. Compute available balance

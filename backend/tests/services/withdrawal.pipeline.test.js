@@ -23,7 +23,7 @@ describe('Withdrawal pipeline financial ordering', () => {
     await pool.end();
   });
 
-  test('failed payout still has WALLET_WITHDRAWAL ledger debit (pessimistic reserve)', async () => {
+  test('failed payout creates debit + reversal pair (pessimistic reserve with refund)', async () => {
     // Each test gets a unique user ID
     const userId = crypto.randomUUID();
     const withdrawalAmount = 30000;
@@ -106,15 +106,48 @@ describe('Withdrawal pipeline financial ordering', () => {
 
     // 9. Simulate worker's permanent failure handling (insert REVERSAL)
     // This is what the worker does when Stripe call fails permanently
+    // CRITICAL: REVERSAL inserted before marking FAILED (atomic transaction)
     const reversalIdempotencyKey = `wallet_withdrawal_reversal:${withdrawalId.toLowerCase()}`;
-    await pool.query(
-      `INSERT INTO ledger (
-         user_id, entry_type, direction, amount_cents, reference_type,
-         reference_id, idempotency_key, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (idempotency_key) DO NOTHING`,
-      [userId, 'WALLET_WITHDRAWAL_REVERSAL', 'CREDIT', withdrawalAmount, 'WALLET', withdrawalId, reversalIdempotencyKey]
-    );
+
+    let client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Insert reversal
+      await client.query(
+        `INSERT INTO ledger (
+           user_id, entry_type, direction, amount_cents, reference_type,
+           reference_id, idempotency_key, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         ON CONFLICT (idempotency_key) DO NOTHING`,
+        [userId, 'WALLET_WITHDRAWAL_REVERSAL', 'CREDIT', withdrawalAmount, 'WALLET', withdrawalId, reversalIdempotencyKey]
+      );
+
+      // Verify reversal exists
+      const reversalCheck = await client.query(
+        `SELECT id FROM ledger WHERE idempotency_key = $1`,
+        [reversalIdempotencyKey]
+      );
+
+      if (reversalCheck.rows.length === 0) {
+        throw new Error('INVARIANT_VIOLATION: reversal not created');
+      }
+
+      // Mark withdrawal failed (after reversal guaranteed)
+      await client.query(
+        `UPDATE wallet_withdrawals
+         SET status = 'FAILED', updated_at = NOW()
+         WHERE id = $1`,
+        [withdrawalId]
+      );
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
 
     // 10. Query ledger for WALLET_WITHDRAWAL DEBIT entries
     const debitResult = await pool.query(
@@ -126,7 +159,7 @@ describe('Withdrawal pipeline financial ordering', () => {
       [userId]
     );
 
-    // 11. Assert: Failed payout still has the debit (pessimistic reserve)
+    // 11. Assert: DEBIT exists (pessimistic reserve at request time)
     expect(debitResult.rows[0].count).toBe(1);
 
     // 12. Query ledger for WALLET_WITHDRAWAL_REVERSAL entries
@@ -140,8 +173,18 @@ describe('Withdrawal pipeline financial ordering', () => {
     );
 
     // 13. Assert: REVERSAL inserted on permanent failure (restores funds)
-    // DEBIT + REVERSAL net to zero (financial invariant)
     expect(reversalResult.rows[0].count).toBe(1);
+
+    // 14. Assert: DEBIT + REVERSAL net to zero (financial invariant holds)
+    const balanceResult = await pool.query(
+      `SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount_cents WHEN direction = 'DEBIT' THEN -amount_cents END), 0)::int as balance
+       FROM ledger
+       WHERE user_id = $1
+       AND (entry_type = 'WALLET_WITHDRAWAL' OR entry_type = 'WALLET_WITHDRAWAL_REVERSAL')`,
+      [userId]
+    );
+
+    expect(balanceResult.rows[0].balance).toBe(0);
   });
 
   test('ledger DEBIT created at request time, no additional debit after payout success', async () => {

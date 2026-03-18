@@ -348,39 +348,125 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
     }
 
     // Permanent error OR max retries exhausted
-    // Insert reversal to return funds to wallet (normalize UUID to lowercase)
-    const reversalIdempotencyKey = `wallet_withdrawal_reversal:${withdrawal.id.toLowerCase()}`;
+    // CRITICAL: Insert reversal BEFORE marking FAILED (atomic transaction)
+    // This guarantees DEBIT + REVERSAL pair and restores funds
 
-    await pool.query(
-      `INSERT INTO ledger (
-         user_id, entry_type, direction, amount_cents, reference_type,
-         reference_id, idempotency_key, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (idempotency_key) DO NOTHING`,
-      [withdrawal.user_id, 'WALLET_WITHDRAWAL_REVERSAL', 'CREDIT', withdrawal.amount_cents, 'WALLET', withdrawal.id, reversalIdempotencyKey]
-    );
+    console.log('[WithdrawalProcessor] FAILURE PATH ENTERED', {
+      withdrawal_id: withdrawal.id,
+      attempt: currentAttempt,
+      reason: stripeResult?.reason,
+      classification: stripeResult?.classification
+    });
 
-    // Mark withdrawal as FAILED
-    await pool.query(
-      `UPDATE wallet_withdrawals
-       SET status = 'FAILED',
-           attempt_count = $1,
-           last_error_code = $2,
-           last_error_details_json = $3,
-           updated_at = NOW()
-       WHERE id = $4`,
-      [
-        currentAttempt,
-        stripeResult.reason,
-        JSON.stringify({
-          error: stripeResult.reason,
-          classification: stripeResult.classification,
-          attempt: currentAttempt,
-          maxAttempts: maxRetries
-        }),
-        withdrawal.id
-      ]
-    );
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+
+      // 1. Insert reversal (idempotent)
+      const reversalIdempotencyKey = `wallet_withdrawal_reversal:${withdrawal.id.toLowerCase()}`;
+
+      console.log('[WithdrawalProcessor] REVERSAL INSERT ATTEMPT', {
+        withdrawal_id: withdrawal.id,
+        idempotency_key: reversalIdempotencyKey
+      });
+
+      await client.query(
+        `INSERT INTO ledger (
+           user_id, entry_type, direction, amount_cents, reference_type,
+           reference_id, idempotency_key, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         ON CONFLICT (idempotency_key) DO NOTHING`,
+        [withdrawal.user_id, 'WALLET_WITHDRAWAL_REVERSAL', 'CREDIT', withdrawal.amount_cents, 'WALLET', withdrawal.id, reversalIdempotencyKey]
+      );
+
+      // 2. VERIFY reversal exists (REQUIRED - financial invariant)
+      const reversalCheck = await client.query(
+        `SELECT id
+         FROM ledger
+         WHERE idempotency_key = $1`,
+        [reversalIdempotencyKey]
+      );
+
+      if (reversalCheck.rows.length === 0) {
+        console.error('[WithdrawalProcessor] REVERSAL VERIFICATION FAILED', {
+          withdrawal_id: withdrawal.id
+        });
+        await client.query('ROLLBACK');
+        throw new Error('INVARIANT_VIOLATION: reversal not created');
+      }
+
+      console.log('[WithdrawalProcessor] REVERSAL VERIFIED', {
+        withdrawal_id: withdrawal.id
+      });
+
+      // 3. Hard guard: Verify reversal exists before marking FAILED
+      const finalReversalCheck = await client.query(
+        `SELECT COUNT(*)::int as count
+         FROM ledger
+         WHERE reference_id = $1
+         AND entry_type = 'WALLET_WITHDRAWAL_REVERSAL'
+         AND direction = 'CREDIT'`,
+        [withdrawal.id]
+      );
+
+      if (finalReversalCheck.rows[0].count !== 1) {
+        await client.query('ROLLBACK');
+        throw new Error('INVARIANT_VIOLATION: final reversal count != 1');
+      }
+
+      // 4. Mark withdrawal failed (after reversal guaranteed AND verified)
+      console.log('[WithdrawalProcessor] MARKING WITHDRAWAL FAILED', {
+        withdrawal_id: withdrawal.id
+      });
+
+      await client.query(
+        `UPDATE wallet_withdrawals
+         SET status = 'FAILED',
+             attempt_count = $1,
+             last_error_code = $2,
+             last_error_details_json = $3,
+             updated_at = NOW()
+         WHERE id = $4`,
+        [
+          currentAttempt,
+          stripeResult.reason,
+          JSON.stringify({
+            error: stripeResult.reason,
+            classification: stripeResult.classification,
+            attempt: currentAttempt,
+            maxAttempts: maxRetries
+          }),
+          withdrawal.id
+        ]
+      );
+
+      await client.query('COMMIT');
+
+      console.log('[WithdrawalProcessor] FAILURE PATH COMPLETE', {
+        withdrawal_id: withdrawal.id
+      });
+
+    } catch (txnErr) {
+      console.error('[WithdrawalProcessor] REVERSAL TXN ERROR', {
+        withdrawal_id: withdrawal?.id,
+        error: txnErr.message,
+        stack: txnErr.stack
+      });
+
+      if (client) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackErr) {
+          // Ignore rollback error
+        }
+      }
+      throw txnErr;
+    } finally {
+      if (client) {
+        client.release();
+      }
+    }
 
     return {
       success: false,
@@ -390,45 +476,18 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
       permanent: true
     };
   } catch (err) {
-    console.error('[WithdrawalProcessor] Unhandled error', {
-      withdrawal_id: withdrawal.id,
+    console.error('[WithdrawalProcessor] WITHDRAWAL PROCESSOR FATAL ERROR', {
+      withdrawal_id: withdrawal?.id,
       error: err.message,
       stack: err.stack
     });
 
-    // Mark as failed due to unexpected error (treat as retryable just in case)
-    const currentAttempt = (withdrawal.attempt_count || 0) + 1;
-    const nextAttemptAt = new Date(Date.now() + (60000 * 5)); // Try again in 5 minutes
+    // CRITICAL: DO NOT mutate ledger here
+    // CRITICAL: DO NOT mark FAILED here
+    // If error occurred in reversal transaction, the job must be retried
+    // On retry, ledger UNIQUE constraint prevents duplicate reversal
 
-    try {
-      await pool.query(
-        `UPDATE wallet_withdrawals
-         SET attempt_count = $1,
-             next_attempt_at = $2,
-             last_error_code = 'WORKER_ERROR',
-             last_error_details_json = $3,
-             updated_at = NOW()
-         WHERE id = $4`,
-        [
-          currentAttempt,
-          nextAttemptAt,
-          JSON.stringify({ error: err.message, type: 'worker_unhandled' }),
-          withdrawal.id
-        ]
-      );
-    } catch (updateErr) {
-      console.error('[WithdrawalProcessor] Failed to update withdrawal after error', {
-        withdrawal_id: withdrawal.id,
-        error: updateErr.message
-      });
-    }
-
-    return {
-      success: false,
-      withdrawal_id: withdrawal.id,
-      retryable: true,
-      reason: 'WORKER_ERROR'
-    };
+    throw err;
   }
 }
 
