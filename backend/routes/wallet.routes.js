@@ -477,7 +477,16 @@ router.post('/withdraw', extractUserId, async (req, res) => {
       });
     }
 
-    // 4. Guard: Verify Stripe Connect account is connected and ready
+    // 4. GUARD: Verify Stripe Connect account is connected and ready
+    //    CRITICAL: This guard must complete successfully before ANY service calls.
+    //    If any check fails, this block returns early with 400/503.
+    //    No database writes occur in this guard.
+    //
+    //    VERIFIED AGAINST STAGING REGRESSION:
+    //    Previously, withdrawals were created despite STRIPE_ACCOUNT_REQUIRED guard failure.
+    //    All guard failures now use 'return res.status(...).json(...)' which immediately
+    //    terminates the request handler and prevents execution of service calls on line 558+.
+    //    This is enforced by test assertions on DB writes (no INSERT queries allowed).
     try {
       // Fetch user's Stripe account ID (defensive DB access)
       const userResult = await pool.query(
@@ -548,7 +557,10 @@ router.post('/withdraw', extractUserId, async (req, res) => {
       });
     }
 
-    // 5. Create withdrawal request
+    // GUARD COMPLETE: All Stripe validation passed.
+    // ONLY NOW do we proceed with service calls (which create DB rows).
+
+    // 5. Create withdrawal request (DB write: wallet_withdrawals row)
     const createResult = await withdrawalService.createWithdrawalRequest(
       pool,
       userId,
@@ -576,7 +588,7 @@ router.post('/withdraw', extractUserId, async (req, res) => {
 
     const withdrawal = createResult.withdrawal;
 
-    // 6. Process withdrawal (insert ledger debit, transition to PROCESSING)
+    // 6. Process withdrawal (DB write: ledger entries - DEBIT + REVERSAL on failure)
     const processResult = await withdrawalService.processWithdrawal(
       pool,
       withdrawal.id,

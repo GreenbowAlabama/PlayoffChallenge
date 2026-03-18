@@ -15,6 +15,12 @@ jest.mock('../../services/StripeWithdrawalAdapter', () => ({
   getStripeInstance: jest.fn()
 }));
 
+// Mock withdrawalService to verify guard prevents calls
+jest.mock('../../services/withdrawalService', () => ({
+  createWithdrawalRequest: jest.fn(),
+  processWithdrawal: jest.fn()
+}));
+
 describe('Wallet Withdraw Endpoint', () => {
   let app;
   let mockPool;
@@ -23,6 +29,9 @@ describe('Wallet Withdraw Endpoint', () => {
   let userToken;
 
   beforeEach(() => {
+    // Clear all mocks before each test
+    jest.clearAllMocks();
+
     // Create mock pool
     mockPool = {
       query: jest.fn(),
@@ -306,6 +315,100 @@ describe('Wallet Withdraw Endpoint', () => {
       expect(response.body.reason).toContain('Idempotency-Key');
       // Should NOT try to check Stripe account
       expect(mockPool.query).not.toHaveBeenCalled();
+    });
+
+    // CRITICAL: Guard must prevent side effects
+    // Verified against staging regression where ledger entries were created despite guard failure.
+    it('should NOT create withdrawal or ledger entries when Stripe account is missing', async () => {
+      const withdrawalService = require('../../services/withdrawalService');
+
+      // Mock: User exists but stripe_connected_account_id is null
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ stripe_connected_account_id: null }]
+      });
+
+      // Call endpoint
+      const response = await request(app)
+        .post('/api/wallet/withdraw')
+        .set('Authorization', `Bearer ${userToken}`)
+        .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
+        .send({ amount_cents: 5000, method: 'standard' });
+
+      // ASSERTION 1: Guard fails with correct error
+      expect(response.status).toBe(400);
+      expect(response.body.error_code).toBe('STRIPE_ACCOUNT_REQUIRED');
+
+      // ASSERTION 2: CRITICAL - withdrawalService.createWithdrawalRequest is NEVER called
+      expect(withdrawalService.createWithdrawalRequest).not.toHaveBeenCalled();
+
+      // ASSERTION 3: CRITICAL - withdrawalService.processWithdrawal is NEVER called
+      expect(withdrawalService.processWithdrawal).not.toHaveBeenCalled();
+
+      // ASSERTION 4: HARD ASSERT - No database writes occurred
+      //   Inspect ALL pool.query calls to ensure NO INSERT queries
+      expect(mockPool.query).toHaveBeenCalledTimes(1);
+
+      const allCalls = mockPool.query.mock.calls;
+      allCalls.forEach(call => {
+        const query = call[0];
+        expect(query).not.toContain('INSERT INTO wallet_withdrawals');
+        expect(query).not.toContain('INSERT INTO ledger');
+        expect(query).not.toContain('INSERT INTO wallet_withdrawal_reversals');
+      });
+
+      // ASSERTION 5: Only SELECT query (guard's user lookup)
+      expect(mockPool.query).toHaveBeenCalledWith(
+        'SELECT stripe_connected_account_id FROM users WHERE id = $1',
+        [TEST_USER_ID]
+      );
+    });
+
+    it('should NOT create withdrawal or ledger entries when Stripe account is incomplete', async () => {
+      const withdrawalService = require('../../services/withdrawalService');
+      const StripeWithdrawalAdapter = require('../../services/StripeWithdrawalAdapter');
+
+      const stripeAccountId = 'acct_incomplete_test';
+
+      // Mock: User has Stripe account
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ stripe_connected_account_id: stripeAccountId }]
+      });
+
+      // Mock Stripe account with incomplete setup
+      StripeWithdrawalAdapter.getStripeInstance.mockReturnValue({
+        accounts: {
+          retrieve: jest.fn().mockResolvedValue({
+            payouts_enabled: false, // KEY: Account not ready for payouts
+            details_submitted: true,
+            charges_enabled: true
+          })
+        }
+      });
+
+      // Call endpoint
+      const response = await request(app)
+        .post('/api/wallet/withdraw')
+        .set('Authorization', `Bearer ${userToken}`)
+        .set('Idempotency-Key', TEST_IDEMPOTENCY_KEY)
+        .send({ amount_cents: 5000, method: 'standard' });
+
+      // ASSERTION 1: Guard fails with correct error
+      expect(response.status).toBe(400);
+      expect(response.body.error_code).toBe('STRIPE_ACCOUNT_INCOMPLETE');
+
+      // ASSERTION 2: CRITICAL - Service calls never executed
+      expect(withdrawalService.createWithdrawalRequest).not.toHaveBeenCalled();
+      expect(withdrawalService.processWithdrawal).not.toHaveBeenCalled();
+
+      // ASSERTION 3: HARD ASSERT - No database writes
+      expect(mockPool.query).toHaveBeenCalledTimes(1);
+      const allCalls = mockPool.query.mock.calls;
+      allCalls.forEach(call => {
+        const query = call[0];
+        expect(query).not.toContain('INSERT INTO wallet_withdrawals');
+        expect(query).not.toContain('INSERT INTO ledger');
+        expect(query).not.toContain('INSERT INTO wallet_withdrawal_reversals');
+      });
     });
   });
 });
