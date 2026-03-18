@@ -249,5 +249,6 @@ function extractErrorReason(error) {
 }
 
 module.exports = {
-  createTransfer
+  createTransfer,
+  getStripeInstance
 };

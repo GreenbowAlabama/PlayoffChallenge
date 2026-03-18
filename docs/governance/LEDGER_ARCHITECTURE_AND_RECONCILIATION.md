@@ -253,6 +253,57 @@ ADJUSTMENT CREDIT $100
 
 Net effect restores balance while preserving audit history.
 
+### Full Withdrawal Lifecycle Example (Compensating Entry Pattern)
+
+#### Scenario: Successful Deposit → Failed Withdrawal → Reversal
+
+**Step 1: User deposits $1000**
+```
+Ledger Entry:
+- entry_type: WALLET_DEPOSIT
+- direction: CREDIT
+- amount_cents: 100000
+- user_id: alice
+
+User balance = 100000 cents
+Reconciliation: wallet_liability = 100000, deposits = 100000, withdrawals = 0
+Equation: 100000 + 0 = 100000 - 0 ✓ BALANCED
+```
+
+**Step 2: User requests withdrawal of $500**
+```
+Ledger Entry (inserted at REQUESTED):
+- entry_type: WALLET_WITHDRAWAL
+- direction: DEBIT
+- amount_cents: 50000
+- user_id: alice
+- status: REQUESTED → PROCESSING
+
+User balance = 50000 cents (pessimistic reserve: funds frozen)
+Reconciliation: wallet_liability = 50000, deposits = 100000, withdrawals = 50000
+Equation: 50000 + 0 = 100000 - 50000 ✓ BALANCED
+```
+
+**Step 3: Stripe payout fails (terminal error)**
+```
+Ledger Entry (inserted atomically on FAILED, atomic transaction):
+- entry_type: WALLET_WITHDRAWAL_REVERSAL
+- direction: CREDIT
+- amount_cents: 50000
+- reference_id: <original_withdrawal_id>
+- user_id: alice
+
+User balance = 100000 cents (funds restored)
+Reconciliation: wallet_liability = 100000, deposits = 100000, withdrawals = 50000 - 50000 = 0
+Equation: 100000 + 0 = 100000 - 0 ✓ BALANCED
+```
+
+**Financial Effect:**
+- User balance: 100000 (deposit) - 50000 (debit) + 50000 (reversal) = **100000** (unchanged)
+- Ledger immutability preserved: all entries append-only, no mutations, no deletes
+- Reconciliation invariant maintained: equation balances throughout all stages
+- Reversal is a **compensating entry**, not a mutation
+
 ---
 
 # Operational Monitoring

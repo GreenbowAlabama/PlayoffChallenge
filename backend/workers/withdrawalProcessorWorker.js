@@ -260,35 +260,53 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
       withdrawal.status = 'PROCESSING';
     }
 
-    // 3. Check if user has connected Stripe account
-    if (!stripeConnectedAccountId) {
-      // No Stripe account connected - mark as FAILED (permanent)
-      await pool.query(
-        `UPDATE wallet_withdrawals
-         SET status = 'FAILED',
-             last_error_code = 'NO_STRIPE_ACCOUNT',
-             last_error_details_json = $1,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [JSON.stringify({ reason: 'User has not connected Stripe account' }), withdrawal.id]
-      );
+    // 3. Pre-Stripe checks (no early return - must fall through to reversal logic)
+    let preStripeFailureReason = null;
 
-      return {
-        success: false,
-        withdrawal_id: withdrawal.id,
-        retryable: false,
-        reason: 'NO_STRIPE_ACCOUNT'
-      };
+    // Check 1: Stripe account connected
+    if (!stripeConnectedAccountId) {
+      preStripeFailureReason = 'NO_STRIPE_ACCOUNT';
     }
 
-    // 4. Call Stripe Transfers API
-    const stripeResult = await StripeWithdrawalAdapter.createTransfer({
-      amountCents: withdrawal.amount_cents,
-      destination: stripeConnectedAccountId,
-      withdrawalId: withdrawal.id,
-      userId: withdrawal.user_id,
-      timeoutMs: 30000
-    });
+    // Check 2: Account fully onboarded (live Stripe call)
+    if (!preStripeFailureReason) {
+      try {
+        const stripeInstance = StripeWithdrawalAdapter.getStripeInstance();
+        const account = await stripeInstance.accounts.retrieve(stripeConnectedAccountId);
+
+        if (!account.payouts_enabled || !account.details_submitted) {
+          preStripeFailureReason = 'STRIPE_ACCOUNT_INCOMPLETE';
+        }
+      } catch (stripeErr) {
+        // Stripe retrieve error - treat as retryable (don't block withdrawal)
+        // Let the Stripe transfer attempt; if the account is truly broken, the transfer will fail
+        console.log('[WithdrawalProcessor] Stripe account preflight check error', {
+          withdrawal_id: withdrawal.id,
+          error: stripeErr.message
+        });
+      }
+    }
+
+    // 4. Call Stripe Transfers API or create synthetic failure
+    let stripeResult;
+    if (preStripeFailureReason) {
+      // Pre-Stripe check failed - create synthetic failure result
+      // This will flow through the normal result handling and hit the permanent failure path
+      stripeResult = {
+        success: false,
+        classification: 'permanent',
+        reason: preStripeFailureReason
+      };
+    } else {
+      // Proceed to Stripe transfer
+      stripeResult = await StripeWithdrawalAdapter.createTransfer({
+        amountCents: withdrawal.amount_cents,
+        destination: stripeConnectedAccountId,
+        withdrawalId: withdrawal.id,
+        userId: withdrawal.user_id,
+        timeoutMs: 30000
+      });
+    }
 
     // 5. Handle result
     if (stripeResult.success) {
@@ -493,5 +511,7 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
 
 module.exports = {
   startWithdrawalProcessor,
-  stopWithdrawalProcessor
+  stopWithdrawalProcessor,
+  // Export for testing - allows test harness to call worker logic directly
+  _processWithdrawalForTests: processWithdrawal
 };

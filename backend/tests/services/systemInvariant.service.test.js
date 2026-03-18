@@ -78,6 +78,92 @@ describe('systemInvariantService', () => {
         expect.objectContaining({ type: 'QUERY_ERROR' })
       ]);
     });
+
+    it('A. Successful withdrawal: wallet_liability=50000, withdrawals=50000, BALANCED', async () => {
+      // Case A: User deposits 100000, withdraws 50000 successfully
+      // wallet_liability = 100000 (DEPOSIT CREDIT) - 50000 (WITHDRAWAL DEBIT) = 50000
+      // withdrawals = 50000
+      // Equation: 50000 + 0 = 100000 - 50000 ✓
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 50000 }] }); // wallet_liability
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 0 }] }); // contest_pools (total)
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 0 }] }); // active_contest_pools
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 100000 }] }); // deposits
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 50000 }] }); // withdrawals (NET)
+      mockPool.query.mockResolvedValueOnce({ rows: [] }); // entry breakdown
+
+      const result = await systemInvariantService.checkFinancialInvariant(mockPool);
+
+      expect(result.status).toBe('BALANCED');
+      expect(result.values.wallet_liability_cents).toBe(50000);
+      expect(result.values.withdrawals_cents).toBe(50000);
+      expect(result.values.difference_cents).toBe(0);
+    });
+
+    it('B. Failed withdrawal with reversal: wallet_liability=100000, withdrawals=0, BALANCED', async () => {
+      // Case B: User deposits 100000, requests withdrawal 50000 but it fails with reversal
+      // wallet_liability = 100000 (DEPOSIT CREDIT) - 50000 (WITHDRAWAL DEBIT) + 50000 (REVERSAL CREDIT) = 100000
+      // withdrawals = 50000 - 50000 = 0 (NET: DEBIT minus REVERSAL)
+      // Equation: 100000 + 0 = 100000 - 0 ✓
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 100000 }] }); // wallet_liability (deposit restored by reversal)
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 0 }] }); // contest_pools (total)
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 0 }] }); // active_contest_pools
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 100000 }] }); // deposits
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 0 }] }); // withdrawals (NET: 50000 - 50000 = 0)
+      mockPool.query.mockResolvedValueOnce({ rows: [] }); // entry breakdown
+
+      const result = await systemInvariantService.checkFinancialInvariant(mockPool);
+
+      expect(result.status).toBe('BALANCED');
+      expect(result.values.wallet_liability_cents).toBe(100000);
+      expect(result.values.withdrawals_cents).toBe(0);
+      expect(result.values.difference_cents).toBe(0);
+    });
+
+    it('C. Mixed withdrawals: successful + failed: wallet_liability=100000, withdrawals=100000, BALANCED', async () => {
+      // Case C: User deposits 200000, 2 successful withdrawals (100000 total) + 1 failed with reversal
+      // wallet_liability = 200000 (DEPOSITS CREDIT) - 100000 (2 successful WITHDRAWALS DEBIT) - 50000 (1 failed WITHDRAWAL DEBIT) + 50000 (REVERSAL CREDIT) = 100000
+      // withdrawals = 100000 (successful) + (50000 - 50000) (failed net) = 100000
+      // Equation: 100000 + 0 = 200000 - 100000 ✓
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 100000 }] }); // wallet_liability (remaining balance)
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 0 }] }); // contest_pools (total)
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 0 }] }); // active_contest_pools
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 200000 }] }); // deposits
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 100000 }] }); // withdrawals (NET: 100000 successful + 0 from failed)
+      mockPool.query.mockResolvedValueOnce({ rows: [] }); // entry breakdown
+
+      const result = await systemInvariantService.checkFinancialInvariant(mockPool);
+
+      expect(result.status).toBe('BALANCED');
+      expect(result.values.wallet_liability_cents).toBe(100000);
+      expect(result.values.withdrawals_cents).toBe(100000);
+      expect(result.values.difference_cents).toBe(0);
+    });
+
+    it('D. Invariant violation detection: wallet_liability=100000, incorrect withdrawals=40000, CRITICAL_IMBALANCE', async () => {
+      // Case D: Invariant violation detection
+      // wallet_liability=100000, deposits=100000, withdrawals=40000 (incorrect/missing)
+      // Equation: 100000 + 0 ≠ 100000 - 40000
+      // 100000 ≠ 60000, diff = 40000 cents ($400)
+      // Expected: CRITICAL_IMBALANCE status + difference_cents=40000
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 100000 }] }); // wallet_liability
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 0 }] }); // contest_pools
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 0 }] }); // active_contest_pools
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 100000 }] }); // deposits
+      mockPool.query.mockResolvedValueOnce({ rows: [{ total: 40000 }] }); // withdrawals (incorrect/missing 60000)
+      mockPool.query.mockResolvedValueOnce({ rows: [] }); // entry breakdown
+
+      const result = await systemInvariantService.checkFinancialInvariant(mockPool);
+
+      expect(result.status).toBe('CRITICAL_IMBALANCE');
+      expect(result.values.difference_cents).toBe(40000);
+      expect(result.invariant_equation).toBe('wallet_liability + contest_pools = deposits - net_withdrawals');
+      expect(result.details.anomalies).toEqual([
+        expect.objectContaining({
+          type: 'CRITICAL_IMBALANCE',
+          difference_cents: 40000
+        })
+      ]);
+    });
   });
 
   describe('checkLifecycleInvariant', () => {
@@ -606,4 +692,5 @@ describe('systemInvariantService', () => {
       expect(result.invariants).toHaveProperty('ledger');
     });
   });
+
 });

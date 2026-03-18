@@ -26,7 +26,15 @@ Contest pools represent locked funds awaiting contest settlement.
 
 The platform must always satisfy the reconciliation equation:
 
-**wallet_liability + contest_pools = deposits - withdrawals**
+## **INVARIANT EQUATION (CRITICAL — ALWAYS MUST HOLD)**
+
+```
+wallet_liability + contest_pools = deposits - net_withdrawals
+```
+
+**This equation is NOT optional. It must hold at all times.**
+
+If this equation does not hold, the platform has financial drift and data integrity is compromised.
 
 ### Definitions
 
@@ -50,6 +58,50 @@ SUM(entry_fee) - SUM(entry_fee_refund)
 ```
 SUM(wallet_deposit) - SUM(wallet_withdrawal)
 ```
+
+---
+
+## Directional Accounting Rule (REQUIRED)
+
+All ledger aggregations use direction-aware CASE statements:
+
+```sql
+CASE
+  WHEN direction = 'CREDIT' THEN +amount_cents
+  WHEN direction = 'DEBIT' THEN -amount_cents
+END
+```
+
+This rule applies to:
+- wallet_liability calculation
+- wallet balance computation
+- all financial aggregations
+
+**Why:** CREDIT entries add to liability (money we owe users). DEBIT entries subtract from liability (money users owe us or have withdrawn).
+
+**Example:**
+- WALLET_DEPOSIT (CREDIT) → adds to wallet_liability
+- WALLET_WITHDRAWAL (DEBIT) → subtracts from wallet_liability
+- WALLET_WITHDRAWAL_REVERSAL (CREDIT) → adds back to wallet_liability (compensates for failed withdrawal)
+
+---
+
+## Net Withdrawal Definition (CRITICAL)
+
+Used in reconciliation equation:
+
+```
+net_withdrawals = SUM(WALLET_WITHDRAWAL.amount_cents)
+                - SUM(WALLET_WITHDRAWAL_REVERSAL.amount_cents)
+```
+
+**Guarantee:** Failed withdrawals MUST net to zero impact on the reconciliation invariant.
+
+- Successful withdrawal: contributes full amount to net_withdrawals
+- Failed withdrawal with reversal: debit and reversal cancel, contributes 0 to net_withdrawals
+- Result: wallet_liability + contest_pools = deposits - net_withdrawals (always balanced)
+
+---
 
 ### Invariant Violations
 
@@ -373,6 +425,60 @@ mockPool.setQueryResponse(
 ```
 
 **Benefit:** Multi-line SQL remains stable under reformatting (no brittle regex required)
+
+---
+
+## 3. Withdrawal Debit Timing & Compensating Reversals
+
+### Withdrawal Debit Timing (Pessimistic Reserve)
+
+User wallet withdrawals use pessimistic reserve: ledger DEBIT is inserted immediately at REQUESTED time,
+before Stripe payout is confirmed. This freezes funds to prevent overdrafts during PROCESSING.
+
+Entry type: WALLET_WITHDRAWAL
+Direction: DEBIT
+Timing: REQUESTED state (pessimistic reserve)
+
+Pattern: Same as contest entry fees (§ 1. Atomic Join Debit Ordering)
+
+### Failure Handling via Compensating Entries
+
+If withdrawal fails (terminal error or max retries exhausted), a compensating ledger entry is inserted:
+
+Entry type: WALLET_WITHDRAWAL_REVERSAL
+Direction: CREDIT
+Amount: Same as original DEBIT
+Reference: Original withdrawal ID
+Timing: Inserted atomically BEFORE marking withdrawal FAILED
+
+The REVERSAL restores wallet balance without deleting or updating the original DEBIT (preserves append-only ledger).
+
+Ledger invariant result:
+- Original DEBIT: reduces user balance
+- Reversal CREDIT: restores user balance
+- Net effect: user's wallet balance unchanged (funds not withdrawn)
+
+### Reconciliation Treatment
+
+Reconciliation equation: wallet_liability + contest_pools = deposits - withdrawals
+
+"withdrawals" component is calculated as NET withdrawals:
+
+```
+net_withdrawals = SUM(WALLET_WITHDRAWAL.amount_cents)
+                - SUM(WALLET_WITHDRAWAL_REVERSAL.amount_cents)
+```
+
+Result:
+- Successful withdrawal (no reversal): amount_cents counts as withdrawal
+- Failed withdrawal (reversal inserted): debit and reversal cancel = 0 net withdrawal
+- Reconciliation equation holds because failed withdrawals do not reduce "deposits - withdrawals"
+
+Example:
+- User deposits $500 (wallet_liability = +500, deposits = 500)
+- User requests withdrawal $100 (ledger DEBIT inserted, wallet_liability = 400, withdrawals = 100)
+- Withdrawal fails, reversal inserted (ledger CREDIT inserted, wallet_liability = 500, withdrawals = 100 - 100 = 0)
+- Equation: 500 + 0 = 500 - 0 ✓ BALANCED
 
 ---
 

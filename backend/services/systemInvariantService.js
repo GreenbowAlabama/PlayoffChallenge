@@ -136,6 +136,7 @@ async function checkFinancialInvariant(pool) {
       AND entry_type IN (
         'WALLET_DEPOSIT',
         'WALLET_WITHDRAWAL',
+        'WALLET_WITHDRAWAL_REVERSAL',
         'ENTRY_FEE',
         'ENTRY_FEE_REFUND',
         'PRIZE_PAYOUT'
@@ -179,11 +180,17 @@ async function checkFinancialInvariant(pool) {
     `);
     const deposits = parseInt(depositsResult.rows[0].total, 10);
 
-    // Fetch withdrawals
+    // Fetch NET withdrawals (successful minus reversals via compensating entries)
     const withdrawalsResult = await pool.query(`
-      SELECT COALESCE(SUM(amount_cents), 0) as total
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN entry_type = 'WALLET_WITHDRAWAL' THEN amount_cents
+          WHEN entry_type = 'WALLET_WITHDRAWAL_REVERSAL' THEN -amount_cents
+          ELSE 0
+        END
+      ), 0) as total
       FROM ledger
-      WHERE entry_type = 'WALLET_WITHDRAWAL';
+      WHERE entry_type IN ('WALLET_WITHDRAWAL', 'WALLET_WITHDRAWAL_REVERSAL');
     `);
     const withdrawals = parseInt(withdrawalsResult.rows[0].total, 10);
 
@@ -220,10 +227,34 @@ async function checkFinancialInvariant(pool) {
       };
     });
 
+    // RUNTIME GUARD: Log CRITICAL violations explicitly
+    if (status === 'CRITICAL_IMBALANCE') {
+      logger.error('FINANCIAL_INVARIANT_VIOLATION', {
+        difference_cents: difference,
+        wallet_liability_cents: walletLiability,
+        contest_pools_cents: contestPools,
+        deposits_cents: deposits,
+        withdrawals_cents: withdrawals,
+        left_side_cents: leftSide,
+        right_side_cents: rightSide
+      });
+    }
+
+    // Drift diagnostics: heuristic to identify likely source
+    let suspected_source = 'unknown';
+    if (difference > 0) {
+      // Determine which component is likely causing drift
+      if (Math.abs(withdrawals - (leftSide - rightSide)) > difference) {
+        suspected_source = 'withdrawal_mismatch';
+      } else if (Math.abs(contestPools - (leftSide - rightSide)) > difference) {
+        suspected_source = 'contest_pool_mismatch';
+      }
+    }
+
     return {
       status,
       timestamp: new Date().toISOString(),
-      invariant_equation: 'wallet_liability + contest_pools = deposits - withdrawals',
+      invariant_equation: 'wallet_liability + contest_pools = deposits - net_withdrawals',
       values: {
         wallet_liability_cents: walletLiability,
         contest_pools_cents: contestPools,
@@ -236,6 +267,9 @@ async function checkFinancialInvariant(pool) {
       details: {
         entry_count_by_type: entryCountByType,
         active_contest_pools_total_cents: activeContestPools,
+        diagnostics: {
+          suspected_source: suspected_source
+        },
         anomalies: status !== 'BALANCED' ? [
           {
             type: status,
