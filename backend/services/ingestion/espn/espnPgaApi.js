@@ -26,7 +26,14 @@ const httpsAgent = require('../../../utils/httpAgent');
  * Prevents duplicate ESPN API calls for the same eventId within a single ingestion cycle.
  *
  * Cache key: eventId (e.g., "401811938")
- * Cache entry: Full ESPN leaderboard response
+ * Cache entry: { data, timestamp, isEmptyResponse }
+ *   - data: Full ESPN leaderboard response or { events: [] } for not-yet-active events
+ *   - timestamp: When cache entry was created (ms)
+ *   - isEmptyResponse: Boolean flag indicating empty/not-found response
+ *
+ * TTL Rules:
+ *   - Normal responses (event found): Cached for entire cycle (cleared at cycle start)
+ *   - Empty responses (event not active): TTL = 60s (retry sooner for time-sensitive events)
  *
  * Usage:
  *   - Cleared at cycle start by calling clearLeaderboardCache()
@@ -34,6 +41,7 @@ const httpsAgent = require('../../../utils/httpAgent');
  *   - No setup needed; transparent to callers
  */
 const leaderboardCache = new Map();
+const EMPTY_RESPONSE_TTL_MS = 60 * 1000; // 60 second TTL for "event not found" responses
 
 /**
  * Clear the leaderboard cache.
@@ -226,34 +234,57 @@ async function fetchCalendar({ leagueId, seasonYear, timeout = 5000 }) {
 /**
  * Fetch ESPN event leaderboard (including competitor scores).
  *
- * Checks in-cycle cache first to prevent duplicate API calls when multiple contests
- * reference the same provider_event_id.
+ * Deterministic event filtering: Fetches PGA scoreboard and filters to the exact
+ * requested eventId. No fallback to other events (fail-safe for contest integrity).
+ *
+ * Timing-aware: Returns empty events array if event not yet active in ESPN scoreboard
+ * (expected for SCHEDULED contests). Short TTL on empty responses allows retry.
+ *
+ * Checks in-cycle cache first to prevent duplicate ESPN API calls. Empty responses
+ * have TTL of 60s (retry soon for time-sensitive events).
  *
  * @param {Object} options
  *   {
- *     eventId: string (ESPN event ID, e.g., "401811941")
- *     timeout: number (ms, default 5000)
+ *     eventId: string (ESPN event ID, e.g., "401811938")
+ *     timeout: number (ms, default 15000)
  *   }
- * @returns {Promise<Object>} ESPN event detail response { events: [{competitions:[...]}] }
- * @throws {Error} If fetch fails (after retries or non-transient error)
+ * @returns {Promise<Object>} ESPN filtered response:
+ *   - If event found: { events: [event] }
+ *   - If event not active: { events: [] } (with 60s TTL)
+ * @throws {Error} If ESPN API call fails (after retries)
  */
 async function fetchLeaderboard({ eventId, timeout = 15000 }) {
   if (!eventId) {
     throw new Error('fetchLeaderboard: eventId is required');
   }
 
-  // Check cache first to prevent duplicate API calls
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Check cache first (with TTL for empty responses)
+  // ─────────────────────────────────────────────────────────────────────────────
   if (leaderboardCache.has(eventId)) {
-    logger.debug(`[espnPgaApi] Cache HIT for leaderboard: eventId=${eventId}`);
-    return leaderboardCache.get(eventId);
+    const cacheEntry = leaderboardCache.get(eventId);
+    const now = Date.now();
+    const age = now - cacheEntry.timestamp;
+
+    // Empty responses have short TTL (60s) to allow quick retry when event becomes active
+    if (cacheEntry.isEmptyResponse && age > EMPTY_RESPONSE_TTL_MS) {
+      logger.debug(
+        `[espnPgaApi] Empty cache entry expired for eventId=${eventId} (age=${age}ms, TTL=${EMPTY_RESPONSE_TTL_MS}ms), refetching`
+      );
+      leaderboardCache.delete(eventId);
+    } else {
+      // Cache hit (either normal response or empty response within TTL)
+      logger.debug(
+        `[espnPgaApi] Cache HIT for leaderboard: eventId=${eventId}, isEmptyResponse=${cacheEntry.isEmptyResponse}`
+      );
+      return cacheEntry.data;
+    }
   }
 
   logger.info(`[espnPgaApi] Fetching leaderboard: eventId=${eventId}`);
 
   return withRetry(async () => {
     const url = `https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard`;
-
-    console.log("[espnPgaApi] requesting URL:", url);
 
     const response = await axios.get(url, {
       timeout,
@@ -268,14 +299,54 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
       }
     });
 
+    // ───────────────────────────────────────────────────────────────────────────
+    // DETERMINISTIC EVENT FILTERING (no fallback, no events[0])
+    // Pattern: Same as espnPgaPlayerService.fetchTournamentField()
+    // ───────────────────────────────────────────────────────────────────────────
+    const scoreboardEvents = response.data.events || [];
+    const targetEvent = scoreboardEvents.find(e => String(e.id) === String(eventId));
+
+    if (!targetEvent) {
+      // Event not yet active in ESPN scoreboard (expected for SCHEDULED contests)
+      // Return empty events array (not fallback to events[0], not throw)
+      // Will retry with 60s TTL when next cycle runs
+      const availableEventIds = scoreboardEvents.map(e => e.id).join(',') || 'none';
+
+      logger.warn(
+        '[espnPgaApi] Event not found in scoreboard',
+        {
+          event_id: eventId,
+          available_event_ids: availableEventIds,
+          scoreboard_events_count: scoreboardEvents.length,
+          reason: 'Event likely not yet active in ESPN broadcast window'
+        }
+      );
+
+      // Return empty response with short TTL (60s) to allow retry when event becomes active
+      const emptyResponse = { events: [] };
+      leaderboardCache.set(eventId, {
+        data: emptyResponse,
+        timestamp: Date.now(),
+        isEmptyResponse: true
+      });
+      return emptyResponse;
+    }
+
     logger.info(
-      `[espnPgaApi] Leaderboard fetched: eventId=${eventId}`
+      `[espnPgaApi] Leaderboard fetched and filtered: eventId=${eventId}, competitors=${targetEvent.competitions?.[0]?.competitors?.length || 0}`
     );
 
-    // Cache the result for subsequent calls in this cycle
-    leaderboardCache.set(eventId, response.data);
+    // Success: Return ONLY the requested event (wrapped in events array for ingestion compatibility)
+    const filteredResponse = { events: [targetEvent] };
 
-    return response.data;
+    // Cache with normal scope (entire cycle, cleared at start of next cycle)
+    leaderboardCache.set(eventId, {
+      data: filteredResponse,
+      timestamp: Date.now(),
+      isEmptyResponse: false
+    });
+
+    return filteredResponse;
   }, 3);
 }
 
