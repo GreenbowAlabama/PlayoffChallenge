@@ -110,11 +110,19 @@ router.post('/connect/onboard', extractUserId, async (req, res) => {
     // 2. Create Stripe Express account if none exists (idempotent)
     if (!stripeConnectedAccountId) {
       const stripeInstance = getStripe();
-      const account = await stripeInstance.accounts.create({
+
+      // Build account params - only include email if it's valid
+      const accountParams = {
         type: 'express',
-        country: 'US',
-        email: user.email
-      });
+        country: 'US'
+      };
+
+      // Only include email if it's a non-empty string (Apple Sign In may not provide email)
+      if (user.email && user.email.trim().length > 0) {
+        accountParams.email = user.email.trim();
+      }
+
+      const account = await stripeInstance.accounts.create(accountParams);
 
       stripeConnectedAccountId = account.id;
 

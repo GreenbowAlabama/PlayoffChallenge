@@ -104,6 +104,135 @@ describe('Stripe Connect Routes', () => {
       });
     });
 
+    test('should create account without email when user email is null (Apple Sign In)', async () => {
+      const userId = '550e8400-e29b-41d4-a716-446655440004';
+
+      // Mock user query - NO email (Apple Sign In may not provide it)
+      mockPool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: userId,
+            stripe_connected_account_id: null,
+            email: null
+          }
+        ]
+      });
+
+      // Stub Stripe account creation
+      stripeOnboardCreateStub.mockResolvedValueOnce({
+        id: 'acct_noemail123'
+      });
+
+      // Stub account link creation
+      stripeAccountLinksCreateStub.mockResolvedValueOnce({
+        url: 'https://connect.stripe.com/onboarding/acct_noemail123'
+      });
+
+      // Mock user update
+      mockPool.query.mockResolvedValueOnce({
+        rows: []
+      });
+
+      const response = await request(app)
+        .post('/api/stripe/connect/onboard')
+        .set('X-User-Id', userId);
+
+      expect(response.status).toBe(200);
+      expect(response.body.url).toBe('https://connect.stripe.com/onboarding/acct_noemail123');
+      // Verify Stripe account was created WITHOUT email field
+      expect(stripeOnboardCreateStub).toHaveBeenCalledWith({
+        type: 'express',
+        country: 'US'
+        // NO email field
+      });
+    });
+
+    test('should create account without email when user email is empty string', async () => {
+      const userId = '550e8400-e29b-41d4-a716-446655440005';
+
+      // Mock user query - empty email string
+      mockPool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: userId,
+            stripe_connected_account_id: null,
+            email: ''
+          }
+        ]
+      });
+
+      // Stub Stripe account creation
+      stripeOnboardCreateStub.mockResolvedValueOnce({
+        id: 'acct_empty123'
+      });
+
+      // Stub account link creation
+      stripeAccountLinksCreateStub.mockResolvedValueOnce({
+        url: 'https://connect.stripe.com/onboarding/acct_empty123'
+      });
+
+      // Mock user update
+      mockPool.query.mockResolvedValueOnce({
+        rows: []
+      });
+
+      const response = await request(app)
+        .post('/api/stripe/connect/onboard')
+        .set('X-User-Id', userId);
+
+      expect(response.status).toBe(200);
+      expect(response.body.url).toBe('https://connect.stripe.com/onboarding/acct_empty123');
+      // Verify Stripe account was created WITHOUT email field
+      expect(stripeOnboardCreateStub).toHaveBeenCalledWith({
+        type: 'express',
+        country: 'US'
+        // NO email field
+      });
+    });
+
+    test('should create account with trimmed email when valid', async () => {
+      const userId = '550e8400-e29b-41d4-a716-446655440006';
+
+      // Mock user query - email with whitespace
+      mockPool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: userId,
+            stripe_connected_account_id: null,
+            email: '  user@example.com  '
+          }
+        ]
+      });
+
+      // Stub Stripe account creation
+      stripeOnboardCreateStub.mockResolvedValueOnce({
+        id: 'acct_trim123'
+      });
+
+      // Stub account link creation
+      stripeAccountLinksCreateStub.mockResolvedValueOnce({
+        url: 'https://connect.stripe.com/onboarding/acct_trim123'
+      });
+
+      // Mock user update
+      mockPool.query.mockResolvedValueOnce({
+        rows: []
+      });
+
+      const response = await request(app)
+        .post('/api/stripe/connect/onboard')
+        .set('X-User-Id', userId);
+
+      expect(response.status).toBe(200);
+      expect(response.body.url).toBe('https://connect.stripe.com/onboarding/acct_trim123');
+      // Verify email was trimmed
+      expect(stripeOnboardCreateStub).toHaveBeenCalledWith({
+        type: 'express',
+        country: 'US',
+        email: 'user@example.com'
+      });
+    });
+
     test('should reuse existing account (idempotent)', async () => {
       const userId = '550e8400-e29b-41d4-a716-446655440001';
 
