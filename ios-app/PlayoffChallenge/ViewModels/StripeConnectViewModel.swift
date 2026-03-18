@@ -51,6 +51,9 @@ final class StripeConnectViewModel: ObservableObject {
     /// Currently fetched account status
     @Published private(set) var accountStatus: StripeAccountStatus? = nil
 
+    /// Onboarding URL (set when initiateOnboarding succeeds)
+    @Published private(set) var onboardingURL: String? = nil
+
     // MARK: - Dependencies
 
     private let stripeService: StripeConnectServicing
@@ -71,13 +74,15 @@ final class StripeConnectViewModel: ObservableObject {
 
     /// Check current Stripe account status.
     /// Fetches live status from backend.
-    func checkStatus() async {
-        // Guard against duplicate checks
-        if isLoading {
+    func checkStatus(force: Bool = false) async {
+        // Guard against duplicate checks (unless force=true)
+        if hasChecked && !force {
             return
         }
 
+        hasChecked = true
         isLoading = true
+        defer { isLoading = false }
         errorMessage = nil
 
         print("[StripeConnectViewModel] checkStatus() ENTERED")
@@ -87,7 +92,6 @@ final class StripeConnectViewModel: ObservableObject {
             print("[StripeConnectViewModel] No authenticated user - cannot check status")
             await MainActor.run {
                 self.state = .error("Please sign in")
-                self.isLoading = false
             }
             return
         }
@@ -110,8 +114,6 @@ final class StripeConnectViewModel: ObservableObject {
                 }
 
                 self.errorMessage = nil
-                self.isLoading = false
-                self.hasChecked = true
 
                 print("[StripeConnectViewModel] Status check succeeded: state=\(self.state)")
             }
@@ -119,14 +121,12 @@ final class StripeConnectViewModel: ObservableObject {
             await MainActor.run {
                 self.state = .error("Please sign in")
                 self.errorMessage = "Authentication required"
-                self.isLoading = false
             }
         } catch {
             await MainActor.run {
                 let errorMsg = error.localizedDescription
                 self.state = .error(errorMsg)
                 self.errorMessage = errorMsg
-                self.isLoading = false
                 print("[StripeConnectViewModel] Status check failed: \(error)")
             }
         }
@@ -157,14 +157,10 @@ final class StripeConnectViewModel: ObservableObject {
 
             await MainActor.run {
                 print("[StripeConnectViewModel] Onboarding link retrieved: \(url.prefix(50))...")
-                // State remains .onboarding, view should open URL
-                // After user completes onboarding and returns, call checkStatus()
+                self.onboardingURL = url
                 self.errorMessage = nil
                 self.isLoading = false
             }
-
-            // Return the URL to the view
-            // (View will handle opening it)
         } catch APIError.unauthorized {
             await MainActor.run {
                 self.state = .error("Please sign in")
@@ -187,6 +183,13 @@ final class StripeConnectViewModel: ObservableObject {
     func onOnboardingCompleted() async {
         print("[StripeConnectViewModel] onOnboardingCompleted() - rechecking status")
         await checkStatus()
+    }
+
+    /// Refresh Stripe account status (bypasses guard).
+    /// Resets hasChecked and forces a new check.
+    func refreshStatus() async {
+        hasChecked = false
+        await checkStatus(force: true)
     }
 
     /// Clear error message.

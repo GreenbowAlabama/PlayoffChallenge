@@ -18,7 +18,6 @@ struct WalletDetailView: View {
     @State private var showDepositSheet = false
     @State private var showWithdrawSheet = false
     @State private var showOnboardingSheet = false
-    @State private var onboardingURL: URL? = nil
     @State private var depositAmount: String = "10.00"
     @State private var withdrawAmount: String = ""
 
@@ -73,47 +72,28 @@ struct WalletDetailView: View {
         .sheet(isPresented: $showWithdrawSheet) {
             withdrawSheet
         }
-        .onChange(of: stripeConnectVM.state) { _, newState in
-            // When onboarding link is ready, open it
-            if case .onboarding = newState {
+        .onChange(of: stripeConnectVM.onboardingURL) { _, newURL in
+            if newURL != nil {
                 showOnboardingSheet = true
             }
         }
         .sheet(isPresented: $showOnboardingSheet) {
-            if let stripeStatus = stripeConnectVM.accountStatus,
-               stripeStatus.connected {
-                // After returning from onboarding, check status again
-                Text("Returning to Wallet")
-                    .task {
-                        await stripeConnectVM.onOnboardingCompleted()
-                        showOnboardingSheet = false
+            if let urlString = stripeConnectVM.onboardingURL,
+               let url = URL(string: urlString) {
+
+                SafariViewController(url: url) {
+                    Task {
+                        await stripeConnectVM.refreshStatus()
                     }
-            } else {
-                // Placeholder for SafariViewController (requires UIViewControllerRepresentable)
-                // For now, show a message
-                VStack(spacing: DesignTokens.Spacing.lg) {
-                    Text("Opening Stripe Onboarding...")
-                        .font(.headline)
-
-                    Text("A browser window will open for you to complete your Stripe setup. After completing, return to this app.")
-                        .font(.body)
-                        .multilineTextAlignment(.center)
-
-                    Button("I've Completed Onboarding") {
-                        Task {
-                            await stripeConnectVM.onOnboardingCompleted()
-                            showOnboardingSheet = false
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(DesignTokens.Spacing.md)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(DesignTokens.Radius.md)
-
-                    Spacer()
                 }
-                .padding(DesignTokens.Spacing.lg)
+                .ignoresSafeArea()
+
+            } else {
+                VStack {
+                    ProgressView()
+                    Text("Loading Stripe setup...")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task {
@@ -155,10 +135,6 @@ struct WalletDetailView: View {
                         print("[WalletDetailView] Connect Bank Account button tapped")
                         Task {
                             await stripeConnectVM.initiateOnboarding()
-                            // After getting link, open it
-                            if case .onboarding = stripeConnectVM.state {
-                                showOnboardingSheet = true
-                            }
                         }
                     }) {
                         HStack {
@@ -202,9 +178,6 @@ struct WalletDetailView: View {
                         print("[WalletDetailView] Continue Setup button tapped")
                         Task {
                             await stripeConnectVM.initiateOnboarding()
-                            if case .onboarding = stripeConnectVM.state {
-                                showOnboardingSheet = true
-                            }
                         }
                     }) {
                         Text("Continue Setup")
@@ -381,7 +354,9 @@ struct WalletDetailView: View {
                         Task {
                             await viewModel.withdraw(amountCents: cents)
                             if viewModel.errorMessage == nil {
-                                showWithdrawSheet = false
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    showWithdrawSheet = false
+                                }
                             }
                         }
                     }) {

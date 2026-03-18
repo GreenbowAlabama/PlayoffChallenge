@@ -126,13 +126,14 @@ router.post('/connect/onboard', extractUserId, async (req, res) => {
     }
 
     // 3. Create onboarding link
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8081';
+    // CRITICAL: Use iOS custom URL scheme (playoffchallenge://) instead of localhost
+    // This ensures Stripe redirect works on physical devices, not just simulator
     const stripeInstance = getStripe();
     const accountLink = await stripeInstance.accountLinks.create({
       account: stripeConnectedAccountId,
       type: 'account_onboarding',
-      refresh_url: `${frontendUrl}/stripe/reauth`,
-      return_url: `${frontendUrl}/wallet`
+      refresh_url: 'playoffchallenge://stripe-refresh',
+      return_url: 'playoffchallenge://stripe-return'
     });
 
     if (process.env.LOG_AUTH_DEBUG === 'true') {

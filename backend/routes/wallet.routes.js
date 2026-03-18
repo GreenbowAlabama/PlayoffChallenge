@@ -538,8 +538,16 @@ router.post('/withdraw', extractUserId, async (req, res) => {
         });
       }
 
-      // Verify account is ready for payouts
-      if (!account.payouts_enabled || !account.details_submitted) {
+      // Verify account is ready for payouts (CRITICAL: Must check charges_enabled AND payouts_enabled)
+      if (!account.charges_enabled || !account.payouts_enabled || !account.details_submitted) {
+        console.warn('[WalletWithdraw] Withdrawal blocked: Stripe account not ready', {
+          userId: userId.slice(-6),
+          stripeAccountId: stripeAccountId.slice(-6),
+          chargesEnabled: account.charges_enabled,
+          payoutsEnabled: account.payouts_enabled,
+          detailsSubmitted: account.details_submitted
+        });
+
         return res.status(400).json({
           error_code: 'STRIPE_ACCOUNT_INCOMPLETE',
           message: 'Stripe account setup incomplete. Please complete onboarding.'

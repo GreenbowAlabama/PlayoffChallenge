@@ -10,5 +10,14 @@
 	<string>$(STRIPE_PUBLISHABLE_KEY)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Camera access is used by Stripe to scan payment cards. You can enter card details manually instead.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>playoffchallenge</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
