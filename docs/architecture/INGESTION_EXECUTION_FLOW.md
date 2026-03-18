@@ -281,6 +281,85 @@ A typical contest lifecycle looks like this:
 
 ---
 
+## PGA ESPN Ingestion — Verified Behavior
+
+This section documents verified behavior for PGA ESPN ingestion based on production runs (verified March 18, 2026).
+
+### Event ID Normalization
+
+ESPN event IDs are normalized to a standard format: `espn_pga_<numeric_id>`
+
+**Normalization rules:**
+- Accepts both forms: `401811938` and `espn_pga_401811938`
+- Strips prefix if present: `espn_pga_401811938` → `401811938`
+- Normalizes to: `espn_pga_401811938`
+- Applied at: `espnPgaApi.js` and manual ingestion triggers
+
+**Why:** Ensures consistent provider_event_id across all contest instances, preventing silent data misalignment.
+
+### SCORING Phase Deduplication Bypass
+
+The SCORING phase bypasses normal deduplication to allow score updates throughout the tournament.
+
+**Deduplication rules:**
+- **PLAYER_POOL & FIELD_BUILD:** Skip if already COMPLETE (no re-execution)
+- **SCORING:** Always execute (no skip) — scores update with new data
+
+**Implementation:**
+```javascript
+// In ingestionService.js (line ~436)
+if (enrichedUnit.phase !== 'SCORING' && contestState.current_phase === 'COMPLETE') {
+  return { skipped: true };
+}
+```
+
+**Why:** Tournament scoring updates continuously. SCORING phase must run every cycle to reflect current leaderboard state. PLAYER_POOL and FIELD_BUILD are immutable after initial ingestion.
+
+### Pre-Tournament Expected Behavior
+
+Before a tournament's first scoring data is available, the system reaches a valid steady state:
+
+**Expected state:**
+- ✅ Competitors present in `ingestion_events` (PLAYER_POOL phase)
+- ✅ Zero rows in `golfer_event_scores` (scoring not yet available)
+- ✅ Empty leaderboard for participants
+- ✅ No errors in ingestion logs
+
+**Duration:** Typically 1-2 hours before tournament start, depending on ESPN event activation timing.
+
+**Not an error condition:** This is the correct state before tournament begins. Do not trigger alerts.
+
+### Ingestion Guarantees
+
+PGA ESPN ingestion provides these guarantees:
+
+#### 1. Deterministic Event Filtering
+- Fetches ESPN scoreboard, finds exact event by ID
+- Returns only the requested event (or empty array)
+- No fallback to `events[0]` (prevents silent cross-tournament misalignment)
+
+#### 2. No Duplicate Scoring Writes
+- Idempotent upserts on `(contest_instance_id, golfer_id, round_number)`
+- Re-running same work unit produces identical results
+- Safe for worker retries and manual triggers
+
+#### 3. Deterministic Score Calculation
+- Same leaderboard always produces same points
+- Replay-safe for audit trails and settlement verification
+- No side effects from duplicate runs
+
+#### 4. Schema Compliance
+- All queries match authoritative schema
+- No dynamic columns assumed
+- All provider fields validated before use
+
+#### 5. Zero-Score State Is Valid
+- Empty `golfer_event_scores` with competitors present is correct
+- Indicates event not yet started or scoring not finalized
+- Does not indicate ingestion failure
+
+---
+
 ## Deterministic Replay
 
 The system is designed so that scoring can always be reproduced.

@@ -508,3 +508,100 @@ RETURNING contest_instance_id
 ```
 
 The RETURNING clause on INSERT is the source of truth for "changed IDs," not a query of historical records.
+
+---
+
+## 7. Ingestion Dependency — Payout Authorization
+
+### Contract
+
+Payouts require finalized, deterministic contest scoring. Withdrawals can only process after ingestion guarantees are satisfied.
+
+### Prerequisites for Payout
+
+Before ANY payout can be authorized:
+
+1. **Contest Status = COMPLETE**
+   - Contest must reach COMPLETE state
+   - No pending score updates expected
+
+2. **Ingestion Determinism Verified**
+   - All ingestion_events for contest are finalized
+   - Event ID normalization rule enforced (exact match, no fallback)
+   - SCORING phase executed until provider indicates finality
+
+3. **No Missing Score Windows**
+   - Replay of ingestion_events produces bit-identical results
+   - golfer_event_scores table validated against snapshot payload
+   - No evidence of duplicate or missing scoring runs
+
+4. **Schema Compliance**
+   - All ingestion queries match authoritative schema
+   - No dynamic columns assumed
+   - Provider event IDs normalized to standard format
+
+### Operational Rule
+
+**Withdrawal requests may only be submitted when contest_instance_id.status = 'COMPLETE'**
+
+**Settlement system must verify ingestion guarantees before generating payout transfers.**
+
+### Governance Reference
+
+**Authority:** `docs/governance/INGESTION_GUARANTEES.md`
+
+All five ingestion guarantees must be satisfied:
+1. Deterministic Event Filtering
+2. SCORING Phase Bypasses Deduplication
+3. Idempotent Scoring Writes
+4. Zero-Score State Is Valid
+5. Deterministic Replay
+
+### Implementation Requirement
+
+Settlement pipeline must include pre-payout validation:
+
+```sql
+-- Before payout generation:
+-- 1. Verify contest status
+SELECT status FROM contest_instances WHERE id = $1
+-- Expected: 'COMPLETE'
+
+-- 2. Verify all scoring ingestion complete
+SELECT COUNT(*) FROM ingestion_events
+WHERE contest_instance_id = $1 AND validation_status != 'VALID'
+-- Expected: 0 rows
+
+-- 3. Verify scores present (if tournament had scoring)
+SELECT COUNT(*) FROM golfer_event_scores
+WHERE contest_instance_id = $1
+-- Expected: > 0 if tournament scored, 0 if cancelled/refunded
+
+-- 4. Verify no pending updates
+SELECT MAX(validated_at) FROM ingestion_events
+WHERE contest_instance_id = $1
+-- Expected: older than 1 hour ago
+```
+
+### Invariant Equation Extension
+
+The platform reconciliation invariant now extends to payouts:
+
+**wallet_liability + contest_pools + payout_reserves = deposits - withdrawals**
+
+Where:
+- `payout_reserves` = sum of pending payout_transfers (authorized but not yet disbursed)
+
+All three categories must reconcile after ingestion completion.
+
+### Test Evidence
+
+- `backend/tests/lifecycle/...` — payout authorization tests
+- Settlement validation before transfer generation
+- Ingestion determinism tests (replay verification)
+
+### References
+
+- `docs/governance/INGESTION_GUARANTEES.md` — authoritative source
+- `docs/governance/WITHDRAWAL_ENGINE_SPEC.md` — withdrawal implementation spec
+- `docs/governance/LEDGER_ARCHITECTURE_AND_RECONCILIATION.md` — ledger mutation rules

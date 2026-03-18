@@ -50,7 +50,7 @@ async function pollAndIngest(contestInstanceId, pool, workUnits) {
   let contestInstance;
   try {
     const result = await pool.query(
-      `SELECT ci.*, ct.sport, ct.config as template_config
+      `SELECT ci.*, ct.sport, ct.season_year
        FROM contest_instances ci
        JOIN contest_templates ct ON ci.template_id = ct.id
        WHERE ci.id = $1`,
@@ -80,15 +80,13 @@ async function pollAndIngest(contestInstanceId, pool, workUnits) {
     throw err;
   }
 
-  // Ensure contest has required config fields
-  const templateConfig = contestInstance.template_config || {};
-  const providerLeagueId = templateConfig.provider_league_id;
-  const seasonYear = templateConfig.season_year;
+  // Ensure contest has required season_year field
+  const seasonYear = contestInstance.season_year;
 
-  if (!providerLeagueId || !seasonYear) {
+  if (!seasonYear) {
     logger.error(
       `[pgaEspnPollingOrchestrator] Contest ${contestInstanceId}: ` +
-      `Missing provider_league_id or season_year in template config`
+      `Missing season_year in contest template`
     );
     return {
       success: false,
@@ -96,7 +94,7 @@ async function pollAndIngest(contestInstanceId, pool, workUnits) {
       summary: {
         processed: 0,
         skipped: 0,
-        errors: ['Missing required config: provider_league_id or season_year']
+        errors: ['Missing required field: season_year']
       }
     };
   }

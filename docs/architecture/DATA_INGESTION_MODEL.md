@@ -270,3 +270,59 @@ When implementing ingestion:
 
 **Worker Rule:** Do not emit ingestion_events per individual records. One event = one payload snapshot.
 
+---
+
+## PGA ESPN Ingestion — Verified Behavior
+
+This section documents verified behavior for PGA ESPN ingestion based on production analysis (verified March 18, 2026).
+
+### Event Filtering Requirement
+
+When the orchestration layer fetches provider data, **deterministic event filtering is REQUIRED** to ensure correct payload capture.
+
+**Requirements for `fetchLeaderboard(eventId)`:**
+
+1. **Accept the eventId parameter** — Do not ignore it
+2. **Fetch the full scoreboard** — Not just one event
+3. **Filter to exact event ID** — Find `event.id === eventId`
+4. **Return only that event** — Or empty array if not found
+5. **No fallback to `events[0]`** — Would capture wrong event
+
+**Why:** If filtering is wrong or missing:
+- Fetches wrong tournament's leaderboard
+- Creates ingestion_event with cross-tournament data
+- Scoring calculates wrong contest standings
+- Silent data corruption occurs
+
+### Zero-Score State With Valid Competitors
+
+Before tournament starts, this state is **correct:**
+
+- `ingestion_events` (PLAYER_POOL): 1 event with all competitors
+- `golfer_event_scores`: 0 rows
+- Leaderboard: all participants with 0 points
+- Logs: `[SCORING] No scoring data yet (tournament likely not started)`
+
+**Not an error.** This happens 1-2 hours before tournament when:
+- Field is locked (competitors known)
+- ESPN event not yet activated
+- First scoring data not yet published
+
+**Worker behavior:** Continue polling. SCORING phase will execute every cycle even with 0 scores.
+
+### Payload Hash Stability
+
+ESPN leaderboard payloads produce consistent hashes:
+
+**Same leaderboard state:**
+- Multiple fetches → Same payload hash
+- Same hash → Deduplication skips via `ON CONFLICT`
+- Worker can run every 5 seconds safely
+
+**Different leaderboard state:**
+- Score update → Different payload
+- Different payload → Different hash
+- New event inserted
+
+**Guarantee:** `payload_hash` uniquely identifies leaderboard state per tournament.
+

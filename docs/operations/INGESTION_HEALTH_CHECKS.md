@@ -232,7 +232,114 @@ Related documents:
 - `backend/services/ingestion/strategies/pgaEspnIngestion.js` — ESPN adapter implementation
 
 Related incidents:
-- **March 16, 2026:** Fixed provider event ID mismatch bug (events[0] fallback)
-  - Symptom: provider_final_flag always false
-  - Cause: Code checked wrong event when ESPN returned multiple events
-  - Solution: Added ingestion invariant guard to enforce event matching
+- **March 18, 2026:** Fixed deterministic event filtering in ESPN API client
+  - Symptom: Zero scores despite competitors present
+  - Cause: `fetchLeaderboard()` ignored eventId parameter, always returned all ESPN events
+  - Solution: Implemented deterministic event filtering with exact ID matching (no fallback to events[0])
+  - Status: ✅ Fixed, implemented and validated through testing; ongoing monitoring enforces compliance
+
+---
+
+## PGA ESPN Ingestion — Operational Expectations
+
+This section documents operational expectations for PGA ESPN contests (verified March 18, 2026).
+
+### Normal Pre-Tournament State
+
+**Expected state 1-2 hours before tournament:**
+
+```sql
+-- PLAYER_POOL phase complete
+SELECT COUNT(*) FROM ingestion_events
+WHERE event_type = 'player_pool'
+  AND contest_instance_id = <contest_id>;
+-- Result: 1 row
+
+-- No scoring yet
+SELECT COUNT(*) FROM ingestion_events
+WHERE event_type = 'scoring'
+  AND contest_instance_id = <contest_id>;
+-- Result: 0 rows
+
+-- Competitors loaded but no scores
+SELECT COUNT(*) FROM golfer_event_scores
+WHERE contest_instance_id = <contest_id>;
+-- Result: 0 rows
+```
+
+**Leaderboard logs:**
+```
+[SCORING] No scoring data yet (tournament likely not started) | contest=<id> | competitors=135 | currentRound=null | is_final_round=false
+```
+
+**Assessment:** ✅ HEALTHY. Wait for tournament start.
+
+### During Tournament
+
+**Expected state while tournament is live:**
+
+```sql
+-- Multiple SCORING events captured
+SELECT COUNT(*) FROM ingestion_events
+WHERE event_type = 'scoring'
+  AND contest_instance_id = <contest_id>;
+-- Result: ≥ 1 rows
+
+-- Scores accumulating
+SELECT COUNT(DISTINCT round_number) FROM golfer_event_scores
+WHERE contest_instance_id = <contest_id>;
+-- Result: 1, 2, 3, ... (increases each round)
+
+-- Latest snapshot should be recent
+SELECT MAX(validated_at) FROM ingestion_events
+WHERE contest_instance_id = <contest_id>;
+-- Result: within last 5 minutes
+```
+
+**Assessment:** ✅ HEALTHY. Ingestion running every cycle.
+
+### Event ID Validation
+
+**To verify correct event is being ingested:**
+
+```sql
+SELECT DISTINCT
+  provider_event_id,
+  COUNT(*) as snapshot_count
+FROM event_data_snapshots
+WHERE contest_instance_id = <contest_id>
+GROUP BY provider_event_id;
+```
+
+**Expected:** 1 row with format `espn_pga_<numeric_id>`
+
+**If multiple event IDs appear:** 🔴 ALERT. Event ID mismatch detected.
+
+### Deduplication Health
+
+**To verify payload deduplication is working:**
+
+```sql
+SELECT
+  COUNT(DISTINCT payload_hash) as unique_payloads,
+  COUNT(*) as total_events
+FROM event_data_snapshots
+WHERE contest_instance_id = <contest_id>;
+```
+
+**Expected behavior:**
+- Early in tournament: `unique_payloads` grows (scores update)
+- Late in tournament: `unique_payloads` stable (same score state repeated)
+- After final: `unique_payloads` stable, no new events
+
+**Assessment:** If `total_events >> unique_payloads`, deduplication working correctly (same payload skipped).
+
+### Alert Thresholds
+
+**🟡 Yellow Alert:** No SCORING events for 15 minutes during LIVE contest
+- Action: Check ingestion worker logs, ESPN API connectivity
+
+**🔴 Red Alert:**
+- Event ID mismatch (multiple provider_event_ids for one contest)
+- SCORING event count stopped increasing for 30 minutes during LIVE contest
+- Action: Escalate to engineering team

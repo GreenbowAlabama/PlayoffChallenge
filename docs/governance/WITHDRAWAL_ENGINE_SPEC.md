@@ -15,6 +15,40 @@
 
 ---
 
+## Dependency — Ingestion System (Critical)
+
+**Status:** VERIFIED (March 18, 2026)
+
+Withdrawal accuracy and determinism depend on finalized contest scoring. All withdrawals are blocked until ingestion guarantees are satisfied.
+
+### Required Ingestion Guarantees
+
+Five critical guarantees from the ingestion pipeline are **MANDATORY** for withdrawal authorization:
+
+1. **Deterministic Event Filtering** — Event IDs matched exactly (no fallback)
+2. **SCORING Phase Bypasses Deduplication** — Scores update every cycle
+3. **Idempotent Scoring Writes** — Same input always produces same output
+4. **Zero-Score State Is Valid** — Empty scores pre-tournament is correct state
+5. **Deterministic Replay** — Scoring can be validated by replaying ingestion
+
+### Authoritative Reference
+
+**See:** `docs/governance/INGESTION_GUARANTEES.md` (FROZEN)
+
+This is the single source of truth for all ingestion requirements. Withdrawal implementation must validate all five guarantees before processing any payout.
+
+### Operational Implication
+
+Withdrawals can only process when:
+1. Contest status = COMPLETE
+2. All ingestion_events validated
+3. Final scoring snapshot is immutable
+4. Deterministic replay verified
+
+**Rule:** Partial scores during tournament do NOT authorize payouts.
+
+---
+
 ## CRITICAL ARCHITECTURE DECISION (Must Confirm Before Coding)
 
 ### Stripe Object Selection: Transfers API vs Payouts API

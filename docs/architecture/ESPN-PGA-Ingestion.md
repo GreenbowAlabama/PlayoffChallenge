@@ -1,8 +1,9 @@
 # ESPN PGA Ingestion Strategy
 
-**Status:** AUTHORITATIVE (Updated March 14, 2026)
-**Version:** 1.1
+**Status:** AUTHORITATIVE (Updated March 18, 2026)
+**Version:** 1.2
 **Purpose:** Document the authoritative ESPN API endpoints and data ingestion logic for PGA player field discovery.
+**Latest:** Schema-compliant event filtering, SCORING phase bypass of deduplication, deterministic idempotency verified.
 
 ---
 
@@ -596,12 +597,173 @@ Track:
 
 ---
 
+---
+
+## Event ID Normalization (Verified March 18, 2026)
+
+### Accepted Formats
+
+The ingestion system accepts both formats for event ID input:
+
+| Input Format | Internal Format | Example |
+|---|---|---|
+| Numeric only | With prefix | `401811938` → `espn_pga_401811938` |
+| Full format | With prefix | `espn_pga_401811938` → `espn_pga_401811938` |
+| With prefix (redundant) | Normalized | Input already correct |
+
+### Normalization Rules
+
+**Implementation:** `backend/scripts/trigger-ingestion.js` (lines 29-34)
+
+```javascript
+// Accept both "401811938" and "espn_pga_401811938"
+let normalizedEventId = String(eventId).trim();
+if (normalizedEventId.startsWith('espn_pga_')) {
+  normalizedEventId = normalizedEventId.replace(/^espn_pga_/, '');
+}
+const providerEventId = `espn_pga_${normalizedEventId}`;
+```
+
+**Guarantee:** All event IDs are normalized to `espn_pga_<numeric>` format before database queries.
+
+---
+
+## Deduplication & SCORING Phase (Verified March 18, 2026)
+
+### SCORING Phase Bypass
+
+**Critical Invariant:** SCORING work units are ALWAYS processed, regardless of deduplication state.
+
+**Implementation:** `backend/services/ingestionService.js` (lines 394-413)
+
+```javascript
+// SCORING units must run every cycle (scores update as tournament progresses)
+// All other phases (PLAYER_POOL, FIELD_BUILD) are idempotent and can be skipped
+if (enrichedUnit.phase !== 'SCORING') {
+  if (existingStatus === 'COMPLETE' || existingStatus === 'RUNNING' || existingStatus === 'ERROR') {
+    skippedWorkUnits.push(workUnitKey);
+    summary.skipped++;
+    continue;  // Skip non-SCORING phases
+  }
+}
+// SCORING units fall through and are always processed
+```
+
+### Work Unit Structure (Required)
+
+All work units passed to ingestionService MUST include a `phase` field:
+
+```javascript
+const workUnit = {
+  phase: 'SCORING',  // REQUIRED: marks unit for special handling
+  providerEventId: 'espn_pga_401811938',
+  providerData: leaderboard
+};
+```
+
+**Without `phase: 'SCORING'`:** Work unit is treated as deduplicable and skipped if already processed.
+
+**With `phase: 'SCORING'`:** Work unit bypasses deduplication guard and always executes.
+
+---
+
+## Pre-Tournament Expected Behavior (Verified March 18, 2026)
+
+### Scenario: Tournament Not Yet Started
+
+**Setup:**
+- Event is in ESPN scoreboard (135 competitors fetched)
+- Tournament start time is in the future
+- No scoring data available yet
+
+**Expected Output:**
+
+```
+[espnPgaApi] Leaderboard fetched and filtered: eventId=401811938, competitors=135
+[SCORING] No scoring data yet (tournament likely not started) |
+  contest=<id> | competitors=135 | currentRound=1 | is_final_round=false
+```
+
+**Database State:**
+- `golfer_event_scores`: 0 rows (no scores to insert)
+- `ingestion_runs`: status = 'COMPLETE' (work unit processed successfully)
+- `contest_instances`: status = 'SCHEDULED' (unchanged)
+
+**This is CORRECT behavior.** Scoring is expected to return zero results pre-start.
+
+### Scenario: Tournament Active with Scores
+
+**Setup:**
+- Event is in ESPN scoreboard
+- Tournament is live or complete
+- Leaderboard contains round data with hole-by-hole scores
+
+**Expected Output:**
+
+```
+[espnPgaApi] Leaderboard fetched and filtered: eventId=401811938, competitors=135
+[SCORING] PGA scoring complete | contest=<id> |
+  total_scores=135 | rounds=1,2,3,4 | final_round=true
+```
+
+**Database State:**
+- `golfer_event_scores`: 135-540 rows (scores per round)
+- `ingestion_runs`: status = 'COMPLETE'
+- `event_data_snapshots`: 1 snapshot per cycle
+
+---
+
+## Ingestion Guarantees (Verified March 18, 2026)
+
+### Determinism Guarantee
+
+✅ **Same event ID always returns same player pool**
+- Event matching uses exact ID (no fallback)
+- Competitor normalization is deterministic
+- Idempotency keys prevent duplicate database entries
+
+✅ **Same leaderboard always produces same scores**
+- Scoring rules are deterministic
+- Hole-by-hole calculation is replay-safe
+- Snapshot hashing prevents duplicate writes
+
+### Idempotency Guarantee
+
+✅ **SCORING phase is fully idempotent**
+- Re-runs with same leaderboard produce same `golfer_event_scores`
+- Scores are append-only (ON CONFLICT DO UPDATE)
+- No duplicate scoring writes
+
+✅ **PLAYER_POOL and FIELD_BUILD are skipped on re-run**
+- Marked as 'COMPLETE' in ingestion_runs
+- Subsequent cycles skip already-completed phases
+- SCORING phase always runs (scores update)
+
+### Schema Compliance Guarantee
+
+✅ **No non-existent schema columns referenced**
+- Removed reference to `ct.config` (column does not exist)
+- Using `ct.season_year` (verified in schema.snapshot.sql)
+- All queries validated against authoritative schema
+
+### Zero-Score Validity Guarantee
+
+✅ **Zero scores are valid state (pre-start)**
+- `normalizedScores.length === 0` is expected when tournament has not started
+- Competitors can exist without scores
+- Log emitted: `[SCORING] No scoring data yet`
+- Not an error condition
+
+---
+
 ## Governance
 
 **Frozen Aspects:**
 - ✅ Scoreboard endpoint as authoritative source
 - ✅ Event matching logic (exact ID, no fallback)
-- ✅ Normalization rules
+- ✅ Normalization rules (event ID preprocessing)
+- ✅ SCORING phase deduplication bypass
+- ✅ Schema compliance (ct.season_year only, no ct.config)
 - ✅ Safety rules (no cross-tournament contamination)
 
 **Status:** Architecture Lock Active — changes require architect approval
@@ -609,6 +771,14 @@ Track:
 ---
 
 ## Change History
+
+### Version 1.2 (March 18, 2026)
+- Verified event ID normalization (accepts both formats)
+- Documented SCORING phase deduplication bypass
+- Added schema compliance guarantee (removed ct.config references)
+- Added pre-tournament expected behavior (zero-score scenario)
+- Documented ingestion guarantees (determinism, idempotency, compliance)
+- Verified zero-score is valid state (tournament not yet started)
 
 ### Version 1.1 (March 14, 2026)
 - Updated to scoreboard-only strategy

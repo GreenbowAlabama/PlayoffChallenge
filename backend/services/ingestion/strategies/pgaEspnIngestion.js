@@ -999,6 +999,14 @@ async function handleScoringIngestion(ctx, unit) {
   }
 
   if (allFinalScores.length === 0) {
+    // Diagnostic: distinguish "event not in scoreboard" from "tournament not started"
+    if (competitors.length > 0) {
+      console.log(
+        `[SCORING] No scoring data yet (tournament likely not started) | ` +
+        `contest=${contestInstanceId} | competitors=${competitors.length} | ` +
+        `currentRound=${currentRound} | is_final_round=${is_final_round}`
+      );
+    }
     return [];
   }
 

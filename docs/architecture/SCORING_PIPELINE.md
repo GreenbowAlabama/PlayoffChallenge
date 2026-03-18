@@ -184,3 +184,65 @@ LIMIT 1;
 ```
 
 Expected: `golfer_count > 50` (full PGA field)
+
+---
+
+## PGA ESPN Scoring — Verified Behavior
+
+This section documents verified behavior for PGA ESPN scoring based on production runs (verified March 18, 2026).
+
+### Deterministic Leaderboard Event Filtering
+
+The `fetchLeaderboard()` function implements deterministic event filtering:
+
+**Before fix:** Function ignored `eventId` parameter and returned all events from ESPN scoreboard, causing silent cross-tournament scoring.
+
+**After fix:** Function now:
+1. Fetches ESPN scoreboard (all events)
+2. Finds event by exact ID match
+3. Returns ONLY the requested event (or empty array)
+4. No fallback to `events[0]`
+
+**Why:** Prevents silent data corruption from scoring wrong tournament.
+
+### SCORING Phase Work Unit Requirements
+
+For the SCORING phase to bypass deduplication and execute every cycle, the work unit MUST include:
+
+```javascript
+{
+  phase: 'SCORING',           // ← REQUIRED
+  providerEventId: 'espn_pga_401811938',
+  providerData: { events: [...] }
+}
+```
+
+**Without `phase: 'SCORING'`:** Work unit skipped as duplicate (idempotency guard)
+
+**With `phase: 'SCORING'`:** Work unit always executes (scores update continuously)
+
+### Pre-Scoring State
+
+Before tournament scoring begins, the system reaches a valid steady state:
+
+- ✅ PLAYER_POOL ingestion complete (competitors in database)
+- ✅ Zero rows in `golfer_event_scores` (scoring not yet available)
+- ✅ Log message: `[SCORING] No scoring data yet (tournament likely not started)`
+- ✅ This is NOT an error condition
+
+**Duration:** 1-2 hours before tournament start, depending on ESPN event activation.
+
+### Idempotent Score Writes
+
+All score writes use idempotent upserts:
+
+```sql
+INSERT INTO golfer_event_scores (...)
+VALUES (...)
+ON CONFLICT (contest_instance_id, golfer_id, round_number)
+DO UPDATE SET total_points = EXCLUDED.total_points;
+```
+
+**Guarantee:** Re-running SCORING phase with same leaderboard produces identical `golfer_event_scores`.
+
+**Safety:** Worker can retry without duplicate scoring.

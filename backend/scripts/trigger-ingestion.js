@@ -26,23 +26,28 @@ if (!eventId) {
 }
 
 async function triggerIngestion() {
-  // Use test database if running in test mode
-  const connectionString = process.env.TEST_DB_ALLOW_DBNAME === 'railway'
-    ? process.env.DATABASE_URL_TEST
-    : process.env.DATABASE_URL;
+  // Normalize event ID upfront: accept both "401811938" and "espn_pga_401811938"
+  let normalizedEventId = String(eventId).trim();
+  if (normalizedEventId.startsWith('espn_pga_')) {
+    normalizedEventId = normalizedEventId.replace(/^espn_pga_/, '');
+  }
+  const providerEventId = `espn_pga_${normalizedEventId}`;
+
+  // Use production database (ingestion script always targets real database, not test)
+  const connectionString = process.env.DATABASE_URL;
 
   const pool = new Pool({
     connectionString,
   });
 
   try {
-    console.log(`[Ingestion Trigger] Fetching ESPN data for event ${eventId}...`);
+    console.log(`[Ingestion Trigger] Fetching ESPN data for event ${normalizedEventId}...`);
 
     // Fetch event leaderboard from ESPN
-    const leaderboard = await espnPgaApi.fetchLeaderboard({ eventId });
+    const leaderboard = await espnPgaApi.fetchLeaderboard({ eventId: normalizedEventId });
 
     if (!leaderboard.events || leaderboard.events.length === 0) {
-      console.error(`[ERROR] No events found in leaderboard for ${eventId}`);
+      console.error(`[ERROR] No events found in leaderboard for ${normalizedEventId}`);
       process.exit(1);
     }
 
@@ -53,11 +58,11 @@ async function triggerIngestion() {
       `SELECT id FROM contest_instances
        WHERE provider_event_id = $1
        ORDER BY created_at ASC`,
-      [`espn_pga_${eventId}`]
+      [providerEventId]
     );
 
     if (contestResult.rows.length === 0) {
-      console.error(`[ERROR] No contests found for event espn_pga_${eventId}`);
+      console.error(`[ERROR] No contests found for event ${providerEventId}`);
       process.exit(1);
     }
 
@@ -65,9 +70,10 @@ async function triggerIngestion() {
     console.log(`[Ingestion Trigger] Found ${contestIds.length} contests using this event:`);
     contestIds.forEach(id => console.log(`  - ${id}`));
 
-    // Prepare work unit
+    // Prepare work unit (SCORING phase: must run every cycle for score updates)
     const workUnit = {
-      providerEventId: `espn_pga_${eventId}`,
+      phase: 'SCORING',
+      providerEventId: providerEventId,
       providerData: leaderboard
     };
 

@@ -297,4 +297,70 @@ See **DISCOVERY_LIFECYCLE_BOUNDARY.md § 3.3** for complete Contest Completion T
 
 ---
 
+## Phase 9 — Ingestion Guarantee Enforcement (ACTIVE)
+
+### Summary
+
+Established enforcement gates for ingestion system guarantees that are critical to settlement and payout correctness. These guarantees must not be violated without architectural review.
+
+### Scope
+
+Five critical guarantees that enable deterministic scoring, replay-safe settlement, and reliable payouts:
+
+1. **Deterministic Event Filtering** — Event IDs matched exactly, no fallback logic
+2. **SCORING Phase Deduplication Bypass** — SCORING work units execute every cycle
+3. **Idempotent Scoring Writes** — Same leaderboard produces identical scores
+4. **Zero-Score Valid State** — Empty scores pre-tournament is correct behavior
+5. **Deterministic Replay** — Scoring reproducible from snapshots
+
+### Enforcement Points
+
+**Code Review Gates:**
+
+- Event ID normalization must use exact match (no `events[0]` fallback)
+- Work units must include `phase: 'SCORING'` field for score updates
+- Score writes must use `ON CONFLICT DO UPDATE` (idempotent upserts)
+- SCORING phase must not be skipped even with identical payloads
+
+**Test Coverage Requirements:**
+
+- Unit tests verify deterministic filtering (same eventId → same scores)
+- Integration tests verify SCORING phase executes every cycle
+- Replay tests verify identical payloads produce bit-identical results
+- Schema compliance tests verify all queries match authoritative schema
+
+**Monitoring & Alerts:**
+
+- Alert when event ID mismatches detected (multiple provider_event_ids per contest)
+- Alert when SCORING events stop accumulating during LIVE contests
+- Alert when deterministic replay produces different results
+
+### Definition of Done
+
+✓ All event ID filtering uses exact match (zero fallback paths)
+✓ SCORING phase always executes (no unnecessary deduplication skips)
+✓ Score writes use idempotent upserts
+✓ Deterministic replay tests passing
+✓ Zero-score state handled gracefully pre-tournament
+✓ All ingestion queries validated against authoritative schema
+✓ Monitoring and alerts configured
+
+### Enforcement Rule (Going Forward)
+
+**Ingestion guarantee violations will fail code review and block merge.**
+
+Any change affecting these guarantees requires:
+1. Impact analysis on settlement and payout systems
+2. Determinism verification (replay tests)
+3. Architect approval
+4. Full test suite passing
+
+### Authority Reference
+
+**See:** `docs/governance/INGESTION_GUARANTEES.md` (FROZEN - Single Source of Truth)
+
+All enforcement rules in this section are derived from that authoritative document.
+
+---
+
 
