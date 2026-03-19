@@ -165,6 +165,11 @@ struct LedgerEntry: Identifiable {
 @MainActor
 final class UserWalletViewModel: ObservableObject {
 
+    // MARK: - Feature Flags
+
+    /// Toggle withdrawals on/off (set to true to enable, false to disable for TestFlight)
+    private let withdrawalsEnabled = false
+
     // MARK: - Published State (Domain Models Only)
 
     /// Wallet state (contains balance and ledger entries).
@@ -609,6 +614,12 @@ final class UserWalletViewModel: ObservableObject {
     /// - Parameter amountCents: Amount to withdraw in cents
     func withdraw(amountCents: Int) async {
         print("[UserWalletViewModel] withdraw(\(amountCents) cents)")
+
+        // Withdrawals disabled for TestFlight (feature flag)
+        guard withdrawalsEnabled else {
+            print("[UserWalletViewModel] Withdrawals disabled (TestFlight build)")
+            return
+        }
 
         guard let userId = authService.currentUser?.id else {
             errorMessage = "Please sign in to withdraw funds"

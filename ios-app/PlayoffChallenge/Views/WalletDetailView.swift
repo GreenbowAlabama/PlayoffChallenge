@@ -151,9 +151,9 @@ struct WalletDetailView: View {
                     }
                     .disabled(stripeConnectVM.isLoading)
                 } else if stripeConnectVM.isReadyForWithdrawal {
+                    // Withdrawals disabled for TestFlight
                     Button(action: {
-                        print("[WalletDetailView] Withdraw button tapped")
-                        showWithdrawSheet = true
+                        // no-op
                     }) {
                         HStack {
                             Image(systemName: "arrow.up.circle.fill")
@@ -165,7 +165,8 @@ struct WalletDetailView: View {
                         .foregroundColor(.white)
                         .cornerRadius(DesignTokens.Radius.md)
                     }
-                    .disabled(viewModel.isWithdrawing || viewModel.isDepositing)
+                    .disabled(true)
+                    .opacity(0.5)
                 }
             }
 
@@ -500,6 +501,10 @@ struct WalletDetailView: View {
             Text(viewModel.displayBalance)
                 .font(.system(size: 42, weight: .bold, design: .default))
                 .foregroundColor(.primary)
+
+            Text("Withdrawals coming soon")
+                .font(.caption)
+                .foregroundColor(.secondary)
 
             if viewModel.isLoading {
                 ProgressView()
