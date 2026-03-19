@@ -218,6 +218,15 @@ final class LineupViewModel: ObservableObject {
 
     // V2: Load data using /api/picks/v2 as single source of truth
     func loadData(userId: UUID) async {
+        // GUARD: Do not reload slots while submitPGAPicks is in progress
+        // This prevents the refresh from overwriting the user's intended roster
+        if isSaving {
+            print("[MYLINEUP][vm] loadData called while isSaving=true, skipping slots reload but updating versioning")
+            // Still refresh versioning info, but don't replace slots
+            await refreshVersioningOnly(userId: userId)
+            return
+        }
+
         self.userId = userId
         print("[MYLINEUP][vm] loadData start contestId=\(contestId) userId=\(userId)")
         isLoading = true
@@ -609,6 +618,29 @@ final class LineupViewModel: ObservableObject {
         isSaving = false
     }
 
+    /// Lightweight refresh that ONLY updates versioning info
+    /// Does NOT reload slots or overwrite user intent
+    /// Used during 409 retry to get fresh timestamps without losing state
+    private func refreshVersioningOnly(userId: UUID) async {
+        print("[MYLINEUP][refreshVersioningOnly] start")
+        do {
+            let entryResponse = try await APIService.shared.getMyEntry(contestId: contestId)
+
+            // UPDATE ONLY versioning info
+            self.lastSavedPlayerIds = entryResponse.playerIds
+            self.lastSavedUpdatedAt = entryResponse.updatedAt
+
+            print("[MYLINEUP][refreshVersioningOnly] version synced")
+            print("[MYLINEUP][refreshVersioningOnly] server player_ids: \(entryResponse.playerIds)")
+            print("[MYLINEUP][refreshVersioningOnly] lastSavedUpdatedAt: \(entryResponse.updatedAt ?? "nil")")
+
+            // NOTE: Intentionally NOT updating slots, canEdit, allPlayers, etc
+            // Those remain as-is so user's intended roster is preserved
+        } catch {
+            print("[MYLINEUP][refreshVersioningOnly] failed: \(error)")
+        }
+    }
+
     /// Submit all PGA picks to the backend.
     /// Called explicitly by user via "Save Lineup" button only.
     /// Never automatic.
@@ -630,17 +662,18 @@ final class LineupViewModel: ObservableObject {
                 return
             }
 
-            // Collect all player IDs from filled slots
-            let playerIds = slots
+            // INTENT CAPTURE: Capture intended roster BEFORE any retry logic overwrites slots
+            // This is the ground truth of what the user is trying to save
+            let intendedPlayerIds = slots
                 .filter { !$0.isEmpty }
                 .compactMap { $0.playerId }
 
-            let currentCount = playerIds.count
+            let currentCount = intendedPlayerIds.count
             let lastSavedCount = lastSavedPlayerIds.count
 
             // SAFETY LOG: Always log submission and intent
             print("SUBMIT ROSTER COUNT: \(currentCount)")
-            print("[PGA][submit] player_ids: \(playerIds)")
+            print("[PGA][submit] INTENDED player_ids: \(intendedPlayerIds)")
             print("[PGA][submit] count: \(currentCount)")
             print("[MYLINEUP][submitPGAPicks] submitting \(currentCount) picks")
 
@@ -657,7 +690,7 @@ final class LineupViewModel: ObservableObject {
 
             let response = try await APIService.shared.submitPicks(
                 contestId: contestId,
-                playerIds: playerIds,
+                playerIds: intendedPlayerIds,
                 allowRegression: allowRegression,
                 expectedUpdatedAt: lastSavedUpdatedAt
             )
@@ -677,22 +710,25 @@ final class LineupViewModel: ObservableObject {
 
         } catch APIError.serverError(let message) where message.contains("409") {
             print("[PGA][submit] Conflict → retrying once")
+            print("[PGA][submit] intendedPlayerIds before retry refresh: \(intendedPlayerIds)")
 
-            // STEP 1: Refresh from server
+            // STEP 1: Lightweight refresh - update ONLY versioning info, not slots
+            // This prevents overwriting the user's intended roster
             if let userId = currentUserId {
-                await loadData(userId: userId)
+                await refreshVersioningOnly(userId: userId)
+
+                print("[PGA][submit] After refresh - intendedPlayerIds: \(intendedPlayerIds), slots count: \(slots.filter { !$0.isEmpty }.count)")
 
                 do {
-                    // STEP 2: Retry with fresh baseline
-                    let retryPlayerIds = slots
-                        .filter { !$0.isEmpty }
-                        .compactMap { $0.playerId }
+                    // STEP 2: Retry with INTENDED player IDs, not refreshed slots
+                    // Use the captured intent, not what loadData() returned
+                    let retryAllowRegression = intendedPlayerIds.count < lastSavedPlayerIds.count
 
-                    let retryAllowRegression = retryPlayerIds.count < lastSavedPlayerIds.count
+                    print("[PGA][submit] Retrying with intendedPlayerIds: \(intendedPlayerIds), allowRegression: \(retryAllowRegression)")
 
                     let retryResponse = try await APIService.shared.submitPicks(
                         contestId: contestId,
-                        playerIds: retryPlayerIds,
+                        playerIds: intendedPlayerIds,
                         allowRegression: retryAllowRegression,
                         expectedUpdatedAt: lastSavedUpdatedAt
                     )
