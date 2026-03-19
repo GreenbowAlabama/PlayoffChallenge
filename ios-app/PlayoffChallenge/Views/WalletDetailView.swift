@@ -438,16 +438,7 @@ struct WalletDetailView: View {
                     VStack(spacing: DesignTokens.Spacing.xs) {
                         Text(message)
                             .font(.caption)
-                            .foregroundColor(
-                                switch viewModel.withdrawalState {
-                                case .paid:
-                                    .green
-                                case .failed, .operationFailed:
-                                    .red
-                                default:
-                                    .primary
-                                }
-                            )
+                            .foregroundColor(messageColor(for: viewModel.withdrawalState))
                             .lineLimit(nil)
                             .multilineTextAlignment(.center)
                     }
@@ -572,6 +563,17 @@ struct WalletDetailView: View {
                 .foregroundColor(entry.direction == "CREDIT" ? .green : .red)
         }
         .padding(.vertical, DesignTokens.Spacing.xs)
+    }
+
+    private func messageColor(for state: WithdrawalState) -> Color {
+        switch state {
+        case .paid:
+            return .green
+        case .failed, .operationFailed:
+            return .red
+        default:
+            return .primary
+        }
     }
 
     @ViewBuilder
