@@ -18,7 +18,8 @@ jest.mock('../../services/StripeWithdrawalAdapter', () => ({
 // Mock withdrawalService to verify guard prevents calls
 jest.mock('../../services/withdrawalService', () => ({
   createWithdrawalRequest: jest.fn(),
-  processWithdrawal: jest.fn()
+  processWithdrawal: jest.fn(),
+  getWithdrawal: jest.fn()
 }));
 
 describe('Wallet Withdraw Endpoint', () => {
@@ -409,6 +410,151 @@ describe('Wallet Withdraw Endpoint', () => {
         expect(query).not.toContain('INSERT INTO ledger');
         expect(query).not.toContain('INSERT INTO wallet_withdrawal_reversals');
       });
+    });
+  });
+
+  describe('GET /api/wallet/withdrawals/:id', () => {
+    it('should fetch withdrawal status for authorized user', async () => {
+      const withdrawalId = '550e8400-e29b-41d4-a716-446655440001';
+      const withdrawalService = require('../../services/withdrawalService');
+
+      // Mock getWithdrawal to return withdrawal details
+      withdrawalService.getWithdrawal = jest.fn().mockResolvedValue({
+        id: withdrawalId,
+        user_id: TEST_USER_ID,
+        amount_cents: 50000,
+        instant_fee_cents: 250,
+        method: 'standard',
+        status: 'PROCESSING',
+        failure_reason: null,
+        processed_at: null,
+        requested_at: new Date().toISOString()
+      });
+
+      const response = await request(app)
+        .get(`/api/wallet/withdrawals/${withdrawalId}`)
+        .set('Authorization', `Bearer ${userToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.id).toBe(withdrawalId);
+      expect(response.body.status).toBe('PROCESSING');
+      expect(response.body.amount_cents).toBe(50000);
+      expect(withdrawalService.getWithdrawal).toHaveBeenCalledWith(
+        expect.anything(),
+        withdrawalId,
+        TEST_USER_ID
+      );
+    });
+
+    it('should return FAILED status with null failure_reason (client shows default message)', async () => {
+      const withdrawalId = '550e8400-e29b-41d4-a716-446655440002';
+      const withdrawalService = require('../../services/withdrawalService');
+
+      withdrawalService.getWithdrawal = jest.fn().mockResolvedValue({
+        id: withdrawalId,
+        user_id: TEST_USER_ID,
+        amount_cents: 50000,
+        instant_fee_cents: 0,
+        method: 'instant',
+        status: 'FAILED',
+        failure_reason: null,
+        processed_at: new Date().toISOString(),
+        requested_at: new Date().toISOString()
+      });
+
+      const response = await request(app)
+        .get(`/api/wallet/withdrawals/${withdrawalId}`)
+        .set('Authorization', `Bearer ${userToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('FAILED');
+      expect(response.body.failure_reason).toBeNull();
+      // Client should handle: IF status == FAILED AND failure_reason == null
+      // → show "Complete payout setup to enable withdrawals"
+    });
+
+    it('should return failure reason when provided', async () => {
+      const withdrawalId = '550e8400-e29b-41d4-a716-446655440003';
+      const withdrawalService = require('../../services/withdrawalService');
+      const failureReason = 'Insufficient funds in connected account';
+
+      withdrawalService.getWithdrawal = jest.fn().mockResolvedValue({
+        id: withdrawalId,
+        user_id: TEST_USER_ID,
+        amount_cents: 50000,
+        instant_fee_cents: 0,
+        method: 'standard',
+        status: 'FAILED',
+        failure_reason: failureReason,
+        processed_at: new Date().toISOString(),
+        requested_at: new Date().toISOString()
+      });
+
+      const response = await request(app)
+        .get(`/api/wallet/withdrawals/${withdrawalId}`)
+        .set('Authorization', `Bearer ${userToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('FAILED');
+      expect(response.body.failure_reason).toBe(failureReason);
+    });
+
+    it('should return 404 for withdrawal not owned by user', async () => {
+      const withdrawalId = '550e8400-e29b-41d4-a716-446655440004';
+      const withdrawalService = require('../../services/withdrawalService');
+
+      withdrawalService.getWithdrawal = jest.fn().mockResolvedValue(null);
+
+      const response = await request(app)
+        .get(`/api/wallet/withdrawals/${withdrawalId}`)
+        .set('Authorization', `Bearer ${userToken}`);
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Withdrawal not found');
+    });
+
+    it('should return 400 for invalid withdrawal ID format', async () => {
+      const response = await request(app)
+        .get('/api/wallet/withdrawals/invalid-id')
+        .set('Authorization', `Bearer ${userToken}`);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain('Invalid withdrawal ID format');
+    });
+
+    it('should return 401 without authentication', async () => {
+      const withdrawalId = '550e8400-e29b-41d4-a716-446655440005';
+
+      const response = await request(app)
+        .get(`/api/wallet/withdrawals/${withdrawalId}`);
+
+      expect(response.status).toBe(401);
+    });
+
+    it('should return PAID status with processed timestamp', async () => {
+      const withdrawalId = '550e8400-e29b-41d4-a716-446655440006';
+      const withdrawalService = require('../../services/withdrawalService');
+      const processedAt = new Date().toISOString();
+
+      withdrawalService.getWithdrawal = jest.fn().mockResolvedValue({
+        id: withdrawalId,
+        user_id: TEST_USER_ID,
+        amount_cents: 50000,
+        instant_fee_cents: 250,
+        method: 'instant',
+        status: 'PAID',
+        failure_reason: null,
+        processed_at: processedAt,
+        requested_at: new Date().toISOString()
+      });
+
+      const response = await request(app)
+        .get(`/api/wallet/withdrawals/${withdrawalId}`)
+        .set('Authorization', `Bearer ${userToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('PAID');
+      expect(response.body.processed_at).toBe(processedAt);
     });
   });
 });

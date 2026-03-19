@@ -784,6 +784,35 @@ async function cancelWithdrawal(pool, withdrawalId, userId) {
   }
 }
 
+/**
+ * Fetch withdrawal details by ID
+ *
+ * Returns withdrawal record with status and error details if failed.
+ *
+ * @param {Object} pool - Database connection pool
+ * @param {string} withdrawalId - UUID of withdrawal
+ * @param {string} userId - UUID of user (for authorization)
+ * @returns {Promise<Object|null>} Withdrawal record or null if not found or not owned by user
+ */
+async function getWithdrawal(pool, withdrawalId, userId) {
+  const result = await pool.query(
+    `SELECT id,
+            user_id,
+            amount_cents,
+            instant_fee_cents,
+            method,
+            status,
+            failure_reason,
+            processed_at,
+            requested_at
+     FROM wallet_withdrawals
+     WHERE id = $1 AND user_id = $2`,
+    [withdrawalId, userId]
+  );
+
+  return result.rows[0] || null;
+}
+
 module.exports = {
   WITHDRAWAL_ERROR_CODES,
   getWithdrawalConfig,
@@ -792,6 +821,7 @@ module.exports = {
   processWithdrawal,
   callStripePayout,
   handlePayoutPaid,
+  getWithdrawal,
   handlePayoutFailed,
   cancelWithdrawal
 };

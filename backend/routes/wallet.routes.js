@@ -631,4 +631,76 @@ router.post('/withdraw', extractUserId, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/wallet/withdrawals/:id
+ *
+ * Fetch withdrawal status and details for a specific withdrawal request.
+ * User can only fetch their own withdrawals.
+ *
+ * Response (200):
+ * {
+ *   id: UUID,
+ *   amount_cents: integer,
+ *   instant_fee_cents: integer,
+ *   method: 'standard' | 'instant',
+ *   status: 'REQUESTED' | 'PROCESSING' | 'PAID' | 'FAILED' | 'CANCELLED',
+ *   failure_reason: string | null,
+ *   processed_at: ISO 8601 timestamp | null,
+ *   requested_at: ISO 8601 timestamp
+ * }
+ *
+ * Error responses:
+ * - 401: Authentication required
+ * - 404: Withdrawal not found
+ * - 500: Server error
+ */
+router.get('/withdrawals/:id', extractUserId, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const userId = req.userId;
+    const withdrawalId = req.params.id;
+
+    // Validate withdrawal ID format (UUID)
+    if (!withdrawalId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(withdrawalId)) {
+      return res.status(400).json({
+        error: 'Invalid withdrawal ID format'
+      });
+    }
+
+    // Fetch withdrawal (authorization: user can only access their own)
+    const withdrawal = await withdrawalService.getWithdrawal(pool, withdrawalId, userId);
+
+    if (!withdrawal) {
+      return res.status(404).json({
+        error: 'Withdrawal not found'
+      });
+    }
+
+    // Build response - use existing fields only (contract compliance)
+    // Client handles: IF status == FAILED AND failure_reason == null → show default message
+    const response = {
+      id: withdrawal.id,
+      amount_cents: withdrawal.amount_cents,
+      instant_fee_cents: withdrawal.instant_fee_cents,
+      method: withdrawal.method,
+      status: withdrawal.status,
+      failure_reason: withdrawal.failure_reason,
+      processed_at: withdrawal.processed_at,
+      requested_at: withdrawal.requested_at
+    };
+
+    return res.status(200).json(response);
+  } catch (err) {
+    console.error('[WalletGetWithdrawal] Error fetching withdrawal', {
+      userId: req.userId,
+      withdrawalId: req.params.id,
+      error: err.message
+    });
+
+    return res.status(500).json({
+      error: 'Failed to fetch withdrawal'
+    });
+  }
+});
+
 module.exports = router;
