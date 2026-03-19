@@ -322,21 +322,57 @@ async function getMyEntry(pool, contestInstanceId, userId) {
 
   // Determine if we should use field_selections or fallback to players table
   const shouldUseFieldSelections = fieldResult.rows.length > 0;
+
+  // Validate field_selections has primary array in either:
+  // - NEW format: [{ player_id: "...", name: "...", image_url?: "..." }, ...]
+  // - LEGACY format: ["espn_123", "espn_456", ...] (IDs only, will be hydrated)
   const hasValidPrimarySelection = shouldUseFieldSelections &&
     fieldResult.rows[0].selection_json &&
     Array.isArray(fieldResult.rows[0].selection_json.primary) &&
-    (fieldResult.rows[0].selection_json.primary || []).filter(Boolean).length > 0;
+    (fieldResult.rows[0].selection_json.primary || []).filter(Boolean).length > 0 &&
+    fieldResult.rows[0].selection_json.primary[0] && (
+      // New format: object with player_id and name
+      (fieldResult.rows[0].selection_json.primary[0].player_id &&
+       fieldResult.rows[0].selection_json.primary[0].name) ||
+      // Legacy format: string (player ID)
+      typeof fieldResult.rows[0].selection_json.primary[0] === 'string'
+    );
 
   if (hasValidPrimarySelection) {
     // Use the explicitly configured players from field_selections.primary
     const selectionJson = fieldResult.rows[0].selection_json;
     const playerList = (selectionJson.primary || []).filter(Boolean);
 
-    availablePlayers = playerList.map(p => ({
-      player_id: p.player_id,
-      name: p.name,
-      image_url: p.image_url || null
-    }));
+    // CRITICAL: Handle both legacy format (array of strings) and new format (array of objects)
+    // Legacy format: ["espn_123", "espn_456"] (IDs only)
+    // New format: [{ player_id: "espn_123", name: "John", image_url: null }, ...]
+
+    const firstItem = playerList[0];
+    const isLegacyFormat = typeof firstItem === 'string';
+
+    if (isLegacyFormat) {
+      // Hydrate legacy format: fetch full player data by ID
+      const playersResult = await pool.query(
+        `SELECT id, full_name, image_url
+         FROM players
+         WHERE id = ANY($1)
+         ORDER BY array_position($2::text[], id)`,
+        [playerList, playerList]
+      );
+
+      availablePlayers = playersResult.rows.map(player => ({
+        player_id: player.id,
+        name: player.full_name,
+        image_url: player.image_url || null
+      }));
+    } else {
+      // New format: already has full objects, just map to contract
+      availablePlayers = playerList.map(p => ({
+        player_id: p.player_id,
+        name: p.name,
+        image_url: p.image_url || null
+      }));
+    }
   } else {
     // Fallback to players table: use when field_selections is missing or empty
     const playerSport = contestRow.sport ? SPORT_PLAYER_MAP[contestRow.sport.toLowerCase()] : null;

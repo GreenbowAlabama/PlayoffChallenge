@@ -373,7 +373,7 @@ final class LineupViewModel: ObservableObject {
             if !hasLoadedPlayersOnce {
                 do {
                     print("Loading NFL players from /api/players...")
-                    let response = try await APIService.shared.getPlayers(limit: 500)
+                    let response = try await APIService.shared.getPlayers(sport: "NFL", limit: 500)
                     self.allPlayers = response.players
                     hasLoadedPlayersOnce = true
                     print("DEBUG: loaded players count = \(self.allPlayers.count)")

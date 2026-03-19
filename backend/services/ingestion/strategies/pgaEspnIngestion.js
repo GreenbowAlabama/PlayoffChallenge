@@ -622,8 +622,9 @@ async function handleFieldBuildIngestion(ctx, unit) {
 
   // Step 3: Query players table using espn_ids
   // Results are ordered by ID for deterministic field composition
+  // Must fetch complete player objects matching entryRosterService.getMyEntry expectations
   const playersResult = await dbClient.query(`
-    SELECT id
+    SELECT id, full_name, image_url
     FROM players
     WHERE espn_id = ANY($1)
     ORDER BY id ASC
@@ -633,11 +634,14 @@ async function handleFieldBuildIngestion(ctx, unit) {
     throw new Error(`handleFieldBuildIngestion: No players found for external_ids [${externalPlayerIds.join(', ')}]`);
   }
 
-  const playerIds = playersResult.rows.map(row => row.id);
-
   // Step 4: Build field selection JSON with primary roster
+  // Each player object must include player_id, name, image_url for iOS decoding
   const selectionJson = {
-    primary: playerIds
+    primary: playersResult.rows.map(row => ({
+      player_id: row.id,
+      name: row.full_name,
+      image_url: row.image_url || null
+    }))
   };
 
   // Step 5: Insert into field_selections with idempotent ON CONFLICT

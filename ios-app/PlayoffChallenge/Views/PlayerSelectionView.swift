@@ -488,19 +488,10 @@ class PlayerSelectionViewModel: ObservableObject {
                         print("  \(pos): \(players.count)")
                     }
 
-                    // CRITICAL: Verify backend position values match UI expectations
+                    // CRITICAL: Log backend position values for verification
                     let allPositions = Set(self.allPlayers.compactMap { $0.position }.map { $0.uppercased() })
-                    print("⚠️ PRODUCTION CHECK - All unique positions from backend:")
-                    print("  \(allPositions)")
-                    print("⚠️ EXPECTED positions for sport '\(self.sport)':")
-                    print("  \(Set(self.positionsToDisplay))")
+                    print("⚠️ PRODUCTION CHECK - All unique positions from backend: \(allPositions)")
 
-                    let mismatch = allPositions != Set(self.positionsToDisplay)
-                    if mismatch {
-                        print("⚠️ ⚠️ ⚠️ POSITION MISMATCH DETECTED ⚠️ ⚠️ ⚠️")
-                        print("   Backend positions don't match UI expectations!")
-                        print("   Filter may fail silently")
-                    }
                 } catch let decodingError as DecodingError {
                     print("DECODE ERROR: \(decodingError)")
                     self.allPlayers = []
@@ -647,7 +638,7 @@ class PlayerSelectionViewModel: ObservableObject {
         hasChanges = Set(currentLineup.map { $0.id }) != Set(originalLineup.map { $0.id })
     }
     
-    private func limitFor(position: String) -> Int {
+    func limitFor(position: String) -> Int {
         switch position {
         case "QB": return positionLimits.qb
         case "RB": return positionLimits.rb
@@ -655,6 +646,7 @@ class PlayerSelectionViewModel: ObservableObject {
         case "TE": return positionLimits.te
         case "K": return positionLimits.k
         case "DEF": return positionLimits.def
+        case "GOLFER": return 7  // Golf lineup size (common default)
         default: return 0
         }
     }
