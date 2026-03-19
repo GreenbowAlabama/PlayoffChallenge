@@ -46,6 +46,11 @@ final class LineupViewModel: ObservableObject {
     // Used to compare: if currentCount < lastSavedCount → user intentionally removed players
     @Published private(set) var lastSavedPlayerIds: [String] = []
 
+    // CONCURRENCY VERSIONING: Server-backed timestamp for optimistic concurrency control
+    // Updated on load and after successful save
+    // Sent in every submit request to enforce version matching
+    @Published private(set) var lastSavedUpdatedAt: String?
+
     // Available players for selection (loaded once)
     @Published var allPlayers: [Player] = []
 
@@ -255,7 +260,9 @@ final class LineupViewModel: ObservableObject {
                 // INTENT TRACKING: Store server-backed baseline for regression detection
                 // This is what user last successfully saved on server
                 self.lastSavedPlayerIds = entryResponse.playerIds
+                self.lastSavedUpdatedAt = entryResponse.updatedAt
                 print("[MYLINEUP][vm] lastSavedPlayerIds updated to: \(entryResponse.playerIds.count) players")
+                print("[MYLINEUP][vm] lastSavedUpdatedAt updated to: \(entryResponse.updatedAt ?? "nil")")
 
                 // DEBUG: Log API response
                 print("MY_ENTRY roster_size:", lineupSize)
@@ -613,6 +620,16 @@ final class LineupViewModel: ObservableObject {
         isSaving = true
 
         do {
+            // CRITICAL SAFETY: Ensure version is loaded before allowing submit
+            // If lastSavedUpdatedAt is nil, backend will return 400 MISSING_VERSION
+            if lastSavedUpdatedAt == nil {
+                print("[MYLINEUP][submitPGAPicks] ERROR: lastSavedUpdatedAt not loaded yet")
+                errorMessage = "Roster version not ready. Please refresh and try again."
+                showError = true
+                isSaving = false
+                return
+            }
+
             // Collect all player IDs from filled slots
             let playerIds = slots
                 .filter { !$0.isEmpty }
@@ -641,13 +658,16 @@ final class LineupViewModel: ObservableObject {
             let response = try await APIService.shared.submitPicks(
                 contestId: contestId,
                 playerIds: playerIds,
-                allowRegression: allowRegression
+                allowRegression: allowRegression,
+                expectedUpdatedAt: lastSavedUpdatedAt
             )
 
             // UPDATE BASELINE: Store new saved state from server response
             // This becomes the baseline for next comparison
             self.lastSavedPlayerIds = response.playerIds
+            self.lastSavedUpdatedAt = response.updatedAt
             print("[MYLINEUP][submitPGAPicks] baseline updated to: \(response.playerIds.count) players")
+            print("[MYLINEUP][submitPGAPicks] version updated to: \(response.updatedAt)")
 
             print("[MYLINEUP][submitPGAPicks] success, updated_at=\(response.updatedAt)")
 
@@ -673,13 +693,15 @@ final class LineupViewModel: ObservableObject {
                     let retryResponse = try await APIService.shared.submitPicks(
                         contestId: contestId,
                         playerIds: retryPlayerIds,
-                        allowRegression: retryAllowRegression
+                        allowRegression: retryAllowRegression,
+                        expectedUpdatedAt: lastSavedUpdatedAt
                     )
 
                     self.lastSavedPlayerIds = retryResponse.playerIds
+                    self.lastSavedUpdatedAt = retryResponse.updatedAt
                     errorMessage = "Lineup saved!"
                     showError = false
-                    print("[MYLINEUP][submitPGAPicks] success on retry")
+                    print("[MYLINEUP][submitPGAPicks] success on retry with fresh version")
 
                 } catch {
                     print("[PGA][submit] retry failed: \(error)")

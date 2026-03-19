@@ -1126,19 +1126,24 @@ func replacePlayer(userId: UUID, oldPlayerId: String, newPlayerId: String, posit
   ///
   /// @param allowRegression: If true, permits roster count to decrease (user explicitly removed players).
   ///                         If false, prevents accidental overwrites (default safe behavior).
-  func submitPicks(contestId: UUID, playerIds: [String], allowRegression: Bool = false) async throws -> PicksSubmissionResponseContract {
+  func submitPicks(contestId: UUID, playerIds: [String], allowRegression: Bool = false, expectedUpdatedAt: String? = nil) async throws -> PicksSubmissionResponseContract {
       let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)/picks")!
 
       var request = createV2Request(url: url)
       request.httpMethod = "POST"
 
-      let body: [String: Any] = [
+      var body: [String: Any] = [
           "player_ids": playerIds,
           "allow_regression": allowRegression
       ]
 
+      // CONCURRENCY: Include expected_updated_at for optimistic version control
+      if let expectedUpdatedAt = expectedUpdatedAt {
+          body["expected_updated_at"] = expectedUpdatedAt
+      }
+
       // 🔍 LOG 1: What playerIds and intent did we receive?
-      print("[PICKS DEBUG] Received playerIds parameter: \(playerIds), allow_regression: \(allowRegression)")
+      print("[PICKS DEBUG] Received playerIds parameter: \(playerIds), allow_regression: \(allowRegression), expected_updated_at: \(expectedUpdatedAt ?? "nil")")
 
       request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

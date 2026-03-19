@@ -115,10 +115,11 @@ function deriveRosterConfigFromStrategy(strategyKey) {
  * @param {string} userId - UUID
  * @param {Array<string>} playerIds - Array of player IDs to submit
  * @param {boolean} allowRegression - If true, allow incoming count < existing count (user intent explicit)
+ * @param {string} expectedUpdatedAt - ISO timestamp of last known version (required for optimistic concurrency)
  * @returns {Promise<Object>} { success: true, player_ids: [...], updated_at: ISO string }
  * @throws {Error} with code property matching ERROR_CODES
  */
-async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegression = false) {
+async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegression = false, expectedUpdatedAt) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -274,16 +275,14 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
       };
     }
 
-    // 10. OPTIMISTIC CONCURRENCY: Split INSERT vs UPDATE with proper WHERE clause
-    // Protect UPDATE path with timestamp check (true concurrency safety)
+    // 10. OPTIMISTIC CONCURRENCY: Split INSERT vs UPDATE with explicit version
+    // Client MUST provide expectedUpdatedAt from last known state
+    // If it doesn't match current DB state, another request modified it → 409
 
-    // If roster exists, must pass timestamp check to prevent concurrent overwrite
+    // If roster exists, must pass version check to prevent concurrent overwrite
     if (existingRoster) {
-      if (!existingRoster.updated_at) {
-        throw new Error('Missing updated_at for concurrency control');
-      }
-
-      // UPDATE path: WHERE clause protects against concurrent modification
+      // UPDATE path: WHERE clause enforces explicit version contract
+      // expectedUpdatedAt comes from client, must match what's in DB
       const updateResult = await client.query(
         `UPDATE entry_rosters
          SET player_ids = $1, updated_at = now()
@@ -291,7 +290,7 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
            AND user_id = $3
            AND updated_at = $4
          RETURNING updated_at`,
-        [normalizedPlayerIds, contestInstanceId, userId, existingRoster.updated_at]
+        [normalizedPlayerIds, contestInstanceId, userId, expectedUpdatedAt]
       );
 
       // If no rows updated, timestamp mismatch = concurrent modification
@@ -385,11 +384,14 @@ async function getMyEntry(pool, contestInstanceId, userId) {
 
   // Fetch user's entry_rosters row
   const entryResult = await pool.query(
-    `SELECT player_ids FROM entry_rosters WHERE contest_instance_id = $1 AND user_id = $2`,
+    `SELECT player_ids, updated_at FROM entry_rosters WHERE contest_instance_id = $1 AND user_id = $2`,
     [contestInstanceId, userId]
   );
 
   const playerIds = entryResult.rows.length > 0 ? entryResult.rows[0].player_ids : [];
+  const updatedAt = entryResult.rows.length > 0 && entryResult.rows[0].updated_at
+    ? new Date(entryResult.rows[0].updated_at).toISOString()
+    : null;
 
   // Derive can_edit: true if SCHEDULED AND (lock_time null OR before lock_time)
   const canEdit =
@@ -528,7 +530,8 @@ async function getMyEntry(pool, contestInstanceId, userId) {
     can_edit: canEdit,
     lock_time: contestRow.lock_time ? new Date(contestRow.lock_time).toISOString() : null,
     roster_config: rosterConfig,
-    available_players: availablePlayers
+    available_players: availablePlayers,
+    updated_at: updatedAt
   };
 }
 

@@ -746,20 +746,20 @@ router.delete('/:id/entry', extractUserId, async (req, res) => {
  * Submit (upsert) golfer/player picks for a user in a contest.
  * Requires authentication.
  *
- * Request body: { player_ids: [string] }
+ * Request body: { player_ids: [string], allow_regression?: boolean, expected_updated_at: ISO string }
  *
  * Response:
  * - 200: { success: true, player_ids: [...], updated_at: ISO string }
- * - 400: { error_code: 'VALIDATION_FAILED', errors: [...] }
+ * - 400: { error_code: 'MISSING_VERSION' | 'VALIDATION_FAILED', errors?: [...] }
  * - 403: { error_code: 'NOT_A_PARTICIPANT', reason: '...' }
  * - 404: { error_code: 'CONTEST_NOT_FOUND', reason: '...' }
- * - 409: { error_code: 'CONTEST_NOT_SCHEDULED' | 'CONTEST_LOCKED', reason: '...' }
+ * - 409: { error_code: 'CONTEST_NOT_SCHEDULED' | 'CONTEST_LOCKED' | 'CONCURRENT_MODIFICATION', reason: '...' }
  */
 router.post('/:id/picks', extractUserId, asyncHandler(async (req, res) => {
   const pool = req.app.locals.pool;
   const { id } = req.params;
   const userId = req.userId;
-  const { player_ids, allow_regression = false } = req.body;
+  const { player_ids, allow_regression = false, expected_updated_at } = req.body;
 
   if (!isValidUUID(id)) {
     return res.status(400).json({ error: 'Invalid contest ID format' });
@@ -769,9 +769,17 @@ router.post('/:id/picks', extractUserId, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'player_ids must be an array' });
   }
 
+  if (!expected_updated_at) {
+    return res.status(400).json({
+      success: false,
+      error_code: 'MISSING_VERSION',
+      message: 'expected_updated_at is required for optimistic concurrency control'
+    });
+  }
+
   try {
-    // Pass allow_regression flag to service (explicit user intent)
-    const result = await entryRosterService.submitPicks(pool, id, userId, player_ids, allow_regression);
+    // Pass version and intent flag to service
+    const result = await entryRosterService.submitPicks(pool, id, userId, player_ids, allow_regression, expected_updated_at);
 
     // REGRESSION GUARD: If ignored due to regression, return 200 with ignored flag
     // Client should not treat this as an error

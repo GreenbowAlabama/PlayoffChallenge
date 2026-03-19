@@ -16,6 +16,7 @@ public struct MyEntryResponseContract: Decodable {
     public let lockTime: Date?
     public let rosterConfig: RosterConfigContract
     public let availablePlayers: [PlayerInfoContract]?
+    public let updatedAt: String?
 
     enum CodingKeys: String, CodingKey {
         case playerIds = "player_ids"
@@ -23,6 +24,7 @@ public struct MyEntryResponseContract: Decodable {
         case lockTime = "lock_time"
         case rosterConfig = "roster_config"
         case availablePlayers = "available_players"
+        case updatedAt = "updated_at"
     }
 
     public init(
@@ -30,13 +32,15 @@ public struct MyEntryResponseContract: Decodable {
         canEdit: Bool,
         lockTime: Date?,
         rosterConfig: RosterConfigContract,
-        availablePlayers: [PlayerInfoContract]?
+        availablePlayers: [PlayerInfoContract]?,
+        updatedAt: String? = nil
     ) {
         self.playerIds = playerIds
         self.canEdit = canEdit
         self.lockTime = lockTime
         self.rosterConfig = rosterConfig
         self.availablePlayers = availablePlayers
+        self.updatedAt = updatedAt
     }
 }
 
