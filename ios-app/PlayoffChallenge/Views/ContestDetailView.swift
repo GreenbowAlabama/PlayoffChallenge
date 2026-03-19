@@ -37,6 +37,7 @@ struct ContestDetailView: View {
             contestJoiner: contestJoiner ?? ContestJoinService(),
             walletRefresher: walletVM
         )
+        .id(contestId)
         .onAppear {
             // Diagnostic: Log presentation path and wallet refresher availability
             print("[ContestDetailView] onAppear — walletVM present: \(walletVM != nil)")
@@ -274,8 +275,8 @@ struct ContestDetailViewInner: View {
                             // Private contest with share token
                             return AppEnvironment.shared.joinBaseURL.appendingPathComponent("custom-contests/join/\(joinToken)")
                         } else {
-                            // System contest: use contest ID only
-                            return AppEnvironment.shared.joinBaseURL.appendingPathComponent("custom-contests/\(viewModel.contest.id.uuidString)")
+                            // System contest: use routed contestId (immutable)
+                            return AppEnvironment.shared.joinBaseURL.appendingPathComponent("custom-contests/\(viewModel.contestId.uuidString)")
                         }
                     }()
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
@@ -399,6 +400,7 @@ struct ContestDetailViewInner: View {
             }
             .padding(.top)
         }
+        .id(viewModel.contestId)
         .navigationTitle("Contest")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $navigateToLeaderboard) {
@@ -408,7 +410,7 @@ struct ContestDetailViewInner: View {
             )
         }
         .navigationDestination(isPresented: $navigateToLineup) {
-            LineupContainerView(contestId: viewModel.contest.id, placeholder: viewModel.contest)
+            LineupContainerView(contestId: viewModel.contestId, placeholder: viewModel.contest)
         }
         .sheet(isPresented: $showRules) {
             NavigationStack {
@@ -481,19 +483,28 @@ struct ContestDetailViewInner: View {
             }
         }
         .onAppear {
-            viewModel.configure(currentUserId: authService.currentUser?.id)
-
             // Set callback to refresh available contests list after join/unjoin
             viewModel.onContestJoinStateChanged = {
                 Task {
                     await availableContestsVM.loadContests(forceRefresh: true)
                 }
             }
-
-            if !viewModel.isFetching {
-                viewModel.fetchContestDetailDetached()
+        }
+        .task(id: viewModel.contestId) {
+            print("[DETAIL] appear id=\(viewModel.contestId)")
+            viewModel.configure(currentUserId: authService.currentUser?.id)
+            await viewModel.fetchContestDetail()
+            print("[DETAIL] configured and fetched id=\(viewModel.contestId)")
+        }
+        .onChange(of: authService.currentUser?.id) { oldId, newId in
+            // If auth becomes available after initial load, re-fetch with auth context
+            if oldId == nil && newId != nil {
+                print("[DETAIL] auth available, re-fetching id=\(viewModel.contestId)")
+                Task {
+                    viewModel.configure(currentUserId: newId)
+                    await viewModel.fetchContestDetail()
+                }
             }
-            print("ContestDetailView.onAppear: contestId=\(viewModel.contestId), canDelete=\(viewModel.canDeleteContest), canUnjoin=\(viewModel.canUnjoinContest)")
         }
         .refreshable {
             await viewModel.refresh()

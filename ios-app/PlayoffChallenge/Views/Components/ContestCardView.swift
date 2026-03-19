@@ -70,33 +70,31 @@ struct ContestCardView: View {
                         .font(.system(size: 14))
                         .foregroundColor(DesignTokens.Color.Brand.primary)
                 }
+                .buttonStyle(.borderless)
             }
         }
     }
     
     var body: some View {
-        Button(action: { onTap?() }) {
-            Group {
-                switch style {
-                case .standard:
-                    standardLayout
-                case .compact:
-                    compactLayout
-                case .list:
-                    listLayout
-                }
+        Group {
+            switch style {
+            case .standard:
+                standardLayout
+            case .compact:
+                compactLayout
+            case .list:
+                listLayout
             }
-            .padding(DesignTokens.Spacing.md)
-            .background(DesignTokens.Color.Surface.card)
-            .cornerRadius(DesignTokens.Radius.md)
-            .shadow(
-                color: DesignTokens.Shadow.cardColor,
-                radius: DesignTokens.Shadow.cardRadius,
-                x: 0,
-                y: DesignTokens.Shadow.cardY
-            )
         }
-        .buttonStyle(PlainButtonStyle())
+        .padding(DesignTokens.Spacing.md)
+        .background(DesignTokens.Color.Surface.card)
+        .cornerRadius(DesignTokens.Radius.md)
+        .shadow(
+            color: DesignTokens.Shadow.cardColor,
+            radius: DesignTokens.Shadow.cardRadius,
+            x: 0,
+            y: DesignTokens.Shadow.cardY
+        )
     }
     
     // MARK: - Layouts
@@ -253,8 +251,9 @@ struct ContestCardView: View {
                 }
             }
         }
+        .contentShape(Rectangle())
     }
-    
+
     private var joinedBadge: some View {
         HStack(spacing: 4) {
             Image(systemName: "checkmark.circle.fill")

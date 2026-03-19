@@ -50,9 +50,10 @@ async function liveStandings(pool, contestInstanceId) {
     const aggregatedScore = aggregateEntryScore(golferScores);
 
     return {
+      id: row.user_id,
       user_id: row.user_id,
       user_display_name: row.user_display_name,
-      total_score: aggregatedScore
+      total_score: aggregatedScore.entry_total
     };
   });
 
@@ -78,7 +79,18 @@ async function liveStandings(pool, contestInstanceId) {
     if (index > 0 && !areScoresEqual(entry.total_score, usersWithScores[index - 1].total_score)) {
       currentRank = index + 1;
     }
-    rankedScores.push({ ...entry, rank: currentRank });
+    rankedScores.push({
+      id: entry.id,
+      user_id: entry.user_id,
+      user_display_name: entry.user_display_name,
+      rank: currentRank,
+      values: {
+        rank: currentRank,
+        user_display_name: entry.user_display_name,
+        total_score: entry.total_score
+      },
+      tier: null
+    });
   });
 
   return rankedScores;

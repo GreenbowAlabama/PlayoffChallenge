@@ -40,7 +40,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
         // Retrieve userId from persistence before building request
         guard let userIdString = UserDefaults.standard.string(forKey: "userId"),
               let userId = UUID(uuidString: userIdString) else {
-            print("❌ Missing userId before /available call")
+            // Silently fail if auth not yet ready — caller should gate fetch on authenticated state
             throw CustomContestError.notAuthenticated
         }
 
@@ -172,7 +172,7 @@ final class CustomContestService: CustomContestCreating, CustomContestPublishing
     func fetchCreatedContests() async throws -> [Contest] {
         guard let userIdString = UserDefaults.standard.string(forKey: "userId"),
               let userId = UUID(uuidString: userIdString) else {
-            print("❌ Missing userId before /created contests call")
+            // Silently fail if auth not yet ready — caller should gate fetch on authenticated state
             throw CustomContestError.notAuthenticated
         }
 

@@ -144,6 +144,12 @@ final class MyContestsViewModel: ObservableObject {
     // MARK: - Actions
 
     func loadMyContests() async {
+        // Guard 0: Only load if authenticated
+        guard authService.currentUser != nil else {
+            // Not authenticated yet; silently skip. Will retry when auth becomes available.
+            return
+        }
+
         isLoading = true
         errorMessage = nil
 

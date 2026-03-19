@@ -96,6 +96,15 @@ struct ContestLeaderboardView: View {
             viewModel.configure(currentUserId: authService.currentUser?.id)
             await viewModel.loadLeaderboard()
         }
+        .onChange(of: authService.currentUser?.id) { oldId, newId in
+            // If auth becomes available after initial load, re-fetch leaderboard
+            if oldId == nil && newId != nil {
+                Task {
+                    viewModel.configure(currentUserId: newId)
+                    await viewModel.loadLeaderboard()
+                }
+            }
+        }
         .refreshable {
             await viewModel.refresh()
         }

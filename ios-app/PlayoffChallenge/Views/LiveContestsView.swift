@@ -58,9 +58,12 @@ struct LiveContestsView: View {
                     List {
                         Section {
                             ForEach(contests, id: \.id) { contest in
-                                NavigationLink(value: contest.id) {
+                                NavigationLink(value: contest) {
                                     ContestCardView(contest: contest, style: .list, onTap: nil)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -68,8 +71,8 @@ struct LiveContestsView: View {
                 }
             }
             .navigationTitle("LIVE Contests")
-            .navigationDestination(for: UUID.self) { contestId in
-                ContestDetailView(contestId: contestId)
+            .navigationDestination(for: Contest.self) { contest in
+                ContestDetailView(contestId: contest.id, placeholder: contest)
             }
         }
         .onAppear {

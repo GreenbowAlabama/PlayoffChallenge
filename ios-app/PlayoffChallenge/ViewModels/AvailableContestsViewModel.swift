@@ -86,6 +86,12 @@ final class AvailableContestsViewModel: ObservableObject {
     // MARK: - Actions
 
     func loadContests(forceRefresh: Bool = false) async {
+        // Guard 0: Only load if authenticated
+        guard authService.currentUser != nil else {
+            // Not authenticated yet; silently skip. Will retry when auth becomes available.
+            return
+        }
+
         // Guard 1: Prevent concurrent fetches
         guard !isLoading else {
             print("[AvailableContestsViewModel] Load already in progress, skipping duplicate")

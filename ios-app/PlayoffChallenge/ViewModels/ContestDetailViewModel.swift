@@ -88,9 +88,10 @@ final class ContestDetailViewModel: ObservableObject {
     /// Overwrites all placeholder data with the authoritative backend response.
     /// Always fetches on explicit refresh, skips duplicate fetch only on initial load.
     func fetchContestDetail() async {
-        guard !hasFetched || isFetching else { return }
+        // Allow retry on failure. Only skip if already fetching.
+        if isFetching { return }
         isFetching = true
-        print("JOIN PREVIEW FETCHING CONTEST DETAIL \(contestId)")
+        print("[DETAIL] fetch start id=\(contestId) hasFetched=\(hasFetched)")
 
         do {
             // Fetch full contest details and action state from backend
@@ -116,7 +117,7 @@ final class ContestDetailViewModel: ObservableObject {
             """)
 
             hasFetched = true
-            print("ContestDetailViewModel: contest detail set → \(result.contest.id)")
+            print("[DETAIL] fetch success id=\(contestId)")
         } catch {
             // On fetch failure, keep placeholder data — don't blank the screen
             print("ContestDetailViewModel: fetch failed — \(error.localizedDescription)")
@@ -170,6 +171,11 @@ final class ContestDetailViewModel: ObservableObject {
 
     var canSelectLineup: Bool {
         guard let state = actionState else { return false }
+        // LIVE: allow view-only if user has entered (canUnjoin means they're a participant)
+        if contest.status == .live {
+            return state.actions.canUnjoin || state.actions.canEditEntry
+        }
+        // SCHEDULED/others: allow only if editable
         return state.actions.canEditEntry
     }
 
