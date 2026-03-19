@@ -29,3 +29,4 @@ DerivedData/
 
 # SwiftPM
 .build/
+core/build/
