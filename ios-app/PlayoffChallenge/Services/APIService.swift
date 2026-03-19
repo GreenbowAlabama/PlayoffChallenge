@@ -584,9 +584,10 @@ func getSettings() async throws -> GameSettings {
 
 // MARK: - Players Methods
 
-func getPlayers(position: String? = nil, limit: Int = 50, offset: Int = 0) async throws -> PlayersResponse {
+func getPlayers(sport: String, position: String? = nil, limit: Int = 50, offset: Int = 0) async throws -> PlayersResponse {
   var components = URLComponents(string: "\(baseURL)/api/players")!
   var queryItems: [URLQueryItem] = [
+      URLQueryItem(name: "sport", value: sport),
       URLQueryItem(name: "limit", value: "\(limit)"),
       URLQueryItem(name: "offset", value: "\(offset)")
   ]
@@ -597,9 +598,25 @@ func getPlayers(position: String? = nil, limit: Int = 50, offset: Int = 0) async
 
   components.queryItems = queryItems
 
+  print("🔍 APIService.getPlayers - URL: \(components.url?.absoluteString ?? "nil")")
+
   let request = URLRequest(url: components.url!)
-  let (data, _) = try await URLSession.shared.data(for: request)
-  return try JSONDecoder().decode(PlayersResponse.self, from: data)
+  let (data, response) = try await URLSession.shared.data(for: request)
+
+  guard let httpResponse = response as? HTTPURLResponse else {
+      throw APIError.invalidResponse
+  }
+
+  guard (200...299).contains(httpResponse.statusCode) else {
+      if let errorString = String(data: data, encoding: .utf8) {
+          print("🔍 APIService.getPlayers ERROR: \(httpResponse.statusCode) - \(errorString)")
+      }
+      throw APIError.serverError("Failed to fetch players (HTTP \(httpResponse.statusCode))")
+  }
+
+  let decoded = try JSONDecoder().decode(PlayersResponse.self, from: data)
+  print("🔍 APIService.getPlayers - Decoded \(decoded.players.count) players, sport='\(sport)'")
+  return decoded
 }
 
 struct PlayersResponse: Codable {

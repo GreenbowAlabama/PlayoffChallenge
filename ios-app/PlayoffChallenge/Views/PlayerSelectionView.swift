@@ -2,21 +2,42 @@ import SwiftUI
 import Combine
 
 struct PlayerSelectionView: View {
+    let contest: Contest  // Source of truth for sport and rules
     @EnvironmentObject var authService: AuthService
-    @StateObject private var viewModel = PlayerSelectionViewModel()
+    @StateObject private var viewModel: PlayerSelectionViewModel
+
+    init(contest: Contest) {
+        self.contest = contest
+        _viewModel = StateObject(wrappedValue: PlayerSelectionViewModel(sport: contest.sport.rawValue))
+    }
+
+    // Sport-aware positions based on contest type (normalized to uppercase)
+    private var positionsToDisplay: [String] {
+        switch contest.sport {
+        case .golf:
+            // Golf contests use roster config from contest
+            return ["GOLFER"]  // Uppercase for consistent filtering
+        case .nfl:
+            return ["QB", "RB", "WR", "TE", "K", "DEF"]  // Already uppercase
+        case .unknown:
+            return ["QB", "RB", "WR", "TE", "K", "DEF"]  // Default fallback (uppercase)
+        }
+    }
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Week Selector
-                WeekPickerView(selectedWeek: $viewModel.selectedWeek, currentWeek: viewModel.currentWeek)
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-                
+                // Week Selector (NFL only)
+                if contest.sport == .nfl {
+                    WeekPickerView(selectedWeek: $viewModel.selectedWeek, currentWeek: viewModel.currentWeek)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                }
+
                 if viewModel.isLocked {
                     LockedBanner()
                 }
-                
+
                 ScrollView {
                     VStack(spacing: 16) {
                         if viewModel.isLoading {
@@ -24,48 +45,15 @@ struct PlayerSelectionView: View {
                                 .frame(maxWidth: .infinity)
                                 .padding()
                         } else {
-                            // Position Sections
-                            PositionSection(
-                                position: "QB",
-                                limit: viewModel.positionLimits.qb,
-                                picks: viewModel.picksForPosition("QB"),
-                                viewModel: viewModel
-                            )
-                            
-                            PositionSection(
-                                position: "RB",
-                                limit: viewModel.positionLimits.rb,
-                                picks: viewModel.picksForPosition("RB"),
-                                viewModel: viewModel
-                            )
-                            
-                            PositionSection(
-                                position: "WR",
-                                limit: viewModel.positionLimits.wr,
-                                picks: viewModel.picksForPosition("WR"),
-                                viewModel: viewModel
-                            )
-                            
-                            PositionSection(
-                                position: "TE",
-                                limit: viewModel.positionLimits.te,
-                                picks: viewModel.picksForPosition("TE"),
-                                viewModel: viewModel
-                            )
-                            
-                            PositionSection(
-                                position: "K",
-                                limit: viewModel.positionLimits.k,
-                                picks: viewModel.picksForPosition("K"),
-                                viewModel: viewModel
-                            )
-                            
-                            PositionSection(
-                                position: "DEF",
-                                limit: viewModel.positionLimits.def,
-                                picks: viewModel.picksForPosition("DEF"),
-                                viewModel: viewModel
-                            )
+                            // Dynamic position sections based on sport
+                            ForEach(positionsToDisplay, id: \.self) { position in
+                                PositionSection(
+                                    position: position,
+                                    limit: viewModel.limitFor(position: position),
+                                    picks: viewModel.picksForPosition(position),
+                                    viewModel: viewModel
+                                )
+                            }
                         }
                     }
                     .padding()
@@ -180,9 +168,9 @@ struct PositionSection: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
+            // Header (display name respects sports abbreviations)
             HStack {
-                Text(position)
+                Text(viewModel.displayName(for: position))
                     .font(.headline)
                     .foregroundColor(DesignTokens.Color.Action.secondary)
                 
@@ -276,8 +264,8 @@ struct EmptySlotCard: View {
                 Image(systemName: "plus.circle.fill")
                     .font(.title2)
                     .foregroundColor(DesignTokens.Color.Action.secondary)
-                
-                Text("Add \(position)")
+
+                Text("Add \(viewModel.displayName(for: position))")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -302,8 +290,22 @@ struct PlayerPickerSheet: View {
     @State private var searchText = ""
     
     var filteredPlayers: [Player] {
-        let availablePlayers = viewModel.availablePlayers.filter { $0.position == position }
-        
+        print("🔍 FILTER DEBUG - Selected position: '\(position ?? "nil")'")
+        print("🔍 FILTER DEBUG - Available players count: \(viewModel.availablePlayers.count)")
+
+        // Log first 10 players and their positions
+        for (index, player) in viewModel.availablePlayers.prefix(10).enumerated() {
+            print("🔍 Player \(index): '\(player.fullName)' raw_position='\(player.position ?? "nil")'")
+        }
+
+        // Filter using normalized positions for robustness
+        let availablePlayers = viewModel.availablePlayers.filter { player in
+            let normalizedPlayerPos = viewModel.normalizePosition(player.position)
+            return normalizedPlayerPos == position
+        }
+
+        print("🔍 FILTER DEBUG - After position filter: \(availablePlayers.count) players match position '\(position ?? "nil")'")
+
         if searchText.isEmpty {
             return availablePlayers
         } else {
@@ -372,12 +374,50 @@ class PlayerSelectionViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var showingPlayerPicker = false
     @Published var selectedPosition: String?
-    
+
     private var userId: UUID?
     private var originalLineup: [Player] = []
     private var hasLoadedPlayersOnce = false
-    
-    init() {
+    private let sport: String  // Sport to request (GOLF, NFL, etc.)
+
+    /// Normalize backend position values to UI canonical form
+    /// Handles variations in backend position naming (e.g., "G" vs "golfer", "GOLFER" vs "golfer")
+    /// Always returns uppercase for consistent case-insensitive filtering
+    /// Returns "UNKNOWN" for nil/missing positions (safely non-matchable to any real position)
+    func normalizePosition(_ raw: String?) -> String {
+        guard let raw = raw else { return "UNKNOWN" }
+        let upper = raw.uppercased()
+
+        switch sport {
+        case "GOLF":
+            // Golf can return "G", "GOLFER", "golfer", etc.
+            if upper == "G" || upper.contains("GOLFER") {
+                return "GOLFER"  // Normalized to uppercase
+            }
+            return upper  // Pass through unknown golf positions (uppercase)
+        case "NFL":
+            // NFL positions pass through normalized to uppercase
+            return upper
+        default:
+            return upper
+        }
+    }
+
+    /// Display name for position (sports abbreviations stay uppercase, others capitalized)
+    func displayName(for position: String) -> String {
+        switch position {
+        case "QB", "RB", "WR", "TE", "K", "DEF":
+            return position  // Keep uppercase for sports norms
+        case "GOLFER":
+            return "Golfer"
+        default:
+            return position.capitalized
+        }
+    }
+
+    init(sport: String = "NFL") {
+        self.sport = sport
+        print("🔍 PlayerSelectionViewModel initialized with sport: '\(sport)'")
         Task {
             await loadCurrentWeek()
             selectedWeek = currentWeek
@@ -429,11 +469,38 @@ class PlayerSelectionViewModel: ObservableObject {
             // Only load players if we haven't loaded them before
             if !hasLoadedPlayersOnce {
                 do {
-                    print("Loading players from API...")
-                    let response = try await APIService.shared.getPlayers(limit: 500)
+                    print("🔍 LOAD PLAYERS - Sport: '\(self.sport)', Limit: 500")
+                    let response = try await APIService.shared.getPlayers(sport: self.sport, limit: 500)
                     self.allPlayers = response.players
                     hasLoadedPlayersOnce = true
-                    print("Loaded \(self.allPlayers.count) players")
+                    print("Loaded \(self.allPlayers.count) players from sport '\(self.sport)'")
+
+                    // Log first 5 players to verify positions
+                    print("🔍 PLAYER LOAD DEBUG - First 5 players:")
+                    for (index, player) in self.allPlayers.prefix(5).enumerated() {
+                        print("  [\(index)] id=\(player.id) fullName='\(player.fullName)' position='\(player.position ?? "nil")' team='\(player.team ?? "nil")'")
+                    }
+
+                    // Count players by position
+                    let positionCounts = Dictionary(grouping: self.allPlayers) { $0.position ?? "nil" }
+                    print("🔍 PLAYER LOAD DEBUG - Players by position:")
+                    for (pos, players) in positionCounts.sorted(by: { $0.key < $1.key }) {
+                        print("  \(pos): \(players.count)")
+                    }
+
+                    // CRITICAL: Verify backend position values match UI expectations
+                    let allPositions = Set(self.allPlayers.compactMap { $0.position }.map { $0.uppercased() })
+                    print("⚠️ PRODUCTION CHECK - All unique positions from backend:")
+                    print("  \(allPositions)")
+                    print("⚠️ EXPECTED positions for sport '\(self.sport)':")
+                    print("  \(Set(self.positionsToDisplay))")
+
+                    let mismatch = allPositions != Set(self.positionsToDisplay)
+                    if mismatch {
+                        print("⚠️ ⚠️ ⚠️ POSITION MISMATCH DETECTED ⚠️ ⚠️ ⚠️")
+                        print("   Backend positions don't match UI expectations!")
+                        print("   Filter may fail silently")
+                    }
                 } catch let decodingError as DecodingError {
                     print("DECODE ERROR: \(decodingError)")
                     self.allPlayers = []
@@ -520,6 +587,8 @@ class PlayerSelectionViewModel: ObservableObject {
     }
     
     func openPlayerPicker(for position: String) {
+        print("🔍 OPEN PICKER - Position passed: '\(position)' (type: String, length: \(position.count))")
+        print("🔍 OPEN PICKER - Available players before filter: \(allPlayers.count)")
         selectedPosition = position
         showingPlayerPicker = true
     }
@@ -602,6 +671,7 @@ struct PositionLimits {
 }
 
 #Preview {
-    PlayerSelectionView()
+    let mockContest = Contest.stub(sport: .nfl)
+    return PlayerSelectionView(contest: mockContest)
         .environmentObject(AuthService())
 }
