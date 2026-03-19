@@ -23,7 +23,7 @@ async function liveStandings(pool, contestInstanceId) {
       array_agg(
         json_build_object(
           'golfer_id', gs.golfer_id,
-          'total_points', gs.total_points
+          'total_points', (gs.hole_points + gs.bonus_points + gs.finish_bonus)
         ) ORDER BY gs.golfer_id
       ) AS golfer_scores_array
      FROM contest_participants cp

@@ -198,18 +198,17 @@ struct ContestDetailViewInner: View {
                             VStack(spacing: DesignTokens.Spacing.sm) {
                                 Image(systemName: "person.3.fill")
                                     .font(.title3)
-                                    .foregroundColor(viewModel.canSelectLineup ? DesignTokens.Color.Action.secondary : DesignTokens.Color.Action.disabled)
+                                    .foregroundColor(DesignTokens.Color.Action.secondary)
                                 Text("Lineup")
                                     .font(.caption2)
                                     .lineLimit(1)
-                                    .foregroundColor(viewModel.canSelectLineup ? DesignTokens.Color.Text.primary : DesignTokens.Color.Action.disabled)
+                                    .foregroundColor(DesignTokens.Color.Text.primary)
                             }
                             .frame(maxWidth: .infinity)
                             .frame(minHeight: 80)
-                            .background(viewModel.canSelectLineup ? DesignTokens.Color.Surface.card : DesignTokens.Color.Surface.cardDisabled)
+                            .background(DesignTokens.Color.Surface.card)
                             .cornerRadius(DesignTokens.Radius.md)
                         }
-                        .disabled(!viewModel.canSelectLineup)
 
                         // Rules
                         Button {
