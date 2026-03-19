@@ -651,6 +651,13 @@ final class LineupViewModel: ObservableObject {
     func submitPGAPicks() async {
         isSaving = true
 
+        // INTENT CAPTURE: Capture intended roster BEFORE any retry logic overwrites slots
+        // This is the ground truth of what the user is trying to save
+        // Declared here so it's accessible in both the main try block and catch blocks
+        let intendedPlayerIds = slots
+            .filter { !$0.isEmpty }
+            .compactMap { $0.playerId }
+
         do {
             // CRITICAL SAFETY: Ensure version is loaded before allowing submit
             // If lastSavedUpdatedAt is nil, backend will return 400 MISSING_VERSION
@@ -661,12 +668,6 @@ final class LineupViewModel: ObservableObject {
                 isSaving = false
                 return
             }
-
-            // INTENT CAPTURE: Capture intended roster BEFORE any retry logic overwrites slots
-            // This is the ground truth of what the user is trying to save
-            let intendedPlayerIds = slots
-                .filter { !$0.isEmpty }
-                .compactMap { $0.playerId }
 
             let currentCount = intendedPlayerIds.count
             let lastSavedCount = lastSavedPlayerIds.count
