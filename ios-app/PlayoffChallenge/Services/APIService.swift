@@ -1122,19 +1122,23 @@ func replacePlayer(userId: UUID, oldPlayerId: String, newPlayerId: String, posit
   }
 
   /// Submit PGA picks for a contest.
-  /// Called when all golfers are selected to save the lineup atomically.
-  func submitPicks(contestId: UUID, playerIds: [String]) async throws -> PicksSubmissionResponseContract {
+  /// Called explicitly by user via save button (never automatic).
+  ///
+  /// @param allowRegression: If true, permits roster count to decrease (user explicitly removed players).
+  ///                         If false, prevents accidental overwrites (default safe behavior).
+  func submitPicks(contestId: UUID, playerIds: [String], allowRegression: Bool = false) async throws -> PicksSubmissionResponseContract {
       let url = URL(string: "\(baseURL)/api/custom-contests/\(contestId.uuidString)/picks")!
 
       var request = createV2Request(url: url)
       request.httpMethod = "POST"
 
       let body: [String: Any] = [
-          "player_ids": playerIds
+          "player_ids": playerIds,
+          "allow_regression": allowRegression
       ]
 
-      // 🔍 LOG 1: What playerIds did we actually receive?
-      print("[PICKS DEBUG] Received playerIds parameter: \(playerIds)")
+      // 🔍 LOG 1: What playerIds and intent did we receive?
+      print("[PICKS DEBUG] Received playerIds parameter: \(playerIds), allow_regression: \(allowRegression)")
 
       request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

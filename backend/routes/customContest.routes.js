@@ -759,7 +759,7 @@ router.post('/:id/picks', extractUserId, asyncHandler(async (req, res) => {
   const pool = req.app.locals.pool;
   const { id } = req.params;
   const userId = req.userId;
-  const { player_ids } = req.body;
+  const { player_ids, allow_regression = false } = req.body;
 
   if (!isValidUUID(id)) {
     return res.status(400).json({ error: 'Invalid contest ID format' });
@@ -770,7 +770,32 @@ router.post('/:id/picks', extractUserId, asyncHandler(async (req, res) => {
   }
 
   try {
-    const result = await entryRosterService.submitPicks(pool, id, userId, player_ids);
+    // Pass allow_regression flag to service (explicit user intent)
+    const result = await entryRosterService.submitPicks(pool, id, userId, player_ids, allow_regression);
+
+    // REGRESSION GUARD: If ignored due to regression, return 200 with ignored flag
+    // Client should not treat this as an error
+    if (result.ignored) {
+      return res.json({
+        success: true,
+        ignored: true,
+        reason: result.reason,
+        player_ids: result.player_ids,
+        updated_at: result.updated_at
+      });
+    }
+
+    // CONCURRENCY CONFLICT: Roster was modified by another request
+    if (result.conflict) {
+      return res.status(409).json({
+        success: false,
+        error_code: result.error_code,
+        reason: result.reason,
+        conflict: true
+      });
+    }
+
+    // SUCCESS: Return full response with submission details
     res.json(result);
   } catch (err) {
     const errorCode = err.code || 'INTERNAL_ERROR';

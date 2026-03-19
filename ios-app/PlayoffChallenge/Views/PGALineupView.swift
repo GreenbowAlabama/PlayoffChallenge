@@ -89,19 +89,45 @@ struct PGALineupView: View {
                     .padding()
                 }
 
-                if viewModel.isSaving {
-                    HStack {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        Text("Saving...")
+                // EXPLICIT SAVE BUTTON: User must tap to save
+                // Not automatic. Prevents accidental data loss.
+                if !viewModel.isLocked && !viewModel.isLoading {
+                    if viewModel.isSaving {
+                        HStack {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            Text("Saving...")
+                                .font(.headline)
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(DesignTokens.Color.Action.secondary)
+                        .cornerRadius(DesignTokens.Radius.lg)
+                        .padding()
+                    } else {
+                        // Count selected golfers for UX feedback
+                        let selectedCount = viewModel.slots.filter { !$0.isEmpty }.count
+                        let slotDisplay = selectedCount == 1 ? "golfer" : "golfers"
+
+                        Button(action: {
+                            Task {
+                                await viewModel.submitPGAPicks()
+                            }
+                        }) {
+                            HStack(spacing: DesignTokens.Spacing.md) {
+                                Image(systemName: "checkmark.circle.fill")
+                                Text("Save Lineup (\(selectedCount) \(slotDisplay))")
+                            }
                             .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(DesignTokens.Color.Action.primary)
+                            .cornerRadius(DesignTokens.Radius.lg)
+                        }
+                        .padding()
                     }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(DesignTokens.Color.Action.secondary)
-                    .cornerRadius(DesignTokens.Radius.lg)
-                    .padding()
                 }
             }
             .navigationTitle("My Lineup")

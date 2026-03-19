@@ -221,7 +221,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Conflict - contest is not SCHEDULED or entry window is closed
+          description: Conflict - contest is not SCHEDULED, entry window is closed, or concurrent modification detected
           content:
             application/json:
               schema:
@@ -2235,6 +2235,14 @@ components:
             type: string
           description: Array of player IDs (golfer IDs for PGA)
           example: ["player-123", "player-456", "player-789"]
+        allow_regression:
+          type: boolean
+          description: |
+            If true, permits roster count to decrease (user explicitly removed players).
+            If false (default), blocks regression to prevent accidental overwrites.
+            Set to true only when user intentionally reduced roster size from last saved state.
+          default: false
+          example: true
 
     PicksSubmissionResponse:
       type: object
@@ -2246,16 +2254,35 @@ components:
       properties:
         success:
           type: boolean
-          description: Whether picks were submitted successfully
+          description: Whether picks were submitted successfully (always true if ignored=true)
         player_ids:
           type: array
           items:
             type: string
-          description: Submitted player IDs
+          description: Submitted player IDs (or existing roster if regression was blocked)
         updated_at:
           type: string
           format: date-time
           description: Timestamp of submission/update
+        ignored:
+          type: boolean
+          description: |
+            If true, submission was ignored due to regression protection.
+            Client should treat as success (HTTP 200) and display existing roster.
+          example: false
+        reason:
+          type: string
+          description: |
+            Reason submission was ignored (only present if ignored=true).
+            Values: 'regression_blocked_no_intent' (incoming < existing, no allow_regression flag)
+          example: regression_blocked_no_intent
+        conflict:
+          type: boolean
+          description: |
+            If true, submission failed due to concurrent modification (HTTP 409).
+            Another request modified this roster between your fetch and submit.
+            Client should refresh and retry.
+          example: false
 
     PlayerInfo:
       type: object

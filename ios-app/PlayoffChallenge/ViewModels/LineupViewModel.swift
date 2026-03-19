@@ -41,6 +41,11 @@ final class LineupViewModel: ObservableObject {
     @Published var slots: [PickV2Slot] = []
     @Published var positionLimits = LineupPositionLimits()
 
+    // INTENT TRACKING: Server-backed baseline for detecting intentional regression
+    // Updated on load and after successful save
+    // Used to compare: if currentCount < lastSavedCount → user intentionally removed players
+    @Published private(set) var lastSavedPlayerIds: [String] = []
+
     // Available players for selection (loaded once)
     @Published var allPlayers: [Player] = []
 
@@ -246,6 +251,11 @@ final class LineupViewModel: ObservableObject {
                 }
 
                 print("[MYLINEUP][vm] lineupSize=\(lineupSize)")
+
+                // INTENT TRACKING: Store server-backed baseline for regression detection
+                // This is what user last successfully saved on server
+                self.lastSavedPlayerIds = entryResponse.playerIds
+                print("[MYLINEUP][vm] lastSavedPlayerIds updated to: \(entryResponse.playerIds.count) players")
 
                 // DEBUG: Log API response
                 print("MY_ENTRY roster_size:", lineupSize)
@@ -468,7 +478,8 @@ final class LineupViewModel: ObservableObject {
 
         guard positionCount < limit else { return }
 
-        // GOLF: Add player and persist immediately
+        // GOLF: Add player to local state only
+        // Do NOT submit automatically. Let user explicitly save via save button.
         if contest.sport == .golf {
             // Find first empty slot and fill it with new player
             if let emptyIndex = slots.firstIndex(where: { $0.isEmpty }) {
@@ -493,8 +504,9 @@ final class LineupViewModel: ObservableObject {
                 slots[emptyIndex] = filledSlot
             }
 
-            // Persist immediately after updating slots
-            await submitPGAPicks()
+            // SAFETY LOG: Show how many players are currently selected
+            let selectedCount = slots.filter { !$0.isEmpty }.count
+            print("SUBMIT ROSTER COUNT: \(selectedCount) (not auto-submitting)")
             return
         }
 
@@ -530,7 +542,8 @@ final class LineupViewModel: ObservableObject {
     func removeSlot(_ slot: PickV2Slot) async {
         guard let userId = userId else { return }
 
-        // GOLF: Remove player and persist immediately
+        // GOLF: Remove player from local state only
+        // Do NOT submit automatically. Let user explicitly save via save button.
         if contest.sport == .golf {
             if let slotIndex = slots.firstIndex(where: { $0.id == slot.id }) {
                 let clearedSlot = PickV2Slot(
@@ -554,8 +567,9 @@ final class LineupViewModel: ObservableObject {
                 slots[slotIndex] = clearedSlot
             }
 
-            // Persist immediately after clearing slot
-            await submitPGAPicks()
+            // SAFETY LOG: Show how many players are currently selected
+            let selectedCount = slots.filter { !$0.isEmpty }.count
+            print("SUBMIT ROSTER COUNT: \(selectedCount) (not auto-submitting)")
             return
         }
 
@@ -589,8 +603,13 @@ final class LineupViewModel: ObservableObject {
     }
 
     /// Submit all PGA picks to the backend.
-    /// Called automatically when lineup becomes complete (all golfers selected).
-    private func submitPGAPicks() async {
+    /// Called explicitly by user via "Save Lineup" button only.
+    /// Never automatic.
+    ///
+    /// INTENT TRACKING:
+    /// Compares currentCount vs lastSavedCount (server baseline)
+    /// Only allows regression if user explicitly reduced from last saved state
+    func submitPGAPicks() async {
         isSaving = true
 
         do {
@@ -599,14 +618,36 @@ final class LineupViewModel: ObservableObject {
                 .filter { !$0.isEmpty }
                 .compactMap { $0.playerId }
 
+            let currentCount = playerIds.count
+            let lastSavedCount = lastSavedPlayerIds.count
+
+            // SAFETY LOG: Always log submission and intent
+            print("SUBMIT ROSTER COUNT: \(currentCount)")
             print("[PGA][submit] player_ids: \(playerIds)")
-            print("[PGA][submit] count: \(playerIds.count)")
-            print("[MYLINEUP][submitPGAPicks] submitting \(playerIds.count) picks")
+            print("[PGA][submit] count: \(currentCount)")
+            print("[MYLINEUP][submitPGAPicks] submitting \(currentCount) picks")
+
+            // INTENT TRACKING: Detect if user explicitly reduced roster
+            // Compare current count vs LAST SAVED count (not current UI state)
+            // This is the ground truth for what user last successfully saved on server
+            let allowRegression = currentCount < lastSavedCount
+
+            if allowRegression {
+                print("[PGA][submit] User explicitly reduced roster from last saved \(lastSavedCount) to \(currentCount)")
+            } else if currentCount >= lastSavedCount {
+                print("[PGA][submit] User maintained or increased roster from last saved \(lastSavedCount) to \(currentCount)")
+            }
 
             let response = try await APIService.shared.submitPicks(
                 contestId: contestId,
-                playerIds: playerIds
+                playerIds: playerIds,
+                allowRegression: allowRegression
             )
+
+            // UPDATE BASELINE: Store new saved state from server response
+            // This becomes the baseline for next comparison
+            self.lastSavedPlayerIds = response.playerIds
+            print("[MYLINEUP][submitPGAPicks] baseline updated to: \(response.playerIds.count) players")
 
             print("[MYLINEUP][submitPGAPicks] success, updated_at=\(response.updatedAt)")
 

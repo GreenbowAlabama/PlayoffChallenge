@@ -1460,4 +1460,332 @@ describe('Entry Roster Service', () => {
       expect(config.validation_rules).toBeDefined();
     });
   });
+
+  describe('REGRESSION GUARD - Bulletproof Roster Persistence', () => {
+    describe('Test 1: Save 4 players → expect 4', () => {
+      it('allows partial roster submission (4 of 7)', async () => {
+        const pool = createMockPool();
+        const contestId = 'test-contest-id';
+        const userId = 'test-user-id';
+        const playerIds = ['p1', 'p2', 'p3', 'p4'];
+
+        pool.setQueryResponse(
+          q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+          {
+            rows: [{
+              id: contestId,
+              status: 'SCHEDULED',
+              lock_time: new Date(Date.now() + 3600000),
+              scoring_strategy_key: 'pga_standard_v1'
+            }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('contest_participants'),
+          {
+            rows: [{ 1: 1 }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('field_selections'),
+          {
+            rows: [{
+              selection_json: {
+                primary: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'].map(id => ({ player_id: id, name: `Player ${id}` }))
+              }
+            }],
+            rowCount: 1
+          }
+        );
+
+        // Mock: No existing roster
+        pool.setQueryResponse(
+          q => q.includes('entry_rosters') && !q.includes('INSERT'),
+          {
+            rows: [],
+            rowCount: 0
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('entry_rosters') && q.includes('INSERT'),
+          {
+            rows: [{ updated_at: new Date().toISOString() }],
+            rowCount: 1
+          }
+        );
+
+        const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+        expect(result.success).toBe(true);
+        expect(result.player_ids.length).toBe(4);
+      });
+    });
+
+    describe('Test 2: Save 6 players → expect 6', () => {
+      it('allows 6-player roster submission', async () => {
+        const pool = createMockPool();
+        const contestId = 'test-contest-id';
+        const userId = 'test-user-id';
+        const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
+
+        pool.setQueryResponse(
+          q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+          {
+            rows: [{
+              id: contestId,
+              status: 'SCHEDULED',
+              lock_time: new Date(Date.now() + 3600000),
+              scoring_strategy_key: 'pga_standard_v1'
+            }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('contest_participants'),
+          {
+            rows: [{ 1: 1 }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('field_selections'),
+          {
+            rows: [{
+              selection_json: {
+                primary: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'].map(id => ({ player_id: id, name: `Player ${id}` }))
+              }
+            }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('entry_rosters') && !q.includes('INSERT'),
+          {
+            rows: [],
+            rowCount: 0
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('entry_rosters') && q.includes('INSERT'),
+          {
+            rows: [{ updated_at: new Date().toISOString() }],
+            rowCount: 1
+          }
+        );
+
+        const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+        expect(result.success).toBe(true);
+        expect(result.player_ids.length).toBe(6);
+      });
+    });
+
+    describe('Test 3: Save 7 players → expect 7', () => {
+      it('allows complete 7-player roster submission', async () => {
+        const pool = createMockPool();
+        const contestId = 'test-contest-id';
+        const userId = 'test-user-id';
+        const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+
+        pool.setQueryResponse(
+          q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+          {
+            rows: [{
+              id: contestId,
+              status: 'SCHEDULED',
+              lock_time: new Date(Date.now() + 3600000),
+              scoring_strategy_key: 'pga_standard_v1'
+            }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('contest_participants'),
+          {
+            rows: [{ 1: 1 }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('field_selections'),
+          {
+            rows: [{
+              selection_json: {
+                primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+              }
+            }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('entry_rosters') && !q.includes('INSERT'),
+          {
+            rows: [],
+            rowCount: 0
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('entry_rosters') && q.includes('INSERT'),
+          {
+            rows: [{ updated_at: new Date().toISOString() }],
+            rowCount: 1
+          }
+        );
+
+        const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+        expect(result.success).toBe(true);
+        expect(result.player_ids.length).toBe(7);
+        expect(result.ignored).toBe(false);
+      });
+    });
+
+    describe('Test 4: Save 6 AFTER 7 → expect STILL 7 (REGRESSION BLOCKED)', () => {
+      it('blocks regression when incoming < existing', async () => {
+        const pool = createMockPool();
+        const contestId = 'test-contest-id';
+        const userId = 'test-user-id';
+        const incomingPlayerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']; // 6 players
+        const existingPlayerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']; // 7 players
+
+        pool.setQueryResponse(
+          q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+          {
+            rows: [{
+              id: contestId,
+              status: 'SCHEDULED',
+              lock_time: new Date(Date.now() + 3600000),
+              scoring_strategy_key: 'pga_standard_v1'
+            }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('contest_participants'),
+          {
+            rows: [{ 1: 1 }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('field_selections'),
+          {
+            rows: [{
+              selection_json: {
+                primary: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'].map(id => ({ player_id: id, name: `Player ${id}` }))
+              }
+            }],
+            rowCount: 1
+          }
+        );
+
+        // Mock: EXISTING roster with 7 players
+        pool.setQueryResponse(
+          q => q.includes('entry_rosters') && !q.includes('INSERT'),
+          {
+            rows: [{
+              player_ids: existingPlayerIds,
+              updated_at: new Date(Date.now() - 60000).toISOString()
+            }],
+            rowCount: 1
+          }
+        );
+
+        const result = await entryRosterService.submitPicks(pool, contestId, userId, incomingPlayerIds);
+
+        // Expected: Regression is BLOCKED (no explicit intent from user)
+        expect(result.success).toBe(true);
+        expect(result.ignored).toBe(true);
+        expect(result.reason).toBe('regression_blocked_no_intent');
+        expect(result.player_ids).toEqual(existingPlayerIds); // Returns existing, not incoming
+      });
+    });
+
+    describe('Test 5: Concurrent update mismatch → expect conflict', () => {
+      it('detects concurrent modification via updated_at', async () => {
+        const pool = createMockPool();
+        const contestId = 'test-contest-id';
+        const userId = 'test-user-id';
+        const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+
+        pool.setQueryResponse(
+          q => q.includes('contest_instances') && q.includes('FOR UPDATE'),
+          {
+            rows: [{
+              id: contestId,
+              status: 'SCHEDULED',
+              lock_time: new Date(Date.now() + 3600000),
+              scoring_strategy_key: 'pga_standard_v1'
+            }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('contest_participants'),
+          {
+            rows: [{ 1: 1 }],
+            rowCount: 1
+          }
+        );
+
+        pool.setQueryResponse(
+          q => q.includes('field_selections'),
+          {
+            rows: [{
+              selection_json: {
+                primary: playerIds.map(id => ({ player_id: id, name: `Player ${id}` }))
+              }
+            }],
+            rowCount: 1
+          }
+        );
+
+        // Mock: Existing roster with old timestamp
+        const oldTimestamp = new Date(Date.now() - 120000).toISOString();
+
+        // First SELECT to fetch existing roster
+        let selectCount = 0;
+        pool.setQueryResponse(
+          q => q.includes('entry_rosters') && q.includes('SELECT') && !q.includes('UPDATE'),
+          {
+            rows: [{
+              player_ids: ['p1', 'p2', 'p3'],
+              updated_at: oldTimestamp
+            }],
+            rowCount: 1
+          }
+        );
+
+        // Mock: UPDATE with WHERE clause filters out the old timestamp (concurrency conflict)
+        // This simulates another request having updated the row since we fetched it
+        pool.setQueryResponse(
+          q => q.includes('UPDATE') && q.includes('entry_rosters'),
+          {
+            rows: [], // No rows returned = WHERE condition not met (timestamp mismatch)
+            rowCount: 0
+          }
+        );
+
+        const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+
+        // Expected: Conflict detected
+        expect(result.success).toBe(false);
+        expect(result.error_code).toBe('CONCURRENT_MODIFICATION');
+        expect(result.conflict).toBe(true);
+      });
+    });
+  });
 });

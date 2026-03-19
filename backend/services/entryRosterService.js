@@ -107,19 +107,24 @@ function deriveRosterConfigFromStrategy(strategyKey) {
  * 5. Derive roster config from scoring_strategy_key
  * 6. Fetch field_selections if available
  * 7. Validate roster via ContestRulesValidator → VALIDATION_FAILED
- * 8. Upsert into entry_rosters (column: player_ids)
+ * 8. Fetch existing roster and check for regression
+ * 9. Upsert into entry_rosters with concurrency protection (column: player_ids)
  *
  * @param {Object} pool - Database pool
  * @param {string} contestInstanceId - UUID
  * @param {string} userId - UUID
  * @param {Array<string>} playerIds - Array of player IDs to submit
+ * @param {boolean} allowRegression - If true, allow incoming count < existing count (user intent explicit)
  * @returns {Promise<Object>} { success: true, player_ids: [...], updated_at: ISO string }
  * @throws {Error} with code property matching ERROR_CODES
  */
-async function submitPicks(pool, contestInstanceId, userId, playerIds) {
+async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegression = false) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Wrap entire logic in try block to ensure ROLLBACK on any error
+    // This guarantees atomicity: either all changes commit or all rollback
 
     // 0. Normalize player IDs to canonical "espn_" format
     // Accepts both "5724" and "espn_5724" formats from client
@@ -234,13 +239,94 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
       );
     }
 
-    // 9. Upsert into entry_rosters
-    // Use normalized IDs for storage
-    const upsertResult = await client.query(
+    // 9. REGRESSION GUARD: Fetch existing roster before update
+    // Check if incoming < existing AND user didn't explicitly allow regression
+    const existingResult = await client.query(
+      `SELECT player_ids, updated_at FROM entry_rosters
+       WHERE contest_instance_id = $1 AND user_id = $2`,
+      [contestInstanceId, userId]
+    );
+
+    const existingRoster = existingResult.rows.length > 0 ? existingResult.rows[0] : null;
+    const existingCount = existingRoster?.player_ids?.length ?? 0;
+    const incomingCount = normalizedPlayerIds.length;
+
+    // REGRESSION DETECTION: Incoming count < existing count AND NOT explicitly allowed
+    if (existingRoster && incomingCount < existingCount && !allowRegression) {
+      console.warn('BLOCKING ROSTER REGRESSION (user intent not explicit)', {
+        contest_instance_id: contestInstanceId,
+        user_id: userId,
+        existing_count: existingCount,
+        incoming_count: incomingCount,
+        allow_regression: allowRegression,
+        timestamp: new Date().toISOString()
+      });
+
+      // Graceful response: return existing roster, ignore incoming
+      // This prevents accidental data loss when user didn't intend to reduce roster
+      await client.query('COMMIT');
+      return {
+        success: true,
+        ignored: true,
+        reason: 'regression_blocked_no_intent',
+        player_ids: existingRoster.player_ids,
+        updated_at: new Date(existingRoster.updated_at).toISOString()
+      };
+    }
+
+    // 10. OPTIMISTIC CONCURRENCY: Split INSERT vs UPDATE with proper WHERE clause
+    // Protect UPDATE path with timestamp check (true concurrency safety)
+
+    // If roster exists, must pass timestamp check to prevent concurrent overwrite
+    if (existingRoster) {
+      if (!existingRoster.updated_at) {
+        throw new Error('Missing updated_at for concurrency control');
+      }
+
+      // UPDATE path: WHERE clause protects against concurrent modification
+      const updateResult = await client.query(
+        `UPDATE entry_rosters
+         SET player_ids = $1, updated_at = now()
+         WHERE contest_instance_id = $2
+           AND user_id = $3
+           AND updated_at = $4
+         RETURNING updated_at`,
+        [normalizedPlayerIds, contestInstanceId, userId, existingRoster.updated_at]
+      );
+
+      // If no rows updated, timestamp mismatch = concurrent modification
+      if (updateResult.rows.length === 0) {
+        console.warn('CONCURRENCY CONFLICT: Roster was modified by another request', {
+          contest_instance_id: contestInstanceId,
+          user_id: userId,
+          expected_updated_at: existingRoster.updated_at,
+          timestamp: new Date().toISOString()
+        });
+
+        await client.query('COMMIT');
+        return {
+          success: false,
+          error_code: 'CONCURRENT_MODIFICATION',
+          reason: 'Roster was modified by another request. Please refresh and try again.',
+          conflict: true
+        };
+      }
+
+      // Success: UPDATE succeeded with matching timestamp
+      await client.query('COMMIT');
+      return {
+        success: true,
+        ignored: false,
+        player_ids: normalizedPlayerIds,
+        updated_at: new Date(updateResult.rows[0].updated_at).toISOString()
+      };
+    }
+
+    // INSERT path: First write for this user in this contest
+    // No concurrency concern since row doesn't exist yet
+    const insertResult = await client.query(
       `INSERT INTO entry_rosters (contest_instance_id, user_id, player_ids, submitted_at, updated_at)
        VALUES ($1, $2, $3, now(), now())
-       ON CONFLICT (contest_instance_id, user_id)
-       DO UPDATE SET player_ids = EXCLUDED.player_ids, updated_at = now()
        RETURNING updated_at`,
       [contestInstanceId, userId, normalizedPlayerIds]
     );
@@ -249,8 +335,9 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds) {
 
     return {
       success: true,
+      ignored: false,
       player_ids: normalizedPlayerIds,
-      updated_at: new Date(upsertResult.rows[0].updated_at).toISOString()
+      updated_at: new Date(insertResult.rows[0].updated_at).toISOString()
     };
   } catch (err) {
     await client.query('ROLLBACK');
