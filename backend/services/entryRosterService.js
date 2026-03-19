@@ -254,12 +254,15 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
 
     // REGRESSION DETECTION: Incoming count < existing count AND NOT explicitly allowed
     if (existingRoster && incomingCount < existingCount && !allowRegression) {
-      console.warn('BLOCKING ROSTER REGRESSION (user intent not explicit)', {
+      console.warn('[ROSTER_MUTATION_AUDIT] REGRESSION BLOCKED (no explicit intent)', {
+        source: 'API:submitPicks',
+        operation: 'UPDATE',
         contest_instance_id: contestInstanceId,
         user_id: userId,
-        existing_count: existingCount,
-        incoming_count: incomingCount,
+        old_player_ids_count: existingCount,
+        incoming_player_ids_count: incomingCount,
         allow_regression: allowRegression,
+        reason: 'regression_blocked_no_intent',
         timestamp: new Date().toISOString()
       });
 
@@ -278,6 +281,8 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
     // 10. OPTIMISTIC CONCURRENCY: Split INSERT vs UPDATE with explicit version
     // Client MUST provide expectedUpdatedAt from last known state
     // If it doesn't match current DB state, another request modified it → 409
+    // GOVERNANCE: Only user intent (API call) may modify entry_rosters
+    // No background workers, triggers, or scheduled tasks
 
     // If roster exists, must pass version check to prevent concurrent overwrite
     if (existingRoster) {
@@ -295,10 +300,16 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
 
       // If no rows updated, timestamp mismatch = concurrent modification
       if (updateResult.rows.length === 0) {
-        console.warn('CONCURRENCY CONFLICT: Roster was modified by another request', {
+        console.warn('[ROSTER_MUTATION_AUDIT] UPDATE CONFLICT: version mismatch', {
+          source: 'API:submitPicks',
+          operation: 'UPDATE',
           contest_instance_id: contestInstanceId,
           user_id: userId,
-          expected_updated_at: existingRoster.updated_at,
+          old_player_ids_count: existingRoster.player_ids?.length || 0,
+          incoming_player_ids_count: normalizedPlayerIds.length,
+          expected_updated_at: expectedUpdatedAt,
+          actual_updated_at: existingRoster.updated_at,
+          reason: 'version_mismatch',
           timestamp: new Date().toISOString()
         });
 
@@ -312,6 +323,21 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
       }
 
       // Success: UPDATE succeeded with matching timestamp
+      console.info('[ROSTER_MUTATION_AUDIT] UPDATE SUCCESS', {
+        source: 'API:submitPicks',
+        operation: 'UPDATE',
+        contest_instance_id: contestInstanceId,
+        user_id: userId,
+        old_player_ids: existingRoster.player_ids,
+        new_player_ids: normalizedPlayerIds,
+        old_player_ids_count: existingRoster.player_ids?.length || 0,
+        new_player_ids_count: normalizedPlayerIds.length,
+        allow_regression: allowRegression,
+        old_updated_at: existingRoster.updated_at,
+        new_updated_at: new Date(updateResult.rows[0].updated_at).toISOString(),
+        timestamp: new Date().toISOString()
+      });
+
       await client.query('COMMIT');
       return {
         success: true,
@@ -329,6 +355,17 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
        RETURNING updated_at`,
       [contestInstanceId, userId, normalizedPlayerIds]
     );
+
+    console.info('[ROSTER_MUTATION_AUDIT] INSERT SUCCESS', {
+      source: 'API:submitPicks',
+      operation: 'INSERT',
+      contest_instance_id: contestInstanceId,
+      user_id: userId,
+      new_player_ids: normalizedPlayerIds,
+      new_player_ids_count: normalizedPlayerIds.length,
+      new_updated_at: new Date(insertResult.rows[0].updated_at).toISOString(),
+      timestamp: new Date().toISOString()
+    });
 
     await client.query('COMMIT');
 
