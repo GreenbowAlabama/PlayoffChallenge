@@ -34,6 +34,31 @@ enum PaymentState: Equatable {
     }
 }
 
+/// Withdrawal state machine for withdrawal polling.
+/// ViewModel owns state transitions, View owns presentation.
+enum WithdrawalState: Equatable {
+    case idle                              // No withdrawal in progress
+    case submitted(withdrawalId: String)   // POST succeeded, polling for status
+    case polling(status: String)           // Actively polling, current status
+    case paid                              // Terminal state: Withdrawal completed successfully
+    case failed(reason: String?)           // Terminal state: Withdrawal failed
+    case pendingLongRunning(withdrawalId: String) // Polling exceeded limit, still PROCESSING/REQUESTED
+    case operationFailed(error: String)    // Withdrawal operation failed
+
+    static func == (lhs: WithdrawalState, rhs: WithdrawalState) -> Bool {
+        switch (lhs, rhs) {
+        case (.idle, .idle): return true
+        case (.submitted(let lhsId), .submitted(let rhsId)): return lhsId == rhsId
+        case (.polling(let lhsStatus), .polling(let rhsStatus)): return lhsStatus == rhsStatus
+        case (.paid, .paid): return true
+        case (.failed(let lhsReason), .failed(let rhsReason)): return lhsReason == rhsReason
+        case (.pendingLongRunning(let lhsId), .pendingLongRunning(let rhsId)): return lhsId == rhsId
+        case (.operationFailed(let lhsErr), .operationFailed(let rhsErr)): return lhsErr == rhsErr
+        default: return false
+        }
+    }
+}
+
 /// Domain model: Wallet
 /// Internal representation (not DTO).
 /// Converted from WalletResponseDTO in ViewModel init.
@@ -164,6 +189,9 @@ final class UserWalletViewModel: ObservableObject {
     /// Payment orchestration state (NEW architecture).
     @Published private(set) var paymentState: PaymentState = .idle
 
+    /// Withdrawal state machine for polling and completion.
+    @Published private(set) var withdrawalState: WithdrawalState = .idle
+
     /// Transaction history (fetched from backend).
     @Published private(set) var transactions: [WalletTransaction] = []
 
@@ -198,6 +226,13 @@ final class UserWalletViewModel: ObservableObject {
     // MARK: - Load Guard
 
     private var hasLoaded = false
+
+    // MARK: - Polling Task
+
+    private var pollingTask: Task<Void, Never>?
+
+    /// Track the most recent withdrawal ID for background reconciliation.
+    private var lastWithdrawalId: String?
 
     // MARK: - Initialization
 
@@ -424,6 +459,152 @@ final class UserWalletViewModel: ObservableObject {
         self.paymentState = .idle
     }
 
+    /// Determine polling interval based on elapsed time (adaptive polling).
+    /// - 0–10s → every 2s (worker may process quickly)
+    /// - 10–30s → every 5s (check regularly)
+    /// - 30–90s → every 10s (worker cycle is ~30s, space out requests)
+    private func pollIntervalSeconds(elapsedSeconds: Int) -> UInt64 {
+        if elapsedSeconds < 10 {
+            return 2
+        } else if elapsedSeconds < 30 {
+            return 5
+        } else {
+            return 10
+        }
+    }
+
+    /// Poll withdrawal status with adaptive intervals until terminal state or timeout.
+    /// Worker runs every ~30s, so poll for up to 90 seconds to catch the next cycle.
+    /// - Parameter withdrawalId: UUID of the withdrawal to poll
+    private func pollWithdrawalStatus(withdrawalId: String) async {
+        print("[UserWalletViewModel] Starting polling for withdrawal \(withdrawalId)")
+
+        // Cancel any existing polling task
+        pollingTask?.cancel()
+
+        let maxPollDurationSeconds: Int = 90  // Allow time for multiple worker cycles (~30s each)
+        let startTime = Date()
+
+        pollingTask = Task {
+            var isTerminal = false
+
+            while !Task.isCancelled && !isTerminal {
+                let elapsedSeconds = Int(Date().timeIntervalSince(startTime))
+
+                // Check if we've exceeded max polling duration
+                if elapsedSeconds > maxPollDurationSeconds {
+                    print("[UserWalletViewModel] Polling timeout after \(elapsedSeconds)s, switching to long-running state")
+                    await MainActor.run {
+                        self.withdrawalState = .pendingLongRunning(withdrawalId: withdrawalId)
+                        self.errorMessage = "Withdrawal is processing. You'll be notified when complete."
+                    }
+                    break
+                }
+
+                do {
+                    // Fetch current status
+                    let statusDTO = try await walletService.fetchWithdrawalStatus(withdrawalId: withdrawalId)
+
+                    print("[UserWalletViewModel] Withdrawal status: \(statusDTO.status), elapsed: \(elapsedSeconds)s")
+
+                    // Check if terminal state reached before updating UI
+                    let isTerminalStatus = statusDTO.status == "PAID" || statusDTO.status == "FAILED"
+
+                    await MainActor.run {
+                        // Update polling state with user-friendly status
+                        let userFriendlyStatus = self.statusToUserMessage(statusDTO.status)
+                        self.withdrawalState = .polling(status: userFriendlyStatus)
+                    }
+
+                    // Handle terminal states
+                    if statusDTO.status == "PAID" {
+                        print("[UserWalletViewModel] Withdrawal completed successfully")
+                        await MainActor.run {
+                            self.withdrawalState = .paid
+                            self.errorMessage = nil
+                        }
+                        // Refresh wallet OUTSIDE MainActor.run to avoid double-hop
+                        await self.fetchWallet()
+                        isTerminal = true
+                    } else if statusDTO.status == "FAILED" {
+                        print("[UserWalletViewModel] Withdrawal failed")
+                        let failureReason = statusDTO.failure_reason ?? "Complete payout setup to enable withdrawals"
+                        await MainActor.run {
+                            self.withdrawalState = .failed(reason: statusDTO.failure_reason)
+                            self.errorMessage = failureReason
+                        }
+                        // Refresh wallet OUTSIDE MainActor.run to avoid double-hop
+                        await self.fetchWallet()
+                        isTerminal = true
+                    }
+
+                    if isTerminal {
+                        break
+                    }
+
+                    // Adaptive polling interval based on elapsed time
+                    let interval = pollIntervalSeconds(elapsedSeconds: elapsedSeconds)
+                    print("[UserWalletViewModel] Next poll in \(interval)s")
+                    try await Task.sleep(nanoseconds: interval * 1_000_000_000)
+                } catch {
+                    print("[UserWalletViewModel] Polling error: \(error)")
+                    // Continue polling even on error, with longer backoff
+                    let interval = pollIntervalSeconds(elapsedSeconds: elapsedSeconds)
+                    try? await Task.sleep(nanoseconds: interval * 1_000_000_000)
+                }
+            }
+        }
+    }
+
+    /// Convert withdrawal status to user-friendly message.
+    private func statusToUserMessage(_ status: String) -> String {
+        switch status {
+        case "REQUESTED":
+            return "Submitting withdrawal…"
+        case "PROCESSING":
+            return "Processing withdrawal…"
+        case "PAID":
+            return "Withdrawal completed"
+        case "FAILED":
+            return "Withdrawal failed"
+        case "CANCELLED":
+            return "Withdrawal cancelled"
+        default:
+            return status
+        }
+    }
+
+    /// Cancel withdrawal polling (called when dismissing sheet prematurely).
+    func cancelWithdrawalPolling() {
+        print("[UserWalletViewModel] Cancelling withdrawal polling")
+        pollingTask?.cancel()
+        pollingTask = nil
+    }
+
+    /// Reset withdrawal state for next withdrawal attempt.
+    /// Called when closing the withdrawal sheet.
+    func resetWithdrawalState() {
+        print("[UserWalletViewModel] Resetting withdrawal state")
+        withdrawalState = .idle
+        pollingTask?.cancel()
+        pollingTask = nil
+    }
+
+    /// Check for pending long-running withdrawal and resume polling if needed.
+    /// Called when wallet screen appears (background reconciliation).
+    func reconcilePendingWithdrawal() async {
+        guard let withdrawalId = lastWithdrawalId else {
+            print("[UserWalletViewModel] No pending withdrawal to reconcile")
+            return
+        }
+
+        // Only reconcile if we're in long-running state
+        if case .pendingLongRunning = withdrawalState {
+            print("[UserWalletViewModel] Resuming polling for pending withdrawal: \(withdrawalId)")
+            await pollWithdrawalStatus(withdrawalId: withdrawalId)
+        }
+    }
+
     /// Withdraw funds from wallet.
     /// - Parameter amountCents: Amount to withdraw in cents
     func withdraw(amountCents: Int) async {
@@ -448,40 +629,49 @@ final class UserWalletViewModel: ObservableObject {
             )
 
             await MainActor.run {
-                print("[UserWalletViewModel] Withdrawal succeeded: \(withdrawResponse.withdrawal_id), status=\(withdrawResponse.status)")
+                print("[UserWalletViewModel] Withdrawal submitted: \(withdrawResponse.withdrawal_id), status=\(withdrawResponse.status)")
+                self.lastWithdrawalId = withdrawResponse.withdrawal_id
+                self.withdrawalState = .submitted(withdrawalId: withdrawResponse.withdrawal_id)
                 self.isWithdrawing = false
+                self.errorMessage = nil
             }
 
-            // Refresh wallet to reflect deducted balance
-            await fetchWallet()
+            // Start polling for terminal status
+            await pollWithdrawalStatus(withdrawalId: withdrawResponse.withdrawal_id)
         } catch APIError.stripeAccountRequired {
             await MainActor.run {
+                self.withdrawalState = .operationFailed(error: "Stripe account not connected")
                 self.errorMessage = "Stripe account not connected. Please complete Stripe onboarding to enable withdrawals."
                 self.isWithdrawing = false
             }
         } catch APIError.stripeAccountIncomplete {
             await MainActor.run {
+                self.withdrawalState = .operationFailed(error: "Stripe account setup incomplete")
                 self.errorMessage = "Stripe account setup incomplete. Please complete onboarding to enable withdrawals."
                 self.isWithdrawing = false
             }
         } catch APIError.insufficientFunds {
             await MainActor.run {
+                self.withdrawalState = .operationFailed(error: "Insufficient funds")
                 self.errorMessage = "Insufficient wallet funds"
                 self.isWithdrawing = false
             }
         } catch APIError.validationError(let message) {
             await MainActor.run {
+                self.withdrawalState = .operationFailed(error: message)
                 self.errorMessage = message
                 self.isWithdrawing = false
             }
         } catch APIError.unauthorized {
             await MainActor.run {
+                self.withdrawalState = .operationFailed(error: "Unauthorized")
                 self.errorMessage = "Please sign in to withdraw funds"
                 self.isWithdrawing = false
             }
         } catch {
             await MainActor.run {
                 print("[UserWalletViewModel] Withdrawal failed: \(error)")
+                self.withdrawalState = .operationFailed(error: error.localizedDescription)
                 self.errorMessage = error.localizedDescription
                 self.isWithdrawing = false
             }

@@ -150,3 +150,41 @@ struct WalletWithdrawResponseDTO: Decodable {
         case amount_cents = "amount_cents"
     }
 }
+
+/// DTO for withdrawal status from GET /api/wallet/withdrawals/:id
+struct WithdrawalStatusDTO: Decodable {
+    /// Unique withdrawal ID (UUID)
+    let id: String
+
+    /// Withdrawal amount in cents
+    let amount_cents: Int
+
+    /// Instant fee in cents (if applicable)
+    let instant_fee_cents: Int
+
+    /// Withdrawal method: "standard" or "instant"
+    let method: String
+
+    /// Current status: "REQUESTED", "PROCESSING", "PAID", "FAILED", "CANCELLED"
+    let status: String
+
+    /// Reason for failure (null if not failed)
+    let failure_reason: String?
+
+    /// ISO8601 timestamp when withdrawal was processed (null if not yet processed)
+    let processed_at: String?
+
+    /// ISO8601 timestamp when withdrawal was requested
+    let requested_at: String
+
+    enum CodingKeys: String, CodingKey {
+        case id = "id"
+        case amount_cents = "amount_cents"
+        case instant_fee_cents = "instant_fee_cents"
+        case method = "method"
+        case status = "status"
+        case failure_reason = "failure_reason"
+        case processed_at = "processed_at"
+        case requested_at = "requested_at"
+    }
+}

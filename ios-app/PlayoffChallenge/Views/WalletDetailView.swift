@@ -103,6 +103,8 @@ struct WalletDetailView: View {
             await viewModel.fetchTransactions()
             // Check Stripe Connect status
             await stripeConnectVM.checkStatus()
+            // Background reconciliation: Resume polling if there's a pending long-running withdrawal
+            await viewModel.reconcilePendingWithdrawal()
         }
     }
 
@@ -304,60 +306,107 @@ struct WalletDetailView: View {
     private var withdrawSheet: some View {
         NavigationStack {
             VStack(spacing: DesignTokens.Spacing.lg) {
-                Text("Withdraw from Wallet")
-                    .font(.headline)
-                    .padding(.top, DesignTokens.Spacing.lg)
+                // Title changes based on state
+                switch viewModel.withdrawalState {
+                case .idle, .submitted, .polling:
+                    Text("Withdraw from Wallet")
+                        .font(.headline)
+                        .padding(.top, DesignTokens.Spacing.lg)
+                case .paid:
+                    Text("Withdrawal Completed")
+                        .font(.headline)
+                        .foregroundColor(.green)
+                        .padding(.top, DesignTokens.Spacing.lg)
+                case .failed:
+                    Text("Withdrawal Status")
+                        .font(.headline)
+                        .foregroundColor(.orange)
+                        .padding(.top, DesignTokens.Spacing.lg)
+                case .pendingLongRunning:
+                    Text("Processing Withdrawal")
+                        .font(.headline)
+                        .foregroundColor(.blue)
+                        .padding(.top, DesignTokens.Spacing.lg)
+                case .operationFailed:
+                    Text("Withdrawal Failed")
+                        .font(.headline)
+                        .foregroundColor(.red)
+                        .padding(.top, DesignTokens.Spacing.lg)
+                }
 
                 // Display current balance
-                VStack(spacing: DesignTokens.Spacing.xs) {
-                    Text("Available Balance")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(viewModel.displayBalance)
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(DesignTokens.Spacing.md)
-                .background(Color(.systemGray6))
-                .cornerRadius(DesignTokens.Radius.md)
-
-                // Amount input
-                VStack(spacing: DesignTokens.Spacing.sm) {
-                    Text("Withdrawal Amount")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    HStack {
-                        Text("$")
-                            .font(.body)
-                        TextField("0.00", text: $withdrawAmount)
-                            .keyboardType(.decimalPad)
-                            .font(.body)
+                if case .idle = viewModel.withdrawalState {
+                    VStack(spacing: DesignTokens.Spacing.xs) {
+                        Text("Available Balance")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(viewModel.displayBalance)
+                            .font(.title2)
+                            .fontWeight(.semibold)
                     }
+                    .frame(maxWidth: .infinity)
                     .padding(DesignTokens.Spacing.md)
                     .background(Color(.systemGray6))
                     .cornerRadius(DesignTokens.Radius.md)
                 }
 
+                // Amount input (only during idle state)
+                if case .idle = viewModel.withdrawalState {
+                    VStack(spacing: DesignTokens.Spacing.sm) {
+                        Text("Withdrawal Amount")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack {
+                            Text("$")
+                                .font(.body)
+                            TextField("0.00", text: $withdrawAmount)
+                                .keyboardType(.decimalPad)
+                                .font(.body)
+                        }
+                        .padding(DesignTokens.Spacing.md)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(DesignTokens.Radius.md)
+                    }
+                }
+
                 Spacer()
 
+                // Status indicator during polling
+                if case .submitted = viewModel.withdrawalState {
+                    VStack(spacing: DesignTokens.Spacing.sm) {
+                        ProgressView()
+                        Text("Submitting withdrawal…")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else if case .polling(let status) = viewModel.withdrawalState {
+                    VStack(spacing: DesignTokens.Spacing.sm) {
+                        ProgressView()
+                        Text(status)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else if case .pendingLongRunning = viewModel.withdrawalState {
+                    VStack(spacing: DesignTokens.Spacing.sm) {
+                        ProgressView()
+                        Text("Withdrawal is processing…")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("(may take a few minutes)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 // Action button
-                if viewModel.isWithdrawing {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(DesignTokens.Spacing.lg)
-                } else {
+                switch viewModel.withdrawalState {
+                case .idle:
                     Button(action: {
                         let cents = Int((Double(withdrawAmount) ?? 0) * 100)
                         Task {
                             await viewModel.withdraw(amountCents: cents)
-                            if viewModel.errorMessage == nil {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    showWithdrawSheet = false
-                                }
-                            }
                         }
                     }) {
                         Text("Withdraw")
@@ -367,21 +416,62 @@ struct WalletDetailView: View {
                             .foregroundColor(.white)
                             .cornerRadius(DesignTokens.Radius.md)
                     }
+                    .disabled(viewModel.isWithdrawing)
+
+                case .submitted, .polling, .pendingLongRunning:
+                    // No action button during processing
+                    EmptyView()
+
+                case .paid, .failed, .operationFailed:
+                    Button(action: { showWithdrawSheet = false }) {
+                        Text("Done")
+                            .frame(maxWidth: .infinity)
+                            .padding(DesignTokens.Spacing.md)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(DesignTokens.Radius.md)
+                    }
                 }
 
-                // Error message
-                if let error = viewModel.errorMessage {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
+                // Error/Status message
+                if let message = viewModel.errorMessage {
+                    VStack(spacing: DesignTokens.Spacing.xs) {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundColor(
+                                switch viewModel.withdrawalState {
+                                case .paid:
+                                    .green
+                                case .failed, .operationFailed:
+                                    .red
+                                default:
+                                    .primary
+                                }
+                            )
+                            .lineLimit(nil)
+                            .multilineTextAlignment(.center)
+                    }
                 }
             }
             .padding(DesignTokens.Spacing.lg)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Close") { showWithdrawSheet = false }
+                    Button("Close") {
+                        viewModel.resetWithdrawalState()
+                        showWithdrawSheet = false
+                    }
                 }
+            }
+            .onChange(of: viewModel.withdrawalState) { _, newState in
+                // Auto-close on success after a short delay
+                if case .paid = newState {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        showWithdrawSheet = false
+                    }
+                }
+                // Don't auto-close on failure, long-running, or operation failed
+                // Let user read the message and dismiss manually
             }
         }
     }
@@ -535,6 +625,21 @@ class MockWalletService: WalletFetching {
 
     func withdrawFunds(amountCents: Int, method: String, idempotencyKey: String) async throws -> WalletWithdrawResponseDTO {
         return WalletWithdrawResponseDTO(withdrawal_id: UUID().uuidString, status: "PROCESSING", amount_cents: amountCents)
+    }
+
+    func fetchWithdrawalStatus(withdrawalId: String) async throws -> WithdrawalStatusDTO {
+        // Simulate polling: return PROCESSING first time, PAID on second check
+        let isPaid = Bool.random()
+        return WithdrawalStatusDTO(
+            id: withdrawalId,
+            amount_cents: 50000,
+            instant_fee_cents: 250,
+            method: "standard",
+            status: isPaid ? "PAID" : "PROCESSING",
+            failure_reason: nil,
+            processed_at: isPaid ? ISO8601DateFormatter().string(from: Date()) : nil,
+            requested_at: ISO8601DateFormatter().string(from: Date())
+        )
     }
 
     func fetchTransactions(limit: Int, offset: Int) async throws -> WalletTransactionsResponseDTO {

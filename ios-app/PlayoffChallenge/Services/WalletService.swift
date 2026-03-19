@@ -16,6 +16,7 @@ protocol WalletFetching: Sendable {
     func fetchWallet() async throws -> WalletResponseDTO
     func fundWallet(amountCents: Int, idempotencyKey: String) async throws -> WalletFundResponseDTO
     func withdrawFunds(amountCents: Int, method: String, idempotencyKey: String) async throws -> WalletWithdrawResponseDTO
+    func fetchWithdrawalStatus(withdrawalId: String) async throws -> WithdrawalStatusDTO
     func fetchTransactions(limit: Int, offset: Int) async throws -> WalletTransactionsResponseDTO
 }
 
@@ -266,6 +267,64 @@ final class WalletService: WalletFetching, @unchecked Sendable {
         } catch {
             print("[WalletService:Withdraw] ERROR: Failed to decode response: \(error)")
             print("[WalletService:Withdraw] Raw response data: \(String(data: data, encoding: .utf8) ?? "Unable to convert to string")")
+            throw APIError.decodingError
+        }
+    }
+
+    /// Fetch withdrawal status by ID.
+    /// - Parameters:
+    ///   - withdrawalId: UUID of the withdrawal to fetch
+    /// - Returns: WithdrawalStatusDTO with current status and details
+    /// - Throws: APIError on network, auth, or server error
+    func fetchWithdrawalStatus(withdrawalId: String) async throws -> WithdrawalStatusDTO {
+        let url = URL(string: "\(baseURL)/api/wallet/withdrawals/\(withdrawalId)")!
+
+        print("[WalletService:Status] Fetching withdrawal status: \(withdrawalId)")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Add X-User-Id header
+        if let userId = authService.currentUser?.id {
+            request.setValue(userId.uuidString, forHTTPHeaderField: "X-User-Id")
+        } else {
+            print("[WalletService:Status] ERROR: No authenticated user available")
+            throw APIError.unauthorized
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            print("[WalletService:Status] ERROR: Invalid response type")
+            throw APIError.invalidResponse
+        }
+
+        print("[WalletService:Status] Response: HTTP \(http.statusCode)")
+
+        switch http.statusCode {
+        case 200:
+            // Success — decode status
+            break
+        case 401:
+            print("[WalletService:Status] 401 Unauthorized")
+            throw APIError.unauthorized
+        case 404:
+            print("[WalletService:Status] 404 Not Found")
+            throw APIError.notFound
+        default:
+            let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            print("[WalletService:Status] Server error: \(errorMsg)")
+            throw APIError.serverError("Server returned \(http.statusCode)")
+        }
+
+        let decoder = JSONDecoder.iso8601Decoder
+        do {
+            let statusDTO = try decoder.decode(WithdrawalStatusDTO.self, from: data)
+            print("[WalletService:Status] Decoded: status=\(statusDTO.status), id=\(statusDTO.id)")
+            return statusDTO
+        } catch {
+            print("[WalletService:Status] ERROR: Failed to decode response: \(error)")
             throw APIError.decodingError
         }
     }
