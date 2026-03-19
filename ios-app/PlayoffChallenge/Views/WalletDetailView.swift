@@ -306,27 +306,50 @@ struct WalletDetailView: View {
     private var withdrawSheet: some View {
         NavigationStack {
             VStack(spacing: DesignTokens.Spacing.lg) {
-                // Title changes based on state
+                // Title and result rendering
                 switch viewModel.withdrawalState {
                 case .idle, .submitted, .polling:
                     Text("Withdraw from Wallet")
                         .font(.headline)
                         .padding(.top, DesignTokens.Spacing.lg)
+
                 case .paid:
-                    Text("Withdrawal Completed")
-                        .font(.headline)
-                        .foregroundColor(.green)
-                        .padding(.top, DesignTokens.Spacing.lg)
-                case .failed:
-                    Text("Withdrawal Status")
-                        .font(.headline)
-                        .foregroundColor(.orange)
-                        .padding(.top, DesignTokens.Spacing.lg)
+                    VStack(spacing: DesignTokens.Spacing.md) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.green)
+                        Text("Withdrawal Completed")
+                            .font(.headline)
+                            .foregroundColor(.green)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, DesignTokens.Spacing.lg)
+
+                case .failed(let reason):
+                    VStack(spacing: DesignTokens.Spacing.sm) {
+                        Image(systemName: "exclamation.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.red)
+                        Text("Withdrawal Failed")
+                            .font(.headline)
+                            .foregroundColor(.red)
+
+                        // Show failure reason directly
+                        Text(reason ?? "Complete payout setup to enable withdrawals")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .lineLimit(nil)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, DesignTokens.Spacing.lg)
+
                 case .pendingLongRunning:
                     Text("Processing Withdrawal")
                         .font(.headline)
                         .foregroundColor(.blue)
                         .padding(.top, DesignTokens.Spacing.lg)
+
                 case .operationFailed:
                     Text("Withdrawal Failed")
                         .font(.headline)

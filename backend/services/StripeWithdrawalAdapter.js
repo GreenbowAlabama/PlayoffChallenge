@@ -50,11 +50,14 @@ function getStripeInstance() {
 }
 
 /**
- * Create a transfer for wallet withdrawal via Stripe.
+ * Create a transfer for wallet withdrawal via Stripe Connect.
  *
  * Calls stripe.transfers.create() to move funds from platform account to
- * user's connected Stripe account. Idempotency key ensures deterministic,
- * deduplicated transfers.
+ * user's connected Stripe account. This is the correct pattern for platform
+ * wallet systems where the platform holds user funds and transfers to connected
+ * accounts for withdrawal.
+ *
+ * Idempotency key ensures deterministic, deduplicated transfers.
  *
  * @param {Object} params - Transfer parameters
  * @param {number} params.amountCents - Amount in cents (must be > 0)
@@ -66,7 +69,7 @@ function getStripeInstance() {
  *
  * @returns {Promise<Object>} Result object:
  *   On success: { success: true, transferId: 'tr_xxx' }
- *   On error: { success: false, classification: 'retryable'|'permanent', reason: 'error_code' }
+ *   On error: { success: false, classification: 'retryable'|'permanent', reason: 'error_code', errorType: '', errorCode: '', errorMessage: '' }
  */
 async function createTransfer({ amountCents, destination, withdrawalId, userId, stripeOverride, timeoutMs = 30000 }) {
   // Validate inputs
@@ -74,7 +77,10 @@ async function createTransfer({ amountCents, destination, withdrawalId, userId, 
     return {
       success: false,
       classification: 'permanent',
-      reason: 'invalid_amount'
+      reason: 'invalid_amount',
+      errorType: 'validation',
+      errorCode: 'INVALID_AMOUNT',
+      errorMessage: 'Amount must be positive'
     };
   }
 
@@ -82,7 +88,10 @@ async function createTransfer({ amountCents, destination, withdrawalId, userId, 
     return {
       success: false,
       classification: 'permanent',
-      reason: 'invalid_destination'
+      reason: 'invalid_destination',
+      errorType: 'validation',
+      errorCode: 'INVALID_DESTINATION',
+      errorMessage: 'Invalid Stripe connected account ID'
     };
   }
 
@@ -90,7 +99,10 @@ async function createTransfer({ amountCents, destination, withdrawalId, userId, 
     return {
       success: false,
       classification: 'permanent',
-      reason: 'invalid_withdrawal_id'
+      reason: 'invalid_withdrawal_id',
+      errorType: 'validation',
+      errorCode: 'INVALID_WITHDRAWAL_ID',
+      errorMessage: 'Invalid withdrawal ID'
     };
   }
 
@@ -98,7 +110,8 @@ async function createTransfer({ amountCents, destination, withdrawalId, userId, 
     // Get stripe instance (use override for testing, or lazy-load production instance)
     const stripeInstance = stripeOverride || getStripeInstance();
 
-    // Call Stripe with idempotency key in header
+    // Call Stripe transfers.create to move funds from platform → connected account
+    // The platform account must have available balance for this to succeed
     const transfer = await stripeInstance.transfers.create(
       {
         amount: amountCents,
@@ -116,18 +129,56 @@ async function createTransfer({ amountCents, destination, withdrawalId, userId, 
       }
     );
 
+    console.log('[StripeWithdrawalAdapter] Transfer created successfully', {
+      transferId: transfer.id,
+      withdrawalId,
+      amount: amountCents,
+      destination,
+      status: transfer.status
+    });
+
     return {
       success: true,
-      transferId: transfer.id
+      transferId: transfer.id,
+      errorType: null,
+      errorCode: null,
+      errorMessage: null
     };
   } catch (error) {
+    // Log full error details for debugging
+    const errorType = error.type || 'unknown';
+    const errorCode = error.code || 'unknown';
+    const errorMessage = error.message || 'Unknown error';
+
+    console.error('[StripeWithdrawalAdapter] Transfer creation failed', {
+      withdrawalId,
+      destination,
+      amount: amountCents,
+      errorType,
+      errorCode,
+      errorMessage,
+      rawError: {
+        type: error.type,
+        code: error.code,
+        status: error.status,
+        statusCode: error.statusCode,
+        message: error.message,
+        param: error.param,
+        decline_code: error.decline_code
+      }
+    });
+
     // Classify error
     const classification = classifyError(error);
+    const reason = extractErrorReason(error);
 
     return {
       success: false,
       classification,
-      reason: extractErrorReason(error)
+      reason,
+      errorType,
+      errorCode,
+      errorMessage
     };
   }
 }
@@ -135,10 +186,10 @@ async function createTransfer({ amountCents, destination, withdrawalId, userId, 
 /**
  * Classify error as retryable or permanent.
  *
- * Transient errors (network, timeout, rate limit, 5xx):
+ * Transient errors (network, timeout, rate limit, 5xx, insufficient funds):
  *   classification = 'retryable'
  *
- * Permanent errors (validation, 4xx, invalid parameters):
+ * Permanent errors (validation, 4xx, invalid parameters, invalid account):
  *   classification = 'permanent'
  *
  * @private
@@ -162,8 +213,15 @@ function classifyError(error) {
     if (error.status >= 500) {
       return 'retryable';
     }
-    // 4xx validation errors are permanent (but NOT 429, already handled above)
+    // 4xx validation errors - check for specific retryable cases
     if (error.status >= 400 && error.status < 500) {
+      // Insufficient funds is retryable (platform may receive funds later)
+      const errorCode = error.code || '';
+      const message = error.message || '';
+      if (errorCode.includes('insufficient') || message.includes('insufficient')) {
+        return 'retryable';
+      }
+      // Other 4xx errors are permanent
       return 'permanent';
     }
   }
@@ -178,8 +236,13 @@ function classifyError(error) {
     return 'retryable';
   }
 
-  // API errors (validation, missing fields, etc.)
+  // API errors - check for insufficient funds
   if (error.type === 'StripeAPIError' || error.type === 'StripeInvalidRequestError') {
+    const message = error.message || '';
+    const errorCode = error.code || '';
+    if (errorCode.includes('insufficient') || message.includes('insufficient')) {
+      return 'retryable';
+    }
     return 'permanent';
   }
 
@@ -226,11 +289,20 @@ function extractErrorReason(error) {
 
   // Validation errors (4xx)
   if (error.type === 'StripeInvalidRequestError' || (error.status >= 400 && error.status < 500)) {
-    // Check error message for common cases
+    // Check error code/message for specific cases
+    const errorCode = error.code || '';
     const message = error.message || '';
+
+    // Insufficient funds - retryable
+    if (errorCode.includes('insufficient') || message.includes('insufficient')) {
+      return 'stripe_insufficient_funds';
+    }
+
+    // Invalid destination/account
     if (message.includes('destination') || message.includes('account')) {
       return 'stripe_invalid_account';
     }
+
     return 'stripe_invalid_request';
   }
 

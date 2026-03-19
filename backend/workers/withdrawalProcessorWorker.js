@@ -104,6 +104,25 @@ function startWithdrawalProcessor(pool, options = {}) {
 }
 
 /**
+ * Get user-friendly error message for pre-Stripe check failure.
+ * @private
+ * @param {string} reason - Pre-Stripe failure reason code
+ * @returns {string} User-friendly error message
+ */
+function getPreStripeErrorMessage(reason) {
+  switch (reason) {
+    case 'NO_STRIPE_ACCOUNT':
+      return 'Stripe account not connected';
+    case 'STRIPE_ACCOUNT_INCOMPLETE':
+      return 'Stripe account setup incomplete (requires payouts enabled and details submitted)';
+    case 'INSUFFICIENT_PLATFORM_BALANCE':
+      return 'Platform insufficient balance (will retry when funds available)';
+    default:
+      return `Preflight check failed: ${reason}`;
+  }
+}
+
+/**
  * Stop withdrawal processor worker
  * @returns {void}
  */
@@ -227,11 +246,12 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
       await pool.query(
         `UPDATE wallet_withdrawals
          SET status = 'FAILED',
+             failure_reason = 'USER_NOT_FOUND',
              last_error_code = 'USER_NOT_FOUND',
              last_error_details_json = $1,
              updated_at = NOW()
          WHERE id = $2`,
-        [JSON.stringify({ reason: 'User not found' }), withdrawal.id]
+        [JSON.stringify({ reason: 'User not found', errorType: 'permanent', errorCode: 'USER_NOT_FOUND', errorMessage: 'User account not found in system' }), withdrawal.id]
       );
 
       return {
@@ -287,18 +307,54 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
       }
     }
 
+    // Check 3: Platform Stripe account has available balance (live Stripe call)
+    if (!preStripeFailureReason) {
+      try {
+        const stripeInstance = StripeWithdrawalAdapter.getStripeInstance();
+        const balance = await stripeInstance.balance.retrieve();
+
+        // Check available balance (not pending balance)
+        const availableCents = balance.available.reduce((sum, bal) => {
+          return sum + (bal.currency === 'usd' ? bal.amount : 0);
+        }, 0);
+
+        console.log('[WithdrawalProcessor] Platform balance check', {
+          withdrawal_id: withdrawal.id,
+          withdrawal_amount: withdrawal.amount_cents,
+          available_balance: availableCents
+        });
+
+        if (availableCents < withdrawal.amount_cents) {
+          preStripeFailureReason = 'INSUFFICIENT_PLATFORM_BALANCE';
+        }
+      } catch (stripeErr) {
+        // Balance check error - treat as retryable, let transfer attempt
+        // Stripe will reject with proper error if balance is truly insufficient
+        console.log('[WithdrawalProcessor] Platform balance check error', {
+          withdrawal_id: withdrawal.id,
+          error: stripeErr.message
+        });
+      }
+    }
+
     // 4. Call Stripe Transfers API or create synthetic failure
     let stripeResult;
     if (preStripeFailureReason) {
       // Pre-Stripe check failed - create synthetic failure result
-      // This will flow through the normal result handling and hit the permanent failure path
+      // Classify: INSUFFICIENT_PLATFORM_BALANCE is retryable (funds may arrive later)
+      // Other reasons are permanent
+      const isRetryable = preStripeFailureReason === 'INSUFFICIENT_PLATFORM_BALANCE';
+
       stripeResult = {
         success: false,
-        classification: 'permanent',
-        reason: preStripeFailureReason
+        classification: isRetryable ? 'retryable' : 'permanent',
+        reason: preStripeFailureReason,
+        errorType: 'preflight_check',
+        errorCode: preStripeFailureReason,
+        errorMessage: getPreStripeErrorMessage(preStripeFailureReason)
       };
     } else {
-      // Proceed to Stripe transfer
+      // Proceed to Stripe transfer (platform → connected account)
       stripeResult = await StripeWithdrawalAdapter.createTransfer({
         amountCents: withdrawal.amount_cents,
         destination: stripeConnectedAccountId,
@@ -315,6 +371,7 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
         `UPDATE wallet_withdrawals
          SET stripe_payout_id = $1,
              status = 'PAID',
+             failure_reason = NULL,
              processed_at = NOW(),
              last_error_code = NULL,
              last_error_details_json = NULL,
@@ -326,7 +383,7 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
       return {
         success: true,
         withdrawal_id: withdrawal.id,
-        payout_id: stripeResult.transferId
+        transfer_id: stripeResult.transferId
       };
     }
 
@@ -343,15 +400,24 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
         `UPDATE wallet_withdrawals
          SET attempt_count = $1,
              next_attempt_at = $2,
-             last_error_code = $3,
-             last_error_details_json = $4,
+             failure_reason = $3,
+             last_error_code = $4,
+             last_error_details_json = $5,
              updated_at = NOW()
-         WHERE id = $5`,
+         WHERE id = $6`,
         [
           currentAttempt,
           nextAttemptAt,
           stripeResult.reason,
-          JSON.stringify({ error: stripeResult.reason, classification: 'retryable' }),
+          stripeResult.errorCode,
+          JSON.stringify({
+            error: stripeResult.reason,
+            errorType: stripeResult.errorType,
+            errorCode: stripeResult.errorCode,
+            errorMessage: stripeResult.errorMessage,
+            classification: 'retryable',
+            attempt: currentAttempt
+          }),
           withdrawal.id
         ]
       );
@@ -435,22 +501,31 @@ async function processWithdrawal(pool, withdrawal, maxRetries, retryDelayMs) {
 
       // 4. Mark withdrawal failed (after reversal guaranteed AND verified)
       console.log('[WithdrawalProcessor] MARKING WITHDRAWAL FAILED', {
-        withdrawal_id: withdrawal.id
+        withdrawal_id: withdrawal.id,
+        reason: stripeResult.reason,
+        errorType: stripeResult.errorType,
+        errorCode: stripeResult.errorCode,
+        errorMessage: stripeResult.errorMessage
       });
 
       await client.query(
         `UPDATE wallet_withdrawals
          SET status = 'FAILED',
              attempt_count = $1,
-             last_error_code = $2,
-             last_error_details_json = $3,
+             failure_reason = $2,
+             last_error_code = $3,
+             last_error_details_json = $4,
              updated_at = NOW()
-         WHERE id = $4`,
+         WHERE id = $5`,
         [
           currentAttempt,
           stripeResult.reason,
+          stripeResult.errorCode,
           JSON.stringify({
             error: stripeResult.reason,
+            errorType: stripeResult.errorType,
+            errorCode: stripeResult.errorCode,
+            errorMessage: stripeResult.errorMessage,
             classification: stripeResult.classification,
             attempt: currentAttempt,
             maxAttempts: maxRetries
