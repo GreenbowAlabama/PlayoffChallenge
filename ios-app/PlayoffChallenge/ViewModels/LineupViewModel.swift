@@ -655,6 +655,39 @@ final class LineupViewModel: ObservableObject {
             errorMessage = "Lineup saved!"
             showError = false
 
+        } catch APIError.serverError(let message) where message.contains("409") {
+            print("[PGA][submit] Conflict → retrying once")
+
+            // STEP 1: Refresh from server
+            if let userId = currentUserId {
+                await loadData(userId: userId)
+
+                do {
+                    // STEP 2: Retry with fresh baseline
+                    let retryPlayerIds = slots
+                        .filter { !$0.isEmpty }
+                        .compactMap { $0.playerId }
+
+                    let retryAllowRegression = retryPlayerIds.count < lastSavedPlayerIds.count
+
+                    let retryResponse = try await APIService.shared.submitPicks(
+                        contestId: contestId,
+                        playerIds: retryPlayerIds,
+                        allowRegression: retryAllowRegression
+                    )
+
+                    self.lastSavedPlayerIds = retryResponse.playerIds
+                    errorMessage = "Lineup saved!"
+                    showError = false
+                    print("[MYLINEUP][submitPGAPicks] success on retry")
+
+                } catch {
+                    print("[PGA][submit] retry failed: \(error)")
+                    errorMessage = "Failed to save lineup after retry: \(error.localizedDescription)"
+                    showError = true
+                }
+            }
+
         } catch {
             print("[PGA][submit] error: \(error)")
             errorMessage = "Failed to save lineup: \(error.localizedDescription)"

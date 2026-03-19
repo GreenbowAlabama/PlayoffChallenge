@@ -126,6 +126,7 @@ struct PGALineupView: View {
                             .background(DesignTokens.Color.Action.primary)
                             .cornerRadius(DesignTokens.Radius.lg)
                         }
+                        .disabled(viewModel.isSaving)
                         .padding()
                     }
                 }
