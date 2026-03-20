@@ -70,22 +70,37 @@ ORDER BY snapshots DESC;
 ```sql
 SELECT
   ci.id,
-  ci.name,
+  ci.contest_name,
   MAX(s.ingested_at) AS last_snapshot
 FROM contest_instances ci
 LEFT JOIN event_data_snapshots s
   ON s.contest_instance_id = ci.id
 WHERE ci.status = 'LIVE'
-GROUP BY ci.id, ci.name
+GROUP BY ci.id, ci.contest_name
 HAVING MAX(s.ingested_at) < NOW() - INTERVAL '15 minutes'
 ORDER BY last_snapshot ASC;
 ```
 
-**Interpretation:**
-- LIVE contest but no snapshots in last 15 minutes
-- Indicates ingestion worker is down or blocked
+**⚠️ CRITICAL INTERPRETATION NOTE (March 2026 Audit Finding):**
 
-**Action:** Check ingestion worker logs, ESPN API connectivity.
+`ingested_at` only updates on INSERT (new snapshot hash). The ON CONFLICT clause in
+`pgaEspnIngestion.js:1180-1181` updates only `provider_final_flag`, NOT `ingested_at`:
+
+```sql
+ON CONFLICT (contest_instance_id, snapshot_hash) DO UPDATE
+SET provider_final_flag = event_data_snapshots.provider_final_flag OR EXCLUDED.provider_final_flag
+```
+
+**This means:** A "stale" `ingested_at` (e.g., 24 minutes old) does NOT necessarily mean
+ingestion stopped. It means ESPN scores haven't changed (same hash produces ON CONFLICT
+UPDATE, not INSERT). The `event_data_snapshots` table has NO `updated_at` column.
+
+**To distinguish STALLED vs NO_CHANGE:**
+1. Check worker heartbeat: `SELECT status, last_run_at FROM worker_heartbeats WHERE worker_name = 'ingestion_worker'`
+2. If heartbeat is HEALTHY and recent → ingestion is running, scores just haven't changed
+3. If heartbeat is stale → ingestion is truly stopped
+
+**Action:** Always cross-reference `ingested_at` staleness with worker heartbeat before escalating.
 
 ---
 
@@ -237,6 +252,13 @@ Related incidents:
   - Cause: `fetchLeaderboard()` ignored eventId parameter, always returned all ESPN events
   - Solution: Implemented deterministic event filtering with exact ID matching (no fallback to events[0])
   - Status: ✅ Fixed, implemented and validated through testing; ongoing monitoring enforces compliance
+
+- **March 20, 2026:** Settlement readiness audit — false positive on "stale snapshots"
+  - Symptom: `ingested_at` appeared 24+ minutes old on all LIVE contest snapshots
+  - Root Cause: `event_data_snapshots.ingested_at` only set on INSERT, not UPDATE. When ESPN scores are unchanged, same hash triggers ON CONFLICT which updates `provider_final_flag` but NOT `ingested_at`.
+  - Resolution: Updated health check docs and debug scripts to cross-reference worker heartbeat before declaring staleness
+  - Key learning: `ingested_at` staleness ≠ ingestion stoppage. Always check `worker_heartbeats` table.
+  - Debug scripts created: `backend/debug/verifySettlementPipeline.js`, `backend/debug/auditFinalSnapshotReadiness.js`
 
 ---
 

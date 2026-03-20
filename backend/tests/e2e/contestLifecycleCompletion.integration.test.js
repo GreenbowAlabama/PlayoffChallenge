@@ -108,13 +108,20 @@ describe('Contest Lifecycle Completion - LIVE → COMPLETE', () => {
   afterEach(async () => {
     // Cleanup: Delete test data in reverse FK order
     try {
-      // Delete audit records first (FK to contest_instances)
+      // Delete ledger entries first (FK to users and contest_instances)
+      // PRIZE_PAYOUT entries use reference_id (not contest_instance_id), so also delete by user_id
+      await pool.query(
+        'DELETE FROM ledger WHERE contest_instance_id = $1 OR reference_id = $1 OR user_id = ANY($2::uuid[])',
+        [contestId, [organizerId, userId]]
+      );
+
+      // Delete audit records (FK to contest_instances)
       await pool.query(
         'DELETE FROM admin_contest_audit WHERE contest_instance_id = $1',
         [contestId]
       );
 
-      // Delete settlement records (no FK dependencies)
+      // Delete settlement records (FK to contest_instances)
       await pool.query(
         'DELETE FROM settlement_records WHERE contest_instance_id = $1',
         [contestId]

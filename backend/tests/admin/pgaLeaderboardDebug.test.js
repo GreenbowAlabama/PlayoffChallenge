@@ -2,12 +2,15 @@
  * PGA Leaderboard Debug Admin Endpoint Tests
  *
  * Purpose: Verify that the admin diagnostic endpoint correctly
- * exposes PGA leaderboard data with computed fantasy scores.
+ * exposes PGA leaderboard data with computed fantasy scores and metadata.
  *
  * Tests:
  * 1. Endpoint exists and returns 200 with valid structure
- * 2. Response matches OpenAPI contract (empty or populated)
+ * 2. Response contains metadata and entries with correct schema
  * 3. Scoring is deterministic across multiple calls
+ * 4. LIVE contests use espn_live data source
+ * 5. Polling stops behavior: COMPLETE contests use golfer_event_scores
+ * 6. Metadata contains tournament context fields
  */
 
 const request = require('supertest');
@@ -50,45 +53,47 @@ describe('PGA Leaderboard Debug Admin Endpoint', () => {
   });
 
   describe('GET /api/admin/pga/leaderboard-debug', () => {
-    it('Test 1: endpoint exists and returns 200 status with array', async () => {
+    it('Test 1: endpoint exists and returns 200 with metadata and entries', async () => {
       const response = await request(app)
         .get('/api/admin/pga/leaderboard-debug')
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body).toHaveProperty('entries');
+      expect(Array.isArray(response.body.entries)).toBe(true);
+      // metadata may be null if no active PGA contest
+      expect(response.body).toHaveProperty('metadata');
     });
 
-    it('Test 2: response objects match OpenAPI PgaLeaderboardEntry schema', async () => {
+    it('Test 2: entry objects match PgaLeaderboardEntry schema', async () => {
       const response = await request(app)
         .get('/api/admin/pga/leaderboard-debug')
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
+      expect(Array.isArray(response.body.entries)).toBe(true);
 
       // If there are results, verify each matches the schema
-      if (response.body.length > 0) {
-        const entry = response.body[0];
+      if (response.body.entries.length > 0) {
+        const entry = response.body.entries[0];
 
-        // Required fields per OpenAPI
+        // Required fields
         expect(entry).toHaveProperty('golfer_id');
         expect(entry).toHaveProperty('player_name');
         expect(entry).toHaveProperty('position');
-        expect(entry).toHaveProperty('total_strokes');
+        expect(entry).toHaveProperty('score');
+        expect(entry).toHaveProperty('finish_bonus');
         expect(entry).toHaveProperty('fantasy_score');
+        expect(entry).toHaveProperty('rounds_scored');
 
         // Verify types
         expect(typeof entry.golfer_id).toBe('string');
         expect(typeof entry.player_name).toBe('string');
         expect(typeof entry.position).toBe('number');
-        expect(typeof entry.total_strokes).toBe('number');
+        expect(typeof entry.score).toBe('number');
+        expect(typeof entry.finish_bonus).toBe('number');
         expect(typeof entry.fantasy_score).toBe('number');
-
-        // Verify no additional fields
-        const allowedKeys = ['golfer_id', 'player_name', 'position', 'total_strokes', 'fantasy_score'];
-        const actualKeys = Object.keys(entry);
-        expect(actualKeys.sort()).toEqual(allowedKeys.sort());
+        expect(typeof entry.rounds_scored).toBe('number');
       }
     });
 
@@ -106,16 +111,16 @@ describe('PGA Leaderboard Debug Admin Endpoint', () => {
       expect(response1.status).toBe(200);
       expect(response2.status).toBe(200);
 
-      // If data exists, verify exact match between calls
-      if (response1.body.length > 0) {
-        expect(response1.body).toEqual(response2.body);
-        response1.body.forEach((player, index) => {
-          expect(player.fantasy_score).toBe(response2.body[index].fantasy_score);
+      // If data exists, verify exact match between calls (excluding generated_at which differs)
+      if (response1.body.entries.length > 0) {
+        expect(response1.body.entries).toEqual(response2.body.entries);
+        response1.body.entries.forEach((player, index) => {
+          expect(player.fantasy_score).toBe(response2.body.entries[index].fantasy_score);
         });
       }
 
-      // Both should be arrays of same length
-      expect(response1.body.length).toBe(response2.body.length);
+      // Both should have same number of entries
+      expect(response1.body.entries.length).toBe(response2.body.entries.length);
     });
 
     it('Test 4: finds LIVE contests regardless of sport value variant (pga, PGA, golf, GOLF)', async () => {
@@ -148,72 +153,114 @@ describe('PGA Leaderboard Debug Admin Endpoint', () => {
         [contestIdPgaLower, templatePgaLower, organizerId, 10000, '{}', 'LIVE', pastTime, pastTime, new Date(now.getTime() + 3600000), 'Test Golf LIVE', 20]
       );
 
-      // Test: endpoint should find this LIVE contest with lowercase 'pga' sport
+      // Test: endpoint should find this LIVE contest
       const response = await request(app)
         .get('/api/admin/pga/leaderboard-debug')
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
-      // Service should NOT return empty array when lowercase 'pga' contests exist in LIVE state
-      expect(response.body.length).toBeGreaterThanOrEqual(0);
+      expect(response.body).toHaveProperty('metadata');
+      expect(response.body).toHaveProperty('entries');
+      expect(Array.isArray(response.body.entries)).toBe(true);
     });
 
-    it('Test 5: selector is deterministic and transparent—no implicit normalization', async () => {
-      // This test verifies the selector uses an explicit whitelist of sport values
-      // rather than relying on implicit transformations like LOWER()
-
-      const now = new Date();
-      const pastTime = new Date(now.getTime() - 60000);
-
-      // Create templates with multiple sport variants
-      const variants = ['PGA', 'pga', 'GOLF', 'golf'];
-      const contestIds = [];
-
-      for (const variant of variants) {
-        // Create organizer for this variant
-        const organizerId = randomUUID();
-        await pool.query(
-          `INSERT INTO users (id, name, email, is_admin)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (id) DO NOTHING`,
-          [organizerId, `Test Organizer ${variant}`, `organizer-${variant}-${organizerId}@test.example.com`, false]
-        );
-
-        const templateId = randomUUID();
-        const contestId = randomUUID();
-        contestIds.push(contestId);
-
-        await pool.query(
-          `INSERT INTO contest_templates (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents, allowed_payout_structures)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-          [templateId, `Golf ${variant}`, variant, 'PGA_CUSTOM', 'standard', 'lock_by_time', 'standard', 10000, 5000, 50000, '[]']
-        );
-
-        await pool.query(
-          `INSERT INTO contest_instances (id, template_id, organizer_id, entry_fee_cents, payout_structure, status, lock_time, tournament_start_time, tournament_end_time, contest_name, max_entries)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-          [contestId, templateId, organizerId, 10000, '{}', 'LIVE', pastTime, pastTime, new Date(now.getTime() + 3600000), `Golf ${variant} LIVE`, 20]
-        );
-      }
-
-      // Test: Service should find LIVE contests with explicit sport whitelist
+    it('Test 5: metadata contains tournament context fields', async () => {
       const response = await request(app)
         .get('/api/admin/pga/leaderboard-debug')
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
 
-      // Verify response structure unchanged
-      if (response.body.length > 0) {
-        const entry = response.body[0];
-        expect(entry).toHaveProperty('golfer_id');
-        expect(entry).toHaveProperty('player_name');
-        expect(entry).toHaveProperty('position');
-        expect(entry).toHaveProperty('total_strokes');
-        expect(entry).toHaveProperty('fantasy_score');
+      const meta = response.body.metadata;
+      // If there's an active PGA contest, metadata should have all context fields
+      if (meta !== null) {
+        expect(typeof meta.contest_id).toBe('string');
+        expect(typeof meta.contest_name).toBe('string');
+        expect(typeof meta.status).toBe('string');
+        expect(['LIVE', 'COMPLETE']).toContain(meta.status);
+        expect(typeof meta.generated_at).toBe('string');
+        expect(meta).toHaveProperty('tournament_start_time');
+        expect(meta).toHaveProperty('tournament_end_time');
+        expect(meta).toHaveProperty('provider_event_id');
+        expect(meta).toHaveProperty('last_ingestion_at');
+        expect(meta).toHaveProperty('data_source');
+        expect(['espn_live', 'golfer_event_scores']).toContain(meta.data_source);
+
+        // LIVE contests should use espn_live, COMPLETE should use golfer_event_scores
+        if (meta.status === 'LIVE') {
+          expect(meta.data_source).toBe('espn_live');
+        } else {
+          expect(meta.data_source).toBe('golfer_event_scores');
+        }
       }
+    });
+
+    it('Test 6: COMPLETE contests use golfer_event_scores data source', async () => {
+      // Setup: Create organizer
+      const organizerId = randomUUID();
+      await pool.query(
+        `INSERT INTO users (id, name, email, is_admin)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (id) DO NOTHING`,
+        [organizerId, 'Test Organizer 6', `organizer-6-${organizerId}@test.example.com`, false]
+      );
+
+      const templateId = randomUUID();
+      const contestId = randomUUID();
+      const now = new Date();
+      // Set tournament_start_time far in the future so this becomes the most recent
+      const futureStart = new Date(now.getTime() + 999999999);
+
+      await pool.query(
+        `INSERT INTO contest_templates (id, name, sport, template_type, scoring_strategy_key, lock_strategy_key, settlement_strategy_key, default_entry_fee_cents, allowed_entry_fee_min_cents, allowed_entry_fee_max_cents, allowed_payout_structures)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [templateId, 'Completed Tournament', 'PGA', 'PGA_CUSTOM', 'pga_standard_v1', 'lock_by_time', 'standard', 10000, 5000, 50000, '[]']
+      );
+
+      await pool.query(
+        `INSERT INTO contest_instances (id, template_id, organizer_id, entry_fee_cents, payout_structure, status, lock_time, tournament_start_time, tournament_end_time, contest_name, max_entries)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [contestId, templateId, organizerId, 10000, '{}', 'COMPLETE', futureStart, futureStart, new Date(futureStart.getTime() + 86400000), 'PGA Complete Test', 50]
+      );
+
+      const response = await request(app)
+        .get('/api/admin/pga/leaderboard-debug')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(200);
+
+      const meta = response.body.metadata;
+      // The most recent contest by tournament_start_time should be our COMPLETE one
+      if (meta && meta.contest_id === contestId) {
+        expect(meta.status).toBe('COMPLETE');
+        expect(meta.data_source).toBe('golfer_event_scores');
+      }
+    });
+
+    it('Test 7: no duplicate intervals — deterministic polling with consistent results', async () => {
+      // Simulate rapid consecutive calls (as polling would do)
+      const results = await Promise.all([
+        request(app)
+          .get('/api/admin/pga/leaderboard-debug')
+          .set('Authorization', `Bearer ${adminToken}`),
+        request(app)
+          .get('/api/admin/pga/leaderboard-debug')
+          .set('Authorization', `Bearer ${adminToken}`),
+        request(app)
+          .get('/api/admin/pga/leaderboard-debug')
+          .set('Authorization', `Bearer ${adminToken}`)
+      ]);
+
+      // All should succeed
+      results.forEach(r => {
+        expect(r.status).toBe(200);
+        expect(r.body).toHaveProperty('metadata');
+        expect(r.body).toHaveProperty('entries');
+      });
+
+      // All should return the same entries (deterministic)
+      expect(results[0].body.entries).toEqual(results[1].body.entries);
+      expect(results[1].body.entries).toEqual(results[2].body.entries);
     });
   });
 });

@@ -254,9 +254,11 @@ async function transitionLiveToComplete(pool, now) {
         settlementCallback
       );
 
-      // Only count transitions where status actually changed to COMPLETE
-      // Verify both that a row was returned AND status is now COMPLETE
-      if (result && result.status === 'COMPLETE') {
+      // Only count transitions where settlement actually completed.
+      // executeSettlement returns a settlement_records row (has contest_instance_id)
+      // on success. Exclude noop markers and error recovery contest_instances rows
+      // (which lack contest_instance_id).
+      if (result && result.contest_instance_id && !result.noop) {
         changedIds.push(contestRow.id);
       }
     } catch (err) {

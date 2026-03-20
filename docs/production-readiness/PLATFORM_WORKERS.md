@@ -331,10 +331,94 @@ The ingestion worker polling configuration is **fully backward compatible**:
 
 ---
 
+## Settlement Pipeline — End-to-End Verification
+
+### Overview
+
+Settlement depends on a chain of 5 systems working together. If any link breaks, contests stay LIVE indefinitely and users don't get paid.
+
+### Chain of Custody
+
+```
+ESPN Event API → Ingestion Worker → event_data_snapshots (provider_final_flag) → Lifecycle Reconciler → Settlement
+```
+
+### provider_final_flag — How It Works
+
+**Set by:** `pgaEspnIngestion.js:1092-1153` (ingestWorkUnit, Step 4)
+
+**Primary source:** ESPN Event API (`espnPgaApi.fetchEventMetadata`)
+```
+https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/{eventId}
+```
+
+**Detection logic:**
+```javascript
+if (eventMetadata.status?.type?.completed === true) → providerFinalFlag = true
+else if (eventMetadata.status?.type?.name === 'STATUS_FINAL') → providerFinalFlag = true
+```
+
+**Fallback:** If ESPN event API fails, checks leaderboard payload status field.
+
+**Write behavior (CRITICAL):**
+```sql
+ON CONFLICT (contest_instance_id, snapshot_hash) DO UPDATE
+SET provider_final_flag = event_data_snapshots.provider_final_flag OR EXCLUDED.provider_final_flag
+```
+- OR logic makes the flag **monotonic** (false→true only, never true→false)
+- `ingested_at` is NOT updated on conflict — only on INSERT (new hash)
+- This means "stale" `ingested_at` does NOT mean ingestion stopped
+
+**Timing:** Event-based, not time-based. ESPN marks events complete after the final round ends (typically Sunday evening for PGA).
+
+### Verification Commands
+
+**Quick check — ESPN event status:**
+```bash
+curl -s "https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/{ESPN_EVENT_ID}" \
+  -H "User-Agent: Mozilla/5.0" \
+  -H "Accept: application/json" | jq '.status.type'
+```
+
+Expected during tournament: `"completed": false, "name": "STATUS_IN_PROGRESS"`
+Expected after tournament: `"completed": true, "name": "STATUS_FINAL"`
+
+**Full pipeline verification:**
+```bash
+DATABASE_URL=<url> node backend/debug/verifySettlementPipeline.js
+```
+Checks: worker heartbeat, snapshot freshness, ESPN reachability, code path validation, score drift.
+
+**Settlement readiness audit:**
+```bash
+DATABASE_URL=<url> node backend/debug/auditSettlementReadiness.js
+```
+
+**Final snapshot readiness:**
+```bash
+DATABASE_URL=<url> node backend/debug/auditFinalSnapshotReadiness.js
+```
+
+### Settlement Timeline (Automatic)
+
+1. Tournament final round ends → ESPN marks event `completed: true`
+2. Ingestion worker (5s LIVE polling) picks up flag → writes `provider_final_flag=true` on snapshot
+3. Lifecycle reconciler (30s interval) finds LIVE contest past `tournament_end_time` with FINAL snapshot
+4. `transitionLiveToComplete()` calls `executeSettlement()` atomically
+5. Settlement writes: `settlement_records`, `PRIZE_PAYOUT` ledger entries, status → COMPLETE
+6. **Total latency from ESPN completion to settlement: <35 seconds**
+
+### Known Gotcha: ingested_at Staleness
+
+`event_data_snapshots.ingested_at` only reflects when the hash was **first seen**, not last processed. If ESPN scores haven't changed, the same hash triggers ON CONFLICT UPDATE (flag only), not a new INSERT. Cross-reference with `worker_heartbeats.last_run_at` to confirm ingestion is actually running.
+
+---
+
 ## Related Documentation
 
 - **Governance:** `/docs/governance/LIFECYCLE_EXECUTION_MAP.md`
 - **Operations:** `/docs/operations/WEB_ADMIN_MAP.md`
+- **Operations:** `/docs/operations/INGESTION_HEALTH_CHECKS.md`
 - **System Status:** `/docs/production-readiness/SYSTEM_STATUS_AND_ISSUES.md`
 
 ---
@@ -344,4 +428,5 @@ The ingestion worker polling configuration is **fully backward compatible**:
 | Date | Version | Change |
 |---|---|---|
 | 2026-03-12 | 1.0 | Initial documentation; INGESTION_WORKER_INTERVAL_MS support documented |
+| 2026-03-20 | 1.1 | Added Settlement Pipeline verification section, provider_final_flag documentation, debug script references, ingested_at staleness gotcha |
 

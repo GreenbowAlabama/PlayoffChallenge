@@ -138,6 +138,8 @@ This is intentional and safe due to:
 | **Settlement Binding** | ✅ executeSettlement validates snapshot_id + snapshot_hash inside transaction |
 | **Governance** | docs/governance/CLAUDE_RULES.md § 7 (Settlement Engine Rule), § 16 (Frozen Invariants) |
 | **Notes** | If snapshot missing, leaves contest LIVE and continues (non-fatal). Errors logged but don't block batch. |
+| **FINAL Snapshot Source** | ESPN Event API (`espnPgaApi.fetchEventMetadata`) → `status.type.completed === true` or `status.type.name === 'STATUS_FINAL'` → `provider_final_flag=true` written by `pgaEspnIngestion.js:1092-1153`. Flag is monotonic (OR logic, never downgrades). |
+| **Settlement Audit (2026-03-20)** | Bug fixed in `transitionLiveToComplete()`: return value tracking used `result.status === 'COMPLETE'` (non-existent field on settlement_records). Changed to `result.contest_instance_id && !result.noop`. Settlement itself was always correct; only the count reporting was wrong. 6/6 integration tests pass. |
 | **Time Authority** | ✅ `tournament_end_time` is the authoritative provider timestamp (REQUIRED). No `end_time` field exists in schema. Lifecycle reconciler directly references `tournament_end_time`. See DISCOVERY_LIFECYCLE_BOUNDARY.md § 3.3. |
 
 #### executeSettlement Enhancements (Backward Compatible)
