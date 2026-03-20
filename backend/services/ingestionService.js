@@ -200,6 +200,12 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
   const phase = options?.phase || 'BOTH';
 
+  // LOG: Log pool identity
+  console.log(`[POOL_ID_INGESTIONSERVICE]`, pool);
+
+  // LOG: Trace entry into ingestion service
+  console.log(`[INGESTION_RUN_ENTRY] contestInstanceId=${contestInstanceId} phase=${phase}`);
+
   // NOTE: ESPN caches are NOT cleared per-contest. They persist for the entire cycle.
   // Call resetCycleCache() at cycle boundaries (from the worker) to prevent cross-cycle staleness.
   // This ensures each eventId is fetched at most once per cycle, not once per contest.
@@ -449,6 +455,7 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
       // ── Run adapter pipeline ────────────────────────────────────────────────
       try {
+        console.log(`[INGESTION_RUN_ENTRY] contestInstanceId=${contestInstanceId} phase=${enrichedUnit.phase}`);
         const normalizedScores = await adapter.ingestWorkUnit(ctx, enrichedUnit);
 
         // [SCORING DEBUG] Step 1: Check adapter output
@@ -465,7 +472,15 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
           normalizedScores ? normalizedScores.length : 0
         );
 
+        // TEMP: Log entry to upsertScores
+        if (normalizedScores && normalizedScores.length > 0) {
+          console.log(`[UPSERT_ENTRY] Calling upsertScores with ${normalizedScores.length} scores`);
+        }
+
         await adapter.upsertScores(ctx, normalizedScores);
+
+        // TEMP: Log exit from upsertScores
+        console.log("[UPSERT_EXIT] upsertScores completed successfully");
 
         // [SCORING DEBUG] Step 3: After database write
         console.log("[SCORING DEBUG] Score insert complete");
@@ -792,6 +807,9 @@ async function initializeTournamentField(pool, contestInstanceId) {
  * @returns {Promise<void>}
  */
 async function refreshAllScheduledContestFields(pool, sport) {
+  // Log pool identity
+  console.log("[POOL_ID_RC3_FANOUT]", pool);
+
   if (!sport) {
     console.warn('[ingestionService] refreshAllScheduledContestFields: sport is required, skipping refresh');
     return;

@@ -890,10 +890,16 @@ async function handleScoringIngestion(ctx, unit) {
   // ── Step 6: Score only new rounds (rounds 1 to currentRound not yet scored) ──
   for (let roundNum = 1; roundNum <= currentRound; roundNum++) {
     // IDEMPOTENCY CHECK: Skip if this round already has scores
-    // EXCEPTION: Allow final round to be reprocessed if tournament passes tournament_end_time
-    // This ensures finish_bonus is applied even if round 4 was scored before tournament ended
+    // EXCEPTION 1: Allow final round to be reprocessed if tournament passes tournament_end_time
+    //   This ensures finish_bonus is applied even if round 4 was scored before tournament ended
+    // EXCEPTION 2: Allow reprocessing of completed non-final rounds to repair bad data
+    //   Completed rounds are stable (won't change from ESPN), safe to recompute
     const isFinalRoundCandidate = roundNum === currentRound;
-    const shouldSkip = scoredRounds.has(roundNum) && !(isFinalRoundCandidate && is_final_round);
+    const isCompletedRound = roundNum < currentRound;
+    const shouldSkip =
+      scoredRounds.has(roundNum) &&
+      !(isFinalRoundCandidate && is_final_round) &&
+      !isCompletedRound;
 
     if (shouldSkip) {
       continue;

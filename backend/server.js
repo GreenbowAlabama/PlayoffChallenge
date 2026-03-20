@@ -51,6 +51,31 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
+// INSTRUMENTATION: Capture all pool.end() calls with stack trace
+const originalEnd = pool.end.bind(pool);
+pool.end = async (...args) => {
+  const stack = new Error().stack;
+  console.error('[POOL_END_CALLED_STACK_TRACE]');
+  console.error(stack);
+  return originalEnd(...args);
+};
+
+// INSTRUMENTATION: Capture all client.release() calls to detect release(true)
+const originalConnect = pool.connect.bind(pool);
+pool.connect = async (...args) => {
+  const client = await originalConnect(...args);
+  const originalRelease = client.release.bind(client);
+  client.release = function(destroy) {
+    if (destroy === true) {
+      console.error('[CLIENT_RELEASE_TRUE_DETECTED]');
+      console.error('destroy parameter set to true - this will invalidate the connection');
+      console.error(new Error().stack);
+    }
+    return originalRelease.apply(this, arguments);
+  };
+  return client;
+};
+
 // Make pool available to routes
 app.locals.pool = pool;
 

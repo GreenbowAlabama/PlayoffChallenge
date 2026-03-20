@@ -34,6 +34,7 @@
 const ingestionService = require('../services/ingestionService');
 
 let ingestionWorkerRunning = false;
+let activeCyclePromise = null;
 
 /**
  * Polling interval configuration (milliseconds)
@@ -165,6 +166,11 @@ async function runCycle(pool) {
     );
 
     const contestInstances = result.rows;
+
+    // LOG CONTEST SELECTION
+    for (const contest of contestInstances) {
+      console.log(`[WORKER_CONTEST] id=${contest.id} status=${contest.status}`);
+    }
     let phasesRun = 0;
     let phasesSkipped = 0;
     let failed = 0;
@@ -303,6 +309,9 @@ async function runCycleWithHeartbeat(pool) {
  * @param {number} options.idleIntervalMs - Interval when no work (default: 60000 = 60s)
  */
 async function startIngestionWorker(pool, options = {}) {
+  // Log pool identity
+  console.log("[POOL_ID_INGESTIONWORKER]", pool);
+
   // Legacy options for backward compatibility with tests
   const legacyActiveIntervalMs = options.activeIntervalMs;
   const legacyIdleIntervalMs = options.idleIntervalMs;
@@ -316,6 +325,9 @@ async function startIngestionWorker(pool, options = {}) {
 
   ingestionWorkerRunning = true;
 
+  // BOOT LOG
+  console.log(`[INGESTION_WORKER_BOOT] file=ingestionWorker.js env=${process.env.NODE_ENV} db_url_exists=${!!process.env.DATABASE_URL}`);
+
   if (OVERRIDE_INTERVAL !== null) {
     console.log(`[Ingestion Worker] Starting with OVERRIDE_INTERVAL=${OVERRIDE_INTERVAL}ms (from INGESTION_WORKER_INTERVAL_MS env var)`);
   } else {
@@ -323,8 +335,13 @@ async function startIngestionWorker(pool, options = {}) {
   }
 
   while (ingestionWorkerRunning) {
+    // TICK LOG
+    console.log(`[INGESTION_WORKER_TICK] starting cycle`);
     try {
-      const result = await runCycleWithHeartbeat(pool);
+      // Capture the active cycle promise for deterministic shutdown
+      activeCyclePromise = runCycleWithHeartbeat(pool);
+      const result = await activeCyclePromise;
+      activeCyclePromise = null;
 
       let sleepMs;
 
@@ -348,6 +365,7 @@ async function startIngestionWorker(pool, options = {}) {
       await new Promise(resolve => setTimeout(resolve, sleepMs));
     } catch (err) {
       console.error('[Ingestion Worker] Unhandled error:', err.message);
+      activeCyclePromise = null;
       // Sleep even on error to prevent tight loop
       await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_IDLE));
     }
@@ -355,12 +373,32 @@ async function startIngestionWorker(pool, options = {}) {
 }
 
 /**
- * Stop the ingestion worker.
+ * Stop the ingestion worker and wait for all in-flight work to complete.
+ *
+ * DETERMINISTIC SHUTDOWN: This function returns a promise that resolves
+ * ONLY when:
+ * - Current cycle completes (if one is running)
+ * - No further cycles will start
+ * - All async ingestion tasks have finished
+ *
+ * @returns {Promise<void>}
  */
-function stopIngestionWorker() {
+async function stopIngestionWorker() {
   if (ingestionWorkerRunning) {
     ingestionWorkerRunning = false;
-    console.log('[Ingestion Worker] Stopped');
+    console.log('[Ingestion Worker] Stopping (waiting for active cycle to complete)');
+
+    // Wait for active cycle to complete if one is in-flight
+    if (activeCyclePromise) {
+      try {
+        await activeCyclePromise;
+        console.log('[Ingestion Worker] Active cycle completed');
+      } catch (err) {
+        console.error('[Ingestion Worker] Active cycle failed during shutdown:', err.message);
+      }
+    }
+
+    console.log('[Ingestion Worker] Stopped (all in-flight work complete)');
   }
 }
 
