@@ -872,10 +872,8 @@ async function getContestInstance(pool, instanceId, requestingUserId = null) {
   // Fetch standings if required
   if (row.status === 'LIVE') {
     // Dispatch to strategy-specific standings fetcher
-    console.log('[STRATEGY_DISPATCH] getContestInstanceById', { strategy_key: row.scoring_strategy_key, contest_id: row.id });
     const strategy = getStrategy(row.scoring_strategy_key);
     row.standings = await strategy.liveStandings(pool, row.id);
-    console.log('[STANDINGS_RESULT] getContestInstanceById', JSON.stringify(row.standings, null, 2));
   } else if (row.status === 'COMPLETE') {
     row.standings = await _getCompleteStandings(pool, row.id);
   }

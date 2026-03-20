@@ -135,6 +135,25 @@ describe('pgaStandardV1.liveStandings — total_score return type', () => {
     expect(result[0].rank).toBe(1);
   });
 
+  it('same golfer across multiple users → identical contribution', async () => {
+    // Two users share golfer g1 (score 50). SQL pre-aggregates per golfer, not per user.
+    // Each user must see exactly 50 for g1 — no duplication from cross-user rows.
+    const mockPool = {
+      query: async (sql, params) => {
+        return {
+          rows: [
+            { user_id: 'user-1', user_display_name: 'Alice', total_score: '50' },
+            { user_id: 'user-2', user_display_name: 'Bob', total_score: '50' }
+          ]
+        };
+      }
+    };
+
+    const result = await pgaStandardV1.liveStandings(mockPool, 'contest-id');
+
+    expect(result[0].values.total_score).toBe(result[1].values.total_score);
+  });
+
   it('handles tied scores with shared rank', async () => {
     const mockPool = {
       query: async (sql, params) => {

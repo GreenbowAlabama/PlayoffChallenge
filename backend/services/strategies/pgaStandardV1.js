@@ -24,6 +24,10 @@ async function liveStandings(pool, contestInstanceId) {
        FROM entry_rosters er
        WHERE er.contest_instance_id = $1
      ),
+     -- CRITICAL:
+     -- golfer_scores must be pre-aggregated by (contest_instance_id, golfer_id)
+     -- DO NOT join raw golfer_scores — causes cross-user score multiplication
+     -- See docs/architecture/scoring/PGA_STANDARD_V1.md
      golfer_totals AS (
        SELECT
          rg.user_id,
@@ -69,8 +73,6 @@ async function liveStandings(pool, contestInstanceId) {
     [contestInstanceId]
   );
 
-  console.log('[LIVE_STANDINGS_USED] pgaStandardV1');
-  console.log('[SQL_RESULT]', JSON.stringify(result.rows, null, 2));
 
   // Map query results to score objects
   const usersWithScores = result.rows.map(row => ({
