@@ -769,17 +769,16 @@ router.post('/:id/picks', extractUserId, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'player_ids must be an array' });
   }
 
-  if (!expected_updated_at) {
-    return res.status(400).json({
-      success: false,
-      error_code: 'MISSING_VERSION',
-      message: 'expected_updated_at is required for optimistic concurrency control'
-    });
-  }
+  console.log('[PICKS_ROUTE_DEBUG]', {
+    contestId: id,
+    userId,
+    expected_updated_at,
+    player_ids_count: Array.isArray(player_ids) ? player_ids.length : null
+  });
 
   try {
-    // Pass version and intent flag to service
-    const result = await entryRosterService.submitPicks(pool, id, userId, player_ids, allow_regression, expected_updated_at);
+    // Pass version and intent flag to service (expected_updated_at may be null for first-time submissions)
+    const result = await entryRosterService.submitPicks(pool, id, userId, player_ids, allow_regression, expected_updated_at || null);
 
     // REGRESSION GUARD: If ignored due to regression, return 200 with ignored flag
     // Client should not treat this as an error

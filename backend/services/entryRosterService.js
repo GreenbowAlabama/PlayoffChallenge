@@ -252,6 +252,15 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
     const existingCount = existingRoster?.player_ids?.length ?? 0;
     const incomingCount = normalizedPlayerIds.length;
 
+    console.log('[PICKS_SERVICE_DEBUG]', {
+      contestInstanceId,
+      userId,
+      hasExistingRoster: !!existingRoster,
+      existingPlayerCount: existingRoster?.player_ids?.length ?? null,
+      existingUpdatedAt: existingRoster?.updated_at ?? null,
+      expectedUpdatedAt
+    });
+
     // REGRESSION DETECTION: Incoming count < existing count AND NOT explicitly allowed
     if (existingRoster && incomingCount < existingCount && !allowRegression) {
       console.warn('[ROSTER_MUTATION_AUDIT] REGRESSION BLOCKED (no explicit intent)', {
@@ -278,102 +287,121 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
       };
     }
 
-    // 10. OPTIMISTIC CONCURRENCY: Split INSERT vs UPDATE with explicit version
-    // Client MUST provide expectedUpdatedAt from last known state
-    // If it doesn't match current DB state, another request modified it → 409
+    // 10. OPTIMISTIC CONCURRENCY: Split first-submission vs update
     // GOVERNANCE: Only user intent (API call) may modify entry_rosters
     // No background workers, triggers, or scheduled tasks
 
-    // If roster exists, must pass version check to prevent concurrent overwrite
-    if (existingRoster) {
-      // UPDATE path: WHERE clause enforces explicit version contract
-      // expectedUpdatedAt comes from client, must match what's in DB
-      const updateResult = await client.query(
-        `UPDATE entry_rosters
-         SET player_ids = $1, updated_at = now()
-         WHERE contest_instance_id = $2
-           AND user_id = $3
-           AND updated_at = $4
+    // Determine if this is effectively a first submission:
+    // - No roster row exists, OR
+    // - Roster exists but player_ids is empty (row created at join time with no picks)
+    const isFirstSubmission =
+      !existingRoster ||
+      !existingRoster.player_ids ||
+      existingRoster.player_ids.length === 0;
+
+    if (isFirstSubmission) {
+      // FIRST SUBMISSION: UPSERT without version check
+      // Row may or may not exist (empty roster created at join time)
+      const upsertResult = await client.query(
+        `INSERT INTO entry_rosters (contest_instance_id, user_id, player_ids, submitted_at, updated_at)
+         VALUES ($1, $2, $3, now(), now())
+         ON CONFLICT (contest_instance_id, user_id)
+         DO UPDATE SET
+           player_ids = EXCLUDED.player_ids,
+           updated_at = now()
          RETURNING updated_at`,
-        [normalizedPlayerIds, contestInstanceId, userId, expectedUpdatedAt]
+        [contestInstanceId, userId, normalizedPlayerIds]
       );
 
-      // If no rows updated, timestamp mismatch = concurrent modification
-      if (updateResult.rows.length === 0) {
-        console.warn('[ROSTER_MUTATION_AUDIT] UPDATE CONFLICT: version mismatch', {
-          source: 'API:submitPicks',
-          operation: 'UPDATE',
-          contest_instance_id: contestInstanceId,
-          user_id: userId,
-          old_player_ids_count: existingRoster.player_ids?.length || 0,
-          incoming_player_ids_count: normalizedPlayerIds.length,
-          expected_updated_at: expectedUpdatedAt,
-          actual_updated_at: existingRoster.updated_at,
-          reason: 'version_mismatch',
-          timestamp: new Date().toISOString()
-        });
+      console.info('[ROSTER_MUTATION_AUDIT] FIRST SUBMISSION SUCCESS', {
+        source: 'API:submitPicks',
+        operation: existingRoster ? 'UPSERT_EMPTY' : 'INSERT',
+        contest_instance_id: contestInstanceId,
+        user_id: userId,
+        new_player_ids: normalizedPlayerIds,
+        new_player_ids_count: normalizedPlayerIds.length,
+        new_updated_at: new Date(upsertResult.rows[0].updated_at).toISOString(),
+        timestamp: new Date().toISOString()
+      });
 
-        await client.query('COMMIT');
-        return {
-          success: false,
-          error_code: 'CONCURRENT_MODIFICATION',
-          reason: 'Roster was modified by another request. Please refresh and try again.',
-          conflict: true
-        };
-      }
+      await client.query('COMMIT');
 
-      // Success: UPDATE succeeded with matching timestamp
-      console.info('[ROSTER_MUTATION_AUDIT] UPDATE SUCCESS', {
+      return {
+        success: true,
+        ignored: false,
+        player_ids: normalizedPlayerIds,
+        updated_at: new Date(upsertResult.rows[0].updated_at).toISOString()
+      };
+    }
+
+    // EXISTING NON-EMPTY ROSTER: Require version for optimistic concurrency
+    if (!expectedUpdatedAt) {
+      await client.query('COMMIT');
+      return {
+        success: false,
+        error_code: 'MISSING_VERSION',
+        reason: 'expected_updated_at is required when updating an existing roster'
+      };
+    }
+
+    // WHERE clause enforces explicit version contract
+    // expectedUpdatedAt comes from client, must match what's in DB
+    const updateResult = await client.query(
+      `UPDATE entry_rosters
+       SET player_ids = $1, updated_at = now()
+       WHERE contest_instance_id = $2
+         AND user_id = $3
+         AND updated_at = $4
+       RETURNING updated_at`,
+      [normalizedPlayerIds, contestInstanceId, userId, expectedUpdatedAt]
+    );
+
+    // If no rows updated, timestamp mismatch = concurrent modification
+    if (updateResult.rows.length === 0) {
+      console.warn('[ROSTER_MUTATION_AUDIT] UPDATE CONFLICT: version mismatch', {
         source: 'API:submitPicks',
         operation: 'UPDATE',
         contest_instance_id: contestInstanceId,
         user_id: userId,
-        old_player_ids: existingRoster.player_ids,
-        new_player_ids: normalizedPlayerIds,
         old_player_ids_count: existingRoster.player_ids?.length || 0,
-        new_player_ids_count: normalizedPlayerIds.length,
-        allow_regression: allowRegression,
-        old_updated_at: existingRoster.updated_at,
-        new_updated_at: new Date(updateResult.rows[0].updated_at).toISOString(),
+        incoming_player_ids_count: normalizedPlayerIds.length,
+        expected_updated_at: expectedUpdatedAt,
+        actual_updated_at: existingRoster.updated_at,
+        reason: 'version_mismatch',
         timestamp: new Date().toISOString()
       });
 
       await client.query('COMMIT');
       return {
-        success: true,
-        ignored: false,
-        player_ids: normalizedPlayerIds,
-        updated_at: new Date(updateResult.rows[0].updated_at).toISOString()
+        success: false,
+        error_code: 'CONCURRENT_MODIFICATION',
+        reason: 'Roster was modified by another request. Please refresh and try again.',
+        conflict: true
       };
     }
 
-    // INSERT path: First write for this user in this contest
-    // No concurrency concern since row doesn't exist yet
-    const insertResult = await client.query(
-      `INSERT INTO entry_rosters (contest_instance_id, user_id, player_ids, submitted_at, updated_at)
-       VALUES ($1, $2, $3, now(), now())
-       RETURNING updated_at`,
-      [contestInstanceId, userId, normalizedPlayerIds]
-    );
-
-    console.info('[ROSTER_MUTATION_AUDIT] INSERT SUCCESS', {
+    // Success: UPDATE succeeded with matching timestamp
+    console.info('[ROSTER_MUTATION_AUDIT] UPDATE SUCCESS', {
       source: 'API:submitPicks',
-      operation: 'INSERT',
+      operation: 'UPDATE',
       contest_instance_id: contestInstanceId,
       user_id: userId,
+      old_player_ids: existingRoster.player_ids,
       new_player_ids: normalizedPlayerIds,
+      old_player_ids_count: existingRoster.player_ids?.length || 0,
       new_player_ids_count: normalizedPlayerIds.length,
-      new_updated_at: new Date(insertResult.rows[0].updated_at).toISOString(),
+      allow_regression: allowRegression,
+      old_updated_at: existingRoster.updated_at,
+      new_updated_at: new Date(updateResult.rows[0].updated_at).toISOString(),
       timestamp: new Date().toISOString()
     });
 
     await client.query('COMMIT');
-
     return {
       success: true,
       ignored: false,
       player_ids: normalizedPlayerIds,
-      updated_at: new Date(insertResult.rows[0].updated_at).toISOString()
+      updated_at: new Date(updateResult.rows[0].updated_at).toISOString()
     };
   } catch (err) {
     await client.query('ROLLBACK');

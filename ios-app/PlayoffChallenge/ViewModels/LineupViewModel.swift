@@ -101,18 +101,10 @@ final class LineupViewModel: ObservableObject {
     // MARK: - Lifecycle Enforcement
 
     /// Whether the user can edit the lineup.
-    /// Gated by contest status:
-    /// - SCHEDULED: editing enabled
-    /// - LOCKED: editing disabled
-    /// - LIVE: read-only
-    /// - COMPLETE: read-only
+    /// Authority: server-provided `isLocked` (derived from lock_time in backend).
+    /// Uses lock_time as enforcement, not status alone (governance rule).
     var canEditLineup: Bool {
-        switch contest.status {
-        case .scheduled:
-            return true
-        case .locked, .live, .complete, .cancelled, .error:
-            return false
-        }
+        return !isLocked
     }
 
     /// Configure the user ID for lineup operations.
@@ -659,16 +651,6 @@ final class LineupViewModel: ObservableObject {
             .compactMap { $0.playerId }
 
         do {
-            // CRITICAL SAFETY: Ensure version is loaded before allowing submit
-            // If lastSavedUpdatedAt is nil, backend will return 400 MISSING_VERSION
-            if lastSavedUpdatedAt == nil {
-                print("[MYLINEUP][submitPGAPicks] ERROR: lastSavedUpdatedAt not loaded yet")
-                errorMessage = "Roster version not ready. Please refresh and try again."
-                showError = true
-                isSaving = false
-                return
-            }
-
             let currentCount = intendedPlayerIds.count
             let lastSavedCount = lastSavedPlayerIds.count
 

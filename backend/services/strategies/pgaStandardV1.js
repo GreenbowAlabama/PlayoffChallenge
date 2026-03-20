@@ -23,18 +23,29 @@ async function liveStandings(pool, contestInstanceId) {
       array_agg(
         json_build_object(
           'golfer_id', gs.golfer_id,
-          'total_points', (gs.hole_points + gs.bonus_points + gs.finish_bonus)
+          'total_points', gs.total_points
         ) ORDER BY gs.golfer_id
       ) AS golfer_scores_array
      FROM contest_participants cp
      LEFT JOIN users u ON cp.user_id = u.id
-     LEFT JOIN golfer_scores gs ON cp.contest_instance_id = gs.contest_instance_id
+     LEFT JOIN (
+       SELECT contest_instance_id, user_id, golfer_id,
+         SUM(COALESCE(hole_points, 0) + COALESCE(bonus_points, 0) + COALESCE(finish_bonus, 0)) AS total_points
+       FROM golfer_scores
+       WHERE contest_instance_id = $1
+       GROUP BY contest_instance_id, user_id, golfer_id
+     ) gs ON cp.contest_instance_id = gs.contest_instance_id
        AND cp.user_id = gs.user_id
      WHERE cp.contest_instance_id = $1
      GROUP BY cp.user_id, user_display_name
      ORDER BY cp.user_id ASC`,
     [contestInstanceId]
   );
+
+  console.log('[LEADERBOARD_DEBUG]', {
+    contestId: contestInstanceId,
+    participantRows: result.rows.length
+  });
 
   // Compute aggregated scores per user (best 6 of 7 golfers)
   const usersWithScores = result.rows.map(row => {

@@ -1779,7 +1779,9 @@ describe('Entry Roster Service', () => {
           }
         );
 
-        const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds);
+        // Pass a stale timestamp to trigger concurrency conflict (not null, which triggers MISSING_VERSION)
+        const staleTimestamp = '2025-01-01T00:00:00.000Z';
+        const result = await entryRosterService.submitPicks(pool, contestId, userId, playerIds, false, staleTimestamp);
 
         // Expected: Conflict detected
         expect(result.success).toBe(false);

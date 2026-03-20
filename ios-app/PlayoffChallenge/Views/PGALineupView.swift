@@ -261,8 +261,9 @@ struct PGAEmptySlotButton: View {
 
     var body: some View {
         Button(action: {
-            // Open player picker with correct position ("G" for golfer)
-            viewModel.openPlayerPicker(for: "G")
+            if !viewModel.isLocked {
+                viewModel.openPlayerPicker(for: "G")
+            }
         }) {
             HStack(spacing: DesignTokens.Spacing.md) {
                 // Slot number placeholder
@@ -277,18 +278,20 @@ struct PGAEmptySlotButton: View {
                     Text("Add Golfer")
                         .font(.body)
                         .fontWeight(.medium)
-                        .foregroundColor(.primary)
+                        .foregroundColor(viewModel.isLocked ? .gray : .primary)
 
-                    Text("Tap to select")
+                    Text(viewModel.isLocked ? "Locked" : "Tap to select")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if !viewModel.isLocked {
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             .padding(DesignTokens.Spacing.md)
             .frame(maxWidth: .infinity)
@@ -296,6 +299,7 @@ struct PGAEmptySlotButton: View {
             .cornerRadius(DesignTokens.Radius.lg)
         }
         .buttonStyle(PlainButtonStyle())
+        .disabled(viewModel.isLocked)
     }
 }
 
