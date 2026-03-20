@@ -28,12 +28,20 @@ async function liveStandings(pool, contestInstanceId) {
        SELECT
          rg.user_id,
          rg.golfer_id,
-         COALESCE(SUM(gs.hole_points + gs.bonus_points + gs.finish_bonus), 0) AS total_points
+         COALESCE(gs_agg.total, 0) AS total_points
        FROM roster_golfers rg
-       LEFT JOIN golfer_scores gs
-         ON gs.golfer_id = rg.golfer_id
-        AND gs.contest_instance_id = $1
-       GROUP BY rg.user_id, rg.golfer_id
+       LEFT JOIN (
+         SELECT
+           contest_instance_id,
+           golfer_id,
+           SUM(hole_points + bonus_points + finish_bonus) AS total
+         FROM golfer_scores
+         WHERE contest_instance_id = $1
+         GROUP BY contest_instance_id, golfer_id
+       ) gs_agg
+         ON gs_agg.golfer_id = rg.golfer_id
+        AND gs_agg.contest_instance_id = $1
+       GROUP BY rg.user_id, rg.golfer_id, gs_agg.total
      ),
      ranked AS (
        SELECT
