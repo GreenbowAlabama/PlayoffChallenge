@@ -36,6 +36,18 @@
             "endDate": "2026-03-22T07:00Z"
           },
           {
+            "id": "401811939",
+            "label": "Houston Open",
+            "startDate": "2026-03-26T07:00Z",
+            "endDate": "2026-03-29T07:00Z"
+          },
+          {
+            "id": "401811940",
+            "label": "Valero Texas Open",
+            "startDate": "2026-04-02T07:00Z",
+            "endDate": "2026-04-05T07:00Z"
+          },
+          {
             "id": "401811941",
             "label": "Masters Tournament",
             "startDate": "2026-04-09T07:00Z",
