@@ -200,17 +200,9 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
   const phase = options?.phase || 'BOTH';
 
-  // ── Clear ESPN leaderboard cache at cycle start ─────────────────────────────
-  // Ensures fresh data for each ingestion cycle and prevents cross-cycle contamination
-  try {
-    const espnPgaApi = require('./ingestion/espn/espnPgaApi');
-    if (espnPgaApi && typeof espnPgaApi.clearLeaderboardCache === 'function') {
-      espnPgaApi.clearLeaderboardCache();
-    }
-  } catch (err) {
-    // Silently ignore if espnPgaApi is unavailable (e.g., in test mocks)
-    // Cache clearing is an optimization, not a blocker
-  }
+  // NOTE: ESPN caches are NOT cleared per-contest. They persist for the entire cycle.
+  // Call resetCycleCache() at cycle boundaries (from the worker) to prevent cross-cycle staleness.
+  // This ensures each eventId is fetched at most once per cycle, not once per contest.
 
   const client = await pool.connect();
 
@@ -926,4 +918,33 @@ async function runScoring(contestInstanceId, pool) {
   return run(contestInstanceId, pool, [workUnit], { phase: 'SCORING' });
 }
 
-module.exports = { run, runPlayerPool, runScoring, initializeTournamentField, refreshAllScheduledContestFields };
+/**
+ * Reset all ESPN caches at ingestion cycle boundaries.
+ *
+ * Must be called once at the START of each ingestion cycle (before processing any contests).
+ * Clears: leaderboard cache, player field cache, golfer cache.
+ * Ensures fresh ESPN data each cycle while preventing duplicate fetches within a cycle.
+ *
+ * Called by: ingestionWorker.runCycle() (or equivalent cycle entry point)
+ */
+function resetCycleCache() {
+  try {
+    const espnPgaApi = require('./ingestion/espn/espnPgaApi');
+    if (espnPgaApi && typeof espnPgaApi.clearLeaderboardCache === 'function') {
+      espnPgaApi.clearLeaderboardCache();
+    }
+  } catch (err) {
+    // Silently ignore if espnPgaApi is unavailable (e.g., in test mocks)
+  }
+
+  try {
+    const espnPgaPlayerService = require('./ingestion/espn/espnPgaPlayerService');
+    if (espnPgaPlayerService && typeof espnPgaPlayerService.clearFieldCache === 'function') {
+      espnPgaPlayerService.clearFieldCache();
+    }
+  } catch (err) {
+    // Silently ignore if espnPgaPlayerService is unavailable (e.g., in test mocks)
+  }
+}
+
+module.exports = { run, runPlayerPool, runScoring, initializeTournamentField, refreshAllScheduledContestFields, resetCycleCache };

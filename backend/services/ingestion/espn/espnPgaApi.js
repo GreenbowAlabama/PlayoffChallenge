@@ -22,35 +22,26 @@ const logger = require('../../../utils/logger');
 const httpsAgent = require('../../../utils/httpAgent');
 
 /**
- * In-cycle leaderboard cache (request-level, not persistent).
- * Prevents duplicate ESPN API calls for the same eventId within a single ingestion cycle.
+ * Per-cycle ESPN API caches (Promise-based for concurrency safety).
  *
- * Cache key: eventId (e.g., "401811938")
- * Cache entry: { data, timestamp, isEmptyResponse }
- *   - data: Full ESPN leaderboard response or { events: [] } for not-yet-active events
- *   - timestamp: When cache entry was created (ms)
- *   - isEmptyResponse: Boolean flag indicating empty/not-found response
+ * Stores Promises (not resolved data) so concurrent calls for the same key
+ * deduplicate to a single in-flight HTTP request.
  *
- * TTL Rules:
- *   - Normal responses (event found): Cached for entire cycle (cleared at cycle start)
- *   - Empty responses (event not active): TTL = 60s (retry sooner for time-sensitive events)
+ * Cache keys:
+ *   leaderboard: `leaderboard_${eventId}`
+ *   metadata:    `metadata_${eventId}`
  *
- * Usage:
- *   - Cleared at cycle start by calling clearLeaderboardCache()
- *   - Automatically hit when multiple contests reference same eventId
- *   - No setup needed; transparent to callers
+ * Cleared at cycle start via clearLeaderboardCache().
  */
-const leaderboardCache = new Map();
-const EMPTY_RESPONSE_TTL_MS = 60 * 1000; // 60 second TTL for "event not found" responses
+const requestCache = new Map();
+const EMPTY_RESPONSE_TTL_MS = 60 * 1000; // 60s TTL for "event not found" responses
 
 /**
- * Clear the leaderboard cache.
+ * Clear all ESPN API caches.
  * Called at the start of each ingestion cycle to prevent stale data.
- *
- * @returns {void}
  */
 function clearLeaderboardCache() {
-  leaderboardCache.clear();
+  requestCache.clear();
 }
 
 /**
@@ -258,96 +249,89 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
     throw new Error('fetchLeaderboard: eventId is required');
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Check cache first (with TTL for empty responses)
-  // ─────────────────────────────────────────────────────────────────────────────
-  if (leaderboardCache.has(eventId)) {
-    const cacheEntry = leaderboardCache.get(eventId);
-    const now = Date.now();
-    const age = now - cacheEntry.timestamp;
+  const cacheKey = `leaderboard_${eventId}`;
 
-    // Empty responses have short TTL (60s) to allow quick retry when event becomes active
-    if (cacheEntry.isEmptyResponse && age > EMPTY_RESPONSE_TTL_MS) {
-      logger.debug(
-        `[espnPgaApi] Empty cache entry expired for eventId=${eventId} (age=${age}ms, TTL=${EMPTY_RESPONSE_TTL_MS}ms), refetching`
-      );
-      leaderboardCache.delete(eventId);
+  // Check cache — may hold a Promise (in-flight) or resolved Promise (completed)
+  if (requestCache.has(cacheKey)) {
+    const entry = requestCache.get(cacheKey);
+
+    // If entry has TTL metadata (empty response), check expiry
+    if (entry._emptyResponseAt) {
+      const age = Date.now() - entry._emptyResponseAt;
+      if (age > EMPTY_RESPONSE_TTL_MS) {
+        logger.debug(`[CACHE EXPIRED] key=${cacheKey} age=${age}ms`);
+        requestCache.delete(cacheKey);
+      } else {
+        logger.debug(`[CACHE HIT] key=${cacheKey}`);
+        return entry;
+      }
     } else {
-      // Cache hit (either normal response or empty response within TTL)
-      logger.debug(
-        `[espnPgaApi] Cache HIT for leaderboard: eventId=${eventId}, isEmptyResponse=${cacheEntry.isEmptyResponse}`
-      );
-      return cacheEntry.data;
+      logger.debug(`[CACHE HIT] key=${cacheKey}`);
+      return entry;
     }
   }
 
-  logger.info(`[espnPgaApi] Fetching leaderboard: eventId=${eventId}`);
+  logger.debug(`[CACHE MISS] key=${cacheKey}`);
 
-  return withRetry(async () => {
-    const url = `https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard`;
+  const promise = (async () => {
+    const result = await withRetry(async () => {
+      const url = `https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard`;
 
-    const response = await axios.get(url, {
-      timeout,
-      httpsAgent,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'application/json',
-        'Referer': 'https://www.espn.com/',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
-    });
+      const response = await axios.get(url, {
+        timeout,
+        httpsAgent,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'application/json',
+          'Referer': 'https://www.espn.com/',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // DETERMINISTIC EVENT FILTERING (no fallback, no events[0])
-    // Pattern: Same as espnPgaPlayerService.fetchTournamentField()
-    // ───────────────────────────────────────────────────────────────────────────
-    const scoreboardEvents = response.data.events || [];
-    const targetEvent = scoreboardEvents.find(e => String(e.id) === String(eventId));
+      const scoreboardEvents = response.data.events || [];
+      const targetEvent = scoreboardEvents.find(e => String(e.id) === String(eventId));
 
-    if (!targetEvent) {
-      // Event not yet active in ESPN scoreboard (expected for SCHEDULED contests)
-      // Return empty events array (not fallback to events[0], not throw)
-      // Will retry with 60s TTL when next cycle runs
-      const availableEventIds = scoreboardEvents.map(e => e.id).join(',') || 'none';
-
-      logger.warn(
-        '[espnPgaApi] Event not found in scoreboard',
-        {
+      if (!targetEvent) {
+        const availableEventIds = scoreboardEvents.map(e => e.id).join(',') || 'none';
+        logger.warn('[espnPgaApi] Event not found in scoreboard', {
           event_id: eventId,
           available_event_ids: availableEventIds,
           scoreboard_events_count: scoreboardEvents.length,
           reason: 'Event likely not yet active in ESPN broadcast window'
-        }
-      );
+        });
 
-      // Return empty response with short TTL (60s) to allow retry when event becomes active
-      const emptyResponse = { events: [] };
-      leaderboardCache.set(eventId, {
-        data: emptyResponse,
-        timestamp: Date.now(),
-        isEmptyResponse: true
-      });
-      return emptyResponse;
-    }
+        // Empty response with TTL metadata for expiry check
+        const emptyResponse = { events: [] };
+        emptyResponse._emptyResponseAt = Date.now();
+        requestCache.set(cacheKey, Promise.resolve(emptyResponse));
+        logger.debug(`[CACHE STORE] key=${cacheKey} (empty, TTL=${EMPTY_RESPONSE_TTL_MS}ms)`);
+        return emptyResponse;
+      }
 
-    logger.info(
-      `[espnPgaApi] Leaderboard fetched and filtered: eventId=${eventId}, competitors=${targetEvent.competitions?.[0]?.competitors?.length || 0}`
-    );
+      logger.debug(`[espnPgaApi] Leaderboard fetched: eventId=${eventId}, competitors=${targetEvent.competitions?.[0]?.competitors?.length || 0}`);
 
-    // Success: Return ONLY the requested event (wrapped in events array for ingestion compatibility)
-    const filteredResponse = { events: [targetEvent] };
+      const filteredResponse = { events: [targetEvent] };
+      // Replace in-flight promise with resolved value
+      requestCache.set(cacheKey, Promise.resolve(filteredResponse));
+      logger.debug(`[CACHE STORE] key=${cacheKey}`);
+      return filteredResponse;
+    }, 3);
 
-    // Cache with normal scope (entire cycle, cleared at start of next cycle)
-    leaderboardCache.set(eventId, {
-      data: filteredResponse,
-      timestamp: Date.now(),
-      isEmptyResponse: false
-    });
+    return result;
+  })();
 
-    return filteredResponse;
-  }, 3);
+  // Store the in-flight promise immediately (concurrent callers will await it)
+  requestCache.set(cacheKey, promise);
+
+  try {
+    return await promise;
+  } catch (err) {
+    // Never cache failures
+    requestCache.delete(cacheKey);
+    throw err;
+  }
 }
 
 /**
@@ -370,30 +354,51 @@ async function fetchEventMetadata({ eventId, timeout = 5000 }) {
     throw new Error('fetchEventMetadata: eventId is required');
   }
 
-  logger.info(`[espnPgaApi] Fetching event metadata: eventId=${eventId}`);
+  const cacheKey = `metadata_${eventId}`;
 
-  return withRetry(async () => {
-    const url = `https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/${eventId}`;
+  if (requestCache.has(cacheKey)) {
+    logger.debug(`[CACHE HIT] key=${cacheKey}`);
+    return requestCache.get(cacheKey);
+  }
 
-    const response = await axios.get(url, {
-      timeout,
-      httpsAgent,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'application/json',
-        'Referer': 'https://www.espn.com/',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
-    });
+  logger.debug(`[CACHE MISS] key=${cacheKey}`);
 
-    logger.info(
-      `[espnPgaApi] Event metadata fetched: eventId=${eventId}, completed=${response.data.status?.type?.completed || false}`
-    );
+  const promise = (async () => {
+    const data = await withRetry(async () => {
+      const url = `https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/${eventId}`;
 
-    return response.data;
-  }, 3);
+      const response = await axios.get(url, {
+        timeout,
+        httpsAgent,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'application/json',
+          'Referer': 'https://www.espn.com/',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+
+      logger.debug(`[espnPgaApi] Metadata fetched: eventId=${eventId}, completed=${response.data.status?.type?.completed || false}`);
+
+      // Replace in-flight promise with resolved value
+      requestCache.set(cacheKey, Promise.resolve(response.data));
+      logger.debug(`[CACHE STORE] key=${cacheKey}`);
+      return response.data;
+    }, 3);
+
+    return data;
+  })();
+
+  requestCache.set(cacheKey, promise);
+
+  try {
+    return await promise;
+  } catch (err) {
+    requestCache.delete(cacheKey);
+    throw err;
+  }
 }
 
 module.exports = {

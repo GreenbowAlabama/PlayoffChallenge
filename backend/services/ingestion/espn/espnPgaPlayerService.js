@@ -20,6 +20,20 @@ const logger = console; // TODO: Replace with structured logger
 
 const httpsAgent = require('../../../utils/httpAgent');
 
+// ===== PER-CYCLE FIELD CACHE (Promise-based for concurrency safety) =====
+// Stores Promises so concurrent calls for the same key deduplicate to a single HTTP request.
+// Cache keys: `field_${eventId}` (fetchTournamentField) or '__all__' (fetchGolfers)
+// Cleared at cycle start via clearFieldCache()
+const fieldCache = new Map();
+
+/**
+ * Clear the per-cycle field cache.
+ * Called at the start of each ingestion cycle via ingestionService.resetCycleCache().
+ */
+function clearFieldCache() {
+  fieldCache.clear();
+}
+
 /**
  * Fetch golfers from ESPN PGA scoreboard endpoint.
  *
@@ -31,9 +45,16 @@ const httpsAgent = require('../../../utils/httpAgent');
  * @throws {Error} If ESPN API call fails
  */
 async function fetchGolfers() {
-  logger.info('[espnPgaPlayerService] Fetching golfers from ESPN...');
+  const cacheKey = '__all__';
 
-  try {
+  if (fieldCache.has(cacheKey)) {
+    logger.debug(`[CACHE HIT] key=${cacheKey}`);
+    return fieldCache.get(cacheKey);
+  }
+
+  logger.debug(`[CACHE MISS] key=${cacheKey}`);
+
+  const promise = (async () => {
     const response = await axios.get(
       'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard',
       {
@@ -45,7 +66,6 @@ async function fetchGolfers() {
       }
     );
 
-    // Extract all competitors from all events and competitions
     const competitors = [];
     const events = response.data.events || [];
 
@@ -57,16 +77,24 @@ async function fetchGolfers() {
       }
     }
 
-    logger.info(`[espnPgaPlayerService] Fetched ${competitors.length} golfers from scoreboard`);
-
     const normalized = competitors
       .map(competitor => normalizeGolfer(competitor))
       .filter(golfer => golfer !== null);
 
-    logger.info(`[espnPgaPlayerService] Normalized ${normalized.length} of ${competitors.length} fetched golfers (${competitors.length - normalized.length} skipped due to missing IDs)`);
+    logger.debug(`[espnPgaPlayerService] Fetched ${normalized.length} golfers`);
 
+    // Replace in-flight promise with resolved value
+    fieldCache.set(cacheKey, Promise.resolve(normalized));
+    logger.debug(`[CACHE STORE] key=${cacheKey}`);
     return normalized;
+  })();
+
+  fieldCache.set(cacheKey, promise);
+
+  try {
+    return await promise;
   } catch (err) {
+    fieldCache.delete(cacheKey);
     logger.error('[espnPgaPlayerService] Error fetching golfers:', err.message);
     throw err;
   }
@@ -93,9 +121,16 @@ async function fetchTournamentField(eventId) {
     throw new Error('fetchTournamentField: eventId is required');
   }
 
-  logger.info(`[espnPgaPlayerService] Fetching tournament field for event ${eventId} from scoreboard...`);
+  const cacheKey = `field_${eventId}`;
 
-  try {
+  if (fieldCache.has(cacheKey)) {
+    logger.debug(`[CACHE HIT] key=${cacheKey}`);
+    return fieldCache.get(cacheKey);
+  }
+
+  logger.debug(`[CACHE MISS] key=${cacheKey}`);
+
+  const promise = (async () => {
     const scoreboardResponse = await axios.get(
       'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard',
       {
@@ -107,13 +142,14 @@ async function fetchTournamentField(eventId) {
       }
     );
 
-    // Extract competitors from scoreboard
     const scoreboardEvents = scoreboardResponse.data.events || [];
-
-    // Find exact event match by ID (no fallback to other events)
     const targetEvent = scoreboardEvents.find(e => e.id === eventId);
+
     if (!targetEvent) {
-      throw new Error(`Event ${eventId} not found in scoreboard`);
+      // Event not found — return empty array but do NOT cache (allow retry)
+      logger.debug(`[espnPgaPlayerService] Event ${eventId} not yet available in ESPN scoreboard`);
+      fieldCache.delete(cacheKey);
+      return [];
     }
 
     let competitors = [];
@@ -127,17 +163,27 @@ async function fetchTournamentField(eventId) {
       .map(competitor => normalizeGolfer(competitor))
       .filter(golfer => golfer !== null);
 
-    logger.info(`[espnPgaPlayerService] Fetched ${normalized.length} valid golfers for event ${eventId} from scoreboard`);
+    logger.debug(`[espnPgaPlayerService] Fetched ${normalized.length} golfers for event ${eventId}`);
 
+    // Replace in-flight promise with resolved value
+    fieldCache.set(cacheKey, Promise.resolve(normalized));
+    logger.debug(`[CACHE STORE] key=${cacheKey}`);
     return normalized;
+  })();
+
+  fieldCache.set(cacheKey, promise);
+
+  try {
+    return await promise;
   } catch (err) {
-    // If event not found in scoreboard (expected for SCHEDULED tournaments), log at debug level
+    // Never cache failures
+    fieldCache.delete(cacheKey);
+
     if (err.message.includes('not found in scoreboard')) {
       logger.debug(`[espnPgaPlayerService] Event ${eventId} not yet available in ESPN scoreboard`);
       return [];
     }
 
-    // For actual network/API errors, log at error level
     logger.error(`[espnPgaPlayerService] Error fetching tournament field for event ${eventId}:`, err.message);
     throw err;
   }
@@ -215,5 +261,6 @@ function normalizeGolfer(competitor) {
 module.exports = {
   fetchGolfers,
   fetchTournamentField,
-  normalizeGolfer
+  normalizeGolfer,
+  clearFieldCache
 };

@@ -144,6 +144,9 @@ async function getHighestContestStatus(pool) {
  * @returns {Promise<Object>} cycle summary { phasesRun, phasesSkipped, failed, contests }
  */
 async function runCycle(pool) {
+  ingestionService.resetCycleCache();
+  console.debug('[INGESTION] Cycle cache reset');
+
   try {
     // Query for contest instances with tournament configurations in ingestible status
     // Player pool ingestion: SCHEDULED, LOCKED, LIVE (users need players for lineup selection)
