@@ -19,13 +19,10 @@ async function liveStandings(pool, contestInstanceId) {
   const result = await pool.query(
     `WITH roster_golfers AS (
        SELECT
-         cp.user_id,
-         unnest(er.player_ids) AS golfer_id
-       FROM contest_participants cp
-       JOIN entry_rosters er
-         ON er.user_id = cp.user_id
-        AND er.contest_instance_id = cp.contest_instance_id
-       WHERE cp.contest_instance_id = $1
+         er.user_id,
+         UNNEST(er.player_ids) AS golfer_id
+       FROM entry_rosters er
+       WHERE er.contest_instance_id = $1
      ),
      golfer_totals AS (
        SELECT
@@ -34,8 +31,7 @@ async function liveStandings(pool, contestInstanceId) {
          COALESCE(SUM(gs.hole_points + gs.bonus_points + gs.finish_bonus), 0) AS total_points
        FROM roster_golfers rg
        LEFT JOIN golfer_scores gs
-         ON gs.user_id = rg.user_id
-        AND gs.golfer_id = rg.golfer_id
+         ON gs.golfer_id = rg.golfer_id
         AND gs.contest_instance_id = $1
        GROUP BY rg.user_id, rg.golfer_id
      ),
@@ -65,10 +61,8 @@ async function liveStandings(pool, contestInstanceId) {
     [contestInstanceId]
   );
 
-  console.log('[LEADERBOARD_DEBUG]', {
-    contestId: contestInstanceId,
-    participantRows: result.rows.length
-  });
+  console.log('[LIVE_STANDINGS_USED] pgaStandardV1');
+  console.log('[SQL_RESULT]', JSON.stringify(result.rows, null, 2));
 
   // Map query results to score objects
   const usersWithScores = result.rows.map(row => ({
