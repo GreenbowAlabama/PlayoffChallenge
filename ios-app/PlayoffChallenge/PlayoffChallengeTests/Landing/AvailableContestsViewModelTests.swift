@@ -219,4 +219,82 @@ final class AvailableContestsViewModelTests: XCTestCase {
 
         XCTAssertEqual(vm.contests.first?.formattedEntryFee, "Free")
     }
+
+    // MARK: - Featured Contest Determinism Tests
+
+    @MainActor
+    func test_featuredContest_multipleMarketing_selectsLatestStartTime() async {
+        let earlier = Date(timeIntervalSince1970: 1_000_000)
+        let later = Date(timeIntervalSince1970: 2_000_000)
+
+        let dto1 = AvailableContestDTO.fixture(
+            id: UUID(), contest_name: "Earlier Contest",
+            is_platform_owned: true, start_time: earlier,
+            isPrimaryMarketing: true
+        )
+        let dto2 = AvailableContestDTO.fixture(
+            id: UUID(), contest_name: "Later Contest",
+            is_platform_owned: true, start_time: later,
+            isPrimaryMarketing: true
+        )
+        // Pass earlier first to prove ordering is not array-position dependent
+        let (vm, _, _) = makeSUT(result: .success([dto1, dto2]))
+
+        await vm.loadContests()
+
+        XCTAssertEqual(vm.screenState.featuredContest?.contestName, "Later Contest")
+    }
+
+    @MainActor
+    func test_featuredContest_singleMarketing_selectsThatContest() async {
+        let dto1 = AvailableContestDTO.fixture(
+            id: UUID(), contest_name: "Marketing Contest",
+            is_platform_owned: true,
+            isPrimaryMarketing: true
+        )
+        let dto2 = AvailableContestDTO.fixture(
+            id: UUID(), contest_name: "Regular Contest",
+            is_platform_owned: nil
+        )
+        let (vm, _, _) = makeSUT(result: .success([dto1, dto2]))
+
+        await vm.loadContests()
+
+        XCTAssertEqual(vm.screenState.featuredContest?.contestName, "Marketing Contest")
+    }
+
+    @MainActor
+    func test_featuredContest_noMarketing_isNil() async {
+        let dto1 = AvailableContestDTO.fixture(id: UUID(), contest_name: "Contest A")
+        let dto2 = AvailableContestDTO.fixture(id: UUID(), contest_name: "Contest B")
+        let (vm, _, _) = makeSUT(result: .success([dto1, dto2]))
+
+        await vm.loadContests()
+
+        XCTAssertNil(vm.screenState.featuredContest)
+    }
+
+    @MainActor
+    func test_featuredContest_nilStartTime_fallsBackToCreatedAt() async {
+        let earlierCreated = Date(timeIntervalSince1970: 1_000_000)
+        let laterCreated = Date(timeIntervalSince1970: 2_000_000)
+
+        let dto1 = AvailableContestDTO.fixture(
+            id: UUID(), contest_name: "Earlier Created",
+            is_platform_owned: true, created_at: earlierCreated,
+            start_time: nil,
+            isPrimaryMarketing: true
+        )
+        let dto2 = AvailableContestDTO.fixture(
+            id: UUID(), contest_name: "Later Created",
+            is_platform_owned: true, created_at: laterCreated,
+            start_time: nil,
+            isPrimaryMarketing: true
+        )
+        let (vm, _, _) = makeSUT(result: .success([dto1, dto2]))
+
+        await vm.loadContests()
+
+        XCTAssertEqual(vm.screenState.featuredContest?.contestName, "Later Created")
+    }
 }

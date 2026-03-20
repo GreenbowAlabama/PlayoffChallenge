@@ -149,7 +149,8 @@ extension AvailableContestDTO {
         start_time: Date? = nil,
         end_time: Date? = nil,
         entry_fee_cents: Int? = 2500,
-        organizer_name: String? = "Organizer"
+        organizer_name: String? = "Organizer",
+        isPrimaryMarketing: Bool? = nil
     ) -> AvailableContestDTO {
         AvailableContestDTO(
             id: id,
@@ -165,7 +166,8 @@ extension AvailableContestDTO {
             start_time: start_time,
             end_time: end_time,
             entry_fee_cents: entry_fee_cents,
-            organizer_name: organizer_name
+            organizer_name: organizer_name,
+            isPrimaryMarketing: isPrimaryMarketing
         )
     }
 }

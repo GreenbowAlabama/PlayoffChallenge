@@ -118,7 +118,16 @@ final class AvailableContestsViewModel: ObservableObject {
             print("[AvailableContestsViewModel] Loaded \(contests.count) domain objects from backend")
 
             // Derive presentation state from DTOs
-            let featuredDTO = dtos.first { $0.isPrimaryMarketing == true }
+            // Deterministic: when multiple marketing contests exist, select the one
+            // with the latest startTime (fallback to createdAt if startTime is nil)
+            let featuredDTO = dtos
+                .filter { $0.isPrimaryMarketing == true }
+                .sorted { lhs, rhs in
+                    let lDate = lhs.startTime ?? lhs.createdAt
+                    let rDate = rhs.startTime ?? rhs.createdAt
+                    return lDate < rDate
+                }
+                .last
             let featuredContest = featuredDTO.map { Contest.from($0) }
 
             // Update screen state with featured and remaining contests
