@@ -49,6 +49,90 @@ function extractCompetitors(payload) {
   return [];
 }
 
+// Mirrors _parseEspnScore from pgaLeaderboardDebugService.js
+function parseEspnScore(rawScore) {
+  if (rawScore == null) return null;
+  if (typeof rawScore === 'number') {
+    return isFinite(rawScore) ? rawScore : null;
+  }
+  if (typeof rawScore === 'string') {
+    const trimmed = rawScore.trim();
+    if (trimmed === '' || trimmed === '-' || trimmed === 'WD' || trimmed === 'CUT' || trimmed === 'DQ') {
+      return null;
+    }
+    if (trimmed === 'E') return 0;
+    const parsed = Number(trimmed);
+    return isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+describe('ESPN Score Parsing', () => {
+  it('parses numeric score -8', () => {
+    expect(parseEspnScore(-8)).toBe(-8);
+  });
+
+  it('parses numeric score 0', () => {
+    expect(parseEspnScore(0)).toBe(0);
+  });
+
+  it('parses numeric score +3', () => {
+    expect(parseEspnScore(3)).toBe(3);
+  });
+
+  it('parses string score "-8"', () => {
+    expect(parseEspnScore('-8')).toBe(-8);
+  });
+
+  it('parses string score "+2"', () => {
+    expect(parseEspnScore('+2')).toBe(2);
+  });
+
+  it('parses string "E" as 0 (even par)', () => {
+    expect(parseEspnScore('E')).toBe(0);
+  });
+
+  it('returns null for null', () => {
+    expect(parseEspnScore(null)).toBeNull();
+  });
+
+  it('returns null for undefined', () => {
+    expect(parseEspnScore(undefined)).toBeNull();
+  });
+
+  it('returns null for empty string', () => {
+    expect(parseEspnScore('')).toBeNull();
+  });
+
+  it('returns null for "WD" (withdrawn)', () => {
+    expect(parseEspnScore('WD')).toBeNull();
+  });
+
+  it('returns null for "CUT"', () => {
+    expect(parseEspnScore('CUT')).toBeNull();
+  });
+
+  it('returns null for "DQ" (disqualified)', () => {
+    expect(parseEspnScore('DQ')).toBeNull();
+  });
+
+  it('returns null for "-" (dash, no score)', () => {
+    expect(parseEspnScore('-')).toBeNull();
+  });
+
+  it('returns null for NaN', () => {
+    expect(parseEspnScore(NaN)).toBeNull();
+  });
+
+  it('returns null for Infinity', () => {
+    expect(parseEspnScore(Infinity)).toBeNull();
+  });
+
+  it('handles string with whitespace "  -5  "', () => {
+    expect(parseEspnScore('  -5  ')).toBe(-5);
+  });
+});
+
 describe('ESPN Competitor Extraction', () => {
 
   describe('Format A: competitors at root (scoreboard endpoint)', () => {

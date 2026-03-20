@@ -258,13 +258,24 @@ async function getPgaLeaderboardWithScores(pool) {
       || 'Unknown';
 
     if (isLive) {
-      // LIVE: Use ESPN real-time score, supplement with fantasy score from completed rounds
-      const espnScore = typeof competitor.score === 'number' ? competitor.score : null;
+      // LIVE: ESPN score is HARD authority for score column. NEVER use golfer_event_scores here.
+      // ESPN returns score as number OR string ("-8", "E", "+2"). Must parse both.
+      const espnScore = _parseEspnScore(competitor.score);
+      const dbScore = scoreData?.score_to_par || 0;
+      const finalScore = espnScore != null ? espnScore : dbScore;
+
+      // TEMP: Score source debug log — remove after validation
+      if (espnScore != null && espnScore !== dbScore) {
+        console.log(
+          `[SCORE SOURCE] ${normalizedGolferId} | espn=${espnScore} | db=${dbScore} | final=${finalScore} | raw=${competitor.score}`
+        );
+      }
+
       entries.push({
         golfer_id: normalizedGolferId,
         player_name: playerName,
         position: 0,  // Computed below after sorting
-        score: espnScore != null ? espnScore : (scoreData?.score_to_par || 0),
+        score: finalScore,
         finish_bonus: scoreData?.finish_bonus || 0,
         fantasy_score: scoreData?.fantasy_score || 0,
         rounds_scored: scoreData?.rounds_scored || 0
@@ -301,6 +312,38 @@ async function getPgaLeaderboardWithScores(pool) {
   }
 
   return { metadata, entries };
+}
+
+/**
+ * Parse ESPN competitor score to a number.
+ *
+ * ESPN returns score in multiple formats:
+ *   - Number: -8 (already numeric)
+ *   - String: "-8", "+2" (parseable)
+ *   - String: "E" (even par = 0)
+ *   - null/undefined (not started or withdrawn)
+ *
+ * @param {*} rawScore - ESPN score value (number, string, or null)
+ * @returns {number|null} Parsed score or null if unparseable
+ */
+function _parseEspnScore(rawScore) {
+  if (rawScore == null) return null;
+
+  if (typeof rawScore === 'number') {
+    return isFinite(rawScore) ? rawScore : null;
+  }
+
+  if (typeof rawScore === 'string') {
+    const trimmed = rawScore.trim();
+    if (trimmed === '' || trimmed === '-' || trimmed === 'WD' || trimmed === 'CUT' || trimmed === 'DQ') {
+      return null;
+    }
+    if (trimmed === 'E') return 0;
+    const parsed = Number(trimmed);
+    return isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
 }
 
 /**
