@@ -17,28 +17,51 @@ const { aggregateEntryScore } = require('../scoring/pgaEntryAggregation');
  */
 async function liveStandings(pool, contestInstanceId) {
   const result = await pool.query(
-    `SELECT
-      cp.user_id,
-      COALESCE(u.username, u.name, 'Unknown') AS user_display_name,
-      array_agg(
-        json_build_object(
-          'golfer_id', gs.golfer_id,
-          'total_points', gs.total_points
-        ) ORDER BY gs.golfer_id
-      ) AS golfer_scores_array
-     FROM contest_participants cp
-     LEFT JOIN users u ON cp.user_id = u.id
-     LEFT JOIN (
-       SELECT contest_instance_id, user_id, golfer_id,
-         SUM(COALESCE(hole_points, 0) + COALESCE(bonus_points, 0) + COALESCE(finish_bonus, 0)) AS total_points
-       FROM golfer_scores
-       WHERE contest_instance_id = $1
-       GROUP BY contest_instance_id, user_id, golfer_id
-     ) gs ON cp.contest_instance_id = gs.contest_instance_id
-       AND cp.user_id = gs.user_id
-     WHERE cp.contest_instance_id = $1
-     GROUP BY cp.user_id, user_display_name
-     ORDER BY cp.user_id ASC`,
+    `WITH roster_golfers AS (
+       SELECT
+         cp.user_id,
+         unnest(er.player_ids) AS golfer_id
+       FROM contest_participants cp
+       JOIN entry_rosters er
+         ON er.user_id = cp.user_id
+        AND er.contest_instance_id = cp.contest_instance_id
+       WHERE cp.contest_instance_id = $1
+     ),
+     golfer_totals AS (
+       SELECT
+         rg.user_id,
+         rg.golfer_id,
+         COALESCE(SUM(gs.hole_points + gs.bonus_points + gs.finish_bonus), 0) AS total_points
+       FROM roster_golfers rg
+       LEFT JOIN golfer_scores gs
+         ON gs.user_id = rg.user_id
+        AND gs.golfer_id = rg.golfer_id
+        AND gs.contest_instance_id = $1
+       GROUP BY rg.user_id, rg.golfer_id
+     ),
+     ranked AS (
+       SELECT
+         *,
+         ROW_NUMBER() OVER (
+           PARTITION BY user_id
+           ORDER BY total_points DESC
+         ) AS rnk,
+         COUNT(*) OVER (PARTITION BY user_id) AS roster_size
+       FROM golfer_totals
+     )
+     SELECT
+       r.user_id,
+       COALESCE(u.username, u.name, 'Unknown') AS user_display_name,
+       CASE
+         WHEN MAX(r.roster_size) >= 7
+           THEN SUM(CASE WHEN r.rnk <= 6 THEN r.total_points ELSE 0 END)
+         ELSE
+           SUM(r.total_points)
+       END AS total_score
+     FROM ranked r
+     JOIN users u ON r.user_id = u.id
+     GROUP BY r.user_id, user_display_name
+     ORDER BY total_score DESC`,
     [contestInstanceId]
   );
 
@@ -47,26 +70,13 @@ async function liveStandings(pool, contestInstanceId) {
     participantRows: result.rows.length
   });
 
-  // Compute aggregated scores per user (best 6 of 7 golfers)
-  const usersWithScores = result.rows.map(row => {
-    // Parse golfer_scores_array and filter out nulls
-    const golferScores = (row.golfer_scores_array || [])
-      .filter(g => g && g.golfer_id)
-      .map(g => ({
-        golfer_id: g.golfer_id,
-        total_points: Number(g.total_points) || 0
-      }));
-
-    // Apply best-6-of-7 aggregation
-    const aggregatedScore = aggregateEntryScore(golferScores);
-
-    return {
-      id: row.user_id,
-      user_id: row.user_id,
-      user_display_name: row.user_display_name,
-      total_score: aggregatedScore.entry_total
-    };
-  });
+  // Map query results to score objects
+  const usersWithScores = result.rows.map(row => ({
+    id: row.user_id,
+    user_id: row.user_id,
+    user_display_name: row.user_display_name,
+    total_score: Number(row.total_score) || 0
+  }));
 
   // Sort by total_score DESC, then apply tie-aware ranking
   usersWithScores.sort((a, b) => {
@@ -94,6 +104,7 @@ async function liveStandings(pool, contestInstanceId) {
       id: entry.id,
       user_id: entry.user_id,
       user_display_name: entry.user_display_name,
+      total_score: entry.total_score,
       rank: currentRank,
       values: {
         rank: currentRank,
