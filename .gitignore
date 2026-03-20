@@ -30,4 +30,3 @@ DerivedData/
 # SwiftPM
 .build/
 core/build/
-backend/debug/
