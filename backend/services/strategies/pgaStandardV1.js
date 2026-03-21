@@ -17,12 +17,18 @@ const { aggregateEntryScore } = require('../scoring/pgaEntryAggregation');
  */
 async function liveStandings(pool, contestInstanceId) {
   const result = await pool.query(
-    `WITH roster_golfers AS (
+    `WITH latest_rosters AS (
+       SELECT DISTINCT ON (contest_instance_id, user_id)
+         id, contest_instance_id, user_id, player_ids
+       FROM entry_rosters
+       WHERE contest_instance_id = $1
+       ORDER BY contest_instance_id, user_id, updated_at DESC
+     ),
+     roster_golfers AS (
        SELECT
-         er.user_id,
-         UNNEST(er.player_ids) AS golfer_id
-       FROM entry_rosters er
-       WHERE er.contest_instance_id = $1
+         lr.user_id,
+         UNNEST(lr.player_ids) AS golfer_id
+       FROM latest_rosters lr
      ),
      golfer_agg AS (
        SELECT
@@ -40,7 +46,6 @@ async function liveStandings(pool, contestInstanceId) {
        FROM roster_golfers rg
        LEFT JOIN golfer_agg ga
          ON ga.golfer_id = rg.golfer_id
-       GROUP BY rg.user_id, rg.golfer_id, ga.total
      ),
      ranked AS (
        SELECT
