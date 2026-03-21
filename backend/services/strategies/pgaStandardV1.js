@@ -25,10 +25,11 @@ async function liveStandings(pool, contestInstanceId) {
        ORDER BY contest_instance_id, user_id, updated_at DESC
      ),
      roster_golfers AS (
-       SELECT
+       SELECT DISTINCT
          lr.user_id,
-         UNNEST(lr.player_ids) AS golfer_id
-       FROM latest_rosters lr
+         golfer_id
+       FROM latest_rosters lr,
+       LATERAL UNNEST(lr.player_ids) AS golfer_id
      ),
      golfer_agg AS (
        SELECT
