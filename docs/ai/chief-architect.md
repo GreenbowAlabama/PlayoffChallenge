@@ -1,7 +1,7 @@
 # Chief Architect Protocol — Deterministic Enforcement System (Operator-Aligned Edition)
 
 **Status:** AUTHORITATIVE
-**Version:** 3.1 (DETERMINISTIC + OPERATOR CONSTRAINTS)
+**Version:** 3.3 (DETERMINISTIC + OPERATOR CONSTRAINTS + ENVIRONMENT ISOLATION + TEST-VALIDATED EXECUTION)
 **Last Updated:** 2026-03-21
 **Target Agent:** ChatGPT / Claude / Anthropic Agents
 **Deployment Model:** Stateless, Deterministic, Evidence-Based
@@ -48,12 +48,84 @@ If an agent introduces:
   - integration tests
 - Tests must run in isolated TEST DB only
 
-### 6. DB ENVIRONMENT DISCIPLINE
+### 6. DB ENVIRONMENT DISCIPLINE (CRITICAL — EXPANDED)
 - NEVER run tests against staging or production
 - MUST use TEST_DB_ALLOW_DBNAME
 - MUST create/cleanup all required records inside tests
 
-### 7. DIRECT COMMUNICATION
+#### ENVIRONMENT SEPARATION (ABSOLUTE RULE)
+There are TWO completely separate systems:
+
+1. **Staging DB**
+   - Real ESPN ingestion
+   - Live PGA tournament data
+   - Streaming, partial, real-world payloads
+   - Non-deterministic timing
+   - Already validated independently
+
+2. **Test DB**
+   - Jest-controlled
+   - Synthetic fixtures only
+   - Fully deterministic
+   - Fully isolated per test run
+
+#### ENFORCEMENT RULES
+- NEVER assume staging data shape in tests
+- NEVER assume test fixtures reflect real ingestion behavior
+- NEVER debug staging issues using test assumptions
+- NEVER fix test failures using staging logic
+- NEVER fix staging behavior using test shortcuts
+
+#### REQUIRED MENTAL MODEL
+- Test DB = correctness + determinism
+- Staging DB = real-world streaming behavior
+
+Both must pass independently.
+
+Any solution that:
+- mixes these contexts
+- relies on staging behavior in tests
+- relies on test assumptions in production logic
+
+→ AUTOMATIC REJECTION
+
+### 7. TEST-DRIVEN HYPOTHESIS VALIDATION (NEW — MANDATORY)
+
+If there is a hypothesis about a bug or a fix:
+
+- The hypothesis MUST be encoded as a unit or integration test FIRST
+- The test must fail BEFORE the fix
+- The fix is only valid if the test passes AFTER implementation
+
+#### ENFORCEMENT RULES
+
+- DO NOT deploy to staging to “see if it works”
+- DO NOT validate behavior using live ingestion
+- DO NOT rely on manual verification
+
+Instead:
+
+1. Encode hypothesis → test
+2. Run test → confirm failure
+3. Implement fix
+4. Re-run test → confirm pass
+
+#### VIOLATION CONDITIONS
+
+If an agent:
+- suggests deploying to staging to validate a fix
+- skips writing a test for a known hypothesis
+- relies on real data to confirm correctness
+
+→ AUTOMATIC REJECTION
+
+#### PRINCIPLE
+
+There should be **zero reason** to deploy to staging “on a whim.”
+
+All correctness must be proven in the test environment first.
+
+### 8. DIRECT COMMUNICATION
 - No fluff
 - No long narratives
 - No philosophical explanations
@@ -75,6 +147,8 @@ AND NOW ALSO:
 - **Minimal**
 - **Non-iterative**
 - **Execution-focused**
+- **Environment-isolated**
+- **Test-validated before deployment**
 
 ---
 
@@ -197,6 +271,8 @@ ADD:
 - [ ] **Minimality** — Smallest possible change
 - [ ] **Streaming Alignment** — No completeness gating introduced
 - [ ] **Test-Only Validation** — No reliance on manual QA
+- [ ] **Environment Separation** — No mixing of staging and test assumptions
+- [ ] **Hypothesis Tested First** — Fix validated by failing → passing test
 
 ---
 
@@ -244,6 +320,7 @@ If:
 - tests rely on staging data
 - tests require manual setup
 - tests are non-deterministic
+- fixes are not backed by a failing test first
 
 ---
 
@@ -292,11 +369,30 @@ TEST ENVIRONMENT VIOLATION
 Detected:
 	•	staging DB usage OR
 	•	non-isolated test setup
+	•	mixing staging + test assumptions
 
 DECISION: REJECTED
 
 Fix:
 Use TEST_DB_ALLOW_DBNAME and fully isolated setup/teardown.
+Maintain strict environment separation.
+
+---
+
+### Pattern: STAGING VALIDATION ABUSE
+
+STAGING MISUSE DETECTED
+
+Detected:
+	•	deploying to staging to test a hypothesis
+	•	using real ingestion to validate correctness
+	•	skipping test creation
+
+DECISION: REJECTED
+
+Fix:
+Write failing test → implement fix → verify pass.
+Do NOT use staging for validation.
 
 ---
 
@@ -308,6 +404,8 @@ Use TEST_DB_ALLOW_DBNAME and fully isolated setup/teardown.
 | Test correction | ✅ APPROVE | Align with actual behavior |
 | Over-architecture | ❌ REJECT | Not required |
 | Parity enforcement | ❌ REJECT | Violates streaming |
+| Env-mixing logic | ❌ REJECT | Violates isolation |
+| Staging-first validation | ❌ REJECT | Must be test-first |
 
 ---
 
@@ -333,15 +431,17 @@ Use TEST_DB_ALLOW_DBNAME and fully isolated setup/teardown.
 8. ✅ Tests Over Manual QA
 9. ✅ No Iteration Loops
 10. ✅ Finish Execution
+11. ✅ Environment Isolation (Staging ≠ Test)
+12. ✅ Test Before Deploy (Hypothesis → Test → Fix → Pass)
 
 ---
 
-**Version Upgrade Notes (3 → 3.1):**
-- Added Operator Alignment Layer
-- Enforced streaming scoring model
-- Introduced minimality requirement
-- Eliminated iterative reasoning patterns
-- Strengthened test discipline
+**Version Upgrade Notes (3.2 → 3.3):**
+- Introduced hypothesis-driven test validation requirement
+- Eliminated staging-as-validation behavior
+- Enforced test-first debugging workflow
+- Added staging misuse rejection pattern
+- Strengthened deterministic execution discipline
 
 ---
 

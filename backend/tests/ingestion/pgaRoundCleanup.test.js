@@ -18,7 +18,7 @@ describe('PGA Round Cleanup — Dynamic Round Handling', () => {
   let contestInstanceId;
   let testConnection;
 
-  before(async () => {
+  beforeAll(async () => {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 2,
@@ -27,7 +27,7 @@ describe('PGA Round Cleanup — Dynamic Round Handling', () => {
     testConnection = await pool.connect();
   });
 
-  after(async () => {
+  afterAll(async () => {
     if (testConnection) {
       await testConnection.release();
     }
@@ -37,27 +37,37 @@ describe('PGA Round Cleanup — Dynamic Round Handling', () => {
   });
 
   beforeEach(async () => {
+    // Create a test organizer user
+    const organizerId = require('uuid').v4();
+    await testConnection.query(
+      `INSERT INTO users (id, email, created_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (id) DO NOTHING`,
+      [organizerId, `organizer-${organizerId}@test.com`]
+    );
+
     // Create a test contest instance
     const result = await testConnection.query(`
       INSERT INTO contest_instances (
-        template_id, provider_event_id, contest_name, status,
+        template_id, provider_event_id, contest_name, status, organizer_id,
         lock_time, tournament_start_time, tournament_end_time,
-        entry_fee_cents, max_entries, is_platform_owned
+        entry_fee_cents, max_entries, is_platform_owned, payout_structure
       )
       VALUES (
         (SELECT id FROM contest_templates LIMIT 1),
         'espn_pga_test_' || gen_random_uuid(),
         'Test PGA Contest',
         'LIVE',
+        $1,
         NOW(),
         NOW(),
         NOW() + interval '7 days',
         10000,
         100,
-        true
+        true,
+        '{}'::jsonb
       )
       RETURNING id
-    `);
+    `, [organizerId]);
     contestInstanceId = result.rows[0].id;
   });
 

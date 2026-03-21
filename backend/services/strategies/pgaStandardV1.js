@@ -9,7 +9,7 @@ const { aggregateEntryScore } = require('../scoring/pgaEntryAggregation');
 
 /**
  * Get live standings for PGA contests.
- * Fetches golfer_scores, aggregates per user (best 6 of 7), ranks with tie awareness.
+ * Fetches golfer_event_scores, aggregates per user (best 6 of 7), ranks with tie awareness.
  *
  * @param {Object} pool - Database pool
  * @param {string} contestInstanceId - Contest UUID
@@ -24,36 +24,30 @@ async function liveStandings(pool, contestInstanceId) {
        FROM entry_rosters er
        WHERE er.contest_instance_id = $1
      ),
-     -- CRITICAL:
-     -- golfer_scores must be pre-aggregated by (contest_instance_id, golfer_id)
-     -- DO NOT join raw golfer_scores — causes cross-user score multiplication
-     -- See docs/architecture/scoring/PGA_STANDARD_V1.md
+     golfer_agg AS (
+       SELECT
+         golfer_id,
+         SUM(hole_points + bonus_points + finish_bonus) AS total
+       FROM golfer_event_scores
+       WHERE contest_instance_id = $1
+       GROUP BY golfer_id
+     ),
      golfer_totals AS (
        SELECT
          rg.user_id,
          rg.golfer_id,
-         COALESCE(gs_agg.total, 0) AS total_points
+         COALESCE(ga.total, 0) AS total_points
        FROM roster_golfers rg
-       LEFT JOIN (
-         SELECT
-           user_id,
-           contest_instance_id,
-           golfer_id,
-           SUM(hole_points + bonus_points + finish_bonus) AS total
-         FROM golfer_scores
-         WHERE contest_instance_id = $1
-         GROUP BY user_id, contest_instance_id, golfer_id
-       ) gs_agg
-         ON gs_agg.golfer_id = rg.golfer_id
-        AND gs_agg.user_id = rg.user_id
-        AND gs_agg.contest_instance_id = $1
+       LEFT JOIN golfer_agg ga
+         ON ga.golfer_id = rg.golfer_id
+       GROUP BY rg.user_id, rg.golfer_id, ga.total
      ),
      ranked AS (
        SELECT
          *,
          ROW_NUMBER() OVER (
            PARTITION BY user_id
-           ORDER BY total_points ASC
+           ORDER BY total_points DESC
          ) AS rnk,
          COUNT(*) OVER (PARTITION BY user_id) AS roster_size
        FROM golfer_totals

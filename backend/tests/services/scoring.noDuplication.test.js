@@ -158,50 +158,21 @@ describe('PGA Scoring — No Cross-User Duplication', () => {
         ['PGA_7', -2]
       ];
 
-      // Insert User A's scores
+      // Insert golfer_event_scores ONCE per golfer per round (contest-scoped, not per-user)
+      // Both User A and User B will reference the same golfer scores
       for (const [golferId, points] of userAScores) {
         await client.query(
-          `INSERT INTO golfer_scores (
+          `INSERT INTO golfer_event_scores (
              contest_instance_id,
-             user_id,
              golfer_id,
              round_number,
              hole_points,
              bonus_points,
              finish_bonus,
-             total_points,
-             created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+             total_points
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
             contestId,
-            userA,
-            golferId,
-            1,
-            points,
-            0,
-            0,
-            points
-          ]
-        );
-      }
-
-      // Insert User B's scores (SAME values as User A)
-      for (const [golferId, points] of userBScores) {
-        await client.query(
-          `INSERT INTO golfer_scores (
-             contest_instance_id,
-             user_id,
-             golfer_id,
-             round_number,
-             hole_points,
-             bonus_points,
-             finish_bonus,
-             total_points,
-             created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-          [
-            contestId,
-            userB,
             golferId,
             1,
             points,
@@ -243,7 +214,7 @@ describe('PGA Scoring — No Cross-User Duplication', () => {
       console.log(`✅ Test passed: Both users see exact same score (no cross-user duplication)`);
     } finally {
       await client.query('ROLLBACK');
-      await client.end();
+      await client.release();
     }
   });
 
@@ -357,14 +328,14 @@ describe('PGA Scoring — No Cross-User Duplication', () => {
         [contestId1, userId, golfers]
       );
 
-      // Contest 1: assign high scores
+      // Contest 1: assign high scores (once per golfer, shared across users)
       for (let i = 0; i < golfers.length; i++) {
         await client.query(
-          `INSERT INTO golfer_scores (
-             contest_instance_id, user_id, golfer_id, round_number,
-             hole_points, bonus_points, finish_bonus, total_points, created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-          [contestId1, userId, golfers[i], 1, 20, 0, 0, 20]
+          `INSERT INTO golfer_event_scores (
+             contest_instance_id, golfer_id, round_number,
+             hole_points, bonus_points, finish_bonus, total_points
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [contestId1, golfers[i], 1, 20, 0, 0, 20]
         );
       }
 
@@ -386,11 +357,11 @@ describe('PGA Scoring — No Cross-User Duplication', () => {
       // Contest 2: assign low scores
       for (let i = 0; i < golfers.length; i++) {
         await client.query(
-          `INSERT INTO golfer_scores (
-             contest_instance_id, user_id, golfer_id, round_number,
-             hole_points, bonus_points, finish_bonus, total_points, created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-          [contestId2, userId, golfers[i], 1, 2, 0, 0, 2]
+          `INSERT INTO golfer_event_scores (
+             contest_instance_id, golfer_id, round_number,
+             hole_points, bonus_points, finish_bonus, total_points
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [contestId2, golfers[i], 1, 2, 0, 0, 2]
         );
       }
 
@@ -415,7 +386,7 @@ describe('PGA Scoring — No Cross-User Duplication', () => {
       console.log(`✅ Test passed: Contest isolation confirmed (scores don't mix)`);
     } finally {
       await client.query('ROLLBACK');
-      await client.end();
+      await client.release();
     }
   });
 });

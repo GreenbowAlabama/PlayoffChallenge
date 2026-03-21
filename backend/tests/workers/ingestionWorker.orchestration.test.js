@@ -36,7 +36,8 @@ describe('Ingestion Worker — Phase Orchestration', () => {
         processed: 0,
         skipped: 0,
         errors: []
-      })
+      }),
+      resetCycleCache: jest.fn()
     };
 
     jest.doMock('../../services/ingestionService', () => mockIngestionService);
