@@ -9,6 +9,7 @@
 
 const crypto = require('crypto');
 const { scoreContestRosters } = require('../../scoring/pgaRosterScoringService');
+const { validateRoundParity } = require('../validators/roundFieldParityValidator');
 const logger = require('../../../utils/logger');
 
 /**
@@ -1261,15 +1262,49 @@ async function upsertScores(ctx, normalizedScores) {
     return;
   }
 
-  console.log(`[IDEMPOTENCY CHECK] writing scores: ${normalizedScores.length}`);
-
   const { dbClient, providerEventId } = ctx;
   const { contestInstanceId } = ctx;
+
+  // ── ROUND FIELD PARITY VALIDATION ────────────────────────────────────────────
+  // Prevent partial rounds from being persisted
+  // This validation runs PER ROUND, not globally
+  console.log('[DEBUG] About to run validator', {
+    contest_instance_id: contestInstanceId,
+    normalized_score_count: normalizedScores.length
+  });
+
+  const validationResult = await validateRoundParity(normalizedScores, contestInstanceId, dbClient);
+  const validScores = validationResult.validScores;
+  const rejectedRounds = validationResult.rejectedRounds;
+
+  // Log rejected rounds with full context
+  if (rejectedRounds.length > 0) {
+    logger.warn('[ROUND_PARITY_VALIDATOR] Rejected rounds', {
+      contest_instance_id: contestInstanceId,
+      rejected_round_count: rejectedRounds.length,
+      details: rejectedRounds
+    });
+  }
+
+  if (validScores.length === 0) {
+    logger.warn('[ROUND_PARITY_VALIDATOR] HARD STOP - no valid rounds', {
+      contest_instance_id: contestInstanceId,
+      rejected_rounds: rejectedRounds.length,
+      total_incoming_scores: normalizedScores.length
+    });
+    return;
+  }
+
+  logger.info('[ROUND_PARITY_VALIDATOR] Accepted scores', {
+    contest_instance_id: contestInstanceId,
+    valid_score_count: validScores.length,
+    rejected_score_count: normalizedScores.length - validScores.length
+  });
 
   const values = [];
   const placeholders = [];
 
-  normalizedScores.forEach((score, i) => {
+  validScores.forEach((score, i) => {
     const offset = i * 7;
 
     placeholders.push(
@@ -1286,6 +1321,18 @@ async function upsertScores(ctx, normalizedScores) {
       score.total_points
     );
   });
+
+  // ── DEFENSIVE GUARD: Prevent INSERT if no valid scores ──────────────────────────
+  // This is a second guard to catch any case where validScores somehow becomes empty
+  // despite passing the check above (defensive programming)
+  if (!validScores || validScores.length === 0 || placeholders.length === 0) {
+    logger.error('[ROUND_PARITY_VALIDATOR] DEFENSIVE GUARD: Preventing INSERT with no valid scores', {
+      contest_instance_id: contestInstanceId,
+      valid_scores: validScores ? validScores.length : 0,
+      placeholders: placeholders.length
+    });
+    return;
+  }
 
   // ── CANONICAL SCORING IDENTITY ──────────────────────────────────────────
   // CRITICAL INVARIANT:
@@ -1324,6 +1371,11 @@ async function upsertScores(ctx, normalizedScores) {
       finish_bonus = EXCLUDED.finish_bonus,
       total_points = EXCLUDED.total_points
   `, values);
+
+  logger.info('[SCORING] Score insert complete', {
+    contest_instance_id: contestInstanceId,
+    inserted_scores: validScores.length
+  });
 
   // ── DYNAMIC ROUND CLEANUP: BEFORE ROSTER SCORING (CRITICAL ORDERING) ─────────
   // Compute valid rounds from the current ingestion payload

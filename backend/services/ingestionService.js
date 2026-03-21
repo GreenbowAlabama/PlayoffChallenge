@@ -467,9 +467,6 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
         await adapter.upsertScores(ctx, normalizedScores);
 
-        // [SCORING DEBUG] Step 3: After database write
-        console.log("[SCORING DEBUG] Score insert complete");
-
         await executeQuery(
           client,
           `UPDATE ingestion_runs
