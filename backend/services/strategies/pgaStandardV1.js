@@ -59,7 +59,7 @@ async function liveStandings(pool, contestInstanceId) {
       AND gs.user_id = rg.user_id
       AND gs.user_id = 'a940693d-350c-4b72-8232-4186fdba06bb'
      WHERE rg.user_id = 'a940693d-350c-4b72-8232-4186fdba06bb'`,
-    [contestInstanceId, contestInstanceId]
+    [contestInstanceId]
   );
   console.log("[TRACE PLAYER SET USED]", playerSetDump.rows);
 
