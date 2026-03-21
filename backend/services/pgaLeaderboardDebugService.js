@@ -179,21 +179,7 @@ async function getPgaLeaderboardWithScores(pool) {
     }
   }
 
-  if (competitors.length === 0) {
-    return { metadata, entries: [] };
-  }
-
-  // Step 6: Build golfer ID list
-  const golferIds = competitors
-    .map(c => {
-      const id = c.athlete?.id || c.id;
-      return id ? `espn_${id}` : null;
-    })
-    .filter(Boolean);
-
-  if (golferIds.length === 0) {
-    return { metadata, entries: [] };
-  }
+  // Step 6: (removed — golferIds no longer needed; querying all golfers from golfer_event_scores)
 
   // Step 7: Query golfer_event_scores for fantasy scoring data (all golfers, not filtered to ESPN competitors)
   const scoresResult = await pool.query(
@@ -221,6 +207,7 @@ async function getPgaLeaderboardWithScores(pool) {
   scoresResult.rows.forEach(row => {
     if (row.golfer_id) {
       scoresMap[row.golfer_id] = {
+        golfer_id: row.golfer_id,
         player_name: row.player_name || 'Unknown',
         score_to_par: row.score_to_par || 0,
         finish_bonus: row.finish_bonus || 0,
@@ -230,17 +217,11 @@ async function getPgaLeaderboardWithScores(pool) {
     }
   });
 
-  // Step 8: Also build player name lookup from players table for names not in golfer_event_scores
-  const playerNameResult = await pool.query(
-    `SELECT espn_id::text AS espn_id, full_name
-     FROM players
-     WHERE espn_id::text = ANY($1)`,
-    [golferIds.map(id => id.replace('espn_', ''))]
-  );
-  const playerNameMap = {};
-  playerNameResult.rows.forEach(row => {
-    playerNameMap[`espn_${row.espn_id}`] = row.full_name;
-  });
+  if (Object.keys(scoresMap).length === 0) {
+    return { metadata, entries: [] };
+  }
+
+  // Step 8: (removed — player names already included in golfer_event_scores query via LEFT JOIN)
 
   // Step 9: Build entries from ALL golfers in scoresMap (including those not in ESPN competitors)
   // Step 9: Build entries directly from golfer_event_scores (all golfers, source of truth)
@@ -266,6 +247,16 @@ async function getPgaLeaderboardWithScores(pool) {
   for (const entry of entries) {
     entry.position = rank++;
   }
+
+  // DEBUG: Log top 10 before return to verify sort + rank
+  console.log('[LEADERBOARD DEBUG] Top 10 entries BEFORE return:');
+  console.log(
+    entries.slice(0, 10).map(e => ({
+      position: e.position,
+      golfer_id: e.golfer_id,
+      fantasy_score: e.fantasy_score
+    }))
+  );
 
   return { metadata, entries };
 }

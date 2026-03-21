@@ -88,7 +88,7 @@ async function validatePgaScoring(contestInstanceId, golferId) {
       FROM golfer_event_scores
       WHERE contest_instance_id = $1
       GROUP BY golfer_id
-      ORDER BY computed_score DESC
+      ORDER BY computed_score DESC, golfer_id ASC
       LIMIT 10`,
       [contestInstanceId]
     );
