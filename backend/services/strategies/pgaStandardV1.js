@@ -16,6 +16,7 @@ const { aggregateEntryScore } = require('../scoring/pgaEntryAggregation');
  * @returns {Promise<Array>} Array of { user_id, user_display_name, total_score, rank }
  */
 async function liveStandings(pool, contestInstanceId) {
+  console.log("[TRACE] LEADERBOARD FUNCTION EXECUTED", { contestInstanceId });
   const result = await pool.query(
     `WITH roster_golfers AS (
        SELECT
