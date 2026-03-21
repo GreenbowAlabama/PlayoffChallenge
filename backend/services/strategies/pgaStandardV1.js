@@ -17,6 +17,7 @@ const { aggregateEntryScore } = require('../scoring/pgaEntryAggregation');
  */
 async function liveStandings(pool, contestInstanceId) {
   console.log("[TRACE] LEADERBOARD FUNCTION EXECUTED", { contestInstanceId });
+
   const result = await pool.query(
     `WITH roster_golfers AS (
        SELECT
@@ -55,7 +56,7 @@ async function liveStandings(pool, contestInstanceId) {
          *,
          ROW_NUMBER() OVER (
            PARTITION BY user_id
-           ORDER BY total_points DESC
+           ORDER BY total_points ASC
          ) AS rnk,
          COUNT(*) OVER (PARTITION BY user_id) AS roster_size
        FROM golfer_totals
@@ -76,6 +77,7 @@ async function liveStandings(pool, contestInstanceId) {
     [contestInstanceId]
   );
 
+  console.log("[TRACE RAW SQL RESULT]", result.rows.map(r => ({ user: r.user_display_name, total: r.total_score })));
 
   // Map query results to score objects
   const usersWithScores = result.rows.map(row => ({
@@ -84,6 +86,8 @@ async function liveStandings(pool, contestInstanceId) {
     user_display_name: row.user_display_name,
     total_score: Number(row.total_score) || 0
   }));
+
+  console.log("[TRACE FINAL API TOTALS]", usersWithScores.map(u => ({ user: u.user_display_name, total: u.total_score })));
 
   // Sort by total_score DESC, then apply tie-aware ranking
   usersWithScores.sort((a, b) => {
