@@ -36,14 +36,16 @@ async function liveStandings(pool, contestInstanceId) {
        FROM roster_golfers rg
        LEFT JOIN (
          SELECT
+           user_id,
            contest_instance_id,
            golfer_id,
            SUM(hole_points + bonus_points + finish_bonus) AS total
          FROM golfer_scores
          WHERE contest_instance_id = $1
-         GROUP BY contest_instance_id, golfer_id
+         GROUP BY user_id, contest_instance_id, golfer_id
        ) gs_agg
          ON gs_agg.golfer_id = rg.golfer_id
+        AND gs_agg.user_id = rg.user_id
         AND gs_agg.contest_instance_id = $1
        GROUP BY rg.user_id, rg.golfer_id, gs_agg.total
      ),
