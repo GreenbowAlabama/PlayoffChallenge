@@ -271,8 +271,18 @@ final class LineupViewModel: ObservableObject {
                 print("MY_ENTRY available_players_count:", entryResponse.availablePlayers?.count ?? 0)
 
                 // Convert PlayerInfoContract → Player domain model
-                let availablePlayers = entryResponse.availablePlayers ?? []
+                // CRITICAL: Handle null vs empty array differently
+                // null = roster still loading (show spinner)
+                // [] = roster loaded but empty (allow lineup flow)
+                guard let availablePlayers = entryResponse.availablePlayers else {
+                    // API returned null - roster version not ready yet
+                    print("[MYLINEUP][vm] availablePlayers is nil - roster not ready, deferring allPlayers update")
+                    print("[MYLINEUP][vm] done isLocked=\(self.isLocked) isLoading=\(self.isLoading) showError=\(self.showError)")
+                    isLoading = false
+                    return
+                }
 
+                // API returned [] or [players] - roster IS ready
                 // DEBUG: Log actual player IDs from API response
                 let firstPlayerIds = availablePlayers.prefix(5).map { $0.playerId }
                 print("[DEBUG][PGA] first player ids from API:", firstPlayerIds)
@@ -301,6 +311,7 @@ final class LineupViewModel: ObservableObject {
                 print("[MYLINEUP][vm] playersById=\(playersById.count)")
 
                 // Preserve backend ordering by mapping availablePlayers
+                // availablePlayers is now guaranteed to be non-nil ([] is valid, means empty roster)
                 self.allPlayers = availablePlayers.compactMap { playersById[$0.playerId] }
                 hasLoadedPlayersOnce = true
 

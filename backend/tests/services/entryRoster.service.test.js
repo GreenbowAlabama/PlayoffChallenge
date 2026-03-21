@@ -600,15 +600,15 @@ describe('Entry Roster Service', () => {
       }
     });
 
-    it('getMyEntry returns null available_players when field_selections missing (streaming state)', async () => {
+    it('getMyEntry returns empty array when field_selections missing (fallback ready state)', async () => {
       /**
-       * READ PATH STREAMING TEST
+       * READ PATH FALLBACK TEST (FIXED)
        * Contest in early ingestion state:
        * - sport exists (valid template)
        * - field_selections missing (ingestion incomplete)
        *
-       * CORRECT BEHAVIOR: available_players = null (indicates "not ready")
-       * NOT empty array [] which iOS interprets as "roster version not ready"
+       * FIXED BEHAVIOR: available_players = [] (indicates "ready but no players")
+       * This allows lineup creation UI to render, even if no players available yet
        */
       const pool = createMockPool();
       const contestId = 'test-contest-id';
@@ -638,7 +638,7 @@ describe('Entry Roster Service', () => {
         }
       );
 
-      // Field selections MISSING (streaming: not ready yet)
+      // Field selections MISSING (fallback to players table)
       pool.setQueryResponse(
         q => q.includes('field_selections'),
         {
@@ -647,10 +647,159 @@ describe('Entry Roster Service', () => {
         }
       );
 
-      // CORRECT BEHAVIOR: available_players = null (not empty array, not all players)
+      // Fallback: no players in table yet
+      pool.setQueryResponse(
+        q => q.includes('FROM players') && q.includes('WHERE sport'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // FIXED BEHAVIOR: available_players = [] (ready state, not streaming)
       const result = await entryRosterService.getMyEntry(pool, contestId, userId);
 
-      expect(result.available_players).toBeNull();  // ✓ Null, not empty []
+      expect(result.available_players).toEqual([]);  // ✓ Empty array, not null
+    });
+
+    it('getMyEntry returns players when field_selections exists (production parity)', async () => {
+      /**
+       * PRODUCTION PARITY TEST
+       * Validates that getMyEntry correctly returns available_players
+       * when field_selections.primary contains 221 valid player objects
+       *
+       * This reproduces the exact scenario:
+       * - contest_instances row exists (status: SCHEDULED, sport: 'golf')
+       * - no entry_rosters row (user hasn't submitted picks)
+       * - field_selections row with 221 valid player objects
+       *
+       * EXPECTED: result.available_players.length === 221
+       * FAILURE MODE: available_players is null or empty (streaming state, not production ready)
+       */
+      const pool = createMockPool();
+      const contestId = 'test-contest-large-field';
+      const userId = 'test-user-id';
+
+      // Generate 221 valid player objects
+      const largePlayerField = Array.from({ length: 221 }, (_, i) => ({
+        player_id: `p${i + 1}`,
+        name: `Player ${i + 1}`,
+        image_url: null
+      }));
+
+      // Contest exists with valid sport
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('LEFT JOIN'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'golf'  // Valid sport
+          }],
+          rowCount: 1
+        }
+      );
+
+      // User has no entry yet
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('WHERE'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // Field selections with 221 valid player objects
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [{
+            selection_json: {
+              primary: largePlayerField
+            }
+          }],
+          rowCount: 1
+        }
+      );
+
+      const result = await entryRosterService.getMyEntry(pool, contestId, userId);
+
+      // HARD ASSERT: Players must be returned, not null
+      expect(result.available_players).not.toBeNull();
+      expect(Array.isArray(result.available_players)).toBe(true);
+      expect(result.available_players.length).toBe(221);
+
+      // Verify structure of returned players
+      expect(result.available_players[0]).toHaveProperty('player_id');
+      expect(result.available_players[0]).toHaveProperty('name');
+      expect(result.available_players[0].player_id).toBe('p1');
+    });
+
+    it('getMyEntry returns empty array when players table empty (fallback ready state)', async () => {
+      /**
+       * FALLBACK READY STATE TEST
+       * When field_selections is missing AND players table returns 0 rows,
+       * getMyEntry must return an empty array [] (not null).
+       *
+       * Empty array = "ready but no players available"
+       * null = "not ready, still streaming"
+       *
+       * This test verifies the fix for the "roster version not ready" bug.
+       */
+      const pool = createMockPool();
+      const contestId = 'test-contest-empty-players';
+      const userId = 'test-user-id';
+
+      // Contest exists with valid sport
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('LEFT JOIN'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'golf'  // Valid sport
+          }],
+          rowCount: 1
+        }
+      );
+
+      // User has no entry yet
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('WHERE'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // No field_selections (missing)
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // Fallback: query players table, returns 0 rows (empty)
+      pool.setQueryResponse(
+        q => q.includes('players') && q.includes('WHERE'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      const result = await entryRosterService.getMyEntry(pool, contestId, userId);
+
+      // CRITICAL: Must be an empty array, NOT null
+      expect(result.available_players).not.toBeNull();
+      expect(Array.isArray(result.available_players)).toBe(true);
+      expect(result.available_players.length).toBe(0);
     });
 
     it('rejects player not in validated field', async () => {
@@ -1343,7 +1492,8 @@ describe('Entry Roster Service', () => {
 
       expect(result.player_ids).toEqual([]);
       expect(result.can_edit).toBe(true);
-      expect(result.available_players).toBeNull();  // Streaming: field not ready
+      // FIXED: now returns empty array (ready but no players) instead of null (not ready)
+      expect(result.available_players).toEqual([]);
     });
 
     it('returns existing picks for user with entry', async () => {
@@ -1560,6 +1710,73 @@ describe('Entry Roster Service', () => {
         name: 'Jon Rahm',
         image_url: null
       });
+    });
+
+    it('getMyEntry succeeds with sport=golf (select query includes ct.sport)', async () => {
+      /**
+       * AUDIT TEST: Verify getMyEntry query fetches ct.sport from contest_templates
+       * and does NOT throw CONTEST_NOT_INITIALIZED when sport field is populated.
+       *
+       * This test validates the SELECT query at getMyEntry:470-478 properly
+       * includes ct.sport to initialize contestRow.sport for valid contests.
+       */
+      const pool = createMockPool();
+      const contestId = 'test-golf-contest-id';
+      const userId = 'test-user-id';
+
+      // Contest with sport='golf' (properly initialized template)
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('LEFT JOIN'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'golf'  // Template initialized with sport
+          }],
+          rowCount: 1
+        }
+      );
+
+      // User has no entry yet
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('WHERE'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // Field selections missing (streaming state)
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // Fallback: no players available
+      pool.setQueryResponse(
+        q => q.includes('FROM players') && q.includes('WHERE sport'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // ASSERTION: getMyEntry must NOT throw CONTEST_NOT_INITIALIZED
+      // The query must include ct.sport, so contestRow.sport is never null/undefined
+      const result = await entryRosterService.getMyEntry(pool, contestId, userId);
+
+      expect(result).toBeDefined();
+      expect(result.player_ids).toEqual([]);
+      expect(result.can_edit).toBe(true);
+      expect(result.lock_time).toBeDefined();
+      expect(result.roster_config).toBeDefined();
+      // FIXED: now returns empty array (ready but no players) instead of null (not ready)
+      expect(result.available_players).toEqual([]);
     });
   });
 

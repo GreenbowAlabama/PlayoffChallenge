@@ -526,6 +526,20 @@ async function getMyEntry(pool, contestInstanceId, userId) {
   // Determine if we should use field_selections or fallback to players table
   const shouldUseFieldSelections = fieldResult.rows.length > 0;
 
+  // AUDIT ASSERTION 1: Verify field_selections structure if present
+  if (shouldUseFieldSelections) {
+    const selection_json = fieldResult.rows[0].selection_json;
+    if (!selection_json) {
+      throw new Error('[AUDIT] field_selections exists but selection_json is null');
+    }
+    if (!Array.isArray(selection_json.primary)) {
+      throw new Error('[AUDIT] field_selections.selection_json.primary is not an array');
+    }
+    if (selection_json.primary.length === 0) {
+      console.log('[AUDIT] field_selections.primary is empty array (streaming state)');
+    }
+  }
+
   // Validate field_selections has primary array in either:
   // - NEW format: [{ player_id: "...", name: "...", image_url?: "..." }, ...]
   // - LEGACY format: ["espn_123", "espn_456", ...] (IDs only, will be hydrated)
@@ -568,6 +582,14 @@ async function getMyEntry(pool, contestInstanceId, userId) {
         name: player.full_name,
         image_url: player.image_url || null
       }));
+
+      // AUDIT ASSERTION 2: Verify legacy hydration succeeded
+      if (!Array.isArray(availablePlayers)) {
+        throw new Error('[AUDIT] availablePlayers after legacy hydration is not an array');
+      }
+      if (availablePlayers.length === 0 && playerList.length > 0) {
+        throw new Error('[AUDIT] availablePlayers empty after hydration but playerList had items');
+      }
     } else {
       // New format: already has full objects, just map to contract
       availablePlayers = playerList.map(p => ({
@@ -575,6 +597,17 @@ async function getMyEntry(pool, contestInstanceId, userId) {
         name: p.name,
         image_url: p.image_url || null
       }));
+
+      // AUDIT ASSERTION 3: Verify new format mapping succeeded
+      if (!Array.isArray(availablePlayers)) {
+        throw new Error('[AUDIT] availablePlayers after new format mapping is not an array');
+      }
+      if (availablePlayers.length === 0 && playerList.length > 0) {
+        throw new Error('[AUDIT] availablePlayers empty after mapping but playerList had items');
+      }
+      if (availablePlayers.length !== playerList.length) {
+        throw new Error(`[AUDIT] availablePlayers length mismatch: ${availablePlayers.length} vs ${playerList.length}`);
+      }
     }
   } else {
     // STATE B: Streaming state - field missing, sport exists
@@ -590,19 +623,31 @@ async function getMyEntry(pool, contestInstanceId, userId) {
         [playerSport]
       );
 
-      // Only populate if we found players; otherwise stay null (streaming state)
-      if (playersResult.rows.length > 0) {
-        availablePlayers = playersResult.rows.map(player => ({
-          player_id: player.id,
-          name: player.full_name,
-          image_url: player.image_url || null
-        }));
+      // Always assign from fallback (even if empty array)
+      // Empty array = "ready but no players" (not "not ready" which would be null)
+      availablePlayers = playersResult.rows.map(player => ({
+        player_id: player.id,
+        name: player.full_name,
+        image_url: player.image_url || null
+      }));
+
+      // AUDIT ASSERTION 4: Verify fallback hydration succeeded
+      if (!Array.isArray(availablePlayers)) {
+        throw new Error('[AUDIT] availablePlayers after fallback hydration is not an array');
+      }
+      if (availablePlayers.length !== playersResult.rows.length) {
+        throw new Error(`[AUDIT] availablePlayers length mismatch after fallback: ${availablePlayers.length} vs ${playersResult.rows.length}`);
       }
 
       // LAZY CREATION: Persist field_selections if tournament_configs exists
       // Never fabricate foreign keys. Only write if tournament_configs is present.
       if (!shouldUseFieldSelections && availablePlayers && availablePlayers.length > 0) {
         try {
+          // AUDIT: Before lazy creation, verify availablePlayers is still an array
+          if (!Array.isArray(availablePlayers)) {
+            throw new Error('[AUDIT] availablePlayers was reset to non-array before lazy creation');
+          }
+
           const tcResult = await pool.query(
             `SELECT id FROM tournament_configs WHERE contest_instance_id = $1 LIMIT 1`,
             [contestInstanceId]
@@ -641,6 +686,11 @@ async function getMyEntry(pool, contestInstanceId, userId) {
       }
     }
     // Streaming model: if field_selections missing and sport exists, availablePlayers stays null
+  }
+
+  // AUDIT ASSERTION 5: Final check before return
+  if (availablePlayers !== null && !Array.isArray(availablePlayers)) {
+    throw new Error('[AUDIT] availablePlayers is not null but also not an array at return point');
   }
 
   return {
