@@ -294,14 +294,10 @@ async function getPgaLeaderboardWithScores(pool) {
     }
   }
 
-  // Step 10: Sort and rank by fantasy_score (primary), ESPN score tie-breaker (secondary), golfer_id (tertiary)
+  // Step 10: Sort and rank by fantasy_score DESC, golfer_id ASC (matches validation script exactly)
   entries.sort((a, b) => {
-    const fantasyDiff = Number(b.fantasy_score) - Number(a.fantasy_score);
-    if (fantasyDiff !== 0) return fantasyDiff;
-
-    const aScore = a.score ?? Number.POSITIVE_INFINITY;
-    const bScore = b.score ?? Number.POSITIVE_INFINITY;
-    if (aScore !== bScore) return aScore - bScore;
+    const scoreDiff = Number(b.fantasy_score) - Number(a.fantasy_score);
+    if (scoreDiff !== 0) return scoreDiff;
 
     return String(a.golfer_id).localeCompare(String(b.golfer_id));
   });
