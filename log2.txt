@@ -1,0 +1,519 @@
+2026-03-21T15:47:39.019540103Z [inf]  [Discovery Calendar] source=LIVE_API events=48
+2026-03-21T15:47:39.019571031Z [inf]  [dotenv@17.3.1] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+2026-03-21T15:47:39.019575442Z [inf]  Server running on port 3000
+2026-03-21T15:47:39.019580343Z [inf]  Environment: staging
+2026-03-21T15:47:39.019585598Z [inf]  APP_ENV: stg
+2026-03-21T15:47:39.019590042Z [inf]  APP_BASE_URL: https://app-staging.67enterprises.com
+2026-03-21T15:47:39.178527621Z [inf]  Starting Container
+2026-03-21T15:47:43.701545306Z [inf]  Payout scheduler initialized (runs every 5 minutes)
+2026-03-21T15:47:43.701548037Z [inf]  Financial reconciliation scheduler initialized (runs daily at 02:00 UTC)
+2026-03-21T15:47:43.701551112Z [inf]  [FinancialReconciliation] Next run scheduled in 10.2 hours at 2026-03-22T02:00:00.000Z
+2026-03-21T15:47:43.701553938Z [inf]  Starting lifecycle reconciler (interval: 30000ms)
+2026-03-21T15:47:43.701558078Z [inf]  [WithdrawalProcessor] Started (interval: 30000ms, max concurrent: 5, max retries: 3)
+2026-03-21T15:47:43.822429178Z [inf]  [Discovery Worker] Starting (interval: 60000ms, organizer: 84cf24b4-ae8d-49dc-8985-9b69a5dcdb23)
+2026-03-21T15:47:48.693292633Z [inf]  [Ingestion Worker] Starting with OVERRIDE_INTERVAL=60000ms (from INGESTION_WORKER_INTERVAL_MS env var)
+2026-03-21T15:47:48.693295550Z [inf]  [INGESTION] Cycle cache reset
+2026-03-21T15:47:48.751075143Z [inf]  [CACHE MISS] key=field_401811940
+2026-03-21T15:47:49.093164282Z [inf]  [espnPgaPlayerService] Event 401811940 not yet available in ESPN scoreboard
+2026-03-21T15:47:49.093167124Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.093171459Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.093174279Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:49.093178096Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.093181136Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.093184115Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.285470506Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.285477585Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:49.285481677Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.285484975Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:49.285488607Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.285590518Z [inf]  [CACHE MISS] key=field_401811940
+2026-03-21T15:47:49.285596649Z [inf]  [espnPgaPlayerService] Event 401811940 not yet available in ESPN scoreboard
+2026-03-21T15:47:49.285601429Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:49.285605000Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.285628232Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.285633738Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.285637159Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.285640486Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.285645384Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.285645738Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.285652232Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.285652717Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.285658551Z [inf]  [ingestionService] Refreshed field_selections for 10 SCHEDULED GOLF contests
+2026-03-21T15:47:49.285659243Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:49.285664347Z [inf]  [Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: 805daffd-3c03-4320-a462-8341613c2f04
+2026-03-21T15:47:49.285664563Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.285669287Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:49.315157871Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:49.315163786Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.327341981Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.328671534Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.340303809Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.361039535Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.361044454Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.361047408Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.374476349Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.374483397Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.386046319Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:49.387507755Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.399120765Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:49.404013317Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.416493449Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:49.416498147Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.438553344Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:49.438558131Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.443147293Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.443877752Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.446901785Z [inf]  [ingestionService] Refreshed field_selections for 10 SCHEDULED GOLF contests
+2026-03-21T15:47:49.446906484Z [inf]  [Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: e3703425-0622-469b-b583-f3ac22692e8f
+2026-03-21T15:47:49.458274894Z [inf]  [CACHE MISS] key=field_401811940
+2026-03-21T15:47:49.689683089Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.689693692Z [inf]  [espnPgaPlayerService] Event 401811940 not yet available in ESPN scoreboard
+2026-03-21T15:47:49.689709512Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.689715371Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:49.689727063Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.689731337Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:49.689744203Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:49.689753389Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.689759588Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.689764040Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.689768840Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.689774363Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.689779209Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.689783427Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.690032438Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.690037608Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:49.690042765Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.690048280Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.690052970Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.690098781Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.690101838Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:49.690104669Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.690107395Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:49.695852543Z [inf]  [ingestionService] Refreshed field_selections for 10 SCHEDULED GOLF contests
+2026-03-21T15:47:49.695860081Z [inf]  [Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: fa48ef5e-d340-4cac-a10f-1165b2a4b79b
+2026-03-21T15:47:49.700773843Z [inf]  [CACHE MISS] key=field_401811940
+2026-03-21T15:47:49.764243514Z [inf]  [espnPgaPlayerService] Event 401811940 not yet available in ESPN scoreboard
+2026-03-21T15:47:49.833031892Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:49.833034523Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.833037028Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:49.833039603Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.833042787Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.833045444Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.833903441Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.868802873Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.868809619Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.868813665Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.868817583Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.943429229Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.943435993Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:49.943440031Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.943444464Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:49.943448188Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.943452044Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:49.943455866Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.943459526Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:49.943463184Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.944403968Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:49.946200980Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:49.951328789Z [inf]  [ingestionService] Refreshed field_selections for 10 SCHEDULED GOLF contests
+2026-03-21T15:47:49.951332150Z [inf]  [Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: 98e14bb6-6846-46c9-bff0-d81e285c6b9a
+2026-03-21T15:47:50.000965112Z [inf]  [CACHE MISS] key=field_401811940
+2026-03-21T15:47:50.020024229Z [inf]  [espnPgaPlayerService] Event 401811940 not yet available in ESPN scoreboard
+2026-03-21T15:47:50.031667823Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:50.037177832Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.062723582Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:50.062728403Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.129523669Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.129528458Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.129531899Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.129534905Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.129537951Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.129540930Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.129543768Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.129547343Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.129550229Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:50.131378574Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.143688234Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:50.145095944Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.292866132Z [inf]  [espnPgaPlayerService] Event 401811939 not yet available in ESPN scoreboard
+2026-03-21T15:47:50.292875547Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.292879353Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.292918964Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:50.292921670Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.292924350Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:50.292927067Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.292929747Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.292932494Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.292935667Z [inf]  [ingestionService] Refreshed field_selections for 10 SCHEDULED GOLF contests
+2026-03-21T15:47:50.292938574Z [inf]  [Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: a0c45fe7-1657-46ec-90b1-bc569565353b
+2026-03-21T15:47:50.292941139Z [inf]  [CACHE MISS] key=field_401811939
+2026-03-21T15:47:50.300328270Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:50.301752869Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.315015469Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.406671691Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.406680186Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.406684526Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.406690317Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.406694320Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.406698292Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.406701476Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.406706224Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:50.406709615Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.406714422Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:50.406717622Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.406721126Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:50.406724130Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.418965948Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:50.419800000Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.430932607Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.436858106Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.436864814Z [inf]  [ingestionService] Refreshed field_selections for 10 SCHEDULED GOLF contests
+2026-03-21T15:47:50.436870124Z [inf]  [Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: 45b38a77-3219-42d0-8591-914d755e42a5
+2026-03-21T15:47:50.442123950Z [inf]  [CACHE MISS] key=field_401811939
+2026-03-21T15:47:50.548674157Z [inf]  [espnPgaPlayerService] Event 401811939 not yet available in ESPN scoreboard
+2026-03-21T15:47:50.548679667Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:50.548682535Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.548685176Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:50.548687774Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.559942322Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.559947498Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.595460177Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.595465871Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.595471012Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.595474756Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.596004257Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.602154357Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.613761702Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:50.618693248Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.630213606Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:50.630218266Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.647061965Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:50.647064863Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.659062476Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:50.659067294Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.674955900Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.674959077Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.674962218Z [inf]  [ingestionService] Refreshed field_selections for 10 SCHEDULED GOLF contests
+2026-03-21T15:47:50.674965925Z [inf]  [Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: d9aa1981-ce8a-470e-ae08-5e7dafdb1aea
+2026-03-21T15:47:50.686543835Z [inf]  [CACHE MISS] key=field_401811939
+2026-03-21T15:47:50.747618707Z [inf]  [espnPgaPlayerService] Event 401811939 not yet available in ESPN scoreboard
+2026-03-21T15:47:50.760005157Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.760009915Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.799939963Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:50.799944359Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.799951218Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.799955156Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.811009264Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.817548248Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.830559254Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.830563742Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.839260683Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.845983824Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.853142624Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:50.857870888Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.873953477Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:50.878781168Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.891666475Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:50.891674907Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.902995483Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:50.902999730Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.920001046Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:50.920005612Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:50.920009014Z [inf]  [ingestionService] Refreshed field_selections for 10 SCHEDULED GOLF contests
+2026-03-21T15:47:50.920012040Z [inf]  [Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3
+2026-03-21T15:47:50.925556832Z [inf]  [CACHE MISS] key=field_401811939
+2026-03-21T15:47:50.992457715Z [inf]  [espnPgaPlayerService] Event 401811939 not yet available in ESPN scoreboard
+2026-03-21T15:47:51.006411977Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.006415706Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.028720796Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:51.035041635Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.041124776Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.047352283Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.059591688Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.059598165Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.071691601Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.072435320Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.083550102Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.090561962Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.096547120Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:51.100880004Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.111237541Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:51.111243180Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.123041594Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:51.124007871Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.142235507Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:51.142240127Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.149325279Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.154356067Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.155763595Z [inf]  [ingestionService] Refreshed field_selections for 10 SCHEDULED GOLF contests
+2026-03-21T15:47:51.155768767Z [inf]  [Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: ff19115c-1aab-4238-a26c-1313c4acb8b9
+2026-03-21T15:47:51.255155223Z [inf]  [CACHE MISS] key=field_401811939
+2026-03-21T15:47:51.255160918Z [inf]  [espnPgaPlayerService] Event 401811939 not yet available in ESPN scoreboard
+2026-03-21T15:47:51.255166381Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.255171434Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.267505437Z [inf]  [PGA INGESTION] contest=d9aa1981-ce8a-470e-ae08-5e7dafdb1aea players=221 primary=221 alternates=0
+2026-03-21T15:47:51.267510440Z [inf]  [ingestionService] Updated field_selections for d9aa1981-ce8a-470e-ae08-5e7dafdb1aea: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.278973389Z [inf]  [PGA INGESTION] contest=4c08ac3d-5168-4ea0-a9f3-cca19eef67a3 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.280036458Z [inf]  [ingestionService] Updated field_selections for 4c08ac3d-5168-4ea0-a9f3-cca19eef67a3: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.292528966Z [inf]  [PGA INGESTION] contest=45b38a77-3219-42d0-8591-914d755e42a5 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.293592861Z [inf]  [ingestionService] Updated field_selections for 45b38a77-3219-42d0-8591-914d755e42a5: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.306124785Z [inf]  [PGA INGESTION] contest=ff19115c-1aab-4238-a26c-1313c4acb8b9 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.310792484Z [inf]  [ingestionService] Updated field_selections for ff19115c-1aab-4238-a26c-1313c4acb8b9: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.322677471Z [inf]  [PGA INGESTION] contest=949cc6e4-02ab-4825-b9b3-0bf72a923300 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.322682136Z [inf]  [ingestionService] Updated field_selections for 949cc6e4-02ab-4825-b9b3-0bf72a923300: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.336142668Z [inf]  [PGA INGESTION] contest=fa48ef5e-d340-4cac-a10f-1165b2a4b79b players=221 primary=221 alternates=0
+2026-03-21T15:47:51.336148043Z [inf]  [ingestionService] Updated field_selections for fa48ef5e-d340-4cac-a10f-1165b2a4b79b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.347133513Z [inf]  [PGA INGESTION] contest=a0c45fe7-1657-46ec-90b1-bc569565353b players=221 primary=221 alternates=0
+2026-03-21T15:47:51.352988875Z [inf]  [ingestionService] Updated field_selections for a0c45fe7-1657-46ec-90b1-bc569565353b: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.359404229Z [inf]  [PGA INGESTION] contest=98e14bb6-6846-46c9-bff0-d81e285c6b9a players=221 primary=221 alternates=0
+2026-03-21T15:47:51.363631820Z [inf]  [ingestionService] Updated field_selections for 98e14bb6-6846-46c9-bff0-d81e285c6b9a: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.374963214Z [inf]  [PGA INGESTION] contest=e3703425-0622-469b-b583-f3ac22692e8f players=221 primary=221 alternates=0
+2026-03-21T15:47:51.380165489Z [inf]  [ingestionService] Updated field_selections for e3703425-0622-469b-b583-f3ac22692e8f: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.394891306Z [inf]  [PGA INGESTION] contest=805daffd-3c03-4320-a462-8341613c2f04 players=221 primary=221 alternates=0
+2026-03-21T15:47:51.394894352Z [inf]  [ingestionService] Updated field_selections for 805daffd-3c03-4320-a462-8341613c2f04: 221 players (221 primary, 0 alternates)
+2026-03-21T15:47:51.402667863Z [inf]  [ingestionService] Refreshed field_selections for 10 SCHEDULED GOLF contests
+2026-03-21T15:47:51.402672785Z [inf]  [Ingestion Worker] SCHEDULED_STATUS_NO_SCORING: 949cc6e4-02ab-4825-b9b3-0bf72a923300
+2026-03-21T15:47:51.403346262Z [inf]  [CACHE MISS] key=field_401811938
+2026-03-21T15:47:51.469181870Z [inf]  [espnPgaPlayerService] Fetched 135 golfers for event 401811938
+2026-03-21T15:47:51.469185628Z [inf]  [CACHE STORE] key=field_401811938
+2026-03-21T15:47:51.471293870Z [inf]  [2026-03-21T15:47:51.468Z] [DEBUG] [CACHE MISS] key=leaderboard_401811938
+2026-03-21T15:47:51.535315277Z [inf]  [2026-03-21T15:47:51.534Z] [DEBUG] [espnPgaApi] Leaderboard fetched: eventId=401811938, competitors=135
+2026-03-21T15:47:51.535319724Z [inf]  [2026-03-21T15:47:51.534Z] [DEBUG] [CACHE STORE] key=leaderboard_401811938
+2026-03-21T15:47:51.901906455Z [inf]  [2026-03-21T15:47:51.899Z] [DEBUG] [CACHE MISS] key=metadata_401811938
+2026-03-21T15:47:52.283582288Z [inf]  [2026-03-21T15:47:52.185Z] [DEBUG] [espnPgaApi] Metadata fetched: eventId=401811938, completed=false
+2026-03-21T15:47:52.283585184Z [inf]  [2026-03-21T15:47:52.185Z] [DEBUG] [CACHE STORE] key=metadata_401811938
+2026-03-21T15:47:52.283588337Z [inf]  [SCORING] Using event format (nested competitions)
+2026-03-21T15:47:52.283591681Z [inf]  [SCORING] Tournament end check: endTime=2026-03-22T07:00:00.000Z, now=2026-03-21T15:47:52.235Z, is_final=false
+2026-03-21T15:47:52.283594703Z [inf]  [SCORING SUMMARY] {
+2026-03-21T15:47:52.283597580Z [inf]    contest: 'f6d203fc-bd90-4351-915f-6bb44c292480',
+2026-03-21T15:47:52.283600647Z [inf]    total_scores: 242,
+2026-03-21T15:47:52.283603451Z [inf]    skipped_zero_scores: 31,
+2026-03-21T15:47:52.283606323Z [inf]    skipped_incomplete_rounds: 43,
+2026-03-21T15:47:52.283609245Z [inf]    rounds_scored: [ 1, 2, 3 ]
+2026-03-21T15:47:52.283612043Z [inf]  }
+2026-03-21T15:47:52.283615140Z [inf]  [SCORING DEBUG] normalizedScores length: 242 | phase: SCORING
+2026-03-21T15:47:52.283618098Z [inf]  [SCORING DEBUG] About to write scores: 242
+2026-03-21T15:47:52.283621042Z [inf]  [IDEMPOTENCY CHECK] writing scores: 242
+2026-03-21T15:47:52.283624252Z [inf]  [ROSTER_SCORING] Running roster scoring for 5 contests for event espn_pga_401811938
+2026-03-21T15:47:52.614697361Z [inf]  [CLEANUP DEBUG] validRounds=[1,2,3]
+2026-03-21T15:47:52.614700644Z [inf]  [CLEANUP] Removed 0 invalid round rows from contest f6d203fc-bd90-4351-915f-6bb44c292480
+2026-03-21T15:47:52.614703621Z [inf]  [CLEANUP] Hard delete removed 4 rows with round > 2
+2026-03-21T15:47:52.614706577Z [inf]  [SCORING DEBUG] Score insert complete
+2026-03-21T15:47:52.614709596Z [inf]  [ingestionService] Skipped 136 duplicate work units (PLAYER_POOL)
+2026-03-21T15:47:52.627890731Z [inf]  [2026-03-21T15:47:52.626Z] [DEBUG] [CACHE HIT] key=leaderboard_401811938
+2026-03-21T15:47:52.651054377Z [inf]  [2026-03-21T15:47:52.648Z] [DEBUG] [CACHE HIT] key=metadata_401811938
+2026-03-21T15:47:52.696323848Z [inf]  [pgaEspnIngestion] Duplicate payload detected for contest f6d203fc-bd90-4351-915f-6bb44c292480, continuing scoring parse
+2026-03-21T15:47:52.696327457Z [inf]  [SCORING] Using event format (nested competitions)
+2026-03-21T15:47:52.696331308Z [inf]  [SCORING] Tournament end check: endTime=2026-03-22T07:00:00.000Z, now=2026-03-21T15:47:52.680Z, is_final=false
+2026-03-21T15:47:52.696334993Z [inf]  [SCORING SUMMARY] {
+2026-03-21T15:47:52.696340068Z [inf]    contest: 'f6d203fc-bd90-4351-915f-6bb44c292480',
+2026-03-21T15:47:52.696343733Z [inf]    total_scores: 242,
+2026-03-21T15:47:52.696348448Z [inf]    skipped_zero_scores: 31,
+2026-03-21T15:47:52.696352291Z [inf]    skipped_incomplete_rounds: 43,
+2026-03-21T15:47:52.696355915Z [inf]    rounds_scored: [ 1, 2, 3 ]
+2026-03-21T15:47:52.696359937Z [inf]  }
+2026-03-21T15:47:52.696363808Z [inf]  [SCORING DEBUG] normalizedScores length: 242 | phase: SCORING
+2026-03-21T15:47:52.696367701Z [inf]  [SCORING DEBUG] About to write scores: 242
+2026-03-21T15:47:52.696370699Z [inf]  [IDEMPOTENCY CHECK] writing scores: 242
+2026-03-21T15:47:52.708064144Z [inf]  [ROSTER_SCORING] Running roster scoring for 5 contests for event espn_pga_401811938
+2026-03-21T15:47:53.051415534Z [inf]  [CLEANUP DEBUG] validRounds=[1,2,3]
+2026-03-21T15:47:53.052698654Z [inf]  [CLEANUP] Removed 0 invalid round rows from contest f6d203fc-bd90-4351-915f-6bb44c292480
+2026-03-21T15:47:53.058060767Z [inf]  [CLEANUP] Hard delete removed 4 rows with round > 2
+2026-03-21T15:47:53.058065410Z [inf]  [SCORING DEBUG] Score insert complete
+2026-03-21T15:47:53.081186500Z [inf]  [CACHE HIT] key=field_401811938
+2026-03-21T15:47:53.081191114Z [inf]  [2026-03-21T15:47:53.075Z] [DEBUG] [CACHE HIT] key=leaderboard_401811938
+2026-03-21T15:47:53.499716097Z [inf]  [2026-03-21T15:47:53.433Z] [DEBUG] [CACHE HIT] key=metadata_401811938
+2026-03-21T15:47:53.499721005Z [inf]  [SCORING] Using event format (nested competitions)
+2026-03-21T15:47:53.499724186Z [inf]  [SCORING] Tournament end check: endTime=2026-03-22T07:00:00.000Z, now=2026-03-21T15:47:53.473Z, is_final=false
+2026-03-21T15:47:53.499728841Z [inf]  [SCORING SUMMARY] {
+2026-03-21T15:47:53.499731624Z [inf]    contest: 'c2f8d970-aff0-4175-aa45-3c40f5b8103c',
+2026-03-21T15:47:53.499734446Z [inf]    total_scores: 242,
+2026-03-21T15:47:53.499737405Z [inf]    skipped_zero_scores: 31,
+2026-03-21T15:47:53.499740641Z [inf]    skipped_incomplete_rounds: 43,
+2026-03-21T15:47:53.499743849Z [inf]    rounds_scored: [ 1, 2, 3 ]
+2026-03-21T15:47:53.499746947Z [inf]  }
+2026-03-21T15:47:53.499750101Z [inf]  [SCORING DEBUG] normalizedScores length: 242 | phase: SCORING
+2026-03-21T15:47:53.499752972Z [inf]  [SCORING DEBUG] About to write scores: 242
+2026-03-21T15:47:53.499755812Z [inf]  [IDEMPOTENCY CHECK] writing scores: 242
+2026-03-21T15:47:53.499758713Z [inf]  [ROSTER_SCORING] Running roster scoring for 5 contests for event espn_pga_401811938
+2026-03-21T15:47:53.853734505Z [inf]  [CLEANUP DEBUG] validRounds=[1,2,3]
+2026-03-21T15:47:53.853740064Z [inf]  [CLEANUP] Removed 0 invalid round rows from contest c2f8d970-aff0-4175-aa45-3c40f5b8103c
+2026-03-21T15:47:53.853743531Z [inf]  [CLEANUP] Hard delete removed 4 rows with round > 2
+2026-03-21T15:47:53.854591924Z [inf]  [SCORING DEBUG] Score insert complete
+2026-03-21T15:47:53.859241783Z [inf]  [ingestionService] Skipped 136 duplicate work units (PLAYER_POOL)
+2026-03-21T15:47:53.871082274Z [inf]  [2026-03-21T15:47:53.870Z] [DEBUG] [CACHE HIT] key=leaderboard_401811938
+2026-03-21T15:47:53.892162850Z [inf]  [2026-03-21T15:47:53.889Z] [DEBUG] [CACHE HIT] key=metadata_401811938
+2026-03-21T15:47:53.935534389Z [inf]  [SCORING DEBUG] About to write scores: 242
+2026-03-21T15:47:53.935543016Z [inf]  [IDEMPOTENCY CHECK] writing scores: 242
+2026-03-21T15:47:53.935547125Z [inf]  [ROSTER_SCORING] Running roster scoring for 5 contests for event espn_pga_401811938
+2026-03-21T15:47:53.935593103Z [inf]  [pgaEspnIngestion] Duplicate payload detected for contest c2f8d970-aff0-4175-aa45-3c40f5b8103c, continuing scoring parse
+2026-03-21T15:47:53.935595857Z [inf]  [SCORING] Using event format (nested competitions)
+2026-03-21T15:47:53.935599197Z [inf]  [SCORING] Tournament end check: endTime=2026-03-22T07:00:00.000Z, now=2026-03-21T15:47:53.920Z, is_final=false
+2026-03-21T15:47:53.935602163Z [inf]  [SCORING SUMMARY] {
+2026-03-21T15:47:53.935604979Z [inf]    contest: 'c2f8d970-aff0-4175-aa45-3c40f5b8103c',
+2026-03-21T15:47:53.935607812Z [inf]    total_scores: 242,
+2026-03-21T15:47:53.935610934Z [inf]    skipped_zero_scores: 31,
+2026-03-21T15:47:53.935613700Z [inf]    skipped_incomplete_rounds: 43,
+2026-03-21T15:47:53.935616480Z [inf]    rounds_scored: [ 1, 2, 3 ]
+2026-03-21T15:47:53.935624529Z [inf]  }
+2026-03-21T15:47:53.935627415Z [inf]  [SCORING DEBUG] normalizedScores length: 242 | phase: SCORING
+2026-03-21T15:47:54.319224243Z [inf]  [CLEANUP DEBUG] validRounds=[1,2,3]
+2026-03-21T15:47:54.319228173Z [inf]  [CLEANUP] Removed 0 invalid round rows from contest c2f8d970-aff0-4175-aa45-3c40f5b8103c
+2026-03-21T15:47:54.319231489Z [inf]  [CLEANUP] Hard delete removed 4 rows with round > 2
+2026-03-21T15:47:54.319234543Z [inf]  [SCORING DEBUG] Score insert complete
+2026-03-21T15:47:54.319237458Z [inf]  [CACHE HIT] key=field_401811938
+2026-03-21T15:47:54.319240241Z [inf]  [2026-03-21T15:47:54.305Z] [DEBUG] [CACHE HIT] key=leaderboard_401811938
+2026-03-21T15:47:54.649261705Z [inf]  [2026-03-21T15:47:54.643Z] [DEBUG] [CACHE HIT] key=metadata_401811938
+2026-03-21T15:47:54.689132451Z [inf]  [SCORING] Using event format (nested competitions)
+2026-03-21T15:47:54.689139800Z [inf]  [SCORING] Tournament end check: endTime=2026-03-22T07:00:00.000Z, now=2026-03-21T15:47:54.683Z, is_final=false
+2026-03-21T15:47:54.689145241Z [inf]  [SCORING SUMMARY] {
+2026-03-21T15:47:54.689149577Z [inf]    contest: '507237b9-c7aa-4650-8aae-1e8a48d20dee',
+2026-03-21T15:47:54.689152902Z [inf]    total_scores: 242,
+2026-03-21T15:47:54.689157095Z [inf]    skipped_zero_scores: 31,
+2026-03-21T15:47:54.689161892Z [inf]    skipped_incomplete_rounds: 43,
+2026-03-21T15:47:54.689169066Z [inf]    rounds_scored: [ 1, 2, 3 ]
+2026-03-21T15:47:54.689174543Z [inf]  }
+2026-03-21T15:47:54.689178942Z [inf]  [SCORING DEBUG] normalizedScores length: 242 | phase: SCORING
+2026-03-21T15:47:54.689183110Z [inf]  [SCORING DEBUG] About to write scores: 242
+2026-03-21T15:47:54.689187734Z [inf]  [IDEMPOTENCY CHECK] writing scores: 242
+2026-03-21T15:47:54.702036935Z [inf]  [ROSTER_SCORING] Running roster scoring for 5 contests for event espn_pga_401811938
+2026-03-21T15:47:55.064938614Z [inf]  [CLEANUP DEBUG] validRounds=[1,2,3]
+2026-03-21T15:47:55.065777493Z [inf]  [CLEANUP] Removed 0 invalid round rows from contest 507237b9-c7aa-4650-8aae-1e8a48d20dee
+2026-03-21T15:47:55.071237175Z [inf]  [CLEANUP] Hard delete removed 4 rows with round > 2
+2026-03-21T15:47:55.071243749Z [inf]  [SCORING DEBUG] Score insert complete
+2026-03-21T15:47:55.071918209Z [inf]  [ingestionService] Skipped 136 duplicate work units (PLAYER_POOL)
+2026-03-21T15:47:55.092305781Z [inf]  [2026-03-21T15:47:55.086Z] [DEBUG] [CACHE HIT] key=leaderboard_401811938
+2026-03-21T15:47:55.115013157Z [inf]  [2026-03-21T15:47:55.105Z] [DEBUG] [CACHE HIT] key=metadata_401811938
+2026-03-21T15:47:55.137865007Z [inf]  [pgaEspnIngestion] Duplicate payload detected for contest 507237b9-c7aa-4650-8aae-1e8a48d20dee, continuing scoring parse
+2026-03-21T15:47:55.137869627Z [inf]  [SCORING] Using event format (nested competitions)
+2026-03-21T15:47:55.138929829Z [inf]  [SCORING] Tournament end check: endTime=2026-03-22T07:00:00.000Z, now=2026-03-21T15:47:55.138Z, is_final=false
+2026-03-21T15:47:55.145370115Z [inf]  [SCORING SUMMARY] {
+2026-03-21T15:47:55.145374960Z [inf]    contest: '507237b9-c7aa-4650-8aae-1e8a48d20dee',
+2026-03-21T15:47:55.145379200Z [inf]    total_scores: 242,
+2026-03-21T15:47:55.145382707Z [inf]    skipped_zero_scores: 31,
+2026-03-21T15:47:55.145386074Z [inf]    skipped_incomplete_rounds: 43,
+2026-03-21T15:47:55.145389425Z [inf]    rounds_scored: [ 1, 2, 3 ]
+2026-03-21T15:47:55.145392437Z [inf]  }
+2026-03-21T15:47:55.145396345Z [inf]  [SCORING DEBUG] normalizedScores length: 242 | phase: SCORING
+2026-03-21T15:47:55.145400815Z [inf]  [SCORING DEBUG] About to write scores: 242
+2026-03-21T15:47:55.145404416Z [inf]  [IDEMPOTENCY CHECK] writing scores: 242
+2026-03-21T15:47:55.150874435Z [inf]  [ROSTER_SCORING] Running roster scoring for 5 contests for event espn_pga_401811938
+2026-03-21T15:47:55.520409701Z [inf]  [CLEANUP DEBUG] validRounds=[1,2,3]
+2026-03-21T15:47:55.520412375Z [inf]  [CLEANUP] Removed 0 invalid round rows from contest 507237b9-c7aa-4650-8aae-1e8a48d20dee
+2026-03-21T15:47:55.520415129Z [inf]  [CLEANUP] Hard delete removed 4 rows with round > 2
+2026-03-21T15:47:55.520417905Z [inf]  [SCORING DEBUG] Score insert complete
+2026-03-21T15:47:55.534510132Z [inf]  [CACHE HIT] key=field_401811938
+2026-03-21T15:47:55.534517696Z [inf]  [2026-03-21T15:47:55.528Z] [DEBUG] [CACHE HIT] key=leaderboard_401811938
+2026-03-21T15:47:55.903681170Z [inf]  [2026-03-21T15:47:55.878Z] [DEBUG] [CACHE HIT] key=metadata_401811938
+2026-03-21T15:47:55.915683040Z [inf]  [SCORING] Using event format (nested competitions)
+2026-03-21T15:47:55.923332603Z [inf]  [SCORING] Tournament end check: endTime=2026-03-22T07:00:00.000Z, now=2026-03-21T15:47:55.917Z, is_final=false
+2026-03-21T15:47:55.925350213Z [inf]  [SCORING SUMMARY] {
+2026-03-21T15:47:55.925353850Z [inf]    contest: '1b37d129-b502-4af6-873e-5f1706937a36',
+2026-03-21T15:47:55.925357620Z [inf]    total_scores: 242,
+2026-03-21T15:47:55.925361206Z [inf]    skipped_zero_scores: 31,
+2026-03-21T15:47:55.925365369Z [inf]    skipped_incomplete_rounds: 43,
+2026-03-21T15:47:55.925369528Z [inf]    rounds_scored: [ 1, 2, 3 ]
+2026-03-21T15:47:55.925374646Z [inf]  }
+2026-03-21T15:47:55.925379018Z [inf]  [SCORING DEBUG] normalizedScores length: 242 | phase: SCORING
+2026-03-21T15:47:55.925382788Z [inf]  [SCORING DEBUG] About to write scores: 242
+2026-03-21T15:47:55.925386467Z [inf]  [IDEMPOTENCY CHECK] writing scores: 242
+2026-03-21T15:47:55.931576209Z [inf]  [ROSTER_SCORING] Running roster scoring for 5 contests for event espn_pga_401811938
+2026-03-21T15:47:56.208356275Z [inf]    { user: 'SCarterss', total: 0 },
+2026-03-21T15:47:56.208365442Z [inf]  [TRACE] LEADERBOARD FUNCTION EXECUTED { contestInstanceId: 'c2f8d970-aff0-4175-aa45-3c40f5b8103c' }
+2026-03-21T15:47:56.208367528Z [inf]    { user: 'cc123', total: -10 },
+2026-03-21T15:47:56.208369981Z [inf]  [TRACE ROSTER RAW] [
+2026-03-21T15:47:56.208372869Z [inf]    'espn_95',
+2026-03-21T15:47:56.208375864Z [inf]    'espn_10054',
+2026-03-21T15:47:56.208378746Z [inf]    'espn_10030',
+2026-03-21T15:47:56.208381499Z [inf]    'espn_10140',
+2026-03-21T15:47:56.208384322Z [inf]    'espn_10058',
+2026-03-21T15:47:56.208387158Z [inf]    'espn_11056',
+2026-03-21T15:47:56.208391195Z [inf]    'espn_10548'
+2026-03-21T15:47:56.208393919Z [inf]  ]
+2026-03-21T15:47:56.208396659Z [inf]  [TRACE PLAYER SET USED] [
+2026-03-21T15:47:56.208400593Z [inf]    { golfer_id: 'espn_95', total: null },
+2026-03-21T15:47:56.208403364Z [inf]    { golfer_id: 'espn_10054', total: '4' },
+2026-03-21T15:47:56.208406196Z [inf]    { golfer_id: 'espn_10030', total: '1' },
+2026-03-21T15:47:56.208408969Z [inf]    { golfer_id: 'espn_10140', total: '8' },
+2026-03-21T15:47:56.208411909Z [inf]    { golfer_id: 'espn_10058', total: '-11' },
+2026-03-21T15:47:56.208415507Z [inf]    { golfer_id: 'espn_11056', total: '-6' },
+2026-03-21T15:47:56.208418213Z [inf]    { golfer_id: 'espn_10548', total: '1' }
+2026-03-21T15:47:56.208422185Z [inf]  ]
+2026-03-21T15:47:56.208424993Z [inf]  [TRACE RAW SQL RESULT] [
+2026-03-21T15:47:56.208427723Z [inf]    { user: 'SCarterss', total: 0 },
+2026-03-21T15:47:56.208430404Z [inf]    { user: 'cc123', total: -10 },
+2026-03-21T15:47:56.208433416Z [inf]    { user: 'testChad67', total: -10 },
+2026-03-21T15:47:56.208436166Z [inf]    { user: 'iancarter', total: -11 }
+2026-03-21T15:47:56.208438874Z [inf]  ]
+2026-03-21T15:47:56.208444498Z [inf]  [TRACE FINAL API TOTALS] [
+2026-03-21T15:47:56.209534009Z [inf]    { user: 'testChad67', total: -10 },
+2026-03-21T15:47:56.209537685Z [inf]    { user: 'iancarter', total: -11 }
+2026-03-21T15:47:56.209541366Z [inf]  ]
+2026-03-21T15:47:56.403269228Z [inf]  [CLEANUP] Removed 0 invalid round rows from contest 1b37d129-b502-4af6-873e-5f1706937a36
+2026-03-21T15:47:56.403276908Z [inf]  [CLEANUP] Hard delete removed 4 rows with round > 2
+2026-03-21T15:47:56.403281452Z [inf]  [SCORING DEBUG] Score insert complete
+2026-03-21T15:47:56.403285066Z [inf]  [ingestionService] Skipped 136 duplicate work units (PLAYER_POOL)
+2026-03-21T15:47:56.403289146Z [inf]  [2026-03-21T15:47:56.306Z] [DEBUG] [CACHE HIT] key=leaderboard_401811938
+2026-03-21T15:47:56.403292308Z [inf]  [2026-03-21T15:47:56.325Z] [DEBUG] [CACHE HIT] key=metadata_401811938
+2026-03-21T15:47:56.403295408Z [inf]  [pgaEspnIngestion] Duplicate payload detected for contest 1b37d129-b502-4af6-873e-5f1706937a36, continuing scoring parse
+2026-03-21T15:47:56.403299107Z [inf]  [SCORING] Using event format (nested competitions)
+2026-03-21T15:47:56.403302761Z [inf]  [SCORING] Tournament end check: endTime=2026-03-22T07:00:00.000Z, now=2026-03-21T15:47:56.355Z, is_final=false
+2026-03-21T15:47:56.403306663Z [inf]  [SCORING SUMMARY] {
+2026-03-21T15:47:56.403309760Z [inf]    contest: '1b37d129-b502-4af6-873e-5f1706937a36',
+2026-03-21T15:47:56.403312978Z [inf]    total_scores: 242,
+2026-03-21T15:47:56.403316563Z [inf]    skipped_zero_scores: 31,
+2026-03-21T15:47:56.403320658Z [inf]    skipped_incomplete_rounds: 43,
+2026-03-21T15:47:56.403324064Z [inf]    rounds_scored: [ 1, 2, 3 ]
+2026-03-21T15:47:56.403327442Z [inf]  }
+2026-03-21T15:47:56.403332652Z [inf]  [SCORING DEBUG] normalizedScores length: 242 | phase: SCORING
+2026-03-21T15:47:56.403335995Z [inf]  [SCORING DEBUG] About to write scores: 242
+2026-03-21T15:47:56.403339535Z [inf]  [IDEMPOTENCY CHECK] writing scores: 242
+2026-03-21T15:47:56.403343047Z [inf]  [CLEANUP DEBUG] validRounds=[1,2,3]
+2026-03-21T15:47:56.403345527Z [inf]  [ROSTER_SCORING] Running roster scoring for 5 contests for event espn_pga_401811938
+2026-03-21T15:47:56.862538076Z [inf]  [CLEANUP DEBUG] validRounds=[1,2,3]
+2026-03-21T15:47:56.862540838Z [inf]  [CLEANUP] Removed 0 invalid round rows from contest 1b37d129-b502-4af6-873e-5f1706937a36
+2026-03-21T15:47:56.862543489Z [inf]  [CLEANUP] Hard delete removed 4 rows with round > 2
+2026-03-21T15:47:56.862546007Z [inf]  [SCORING DEBUG] Score insert complete
+2026-03-21T15:47:56.862548927Z [inf]  [CACHE HIT] key=field_401811938
+2026-03-21T15:47:56.862551772Z [inf]  [2026-03-21T15:47:56.756Z] [DEBUG] [CACHE HIT] key=leaderboard_401811938
+2026-03-21T15:47:57.112481066Z [inf]  [2026-03-21T15:47:57.098Z] [DEBUG] [CACHE HIT] key=metadata_401811938
+2026-03-21T15:47:57.155457666Z [inf]  [SCORING] Using event format (nested competitions)
+2026-03-21T15:47:57.155460789Z [inf]  [SCORING] Tournament end check: endTime=2026-03-22T07:00:00.000Z, now=2026-03-21T15:47:57.138Z, is_final=false
+2026-03-21T15:47:57.155463812Z [inf]  [SCORING SUMMARY] {
+2026-03-21T15:47:57.155466780Z [inf]    contest: '271b0207-3c85-4cf6-b86e-7f1ae724f439',
+2026-03-21T15:47:57.155470065Z [inf]    total_scores: 242,
+2026-03-21T15:47:57.155473200Z [inf]    skipped_zero_scores: 31,
+2026-03-21T15:47:57.155476051Z [inf]    skipped_incomplete_rounds: 43,
+2026-03-21T15:47:57.155478950Z [inf]    rounds_scored: [ 1, 2, 3 ]
+2026-03-21T15:47:57.155482763Z [inf]  }
+2026-03-21T15:47:57.155485517Z [inf]  [SCORING DEBUG] normalizedScores length: 242 | phase: SCORING
+2026-03-21T15:47:57.155489026Z [inf]  [SCORING DEBUG] About to write scores: 242
+2026-03-21T15:47:57.155491861Z [inf]  [IDEMPOTENCY CHECK] writing scores: 242
+2026-03-21T15:47:57.155494765Z [inf]  [ROSTER_SCORING] Running roster scoring for 5 contests for event espn_pga_401811938
+2026-03-21T15:47:57.503289782Z [inf]  [CLEANUP DEBUG] validRounds=[1,2,3]
+2026-03-21T15:47:57.503294962Z [inf]  [CLEANUP] Removed 0 invalid round rows from contest 271b0207-3c85-4cf6-b86e-7f1ae724f439
+2026-03-21T15:47:57.505336593Z [inf]  [CLEANUP] Hard delete removed 4 rows with round > 2
+2026-03-21T15:47:57.507129304Z [inf]  [SCORING DEBUG] Score insert complete
+2026-03-21T15:47:57.512185564Z [inf]  [ingestionService] Skipped 136 duplicate work units (PLAYER_POOL)
+2026-03-21T15:47:57.524896300Z [inf]  [2026-03-21T15:47:57.521Z] [DEBUG] [CACHE HIT] key=leaderboard_401811938
+2026-03-21T15:47:57.548295701Z [inf]  [2026-03-21T15:47:57.539Z] [DEBUG] [CACHE HIT] key=metadata_401811938
+2026-03-21T15:47:57.574825664Z [inf]  [pgaEspnIngestion] Duplicate payload detected for contest 271b0207-3c85-4cf6-b86e-7f1ae724f439, continuing scoring parse
+2026-03-21T15:47:57.574828218Z [inf]  [SCORING] Using event format (nested competitions)
+2026-03-21T15:47:57.574831042Z [inf]  [SCORING] Tournament end check: endTime=2026-03-22T07:00:00.000Z, now=2026-03-21T15:47:57.572Z, is_final=false
+2026-03-21T15:47:57.579589104Z [inf]  [SCORING DEBUG] About to write scores: 242
+2026-03-21T15:47:57.579595980Z [inf]  [IDEMPOTENCY CHECK] writing scores: 242
+2026-03-21T15:47:57.579603441Z [inf]  [SCORING SUMMARY] {
+2026-03-21T15:47:57.579608776Z [inf]    contest: '271b0207-3c85-4cf6-b86e-7f1ae724f439',
+2026-03-21T15:47:57.579612104Z [inf]    total_scores: 242,
+2026-03-21T15:47:57.579615998Z [inf]    skipped_zero_scores: 31,
+2026-03-21T15:47:57.579618801Z [inf]    skipped_incomplete_rounds: 43,
+2026-03-21T15:47:57.579621613Z [inf]    rounds_scored: [ 1, 2, 3 ]
+2026-03-21T15:47:57.579624473Z [inf]  }
+2026-03-21T15:47:57.579627280Z [inf]  [SCORING DEBUG] normalizedScores length: 242 | phase: SCORING
+2026-03-21T15:47:57.590286624Z [inf]  [ROSTER_SCORING] Running roster scoring for 5 contests for event espn_pga_401811938
+2026-03-21T15:47:57.934523609Z [inf]  [CLEANUP DEBUG] validRounds=[1,2,3]
+2026-03-21T15:47:57.940091408Z [inf]  [CLEANUP] Removed 0 invalid round rows from contest 271b0207-3c85-4cf6-b86e-7f1ae724f439
+2026-03-21T15:47:57.940096149Z [inf]  [CLEANUP] Hard delete removed 4 rows with round > 2
+2026-03-21T15:47:57.945876754Z [inf]  [SCORING DEBUG] Score insert complete
+2026-03-21T15:47:57.958106033Z [inf]  [Ingestion] Cycle complete: contests=15, phases_run=20, phases_skipped=10, failed=0
+2026-03-21T15:47:57.964846592Z [inf]  [Ingestion Worker] Active contests status: LIVE, next poll in 60000ms

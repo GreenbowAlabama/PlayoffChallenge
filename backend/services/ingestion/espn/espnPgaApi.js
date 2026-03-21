@@ -251,27 +251,28 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
 
   const cacheKey = `leaderboard_${eventId}`;
 
+  // CACHE BYPASS ENABLED (TEMPORARY DEBUG)
   // Check cache — may hold a Promise (in-flight) or resolved Promise (completed)
-  if (requestCache.has(cacheKey)) {
-    const entry = requestCache.get(cacheKey);
+  // if (requestCache.has(cacheKey)) {
+  //   const entry = requestCache.get(cacheKey);
 
-    // If entry has TTL metadata (empty response), check expiry
-    if (entry._emptyResponseAt) {
-      const age = Date.now() - entry._emptyResponseAt;
-      if (age > EMPTY_RESPONSE_TTL_MS) {
-        logger.debug(`[CACHE EXPIRED] key=${cacheKey} age=${age}ms`);
-        requestCache.delete(cacheKey);
-      } else {
-        logger.debug(`[CACHE HIT] key=${cacheKey}`);
-        return entry;
-      }
-    } else {
-      logger.debug(`[CACHE HIT] key=${cacheKey}`);
-      return entry;
-    }
-  }
+  //   // If entry has TTL metadata (empty response), check expiry
+  //   if (entry._emptyResponseAt) {
+  //     const age = Date.now() - entry._emptyResponseAt;
+  //     if (age > EMPTY_RESPONSE_TTL_MS) {
+  //       logger.debug(`[CACHE EXPIRED] key=${cacheKey} age=${age}ms`);
+  //       requestCache.delete(cacheKey);
+  //     } else {
+  //       logger.debug(`[CACHE HIT] key=${cacheKey}`);
+  //       return entry;
+  //     }
+  //   } else {
+  //     logger.debug(`[CACHE HIT] key=${cacheKey}`);
+  //     return entry;
+  //   }
+  // }
 
-  logger.debug(`[CACHE MISS] key=${cacheKey}`);
+  logger.debug(`[CACHE BYPASS] key=${cacheKey} - FORCING FRESH FETCH (DEBUG MODE)`);
 
   const promise = (async () => {
     const result = await withRetry(async () => {

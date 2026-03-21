@@ -1325,6 +1325,50 @@ async function upsertScores(ctx, normalizedScores) {
       total_points = EXCLUDED.total_points
   `, values);
 
+  // ── DYNAMIC ROUND CLEANUP: BEFORE ROSTER SCORING (CRITICAL ORDERING) ─────────
+  // Compute valid rounds from the current ingestion payload
+  // This ensures roster scoring only reads rounds that were actually scored in this cycle
+  // Prevents stale rounds from previous cycles from contaminating golfer_scores
+  const validRounds = Array.from(
+    new Set(normalizedScores.map(s => s.round_number))
+  );
+
+  // Safety guard: Only delete rounds if incoming validRounds fully covers ALL existing rounds.
+  // This prevents partial ingestion cycles from deleting previously-scored data.
+  if (validRounds.length > 0) {
+    // Fetch existing rounds from database
+    const existingRoundsResult = await dbClient.query(`
+      SELECT DISTINCT round_number FROM golfer_event_scores
+      WHERE contest_instance_id = $1
+      ORDER BY round_number
+    `, [contestInstanceId]);
+
+    const existingRounds = new Set(existingRoundsResult.rows.map(r => r.round_number));
+
+    // Check if all existing rounds are covered by incoming validRounds
+    const allExistingCovered = Array.from(existingRounds).every(round =>
+      validRounds.includes(round)
+    );
+
+    // Only cleanup if incoming fully covers all existing rounds
+    if (allExistingCovered) {
+      const cleanupResult = await dbClient.query(`
+        DELETE FROM golfer_event_scores
+        WHERE contest_instance_id = $1
+        AND round_number NOT IN (
+          SELECT UNNEST($2::int[])
+        )
+      `, [contestInstanceId, validRounds]);
+
+      if (cleanupResult.rowCount > 0) {
+        console.log(`[CLEANUP] Removed ${cleanupResult.rowCount} invalid round rows from contest ${contestInstanceId}. Valid rounds: ${validRounds.join(',')}`);
+      }
+    } else {
+      const missing = Array.from(existingRounds).filter(r => !validRounds.includes(r));
+      console.log(`[CLEANUP SKIPPED] Incoming does not cover existing rounds. Missing: ${missing.join(',')}. Preserving all rounds (partial cycle).`);
+    }
+  }
+
   // Populate user roster scores from golfer event scores
   if (normalizedScores?.length > 0 && providerEventId) {
     // Fan out roster scoring to ALL LIVE/LOCKED contests tied to this event, not just the current one
@@ -1343,38 +1387,7 @@ async function upsertScores(ctx, normalizedScores) {
     }
   }
 
-  // ── DATA CLEANUP: AFTER INSERT (CRITICAL ORDERING) ────────────────────────
-  // MUST run AFTER insert to prevent re-introduction of bad data during ON CONFLICT
-  // Delete all rounds except those in current valid set
-  const validRounds = Array.from(
-    new Set(normalizedScores.map(s => s.round_number))
-  );
-
-  console.log(`[CLEANUP DEBUG] validRounds=${JSON.stringify(validRounds)}`);
-
-  if (validRounds.length > 0) {
-    const deleteResult = await dbClient.query(`
-      DELETE FROM golfer_event_scores
-      WHERE contest_instance_id = $1
-      AND round_number NOT IN (
-        SELECT UNNEST($2::int[])
-      )
-    `, [contestInstanceId, validRounds]);
-
-    console.log(`[CLEANUP] Removed ${deleteResult.rowCount} invalid round rows from contest ${contestInstanceId}`);
-  }
-
-  // Hard delete: Remove any round > 2 (safety net)
-  const hardDeleteResult = await dbClient.query(`
-    DELETE FROM golfer_event_scores
-    WHERE contest_instance_id = $1
-    AND round_number > 2
-  `, [contestInstanceId]);
-
-  if (hardDeleteResult.rowCount > 0) {
-    console.log(`[CLEANUP] Hard delete removed ${hardDeleteResult.rowCount} rows with round > 2`);
-  }
-
+  // ── ZERO-SCORE CLEANUP: AFTER ROSTER SCORING ─────────────────────────────────
   // Delete zero-score rows (indicates incomplete/bad parsing)
   const zeroDeleteResult = await dbClient.query(`
     DELETE FROM golfer_event_scores

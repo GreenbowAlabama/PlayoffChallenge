@@ -16,53 +16,6 @@ const { aggregateEntryScore } = require('../scoring/pgaEntryAggregation');
  * @returns {Promise<Array>} Array of { user_id, user_display_name, total_score, rank }
  */
 async function liveStandings(pool, contestInstanceId) {
-  console.log("[TRACE] LEADERBOARD FUNCTION EXECUTED", { contestInstanceId });
-
-  // TRACE: Dump roster for iancarter
-  const rosterDump = await pool.query(
-    `WITH roster_golfers AS (
-       SELECT
-         er.user_id,
-         UNNEST(er.player_ids) AS golfer_id
-       FROM entry_rosters er
-       WHERE er.contest_instance_id = $1
-     )
-     SELECT * FROM roster_golfers
-     WHERE user_id = 'a940693d-350c-4b72-8232-4186fdba06bb'`,
-    [contestInstanceId]
-  );
-  console.log("[TRACE ROSTER RAW]", rosterDump.rows.map(r => r.golfer_id));
-
-  // TRACE: Dump player set used in join
-  const playerSetDump = await pool.query(
-    `WITH roster_golfers AS (
-       SELECT
-         er.user_id,
-         UNNEST(er.player_ids) AS golfer_id
-       FROM entry_rosters er
-       WHERE er.contest_instance_id = $1
-     )
-     SELECT
-       rg.golfer_id,
-       gs.total
-     FROM roster_golfers rg
-     LEFT JOIN (
-       SELECT
-         user_id,
-         golfer_id,
-         SUM(hole_points + bonus_points + finish_bonus) AS total
-       FROM golfer_scores
-       WHERE contest_instance_id = $1
-       GROUP BY user_id, golfer_id
-     ) gs
-       ON gs.golfer_id = rg.golfer_id
-      AND gs.user_id = rg.user_id
-      AND gs.user_id = 'a940693d-350c-4b72-8232-4186fdba06bb'
-     WHERE rg.user_id = 'a940693d-350c-4b72-8232-4186fdba06bb'`,
-    [contestInstanceId]
-  );
-  console.log("[TRACE PLAYER SET USED]", playerSetDump.rows);
-
   const result = await pool.query(
     `WITH roster_golfers AS (
        SELECT
@@ -121,8 +74,6 @@ async function liveStandings(pool, contestInstanceId) {
     [contestInstanceId]
   );
 
-  console.log("[TRACE RAW SQL RESULT]", result.rows.map(r => ({ user: r.user_display_name, total: r.total_score })));
-
   // Map query results to score objects
   const usersWithScores = result.rows.map(row => ({
     id: row.user_id,
@@ -130,8 +81,6 @@ async function liveStandings(pool, contestInstanceId) {
     user_display_name: row.user_display_name,
     total_score: Number(row.total_score) || 0
   }));
-
-  console.log("[TRACE FINAL API TOTALS]", usersWithScores.map(u => ({ user: u.user_display_name, total: u.total_score })));
 
   // Sort by total_score DESC, then apply tie-aware ranking
   usersWithScores.sort((a, b) => {
