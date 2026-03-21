@@ -228,14 +228,6 @@ async function validateRoundParity(normalizedScores, contestInstanceId, dbClient
         baseline_golfer_count: baseline,
         reason: `Field mismatch: ${incomingGolferCount} golfers vs baseline ${baseline}`
       });
-
-      logger.warn('[ROUND_PARITY_VALIDATOR] Rejecting round', {
-        contest_instance_id: contestInstanceId,
-        round_number: roundNumInt,
-        incoming_count: incomingGolferCount,
-        baseline_count: baseline,
-        reason: `Field mismatch`
-      });
     }
   }
 

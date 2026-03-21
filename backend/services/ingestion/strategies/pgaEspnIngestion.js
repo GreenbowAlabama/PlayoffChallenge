@@ -1265,40 +1265,90 @@ async function upsertScores(ctx, normalizedScores) {
   const { dbClient, providerEventId } = ctx;
   const { contestInstanceId } = ctx;
 
-  // ── ROUND FIELD PARITY VALIDATION ────────────────────────────────────────────
-  // Prevent partial rounds from being persisted
-  // This validation runs PER ROUND, not globally
-  console.log('[DEBUG] About to run validator', {
-    contest_instance_id: contestInstanceId,
-    normalized_score_count: normalizedScores.length
-  });
+  // ── BASELINE FETCH: DIRECT FROM FIELD_SELECTIONS ────────────────────────────────
+  // Do NOT infer baseline. Query the authoritative source directly.
+  const baselineResult = await dbClient.query(
+    `
+    SELECT jsonb_array_length(selection_json->'primary') as baseline
+    FROM field_selections
+    WHERE contest_instance_id = $1
+    `,
+    [contestInstanceId]
+  );
 
-  const validationResult = await validateRoundParity(normalizedScores, contestInstanceId, dbClient);
-  const validScores = validationResult.validScores;
-  const rejectedRounds = validationResult.rejectedRounds;
+  let baseline = null;
 
-  // Log rejected rounds with full context
-  if (rejectedRounds.length > 0) {
-    logger.warn('[ROUND_PARITY_VALIDATOR] Rejected rounds', {
-      contest_instance_id: contestInstanceId,
-      rejected_round_count: rejectedRounds.length,
-      details: rejectedRounds
+  if (baselineResult.rows.length === 0 || baselineResult.rows[0].baseline === null) {
+    logger.warn('[ROUND_PARITY_VALIDATOR] Baseline not ready (field_selections missing/empty)', {
+      contest_instance_id: contestInstanceId
     });
+    return;  // HARD STOP: Field not ready
   }
 
+  baseline = parseInt(baselineResult.rows[0].baseline, 10);
+
+  if (Number.isNaN(baseline) || baseline <= 0) {
+    logger.error('[ROUND_PARITY_VALIDATOR] Invalid baseline value', {
+      contest_instance_id: contestInstanceId,
+      baseline_value: baseline
+    });
+    return;  // HARD STOP: Baseline is corrupt
+  }
+
+  // ── ROUND FIELD PARITY VALIDATION ────────────────────────────────────────────
+  // Enforce: ZERO writes allowed for any round where golfer_count != baseline
+  // Validation is PER ROUND. Incomplete rounds are removed entirely.
+
+  // Group incoming scores by round_number
+  const roundGroups = {};
+  normalizedScores.forEach(score => {
+    const roundNum = Number(score.round_number);
+    if (!roundGroups[roundNum]) {
+      roundGroups[roundNum] = new Set();
+    }
+    roundGroups[roundNum].add(score.golfer_id);
+  });
+
+  // Validate each round and build filtered scores
+  const validScores = [];
+  const rejectedRounds = [];
+
+  for (const roundNum in roundGroups) {
+    const roundNumInt = parseInt(roundNum, 10);
+    const actualGolferCount = roundGroups[roundNum].size;
+
+    if (actualGolferCount === baseline) {
+      // Round is complete: accept ALL scores for this round
+      normalizedScores
+        .filter(s => Number(s.round_number) === roundNumInt)
+        .forEach(score => validScores.push(score));
+    } else {
+      // Round is incomplete: REJECT ENTIRE ROUND
+      rejectedRounds.push({
+        round_number: roundNumInt,
+        actual_count: actualGolferCount,
+        expected_count: baseline
+      });
+    }
+  }
+
+  // If no complete rounds remain: HARD STOP
   if (validScores.length === 0) {
     logger.warn('[ROUND_PARITY_VALIDATOR] HARD STOP - no valid rounds', {
       contest_instance_id: contestInstanceId,
+      rounds_scanned: Object.keys(roundGroups).length,
       rejected_rounds: rejectedRounds.length,
       total_incoming_scores: normalizedScores.length
     });
     return;
   }
 
-  logger.info('[ROUND_PARITY_VALIDATOR] Accepted scores', {
+  // Log final valid rounds (success case only)
+  logger.info('[ROUND_PARITY_VALIDATOR] FINAL VALID ROUNDS', {
     contest_instance_id: contestInstanceId,
-    valid_score_count: validScores.length,
-    rejected_score_count: normalizedScores.length - validScores.length
+    baseline,
+    rounds: Array.from(new Set(validScores.map(s => Number(s.round_number)))).sort((a, b) => a - b),
+    total_scores: validScores.length
   });
 
   const values = [];
