@@ -74,6 +74,8 @@ async function liveStandings(pool, contestInstanceId) {
     [contestInstanceId]
   );
 
+  console.log('[PGA V1] FINAL TOTALS:', result.rows.map(r => ({ user_id: r.user_id, total_score: r.total_score })));
+
   // Map query results to score objects
   const usersWithScores = result.rows.map(row => ({
     id: row.user_id,
