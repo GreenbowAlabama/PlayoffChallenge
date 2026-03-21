@@ -283,28 +283,30 @@ The hardened enforcement in `pgaEspnIngestion.js` is validated by:
 
 ## Behavioral Guarantees
 
-### Before Fix
+### Before Hardening (Initial Fix)
 
 ```
-Round 1 (135 golfers) → inserted
-Round 2 (135 golfers) → inserted
-Round 3 (12 golfers)  → inserted ✗ PARTIAL DATA PERSISTED
-                         Some users now have [1,2,3]
-                         Others only have [1,2]
-                         → Unfair leaderboard
+Round 1 (135 golfers) → inserted ✓
+Round 2 (135 golfers) → inserted ✓
+Round 3 (12 golfers)  → rejected ✗ (but validator not preventing all write paths)
+                         Some rows still persisted
+                         Write path wasn't fully guarded
 ```
 
-### After Fix
+### After Hardening (Final Production)
 
 ```
 field_selections baseline = 135 golfers
 
-Round 1 (135 golfers) → inserted ✓
-Round 2 (135 golfers) → inserted ✓
-Round 3 (12 golfers)  → rejected ✗
-                         NOT persisted to DB
-                         Logged: "Round 3 field mismatch: 12 vs 135"
+Round 1 (135 golfers) → ACCEPT (100% inserted)
+Round 2 (135 golfers) → ACCEPT (100% inserted)
+Round 3 (12 golfers)  → REJECT (0 rows inserted)
+                         Entire round dropped
+                         Logged: FULL ROUND REJECTION
                          Awaits complete round 3 in next cycle
+Round 4 (135 golfers) → ACCEPT (100% inserted)
+
+GUARANTEE: No partial data persists. All rounds in DB match baseline exactly.
 ```
 
 ---
@@ -322,14 +324,47 @@ This ensures safe replay and re-ingestion without data corruption.
 
 ## Logging Output
 
-Every validation generates structured logs:
+Every ingestion generates structured logs at key points:
+
+### Hard Stop Conditions
 
 ```
-[ROUND_PARITY_VALIDATOR] BLOCKING ingestion for contest f6d203fc-...: field_selections not ready (PLAYER_POOL phase incomplete)
+[ROUND_PARITY_VALIDATOR] Baseline not ready (field_selections missing/empty)
+[ROUND_PARITY_VALIDATOR] Invalid baseline value
 
-[ROUND_PARITY_VALIDATOR] REJECTED round 3 for contest f6d203fc-...: 12 golfers vs baseline 135
+[ROUND_PARITY_VALIDATOR] HARD STOP - no complete rounds
+  rounds_scanned: 3
+  rejected_rounds: 3
+  total_incoming_scores: 100
+```
 
-[ROUND_PARITY_VALIDATOR] Accepted 270 scores (rejected 12)
+### Per-Round Rejections
+
+```
+[ROUND_PARITY_VALIDATOR] FULL ROUND REJECTION
+  contest_instance_id: f6d203fc-...
+  round_number: 3
+  actual_count: 12
+  expected_count: 135
+  reason: Incomplete field coverage
+```
+
+### Pre-Insert Confirmation
+
+```
+[ROUND_PARITY_VALIDATOR] FINAL VALID ROUNDS
+  contest_instance_id: f6d203fc-...
+  baseline: 135
+  rounds: [1, 2, 4]
+  total_scores: 405
+```
+
+### Successful Insert
+
+```
+[SCORING] Score insert complete
+  contest_instance_id: f6d203fc-...
+  inserted_scores: 405
 ```
 
 ---
@@ -379,7 +414,17 @@ CREATE TABLE public.golfer_event_scores (
 
 ## References
 
-- **Discovery Phase:** `backend/services/ingestion/strategies/pgaEspnIngestion.js:handleFieldBuildIngestion()`
-- **Scoring Phase:** `backend/services/ingestion/strategies/pgaEspnIngestion.js:upsertScores()`
-- **Tests:** `backend/tests/ingestion/roundFieldParityValidator.test.js`
-- **Governance:** `docs/governance/` (LIFECYCLE_EXECUTION_MAP.md, DISCOVERY_LIFECYCLE_BOUNDARY.md)
+### Production Code
+- **Hardened Enforcement:** `backend/services/ingestion/strategies/pgaEspnIngestion.js:upsertScores()` (lines ~1268-1417)
+- **Legacy Validator:** `backend/services/ingestion/validators/roundFieldParityValidator.js` (deprecated, kept for reference)
+
+### Testing & Cleanup
+- **Unit Tests:** `backend/tests/ingestion/roundFieldParityValidator.test.js`
+- **Cleanup Script:** `backend/debug/cleanupInvalidRounds.js` (one-time migration for historical data)
+- **Validation Script:** `backend/debug/validateRoundParitySnapshot.js` (verify baseline vs stored data)
+- **Inspection Script:** `backend/debug/inspectRound3Writes.js` (analyze write patterns)
+
+### Governance
+- **Lifecycle:** `docs/governance/LIFECYCLE_EXECUTION_MAP.md`, `DISCOVERY_LIFECYCLE_BOUNDARY.md`
+- **Ingestion:** `docs/governance/INGESTION_GUARANTEES.md`
+- **Scoring Pipeline:** `docs/architecture/PGA_SCORING_PIPELINE.md`, `SCORING_PIPELINE.md`
