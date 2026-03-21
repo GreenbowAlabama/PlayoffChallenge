@@ -94,7 +94,6 @@ async function liveStandings(pool, contestInstanceId) {
          ON gs_agg.golfer_id = rg.golfer_id
         AND gs_agg.user_id = rg.user_id
         AND gs_agg.contest_instance_id = $1
-       GROUP BY rg.user_id, rg.golfer_id
      ),
      ranked AS (
        SELECT
