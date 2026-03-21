@@ -868,6 +868,8 @@ async function handleScoringIngestion(ctx, unit) {
   // DO NOT require tournament completion - score per-round as data arrives.
 
   const roundsToScore = new Map(); // Map<roundNumber, Array<golfers>>
+  let skippedIncompleteRounds = 0;
+  let skippedZeroScores = 0;
 
   for (const competitor of competitors) {
     const espnPlayerId = String(competitor.id);
@@ -894,21 +896,9 @@ async function handleScoringIngestion(ctx, unit) {
       continue;
     }
 
-    console.log(`[SCORING FIX] competitor ${espnPlayerId} rounds_scored=${populatedRounds.map(r => r.period)}`);
-
     // For each populated round, extract holes and add to scoring list
     for (const populatedRound of populatedRounds) {
       const roundNum = populatedRound.period;
-
-      // INSTRUMENTATION: Trace round 3
-      if (roundNum === 3) {
-        console.log('[ROUND 3 DETECTED]', {
-          competitor: competitor.id,
-          period: roundNum,
-          linescores_count: populatedRound.linescores.length,
-          sample_holes: populatedRound.linescores.slice(0, 3)
-        });
-      }
 
       // STRICT: Extract only valid holes with numeric values
       // Filter out null/undefined/placeholder holes
@@ -928,25 +918,11 @@ async function handleScoringIngestion(ctx, unit) {
           strokes: Math.round(strokeValue)
         }));
 
-      // INSTRUMENTATION: Trace partial holes
-      if (holes.length > 0 && holes.length < 18) {
-        console.log('[PARTIAL HOLES]', {
-          competitor: competitor.id,
-          round: roundNum,
-          holes_extracted: holes.length,
-          total_linescores: populatedRound.linescores.length
-        });
-      }
-
       // STRICT: Only accept fully completed rounds (18 holes)
       // PGA scoring must be deterministic - partial rounds produce invalid outputs
       // ESPN sends in-progress rounds → we IGNORE them, only score COMPLETED rounds
       if (holes.length !== 18) {
-        console.log('[SKIP INCOMPLETE ROUND]', {
-          competitor: competitor.id,
-          round: roundNum,
-          holes: holes.length
-        });
+        skippedIncompleteRounds++;
         continue;
       }
 
@@ -1024,29 +1000,10 @@ async function handleScoringIngestion(ctx, unit) {
       total_points: score.total_points
     }));
 
-    // INSTRUMENTATION: Trace zero scores
-    const zeroScores = scoringResult.golfer_scores.filter(s => s.total_points === 0);
-    if (zeroScores.length > 0) {
-      console.log('[ZERO SCORE TRACE]', {
-        round: roundNum,
-        zero_score_count: zeroScores.length,
-        sample: zeroScores.slice(0, 3).map(s => ({
-          golfer_id: s.golfer_id,
-          hole_points: s.hole_points,
-          bonus_points: s.bonus_points,
-          finish_bonus: s.finish_bonus,
-          total: s.total_points
-        }))
-      });
-    }
-
     // GUARD: Skip zero-score writes (indicates invalid input holes)
     const validRoundScores = roundScores.filter(score => {
       if (score.total_points === 0) {
-        console.log('[SKIP ZERO SCORE WRITE]', {
-          golfer: score.golfer_id,
-          round: roundNum
-        });
+        skippedZeroScores++;
         return false;
       }
       return true;
@@ -1055,35 +1012,17 @@ async function handleScoringIngestion(ctx, unit) {
     allFinalScores.push(...validRoundScores);
   }
 
-  console.log(`[SCORING FIX] normalizedScores length=${allFinalScores.length}`);
+  // Log single summary at end of scoring
+  const roundsScored = Array.from(new Set(allFinalScores.map(s => s.round_number))).sort();
+  console.log('[SCORING SUMMARY]', {
+    contest: contestInstanceId,
+    total_scores: allFinalScores.length,
+    skipped_zero_scores: skippedZeroScores,
+    skipped_incomplete_rounds: skippedIncompleteRounds,
+    rounds_scored: roundsScored
+  });
 
-  if (allFinalScores.length === 0) {
-    // Diagnostic: distinguish "event not in scoreboard" from "tournament not started"
-    if (competitors.length > 0) {
-      console.log(
-        `[SCORING] No scoring data yet (tournament likely not started) | ` +
-        `contest=${contestInstanceId} | competitors=${competitors.length} | ` +
-        `currentRound=${currentRound} | is_final_round=${is_final_round}`
-      );
-    }
-    return [];
-  }
-
-  const finalScores = allFinalScores;
-
-  // Log summary of scoring run
-  const roundCounts = finalScores.reduce((acc, row) => {
-    acc[row.round_number] = (acc[row.round_number] || 0) + 1;
-    return acc;
-  }, {});
-
-  console.log(
-    `[SCORING] PGA scoring complete | contest=${contestInstanceId} | ` +
-    `total_scores=${finalScores.length} | rounds=${Object.keys(roundCounts).sort().join(',')} | ` +
-    `final_round=${is_final_round}`
-  );
-
-  return finalScores;
+  return allFinalScores;
 }
 
 /**
@@ -1348,40 +1287,6 @@ async function upsertScores(ctx, normalizedScores) {
     );
   });
 
-  // ── DATA CLEANUP: Remove invalid rounds and zero-score rows ────────────────
-  // OLD DATA FIX: ON CONFLICT only updates existing keys, it does NOT delete
-  // rows that should no longer exist. Must explicitly clean invalid data.
-  //
-  // Delete all rounds except those in current valid set
-  const validRounds = Array.from(
-    new Set(normalizedScores.map(s => s.round_number))
-  );
-
-  console.log(`[CLEANUP DEBUG] validRounds=${JSON.stringify(validRounds)}`);
-
-  if (validRounds.length > 0) {
-    const deleteResult = await dbClient.query(`
-      DELETE FROM golfer_event_scores
-      WHERE contest_instance_id = $1
-      AND round_number NOT IN (
-        SELECT UNNEST($2::int[])
-      )
-    `, [contestInstanceId, validRounds]);
-
-    console.log(`[CLEANUP] Removed ${deleteResult.rowCount} invalid round rows from contest ${contestInstanceId}`);
-  }
-
-  // Delete zero-score rows (indicates incomplete/bad parsing)
-  const zeroDeleteResult = await dbClient.query(`
-    DELETE FROM golfer_event_scores
-    WHERE contest_instance_id = $1
-    AND total_points = 0
-  `, [contestInstanceId]);
-
-  if (zeroDeleteResult.rowCount > 0) {
-    console.log(`[CLEANUP] Removed ${zeroDeleteResult.rowCount} zero-score rows from contest ${contestInstanceId}`);
-  }
-
   // ── CANONICAL SCORING IDENTITY ──────────────────────────────────────────
   // CRITICAL INVARIANT:
   // golfer_event_scores.golfer_id MUST ALWAYS BE in format: espn_<athleteId>
@@ -1436,6 +1341,49 @@ async function upsertScores(ctx, normalizedScores) {
     for (const row of contests.rows) {
       await scoreContestRosters(row.id, dbClient);
     }
+  }
+
+  // ── DATA CLEANUP: AFTER INSERT (CRITICAL ORDERING) ────────────────────────
+  // MUST run AFTER insert to prevent re-introduction of bad data during ON CONFLICT
+  // Delete all rounds except those in current valid set
+  const validRounds = Array.from(
+    new Set(normalizedScores.map(s => s.round_number))
+  );
+
+  console.log(`[CLEANUP DEBUG] validRounds=${JSON.stringify(validRounds)}`);
+
+  if (validRounds.length > 0) {
+    const deleteResult = await dbClient.query(`
+      DELETE FROM golfer_event_scores
+      WHERE contest_instance_id = $1
+      AND round_number NOT IN (
+        SELECT UNNEST($2::int[])
+      )
+    `, [contestInstanceId, validRounds]);
+
+    console.log(`[CLEANUP] Removed ${deleteResult.rowCount} invalid round rows from contest ${contestInstanceId}`);
+  }
+
+  // Hard delete: Remove any round > 2 (safety net)
+  const hardDeleteResult = await dbClient.query(`
+    DELETE FROM golfer_event_scores
+    WHERE contest_instance_id = $1
+    AND round_number > 2
+  `, [contestInstanceId]);
+
+  if (hardDeleteResult.rowCount > 0) {
+    console.log(`[CLEANUP] Hard delete removed ${hardDeleteResult.rowCount} rows with round > 2`);
+  }
+
+  // Delete zero-score rows (indicates incomplete/bad parsing)
+  const zeroDeleteResult = await dbClient.query(`
+    DELETE FROM golfer_event_scores
+    WHERE contest_instance_id = $1
+    AND total_points = 0
+  `, [contestInstanceId]);
+
+  if (zeroDeleteResult.rowCount > 0) {
+    console.log(`[CLEANUP] Removed ${zeroDeleteResult.rowCount} zero-score rows from contest ${contestInstanceId}`);
   }
 }
 
