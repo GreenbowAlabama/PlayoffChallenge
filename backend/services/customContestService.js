@@ -2436,8 +2436,16 @@ async function getContestLeaderboard(pool, instanceId) {
     standings = await _getScheduledStandings(pool, instanceId);
   } else if (contestRow.status === 'LIVE') {
     // Dispatch to strategy-specific standings fetcher
+    console.log('[LEADERBOARD SERVICE - BEFORE]', {
+      contest_id: contestRow.id,
+      strategy_key: contestRow.scoring_strategy_key
+    });
     const strategy = getStrategy(contestRow.scoring_strategy_key);
     standings = await strategy.liveStandings(pool, instanceId);
+    console.log('[LEADERBOARD SERVICE - AFTER]', {
+      strategy_key: contestRow.scoring_strategy_key,
+      raw_result: standings.map(r => ({ user_id: r.user_id, total_score: r.total_score }))
+    });
   } else if (contestRow.status === 'COMPLETE') {
     standings = await _getCompleteStandings(pool, instanceId);
   }
