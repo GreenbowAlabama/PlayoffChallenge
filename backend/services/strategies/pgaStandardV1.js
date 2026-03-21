@@ -56,20 +56,21 @@ async function liveStandings(pool, contestInstanceId) {
          ) AS rnk,
          COUNT(*) OVER (PARTITION BY user_id) AS roster_size
        FROM golfer_totals
+     ),
+     user_totals AS (
+       SELECT
+         r.user_id,
+         SUM(CASE WHEN r.rnk <= 6 THEN r.total_points ELSE 0 END) AS total_score
+       FROM ranked r
+       GROUP BY r.user_id
      )
      SELECT
-       r.user_id,
+       ut.user_id,
        COALESCE(u.username, u.name, 'Unknown') AS user_display_name,
-       CASE
-         WHEN MAX(r.roster_size) >= 7
-           THEN SUM(CASE WHEN r.rnk <= 6 THEN r.total_points ELSE 0 END)
-         ELSE
-           SUM(r.total_points)
-       END AS total_score
-     FROM ranked r
-     JOIN users u ON r.user_id = u.id
-     GROUP BY r.user_id, user_display_name
-     ORDER BY total_score DESC`,
+       ut.total_score
+     FROM user_totals ut
+     JOIN users u ON ut.user_id = u.id
+     ORDER BY ut.total_score DESC`,
     [contestInstanceId]
   );
 
