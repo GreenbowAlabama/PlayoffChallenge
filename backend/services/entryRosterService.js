@@ -230,10 +230,50 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
       };
     });
 
+    // HARD GUARD: Enforce invariant entry_rosters.player_ids ⊆ field_selections.primary
+    // This guard is outside validateRoster and throws immediately if invariant is violated
+    const validatedFieldIds = new Set(validatedField.map(p => p.player_id));
+    const invalidIds = normalizedPlayerIds.filter(id => !validatedFieldIds.has(id));
+    if (invalidIds.length > 0) {
+      throw Object.assign(
+        new Error(`INVARIANT VIOLATION: roster contains IDs not in field_selections.primary: ${invalidIds.join(', ')}`),
+        ERROR_CODES.VALIDATION_FAILED
+      );
+    }
+
     // 8. Validate roster (size, duplicates, field membership)
     // Use normalized IDs for validation
     const validationResult = validateRoster(normalizedPlayerIds, rosterConfig, validatedField);
+
+    // DEBUG: Log field validation for audit trail
+    console.log('[FIELD_CONSTRAINT_DEBUG]', {
+      contestInstanceId,
+      userId,
+      submitted_player_ids_count: normalizedPlayerIds.length,
+      field_primary_ids_count: validatedField.length,
+      validation_passed: validationResult.valid,
+      validation_errors: validationResult.errors,
+      timestamp: new Date().toISOString()
+    });
+
     if (!validationResult.valid) {
+      // Extract field membership violations specifically
+      const fieldMembershipError = validationResult.errors.find(e =>
+        e.includes('not in validated field') || e.includes('not in field')
+      );
+
+      if (fieldMembershipError) {
+        console.warn('[INVARIANT_VIOLATION] Field membership constraint failed', {
+          contestInstanceId,
+          userId,
+          violation_type: 'ROSTER_IDS_NOT_IN_FIELD',
+          field_size: validatedField.length,
+          roster_size: normalizedPlayerIds.length,
+          error: fieldMembershipError,
+          timestamp: new Date().toISOString()
+        });
+      }
+
       throw Object.assign(
         new Error(`Roster validation failed: ${validationResult.errors.join('; ')}`),
         { ...ERROR_CODES.VALIDATION_FAILED, errors: validationResult.errors }

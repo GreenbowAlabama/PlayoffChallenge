@@ -71,7 +71,8 @@ function validateRoster(roster, config, validField) {
     errors.push(`Duplicate players: ${duplicates.join(', ')}`);
   }
 
-  // Player existence validation: all players must be in validField
+  // INVARIANT: Player existence validation - all players MUST be in validField
+  // This enforces: entry_rosters.player_ids ⊆ field_selections.primary
   const validPlayerIds = new Set(validField.map(p => p.player_id));
   const notFound = [];
   for (const playerId of roster) {
@@ -80,7 +81,7 @@ function validateRoster(roster, config, validField) {
     }
   }
   if (notFound.length > 0) {
-    errors.push(`Players not in validated field: ${notFound.join(', ')}`);
+    errors.push(`INVARIANT VIOLATION: Players not in contest field (entry_rosters ⊆ field_selections.primary): ${notFound.join(', ')}`);
   }
 
   return {

@@ -32,12 +32,14 @@ describe('Contest Rules Validator - validateRoster', () => {
       expect(result.errors).toHaveLength(0);
     });
 
-    it('rejects roster too small', () => {
+    it('accepts roster smaller than max size (partial submission allowed)', () => {
       const roster = ['p1', 'p2', 'p3'];
       const result = validateRoster(roster, validConfig, validField);
 
-      expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('size'))).toBe(true);
+      // Per CLAUDE.md: Partial roster submission allowed: 0 <= player_ids.length <= roster_size
+      // 3 players is valid when roster_size is 4
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
     it('rejects roster too large', () => {
@@ -113,7 +115,7 @@ describe('Contest Rules Validator - validateRoster', () => {
       const result = validateRoster(roster, validConfig, validField);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('not in validated field'))).toBe(true);
+      expect(result.errors.some(e => e.includes('not in contest field') || e.includes('not in validated field'))).toBe(true);
       expect(result.errors.some(e => e.includes('unknown'))).toBe(true);
     });
 
@@ -122,7 +124,7 @@ describe('Contest Rules Validator - validateRoster', () => {
       const result = validateRoster(roster, validConfig, validField);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('not in validated field'))).toBe(true);
+      expect(result.errors.some(e => e.includes('not in contest field') || e.includes('not in validated field'))).toBe(true);
     });
 
     it('accepts all valid players', () => {
@@ -143,7 +145,7 @@ describe('Contest Rules Validator - validateRoster', () => {
       const result = validateRoster(roster, config, limitedField);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('not in validated field'))).toBe(true);
+      expect(result.errors.some(e => e.includes('not in contest field') || e.includes('not in validated field'))).toBe(true);
     });
   });
 
@@ -198,14 +200,15 @@ describe('Contest Rules Validator - validateRoster', () => {
       expect(result.errors.some(e => e.includes('array'))).toBe(true);
     });
 
-    it('rejects empty roster when roster_size > 0', () => {
+    it('accepts empty roster when roster_size > 0 (partial submission allowed)', () => {
       const roster = [];
       const config = { roster_size: 1 };
 
       const result = validateRoster(roster, config, validField);
 
-      expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('size'))).toBe(true);
+      // Per CLAUDE.md: Partial roster submission allowed: 0 <= player_ids.length <= roster_size
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
     it('handles empty validated field', () => {
@@ -215,7 +218,59 @@ describe('Contest Rules Validator - validateRoster', () => {
       const result = validateRoster(roster, config, []);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('not in validated field'))).toBe(true);
+      expect(result.errors.some(e => e.includes('not in contest field') || e.includes('not in validated field'))).toBe(true);
+    });
+  });
+
+  describe('INVARIANT: entry_rosters.player_ids ⊆ field_selections.primary', () => {
+    it('rejects roster with espn_ format ID not in field (staging bug case)', () => {
+      // Reproduces the actual bug: espn_10048 was selected but not in field_selections.primary
+      const rosterWithInvalidIds = [
+        'espn_10054',  // Valid - in field
+        'espn_10048',  // INVALID - NOT in field
+        'espn_1030',   // INVALID - NOT in field
+        'espn_1037',   // INVALID - NOT in field
+        'espn_10166',  // Valid - in field
+        'espn_10548',  // Valid - in field
+        'espn_10577'   // INVALID - NOT in field
+      ];
+
+      const pgaField = [
+        { player_id: 'espn_10054' },
+        { player_id: 'espn_10166' },
+        { player_id: 'espn_10548' }
+        // Note: espn_10048, espn_1030, espn_1037, espn_10577 are NOT in the field
+      ];
+
+      const config = { roster_size: 7 };
+      const result = validateRoster(rosterWithInvalidIds, config, pgaField);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('INVARIANT VIOLATION'))).toBe(true);
+      expect(result.errors.some(e => e.includes('espn_10048'))).toBe(true);
+      expect(result.errors.some(e => e.includes('espn_1030'))).toBe(true);
+      expect(result.errors.some(e => e.includes('espn_1037'))).toBe(true);
+      expect(result.errors.some(e => e.includes('espn_10577'))).toBe(true);
+    });
+
+    it('accepts roster where all player_ids are in field_selections.primary', () => {
+      const validRoster = [
+        'espn_10054',
+        'espn_10166',
+        'espn_10548'
+      ];
+
+      const pgaField = [
+        { player_id: 'espn_10054' },
+        { player_id: 'espn_10166' },
+        { player_id: 'espn_10548' }
+      ];
+
+      const config = { roster_size: 7 };
+      const result = validateRoster(validRoster, config, pgaField);
+
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
   });
 
