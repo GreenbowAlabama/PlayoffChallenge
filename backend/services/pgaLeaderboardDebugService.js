@@ -195,7 +195,7 @@ async function getPgaLeaderboardWithScores(pool) {
     return { metadata, entries: [] };
   }
 
-  // Step 7: Query golfer_event_scores for fantasy scoring data
+  // Step 7: Query golfer_event_scores for fantasy scoring data (all golfers, not filtered to ESPN competitors)
   const scoresResult = await pool.query(
     `SELECT
        ges.golfer_id,
@@ -212,9 +212,8 @@ async function getPgaLeaderboardWithScores(pool) {
      LEFT JOIN players p
        ON p.espn_id::text = REPLACE(ges.golfer_id, 'espn_', '')
      WHERE ges.contest_instance_id = $1
-       AND ges.golfer_id = ANY($2)
      GROUP BY ges.golfer_id, p.full_name`,
-    [contestId, golferIds]
+    [contestId]
   );
 
   // Build lookup map from fantasy scores
@@ -243,56 +242,17 @@ async function getPgaLeaderboardWithScores(pool) {
     playerNameMap[`espn_${row.espn_id}`] = row.full_name;
   });
 
-  // Step 9: Build entries — strategy differs for LIVE vs COMPLETE
-  const entries = [];
-
-  for (const competitor of competitors) {
-    const competitorId = competitor.athlete?.id || competitor.id;
-    if (!competitorId) continue;
-
-    const normalizedGolferId = `espn_${competitorId}`;
-    const scoreData = scoresMap[normalizedGolferId] || null;
-    const playerName = scoreData?.player_name
-      || playerNameMap[normalizedGolferId]
-      || competitor.athlete?.displayName
-      || 'Unknown';
-
-    if (isLive) {
-      // LIVE: ESPN score is HARD authority for score column. NEVER use golfer_event_scores here.
-      // ESPN returns score as number OR string ("-8", "E", "+2"). Must parse both.
-      const espnScore = _parseEspnScore(competitor.score);
-      const dbScore = scoreData?.score_to_par || 0;
-      const finalScore = espnScore != null ? espnScore : dbScore;
-
-      // TEMP: Score source debug log — remove after validation
-      if (espnScore != null && espnScore !== dbScore) {
-        console.log(
-          `[SCORE SOURCE] ${normalizedGolferId} | espn=${espnScore} | db=${dbScore} | final=${finalScore} | raw=${competitor.score}`
-        );
-      }
-
-      entries.push({
-        golfer_id: normalizedGolferId,
-        player_name: playerName,
-        position: 0,  // Computed below after sorting
-        score: finalScore,
-        finish_bonus: scoreData?.finish_bonus || 0,
-        fantasy_score: scoreData?.fantasy_score || 0,
-        rounds_scored: scoreData?.rounds_scored || 0
-      });
-    } else {
-      // COMPLETE: Use golfer_event_scores exclusively (settled data)
-      entries.push({
-        golfer_id: normalizedGolferId,
-        player_name: playerName,
-        position: 0,
-        score: scoreData?.score_to_par || 0,
-        finish_bonus: scoreData?.finish_bonus || 0,
-        fantasy_score: scoreData?.fantasy_score || 0,
-        rounds_scored: scoreData?.rounds_scored || 0
-      });
-    }
-  }
+  // Step 9: Build entries from ALL golfers in scoresMap (including those not in ESPN competitors)
+  // Step 9: Build entries directly from golfer_event_scores (all golfers, source of truth)
+  const entries = Object.values(scoresMap).map(row => ({
+    golfer_id: row.golfer_id,
+    player_name: row.player_name,
+    position: 0,
+    score: row.score_to_par || 0,
+    finish_bonus: row.finish_bonus || 0,
+    fantasy_score: Number(row.fantasy_score) || 0,
+    rounds_scored: row.rounds_scored || 0
+  }));
 
   // Step 10: Sort and rank by fantasy_score DESC, golfer_id ASC (matches validation script exactly)
   entries.sort((a, b) => {
