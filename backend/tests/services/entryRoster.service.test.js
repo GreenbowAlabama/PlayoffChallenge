@@ -130,7 +130,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -162,7 +163,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -207,7 +209,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -252,7 +255,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -355,7 +359,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -401,7 +406,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -446,7 +452,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -508,7 +515,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -547,6 +555,104 @@ describe('Entry Roster Service', () => {
       expect(result.success).toBe(true);
     });
 
+    it('getMyEntry throws CONTEST_NOT_INITIALIZED when sport is null (data integrity)', async () => {
+      /**
+       * READ PATH VALIDATION TEST
+       * Contest template not initialized properly:
+       * - sport is null (missing sport field in template)
+       * This is data integrity error, not lifecycle error
+       */
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+
+      // Contest exists but sport is NULL (template not initialized)
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('LEFT JOIN'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: null  // Invalid: sport is null
+          }],
+          rowCount: 1
+        }
+      );
+
+      // User has no entry yet
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('WHERE'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // EXPECTED: getMyEntry throws CONTEST_NOT_INITIALIZED (not lifecycle error)
+      try {
+        await entryRosterService.getMyEntry(pool, contestId, userId);
+        fail('Expected CONTEST_NOT_INITIALIZED error');
+      } catch (err) {
+        expect(err.code).toBe('CONTEST_NOT_INITIALIZED');
+        expect(err.status).toBe(400);
+      }
+    });
+
+    it('getMyEntry returns null available_players when field_selections missing (streaming state)', async () => {
+      /**
+       * READ PATH STREAMING TEST
+       * Contest in early ingestion state:
+       * - sport exists (valid template)
+       * - field_selections missing (ingestion incomplete)
+       *
+       * CORRECT BEHAVIOR: available_players = null (indicates "not ready")
+       * NOT empty array [] which iOS interprets as "roster version not ready"
+       */
+      const pool = createMockPool();
+      const contestId = 'test-contest-id';
+      const userId = 'test-user-id';
+
+      // Contest exists with valid sport
+      pool.setQueryResponse(
+        q => q.includes('contest_instances') && q.includes('LEFT JOIN'),
+        {
+          rows: [{
+            id: contestId,
+            status: 'SCHEDULED',
+            lock_time: new Date(Date.now() + 3600000),
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'  // Valid sport
+          }],
+          rowCount: 1
+        }
+      );
+
+      // User has no entry yet
+      pool.setQueryResponse(
+        q => q.includes('entry_rosters') && q.includes('WHERE'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // Field selections MISSING (streaming: not ready yet)
+      pool.setQueryResponse(
+        q => q.includes('field_selections'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // CORRECT BEHAVIOR: available_players = null (not empty array, not all players)
+      const result = await entryRosterService.getMyEntry(pool, contestId, userId);
+
+      expect(result.available_players).toBeNull();  // ✓ Null, not empty []
+    });
+
     it('rejects player not in validated field', async () => {
       const pool = createMockPool();
       const contestId = 'test-contest-id';
@@ -560,7 +666,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -989,7 +1096,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -1043,7 +1151,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -1097,7 +1206,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -1141,7 +1251,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -1196,7 +1307,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -1218,11 +1330,20 @@ describe('Entry Roster Service', () => {
         }
       );
 
+      // No players table mock → returns null (streaming state)
+      pool.setQueryResponse(
+        q => q.includes('FROM players') && q.includes('WHERE sport'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
       const result = await entryRosterService.getMyEntry(pool, contestId, userId);
 
       expect(result.player_ids).toEqual([]);
       expect(result.can_edit).toBe(true);
-      expect(result.available_players).toEqual([]);
+      expect(result.available_players).toBeNull();  // Streaming: field not ready
     });
 
     it('returns existing picks for user with entry', async () => {
@@ -1238,7 +1359,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() + 3600000),
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -1254,6 +1376,15 @@ describe('Entry Roster Service', () => {
 
       pool.setQueryResponse(
         q => q.includes('field_selections'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // No players table mock → returns null (streaming state)
+      pool.setQueryResponse(
+        q => q.includes('FROM players') && q.includes('WHERE sport'),
         {
           rows: [],
           rowCount: 0
@@ -1278,7 +1409,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: new Date(Date.now() - 3600000), // Past
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -1294,6 +1426,15 @@ describe('Entry Roster Service', () => {
 
       pool.setQueryResponse(
         q => q.includes('field_selections'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // No players table mock → returns null (streaming state)
+      pool.setQueryResponse(
+        q => q.includes('FROM players') && q.includes('WHERE sport'),
         {
           rows: [],
           rowCount: 0
@@ -1317,7 +1458,8 @@ describe('Entry Roster Service', () => {
             id: contestId,
             status: 'SCHEDULED',
             lock_time: null, // No lock
-            scoring_strategy_key: 'pga_standard_v1'
+            scoring_strategy_key: 'pga_standard_v1',
+            sport: 'pga'
           }],
           rowCount: 1
         }
@@ -1333,6 +1475,15 @@ describe('Entry Roster Service', () => {
 
       pool.setQueryResponse(
         q => q.includes('field_selections'),
+        {
+          rows: [],
+          rowCount: 0
+        }
+      );
+
+      // No players table mock → returns null (streaming state)
+      pool.setQueryResponse(
+        q => q.includes('FROM players') && q.includes('WHERE sport'),
         {
           rows: [],
           rowCount: 0

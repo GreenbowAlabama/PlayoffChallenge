@@ -35,6 +35,7 @@ const SPORT_PLAYER_MAP = {
  */
 const ERROR_CODES = {
   CONTEST_NOT_FOUND: { code: 'CONTEST_NOT_FOUND', status: 404 },
+  CONTEST_NOT_INITIALIZED: { code: 'CONTEST_NOT_INITIALIZED', status: 400 },
   CONTEST_NOT_SCHEDULED: { code: 'CONTEST_NOT_SCHEDULED', status: 409 },
   CONTEST_LOCKED: { code: 'CONTEST_LOCKED', status: 409 },
   NOT_A_PARTICIPANT: { code: 'NOT_A_PARTICIPANT', status: 403 },
@@ -506,13 +507,21 @@ async function getMyEntry(pool, contestInstanceId, userId) {
   // Derive roster_config
   const rosterConfig = deriveRosterConfigFromStrategy(contestRow.scoring_strategy_key);
 
+  // STATE A: Invalid contest - sport is null means template not initialized
+  if (!contestRow.sport) {
+    throw Object.assign(
+      new Error('Contest template not initialized (missing sport field)'),
+      ERROR_CODES.CONTEST_NOT_INITIALIZED
+    );
+  }
+
   // Fetch field_selections for available players
   const fieldResult = await pool.query(
     `SELECT selection_json FROM field_selections WHERE contest_instance_id = $1 LIMIT 1`,
     [contestInstanceId]
   );
 
-  let availablePlayers = [];  // Always initialize to array (never null per OpenAPI contract)
+  let availablePlayers = null;  // Null indicates "not ready" in streaming state
 
   // Determine if we should use field_selections or fallback to players table
   const shouldUseFieldSelections = fieldResult.rows.length > 0;
@@ -568,7 +577,8 @@ async function getMyEntry(pool, contestInstanceId, userId) {
       }));
     }
   } else {
-    // Fallback to players table: use when field_selections is missing or empty
+    // STATE B: Streaming state - field missing, sport exists
+    // availablePlayers stays null (indicates "not ready" vs empty/invalid)
     const playerSport = contestRow.sport ? SPORT_PLAYER_MAP[contestRow.sport.toLowerCase()] : null;
     if (playerSport) {
       const playersResult = await pool.query(
@@ -580,15 +590,18 @@ async function getMyEntry(pool, contestInstanceId, userId) {
         [playerSport]
       );
 
-      availablePlayers = playersResult.rows.map(player => ({
-        player_id: player.id,
-        name: player.full_name,
-        image_url: player.image_url || null
-      }));
+      // Only populate if we found players; otherwise stay null (streaming state)
+      if (playersResult.rows.length > 0) {
+        availablePlayers = playersResult.rows.map(player => ({
+          player_id: player.id,
+          name: player.full_name,
+          image_url: player.image_url || null
+        }));
+      }
 
       // LAZY CREATION: Persist field_selections if tournament_configs exists
       // Never fabricate foreign keys. Only write if tournament_configs is present.
-      if (!shouldUseFieldSelections && availablePlayers.length > 0) {
+      if (!shouldUseFieldSelections && availablePlayers && availablePlayers.length > 0) {
         try {
           const tcResult = await pool.query(
             `SELECT id FROM tournament_configs WHERE contest_instance_id = $1 LIMIT 1`,
@@ -627,7 +640,7 @@ async function getMyEntry(pool, contestInstanceId, userId) {
         }
       }
     }
-    // Otherwise availablePlayers stays as []
+    // Streaming model: if field_selections missing and sport exists, availablePlayers stays null
   }
 
   return {
