@@ -294,16 +294,16 @@ async function getPgaLeaderboardWithScores(pool) {
     }
   }
 
-  // Step 10: Sort and rank
-  // Golf leaderboards rank by lowest score (most negative = best)
-  // Golfers with null/0 score (not started) sort to bottom
+  // Step 10: Sort and rank by fantasy_score (primary), ESPN score tie-breaker (secondary), golfer_id (tertiary)
   entries.sort((a, b) => {
-    const aActive = a.score !== 0 && a.score !== null;
-    const bActive = b.score !== 0 && b.score !== null;
-    if (aActive && !bActive) return -1;
-    if (!aActive && bActive) return 1;
-    if (!aActive && !bActive) return 0;
-    return a.score - b.score;
+    const fantasyDiff = Number(b.fantasy_score) - Number(a.fantasy_score);
+    if (fantasyDiff !== 0) return fantasyDiff;
+
+    const aScore = a.score ?? Number.POSITIVE_INFINITY;
+    const bScore = b.score ?? Number.POSITIVE_INFINITY;
+    if (aScore !== bScore) return aScore - bScore;
+
+    return String(a.golfer_id).localeCompare(String(b.golfer_id));
   });
 
   let rank = 1;
