@@ -9,7 +9,6 @@
 
 const crypto = require('crypto');
 const { scoreContestRosters } = require('../../scoring/pgaRosterScoringService');
-const { validateRoundParity } = require('../validators/roundFieldParityValidator');
 const logger = require('../../../utils/logger');
 
 /**
@@ -1265,96 +1264,15 @@ async function upsertScores(ctx, normalizedScores) {
   const { dbClient, providerEventId } = ctx;
   const { contestInstanceId } = ctx;
 
-  // ── BASELINE FETCH: DIRECT FROM FIELD_SELECTIONS ────────────────────────────────
-  // Do NOT infer baseline. Query the authoritative source directly.
-  const baselineResult = await dbClient.query(
-    `
-    SELECT jsonb_array_length(selection_json->'primary') as baseline
-    FROM field_selections
-    WHERE contest_instance_id = $1
-    `,
-    [contestInstanceId]
-  );
-
-  let baseline = null;
-
-  if (baselineResult.rows.length === 0 || baselineResult.rows[0].baseline === null) {
-    logger.warn('[ROUND_PARITY_VALIDATOR] Baseline not ready (field_selections missing/empty)', {
-      contest_instance_id: contestInstanceId
-    });
-    return;  // HARD STOP: Field not ready
-  }
-
-  baseline = parseInt(baselineResult.rows[0].baseline, 10);
-
-  if (Number.isNaN(baseline) || baseline <= 0) {
-    logger.error('[ROUND_PARITY_VALIDATOR] Invalid baseline value', {
-      contest_instance_id: contestInstanceId,
-      baseline_value: baseline
-    });
-    return;  // HARD STOP: Baseline is corrupt
-  }
-
-  // ── ROUND FIELD PARITY VALIDATION ────────────────────────────────────────────
-  // Enforce: ZERO writes allowed for any round where golfer_count != baseline
-  // Validation is PER ROUND. Incomplete rounds are removed entirely.
-
-  // Group incoming scores by round_number
-  const roundGroups = {};
-  normalizedScores.forEach(score => {
-    const roundNum = Number(score.round_number);
-    if (!roundGroups[roundNum]) {
-      roundGroups[roundNum] = new Set();
-    }
-    roundGroups[roundNum].add(score.golfer_id);
-  });
-
-  // Validate each round and build filtered scores
-  const validScores = [];
-  const rejectedRounds = [];
-
-  for (const roundNum in roundGroups) {
-    const roundNumInt = parseInt(roundNum, 10);
-    const actualGolferCount = roundGroups[roundNum].size;
-
-    if (actualGolferCount === baseline) {
-      // Round is complete: accept ALL scores for this round
-      normalizedScores
-        .filter(s => Number(s.round_number) === roundNumInt)
-        .forEach(score => validScores.push(score));
-    } else {
-      // Round is incomplete: REJECT ENTIRE ROUND
-      rejectedRounds.push({
-        round_number: roundNumInt,
-        actual_count: actualGolferCount,
-        expected_count: baseline
-      });
-    }
-  }
-
-  // If no complete rounds remain: HARD STOP
-  if (validScores.length === 0) {
-    logger.warn('[ROUND_PARITY_VALIDATOR] HARD STOP - no valid rounds', {
-      contest_instance_id: contestInstanceId,
-      rounds_scanned: Object.keys(roundGroups).length,
-      rejected_rounds: rejectedRounds.length,
-      total_incoming_scores: normalizedScores.length
-    });
-    return;
-  }
-
-  // Log final valid rounds (success case only)
-  logger.info('[ROUND_PARITY_VALIDATOR] FINAL VALID ROUNDS', {
-    contest_instance_id: contestInstanceId,
-    baseline,
-    rounds: Array.from(new Set(validScores.map(s => Number(s.round_number)))).sort((a, b) => a - b),
-    total_scores: validScores.length
-  });
+  // ── STREAMING SCORING MODEL ──────────────────────────────────────────────────
+  // Accept partial rounds, incremental updates, and mixed round payloads.
+  // Scores are written directly without field completeness enforcement.
+  // This matches NFL live scoring behavior: accept data as it arrives.
 
   const values = [];
   const placeholders = [];
 
-  validScores.forEach((score, i) => {
+  normalizedScores.forEach((score, i) => {
     const offset = i * 7;
 
     placeholders.push(
@@ -1372,15 +1290,8 @@ async function upsertScores(ctx, normalizedScores) {
     );
   });
 
-  // ── DEFENSIVE GUARD: Prevent INSERT if no valid scores ──────────────────────────
-  // This is a second guard to catch any case where validScores somehow becomes empty
-  // despite passing the check above (defensive programming)
-  if (!validScores || validScores.length === 0 || placeholders.length === 0) {
-    logger.error('[ROUND_PARITY_VALIDATOR] DEFENSIVE GUARD: Preventing INSERT with no valid scores', {
-      contest_instance_id: contestInstanceId,
-      valid_scores: validScores ? validScores.length : 0,
-      placeholders: placeholders.length
-    });
+  // ── DEFENSIVE GUARD: Prevent INSERT if no scores ──────────────────────────
+  if (!normalizedScores || normalizedScores.length === 0 || placeholders.length === 0) {
     return;
   }
 
@@ -1422,9 +1333,9 @@ async function upsertScores(ctx, normalizedScores) {
       total_points = EXCLUDED.total_points
   `, values);
 
-  logger.info('[SCORING] Score insert complete', {
+  logger.info('[SCORING] Upserted scores', {
     contest_instance_id: contestInstanceId,
-    inserted_scores: validScores.length
+    score_count: normalizedScores.length
   });
 
   // ── DYNAMIC ROUND CLEANUP: BEFORE ROSTER SCORING (CRITICAL ORDERING) ─────────
