@@ -17,7 +17,8 @@
 const axios = require('axios');
 
 // Cache debug logging is OFF by default (prod mode)
-const DEBUG = process.env.ESPN_CACHE_DEBUG === 'true';
+// ONLY enable with explicit ESPN_CACHE_DEBUG=true env var
+const DEBUG = process.env.ESPN_CACHE_DEBUG === 'true' && process.env.NODE_ENV !== 'production';
 
 const logger = {
   debug: (msg) => {

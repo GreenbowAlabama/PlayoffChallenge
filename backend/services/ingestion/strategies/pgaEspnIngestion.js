@@ -791,7 +791,6 @@ async function handleScoringIngestion(ctx, unit) {
   // Try new format first: direct competitors at root (most common now)
   if (Array.isArray(providerData.competitors) && providerData.competitors.length > 0) {
     competitors = providerData.competitors;
-    console.log(`[SCORING] Using scoreboard format (direct competitors)`);
   }
   // Fallback to old format: nested under events > competitions
   else if (Array.isArray(providerData.events) && providerData.events.length > 0) {
@@ -801,12 +800,10 @@ async function handleScoringIngestion(ctx, unit) {
     if (event && Array.isArray(event.competitions) && event.competitions.length > 0) {
       const competition = event.competitions[0];
       competitors = competition.competitors || [];
-      console.log(`[SCORING] Using event format (nested competitions)`);
     }
   }
 
   if (competitors.length === 0) {
-    console.warn(`[SCORING] No competitors found in either format, returning empty`);
     return [];
   }
 
@@ -824,11 +821,7 @@ async function handleScoringIngestion(ctx, unit) {
     const endTime = new Date(endTimeResult.rows[0].tournament_end_time);
     const now = new Date();
     is_final_round = now >= endTime;
-    console.log(
-      `[SCORING] Tournament end check: endTime=${endTime.toISOString()}, now=${now.toISOString()}, is_final=${is_final_round}`
-    );
   } else {
-    console.log(`[SCORING] No tournament_end_time found for contest, is_final=false`);
   }
 
   // ── Step 3: Fetch template scoring strategy and resolve to rules object ────────
@@ -854,7 +847,7 @@ async function handleScoringIngestion(ctx, unit) {
     if (strategyModule && typeof strategyModule.rules === 'function') {
       templateRules = strategyModule.rules(null) || {};
     } else {
-      console.warn(`[SCORING] Strategy module ${strategyKey} does not export rules function`);
+      logWarn(`Strategy module ${strategyKey} does not export rules function`, { strategyKey });
     }
   }
 
@@ -1012,16 +1005,7 @@ async function handleScoringIngestion(ctx, unit) {
     allFinalScores.push(...validRoundScores);
   }
 
-  // Log single summary at end of scoring
-  const roundsScored = Array.from(new Set(allFinalScores.map(s => s.round_number))).sort();
-  console.log('[SCORING SUMMARY]', {
-    contest: contestInstanceId,
-    total_scores: allFinalScores.length,
-    skipped_zero_scores: skippedZeroScores,
-    skipped_incomplete_rounds: skippedIncompleteRounds,
-    rounds_scored: roundsScored
-  });
-
+  // Scoring complete, silent operation
   return allFinalScores;
 }
 
@@ -1366,11 +1350,9 @@ async function upsertScores(ctx, normalizedScores) {
       `, [contestInstanceId, validRounds]);
 
       if (cleanupResult.rowCount > 0) {
-        console.log(`[CLEANUP] Removed ${cleanupResult.rowCount} invalid round rows from contest ${contestInstanceId}. Valid rounds: ${validRounds.join(',')}`);
       }
     } else {
       const missing = Array.from(existingRounds).filter(r => !validRounds.includes(r));
-      console.log(`[CLEANUP SKIPPED] Incoming does not cover existing rounds. Missing: ${missing.join(',')}. Preserving all rounds (partial cycle).`);
     }
   }
 
