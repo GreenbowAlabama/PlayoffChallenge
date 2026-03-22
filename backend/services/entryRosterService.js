@@ -557,6 +557,21 @@ async function getMyEntry(pool, contestInstanceId, userId) {
   );
   if (tierDefResult.rows.length > 0 && tierDefResult.rows[0].tier_definition) {
     tierDefinition = tierDefResult.rows[0].tier_definition;
+
+    // GOVERNANCE: tier_definition MUST include field_name for each tier
+    // This is the ONLY place field_name is derived (if missing from storage)
+    // Client mapping is 100% explicit: field_name → tier_id (zero coupling)
+    // INVARIANT: Every tier MUST have field_name before returning to client
+    if (tierDefinition && Array.isArray(tierDefinition.tiers)) {
+      tierDefinition.tiers = tierDefinition.tiers.map((tier, idx) => {
+        // If field_name missing, derive deterministically (storage migration)
+        // Otherwise use stored value (preferred)
+        return {
+          ...tier,
+          field_name: tier.field_name || `tier_${idx + 1}`
+        };
+      });
+    }
   }
 
   // Derive roster_config (pass tier definition for entry_fields population)
@@ -754,6 +769,7 @@ async function getMyEntry(pool, contestInstanceId, userId) {
     lock_time: contestRow.lock_time ? new Date(contestRow.lock_time).toISOString() : null,
     roster_config: rosterConfig,
     available_players: availablePlayers,
+    tier_definition: tierDefinition,
     updated_at: updatedAt
   };
 }

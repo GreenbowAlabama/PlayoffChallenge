@@ -568,33 +568,16 @@ struct LineupPlayerPickerSheetV2: View {
     @Environment(\.dismiss) var dismiss
     @State private var searchText = ""
 
-    // Detect if tier mode is active
+    // Detect if tier mode is active: check if position starts with "tier_"
     private var isTierMode: Bool {
-        guard let entryFields = viewModel.contest.rosterConfig?.entryFields,
-              !entryFields.isEmpty else {
-            return false
-        }
-        // Check if first entry_field has tier metadata (tier_id, tier_rank_min, tier_rank_max)
-        if let tierData = entryFields.first as? [String: Any] {
-            return tierData["tier_id"] != nil
-        }
-        return false
+        position.hasPrefix("tier_")
     }
 
-    // Extract tier_id from position (position = "tier_1", "tier_2", etc. for golf)
+    // Get tier_id from mapping (SOURCE OF TRUTH)
     private var currentTierId: String? {
         guard isTierMode else { return nil }
-        // Position format for tiers: "tier_1" → extract tier_id "t1"
-        // OR position is already the field_name from entry_fields
-        if let entryFields = viewModel.contest.rosterConfig?.entryFields {
-            // Find matching entry_field by field_name
-            if let tierField = entryFields.first(where: { field in
-                (field as? [String: Any])?["field_name"] as? String == position
-            }) as? [String: Any] {
-                return tierField["tier_id"] as? String
-            }
-        }
-        return nil
+        // Use the mapping built from tier_definition
+        return viewModel.tierIdByFieldName[position]
     }
 
     var filteredPlayers: [Player] {

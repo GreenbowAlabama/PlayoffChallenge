@@ -17,6 +17,7 @@ public struct MyEntryResponseContract: Decodable {
     public let rosterConfig: RosterConfigContract
     public let availablePlayers: [PlayerInfoContract]?
     public let updatedAt: String?
+    public let tierDefinition: TierDefinitionContract?
 
     enum CodingKeys: String, CodingKey {
         case playerIds = "player_ids"
@@ -25,22 +26,33 @@ public struct MyEntryResponseContract: Decodable {
         case rosterConfig = "roster_config"
         case availablePlayers = "available_players"
         case updatedAt = "updated_at"
+        case tierDefinition = "tier_definition"
     }
+}
 
-    public init(
-        playerIds: [String],
-        canEdit: Bool,
-        lockTime: Date?,
-        rosterConfig: RosterConfigContract,
-        availablePlayers: [PlayerInfoContract]?,
-        updatedAt: String? = nil
-    ) {
-        self.playerIds = playerIds
-        self.canEdit = canEdit
-        self.lockTime = lockTime
-        self.rosterConfig = rosterConfig
-        self.availablePlayers = availablePlayers
-        self.updatedAt = updatedAt
+/// DTO for tier definition with tier details
+public struct TierDefinitionContract: Decodable {
+    public let selectionMode: String?
+    public let tiers: [TierContract]
+
+    enum CodingKeys: String, CodingKey {
+        case selectionMode = "selection_mode"
+        case tiers
+    }
+}
+
+/// DTO for individual tier info
+public struct TierContract: Decodable {
+    public let id: String
+    public let fieldName: String
+    public let rankMin: Int
+    public let rankMax: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case fieldName = "field_name"
+        case rankMin = "rank_min"
+        case rankMax = "rank_max"
     }
 }
 

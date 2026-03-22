@@ -54,6 +54,9 @@ final class LineupViewModel: ObservableObject {
     // Available players for selection (loaded once)
     @Published var allPlayers: [Player] = []
 
+    // Tier mapping: field_name → tier_id (e.g., "tier_1" → "t1")
+    @Published var tierIdByFieldName: [String: String] = [:]
+
     @Published var isLoading = false
     @Published var isSaving = false
     @Published var isLocked = false
@@ -185,11 +188,11 @@ final class LineupViewModel: ObservableObject {
     // MARK: - Helpers
 
     /// Create an empty golf slot (no player selected)
-    private func makeEmptySlot() -> PickV2Slot {
+    private func makeEmptySlot(fieldName: String = "G") -> PickV2Slot {
         PickV2Slot(
             pickId: nil,
             playerId: nil,
-            position: golfPosition,
+            position: fieldName,
             fullName: nil,
             team: nil,
             sleeperId: nil,
@@ -321,17 +324,45 @@ final class LineupViewModel: ObservableObject {
                 // DEBUG: Log mapping results
                 print("LINEUP players loaded:", self.allPlayers.count)
 
-                // Pre-allocate slots based on lineup size
+                // Extract entry_fields from roster_config for tier-based lineup
+                let entryFieldsValue = entryResponse.rosterConfig["entry_fields"]
+                let entryFieldsArray = entryFieldsValue?.value as? [String] ?? []
+                print("[DEBUG] rosterConfig.entry_fields = \(entryFieldsArray)")
+
+                // Build tier_id mapping from tier_definition (SOURCE OF TRUTH)
+                // CRITICAL: Map by field_name, NOT index (zero coupling)
+                var tierIdMap: [String: String] = [:]
+                if let tierDef = entryResponse.tierDefinition {
+                    for tier in tierDef.tiers {
+                        // field_name is the explicit key (e.g., "tier_1", "tier_2")
+                        tierIdMap[tier.fieldName] = tier.id
+                        print("[DEBUG] Mapped \(tier.fieldName) → \(tier.id)")
+                    }
+                }
+                self.tierIdByFieldName = tierIdMap
+
+                // Pre-allocate slots based on entry_fields (tier mode) or lineup size (legacy mode)
                 var loadedSlots: [PickV2Slot] = []
 
-                for index in 0..<lineupSize {
+                // Create field name array: use entry_fields for tier mode, or repeat "G" for legacy
+                let fieldNames = entryFieldsArray.isEmpty
+                    ? Array(repeating: golfPosition, count: lineupSize)
+                    : entryFieldsArray
+
+                if !entryFieldsArray.isEmpty {
+                    print("[DEBUG] USING TIER MODE: \(entryFieldsArray)")
+                } else {
+                    print("[DEBUG] USING LEGACY MODE")
+                }
+
+                for (index, fieldName) in fieldNames.enumerated() {
                     if index < entryResponse.playerIds.count {
                         let playerId = entryResponse.playerIds[index]
                         if let player = playersById[playerId] {
                             let slot = PickV2Slot(
                                 pickId: nil,
                                 playerId: playerId,
-                                position: golfPosition,
+                                position: fieldName,
                                 fullName: player.fullName,
                                 team: player.team,
                                 sleeperId: player.sleeperId,
@@ -348,16 +379,16 @@ final class LineupViewModel: ObservableObject {
                             )
                             loadedSlots.append(slot)
                         } else {
-                            loadedSlots.append(makeEmptySlot())
+                            loadedSlots.append(makeEmptySlot(fieldName: fieldName))
                         }
                     } else {
-                        loadedSlots.append(makeEmptySlot())
+                        loadedSlots.append(makeEmptySlot(fieldName: fieldName))
                     }
                 }
 
                 self.slots = loadedSlots
 
-                print("[MYLINEUP][vm] slots created=\(loadedSlots.count)")
+                print("[MYLINEUP][vm] slots created=\(loadedSlots.count) entryFieldsCount=\(entryFieldsArray.count) lineupSize=\(lineupSize)")
                 print("[MYLINEUP][vm] slots set count=\(self.slots.count)")
 
                 // DEBUG: Log slot creation
