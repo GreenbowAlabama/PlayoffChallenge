@@ -101,6 +101,8 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   const tourConfig = configResult.rows[0];
   const tierDefinitionRaw = tourConfig.tier_definition;
 
+  // TODO: Remove excessive ingestion logging (currently hitting Railway 500 logs/sec limit)
+  // Remove: TIER DEF RAW, TIER DEF PARSED, scoring debug spam below
   // TEMP LOGGING: Diagnose tier_definition parsing
   console.log('TIER DEF RAW:', tierDefinitionRaw);
 
@@ -116,6 +118,7 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
     }
   } else {
     tierDefinition = tierDefinitionRaw;
+    // TODO: Remove this debug log as part of ingestion spam cleanup
     console.log('TIER DEF PARSED:', tierDefinition);
   }
 

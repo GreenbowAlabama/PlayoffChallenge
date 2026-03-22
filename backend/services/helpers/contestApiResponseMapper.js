@@ -11,6 +11,20 @@ const {
 const { computeEffectiveStatus } = require('./computeEffectiveStatus');
 const deriveSportFromTemplateType = require('./deriveSportFromTemplateType');
 
+/**
+ * Normalize entry_fields to contract format (string[])
+ * Handles both legacy (string[]) and tier-based (object[]) formats
+ * Keeps contract stable while supporting internal tier data structures
+ */
+function normalizeEntryFields(entryFields) {
+  if (!Array.isArray(entryFields)) return [];
+  return entryFields.map(f => {
+    if (typeof f === 'string') return f;
+    if (f && typeof f === 'object' && f.field_name) return f.field_name;
+    return '';
+  }).filter(Boolean);
+}
+
 const VALID_STATUSES = new Set([
   'SCHEDULED',
   'LOCKED',
@@ -128,6 +142,11 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
   );
   const payout_table = derivePayoutTable(contestRow.payout_structure);
   const roster_config = deriveRosterConfig(contestRow.template_id, contestRow.scoring_strategy_key, contestRow.tier_definition);
+
+  // Normalize entry_fields to contract format (string[]) for API compatibility
+  if (roster_config && roster_config.entry_fields) {
+    roster_config.entry_fields = normalizeEntryFields(roster_config.entry_fields);
+  }
 
   // Derive sport deterministically from template_type (backend authoritative)
   const sport = deriveSportFromTemplateType(contestRow.template_type);
@@ -265,6 +284,11 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
   );
   const payout_table = derivePayoutTable(contestRow.payout_structure);
   const roster_config = deriveRosterConfig(contestRow.template_id, contestRow.scoring_strategy_key, contestRow.tier_definition);
+
+  // Normalize entry_fields to contract format (string[]) for API compatibility
+  if (roster_config && roster_config.entry_fields) {
+    roster_config.entry_fields = normalizeEntryFields(roster_config.entry_fields);
+  }
 
   // Derive sport deterministically from template_type (backend authoritative)
   const sport = deriveSportFromTemplateType(contestRow.template_type);
