@@ -1095,15 +1095,9 @@ async function ingestWorkUnit(ctx, unit) {
       if (eventMetadata.status?.type?.completed === true) {
         providerFinalFlag = true;
         eventCompletedViaApi = true;
-        logger.info(
-          `[pgaEspnIngestion] Event API returned completed=true for eventId=${eventIdNumeric}`
-        );
       } else if (eventMetadata.status?.type?.name === 'STATUS_FINAL') {
         providerFinalFlag = true;
         eventCompletedViaApi = true;
-        logger.info(
-          `[pgaEspnIngestion] Event API returned STATUS_FINAL for eventId=${eventIdNumeric}`
-        );
       }
     } catch (err) {
       // Event API call failed. Will attempt fallback to leaderboard payload below.

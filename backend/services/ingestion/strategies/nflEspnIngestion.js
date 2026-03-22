@@ -774,7 +774,6 @@ async function ingestWorkUnit(ctx, unit) {
   // Step 1: Fetch scoreboard (populates liveStatsCache)
   const activeGameIds = await fetchScoreboard(weekNumber);
   if (activeGameIds.length === 0) {
-    console.log('No active games found', { week: weekNumber });
     return [];
   }
 

@@ -41,12 +41,6 @@ const logger = require('../../../utils/logger');
  * }
  */
 async function validateRoundParity(normalizedScores, contestInstanceId, dbClient) {
-  console.log('[DEBUG] validateRoundParity CALLED', {
-    contest_instance_id: contestInstanceId,
-    score_count: normalizedScores ? normalizedScores.length : 0,
-    timestamp: new Date().toISOString()
-  });
-
   if (!normalizedScores || normalizedScores.length === 0) {
     return { validScores: [], rejectedRounds: [], baselineGolferCount: null };
   }

@@ -191,9 +191,6 @@ async function fetchCalendar({ leagueId, seasonYear, timeout = 5000 }) {
     );
   }
 
-  logger.info(
-    `[espnPgaApi] Fetching calendar: league=${leagueId}, year=${seasonYear}`
-  );
 
   return withRetry(async () => {
     // TODO: Replace with actual ESPN API endpoint
@@ -215,9 +212,6 @@ async function fetchCalendar({ leagueId, seasonYear, timeout = 5000 }) {
       }
     });
 
-    logger.info(
-      `[espnPgaApi] Calendar fetched: ${response.data.events?.length || 0} events`
-    );
     return response.data;
   }, 3);
 }
@@ -304,7 +298,6 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
         return emptyResponse;
       }
 
-      logger.debug(`[espnPgaApi] Leaderboard fetched: eventId=${eventId}, competitors=${targetEvent.competitions?.[0]?.competitors?.length || 0}`);
 
       const filteredResponse = { events: [targetEvent] };
       // Replace in-flight promise with resolved value
@@ -371,7 +364,6 @@ async function fetchEventMetadata({ eventId, timeout = 5000 }) {
         }
       });
 
-      logger.debug(`[espnPgaApi] Metadata fetched: eventId=${eventId}, completed=${response.data.status?.type?.completed || false}`);
 
       // Replace in-flight promise with resolved value
       requestCache.set(cacheKey, Promise.resolve(response.data));

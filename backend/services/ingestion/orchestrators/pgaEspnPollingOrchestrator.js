@@ -171,10 +171,6 @@ async function pollAndIngest(contestInstanceId, pool, workUnits) {
 
   const eventId = workUnits[0].providerEventId;
 
-  logger.info(
-    `[pgaEspnPollingOrchestrator] Contest ${contestInstanceId} | ` +
-    `Received ${workUnits.length} work unit(s), eventId: ${eventId}`
-  );
 
   // ─── 3. Call ingestionService.run() with work units ──────────────────────
   const ingestionService = require('../../ingestionService');
@@ -197,11 +193,6 @@ async function pollAndIngest(contestInstanceId, pool, workUnits) {
     };
   }
 
-  logger.info(
-    `[pgaEspnPollingOrchestrator] Contest ${contestInstanceId} | ` +
-    `Ingestion complete | processed=${summary.processed}, skipped=${summary.skipped}, ` +
-    `errors=${summary.errors.length}`
-  );
 
   return {
     success: summary.errors.length === 0,

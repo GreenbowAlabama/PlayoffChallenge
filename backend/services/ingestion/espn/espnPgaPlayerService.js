@@ -16,12 +16,6 @@
 
 const axios = require('axios');
 
-// ENV CHECK
-console.log('ENV CHECK', {
-  ESPN_CACHE_DEBUG: process.env.ESPN_CACHE_DEBUG,
-  NODE_ENV: process.env.NODE_ENV
-});
-
 // Cache debug logging is HARD OFF (failsafe)
 const DEBUG = false;
 

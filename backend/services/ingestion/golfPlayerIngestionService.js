@@ -25,11 +25,6 @@ async function ingestGolfPlayers(pool) {
     // Upsert them into the database
     const result = await golfPlayerRepository.upsertGolfPlayers(pool, golfers);
 
-    console.log(`[GolfPlayerIngestion] Ingestion complete: ${JSON.stringify({
-      fetched: golfers.length,
-      inserted: result.inserted,
-      updated: result.updated
-    })}`);
 
     return {
       success: true,
