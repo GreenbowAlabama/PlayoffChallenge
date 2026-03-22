@@ -330,13 +330,12 @@ function deriveRosterConfig(templateId, strategyKey, tierDef = null) {
       }));
       if (tierFields.length > 0) {
         baseConfig.entry_fields = tierFields;
-        console.log(`[deriveRosterConfig] ✅ Populated entry_fields with ${tierFields.length} tiers`);
       }
     }
 
     return baseConfig;
   } catch (err) {
-    console.error(`[deriveRosterConfig] Failed to derive roster config for strategy '${strategyKey}':`, err.message);
+    console.error(`[DEBUG:deriveRosterConfig] strategy=${strategyKey} error="${err.message}"`);
 
     // Return PGA defaults (safe fallback for most contests)
     const defaultConfig = {
@@ -361,7 +360,6 @@ function deriveRosterConfig(templateId, strategyKey, tierDef = null) {
       }));
       if (tierFields.length > 0) {
         defaultConfig.entry_fields = tierFields;
-        console.log(`[deriveRosterConfig] ✅ Populated entry_fields with ${tierFields.length} tiers (fallback)`);
       }
     }
 

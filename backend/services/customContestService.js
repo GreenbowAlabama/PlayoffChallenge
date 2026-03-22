@@ -861,7 +861,9 @@ async function getContestInstance(pool, instanceId, requestingUserId = null) {
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
-    LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
+    LEFT JOIN LATERAL (
+      SELECT tier_definition FROM tournament_configs WHERE contest_instance_id = ci.id LIMIT 1
+    ) tc ON true
     WHERE ci.id = $1`,
     requestingUserId ? [instanceId, requestingUserId] : [instanceId]
   );
@@ -933,7 +935,9 @@ async function getContestInstanceByToken(pool, token, requestingUserId = null) {
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
-    LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
+    LEFT JOIN LATERAL (
+      SELECT tier_definition FROM tournament_configs WHERE contest_instance_id = ci.id LIMIT 1
+    ) tc ON true
     WHERE ci.join_token = $1`,
     requestingUserId ? [token, requestingUserId] : [token]
   );
@@ -1189,7 +1193,9 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
-    LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
+    LEFT JOIN LATERAL (
+      SELECT tier_definition FROM tournament_configs WHERE contest_instance_id = ci.id LIMIT 1
+    ) tc ON true
     WHERE ci.organizer_id = $1
       OR EXISTS (
         SELECT 1
@@ -2028,7 +2034,9 @@ async function getAvailableContestInstances(pool, userId) {
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
-    LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
+    LEFT JOIN LATERAL (
+      SELECT tier_definition FROM tournament_configs WHERE contest_instance_id = ci.id LIMIT 1
+    ) tc ON true
     WHERE ci.status = 'SCHEDULED'
     AND ci.join_token IS NOT NULL
     ORDER BY ci.is_platform_owned DESC, ci.created_at DESC`,
@@ -2039,9 +2047,14 @@ async function getAvailableContestInstances(pool, userId) {
 
   // Map each row to list API response format (metadata-only, no standings)
   // Pass userId for capability-based authorization (organizer checks)
-  const processedContests = result.rows.map(row => {
-    const mapped = mapContestToApiResponseForList(row, { currentTimestamp, authenticatedUserId: userId });
-    return mapped;
+  const processedContests = result.rows.map((row, idx) => {
+    try {
+      const mapped = mapContestToApiResponseForList(row, { currentTimestamp, authenticatedUserId: userId });
+      return mapped;
+    } catch (err) {
+      console.error(`[DEBUG:AVAILABLE_CONTESTS_ERROR] contest_id=${row?.id} strategy=${row?.scoring_strategy_key} hasTierDef=${!!row?.tier_definition} error="${err.message}"`);
+      throw err;
+    }
   });
 
   return processedContests;
