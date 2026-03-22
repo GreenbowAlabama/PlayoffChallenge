@@ -18,6 +18,7 @@
 const ingestionRegistry = require('./ingestionRegistry');
 const { resolveStrategyKey } = require('./ingestionStrategyResolver');
 const { selectField } = require('./golfEngine/selectField');
+const { resolveTier } = require('./tierResolutionService');
 
 /**
  * Diagnostic wrapper for database queries.
@@ -81,11 +82,11 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   }
 
 
-  // Fetch tournament config for selectField validation
+  // Fetch tournament config for selectField validation and tier definition
   const configResult = await executeQuery(
     dbClient,
     `SELECT provider_event_id, ingestion_endpoint, event_start_date, event_end_date, round_count,
-            cut_after_round, leaderboard_schema_version, field_source
+            cut_after_round, leaderboard_schema_version, field_source, tier_definition
      FROM tournament_configs
      WHERE contest_instance_id = $1`,
     [contestInstanceId],
@@ -98,6 +99,7 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   }
 
   const tourConfig = configResult.rows[0];
+  const tierDefinition = tourConfig.tier_definition;
 
   // Fetch all players that were ingested (by id, which includes espn_ prefix)
   const playersResult = await executeQuery(
@@ -147,19 +149,31 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   console.log(`[PGA INGESTION] contest=${contestInstanceId} players=${players.length} primary=${fieldSelection.primary.length} alternates=${fieldSelection.alternates.length}`);
 
   // Enhance field selection with player details (including image_url from playerImageMap)
+  // For tier-based contests, resolve tier_id for each player based on rank (1-based position)
   const enhancedField = {
-    primary: fieldSelection.primary.map(p => ({
-      player_id: p.player_id,
-      name: p.name,
-      espn_id: p.espn_id,
-      image_url: playerImageMap.get(p.player_id) || null
-    })),
-    alternates: fieldSelection.alternates.map(p => ({
-      player_id: p.player_id,
-      name: p.name,
-      espn_id: p.espn_id,
-      image_url: playerImageMap.get(p.player_id) || null
-    }))
+    primary: fieldSelection.primary.map((p, index) => {
+      const rank = index + 1;  // 1-based rank (position in sorted field)
+      const tierId = resolveTier(rank, tierDefinition);
+      return {
+        player_id: p.player_id,
+        name: p.name,
+        espn_id: p.espn_id,
+        image_url: playerImageMap.get(p.player_id) || null,
+        ...(tierId && { tier_id: tierId })  // Only include tier_id if tier_definition exists
+      };
+    }),
+    alternates: fieldSelection.alternates.map((p, index) => {
+      const primaryCount = fieldSelection.primary.length;
+      const rank = primaryCount + index + 1;  // Continue rank numbering after primary
+      const tierId = resolveTier(rank, tierDefinition);
+      return {
+        player_id: p.player_id,
+        name: p.name,
+        espn_id: p.espn_id,
+        image_url: playerImageMap.get(p.player_id) || null,
+        ...(tierId && { tier_id: tierId })  // Only include tier_id if tier_definition exists
+      };
+    })
   };
 
   // Update field_selections with new selection_json
@@ -944,4 +958,4 @@ function resetCycleCache() {
   }
 }
 
-module.exports = { run, runPlayerPool, runScoring, initializeTournamentField, refreshAllScheduledContestFields, resetCycleCache };
+module.exports = { run, runPlayerPool, runScoring, initializeTournamentField, populateFieldSelections, refreshAllScheduledContestFields, resetCycleCache };

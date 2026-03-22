@@ -223,7 +223,7 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
     const validatedField = selectionJson.primary.map(item => {
       // Handle both formats:
       // - String IDs from legacy/test data: "p1" or "espn_5724"
-      // - Objects from ingestion with player_id property: { player_id: "espn_5724", name: "..." }
+      // - Objects from ingestion with player_id property: { player_id: "espn_5724", name: "...", tier_id: "t1" }
       const playerId = typeof item === 'string' ? item : item.player_id;
       return {
         // Normalize field player IDs to canonical "espn_" format for consistent comparison
