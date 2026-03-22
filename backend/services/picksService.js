@@ -637,9 +637,6 @@ async function executePicksV2Operations(pool, params) {
           const carryForward = await getCarryForwardValues(dbClient, userId, op.playerId, effectiveWeek - 1);
           preservedMultiplier = carryForward.multiplier;
           preservedConsecutiveWeeks = carryForward.consecutiveWeeks;
-          if (preservedMultiplier > 1) {
-            console.log(`[picks/v2] Carrying multiplier ${preservedMultiplier} and consecutive_weeks ${preservedConsecutiveWeeks} for player ${op.playerId}`);
-          }
         }
 
         const pickParams = {
@@ -662,7 +659,6 @@ async function executePicksV2Operations(pool, params) {
             userId, oldPlayerId: removal.playerId, newPlayerId: op.playerId,
             position: op.position, weekNumber: effectiveWeek
           });
-          console.log(`[picks/v2] Logged swap: user ${userId} replaced ${removal.playerId} with ${op.playerId} at ${op.position} for week ${effectiveWeek}`);
         }
       } else if (op.action === 'remove') {
         await deletePick(dbClient, op.pickId, userId, contestInstanceId);
@@ -851,9 +847,6 @@ async function executePlayerReplacement(pool, params) {
       const carryForward = await getCarryForwardValues(dbClient, userId, newPlayerId, effectiveWeekNumber - 1);
       preservedMultiplier = carryForward.multiplier;
       preservedConsecutiveWeeks = carryForward.consecutiveWeeks;
-      if (preservedMultiplier > 1) {
-        console.log(`[swap] Carrying multiplier ${preservedMultiplier} and consecutive_weeks ${preservedConsecutiveWeeks} for player ${newPlayerId}`);
-      }
     }
 
     // Create new pick
@@ -869,8 +862,6 @@ async function executePlayerReplacement(pool, params) {
     });
 
     await dbClient.query('COMMIT');
-
-    console.log(`[swap] User ${userId} replaced ${oldPlayer.full_name} with ${newPlayer.full_name} for week ${effectiveWeekNumber}`);
 
     return {
       success: true,

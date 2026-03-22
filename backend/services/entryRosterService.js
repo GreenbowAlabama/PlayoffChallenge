@@ -18,6 +18,7 @@
 const { validateRoster } = require('./ContestRulesValidator');
 const { getStrategy } = require('./scoringStrategyRegistry');
 const { validateRoundOpen } = require('./pgaRoundValidator');
+const { logError, logWarn } = require('./logger');
 
 /**
  * Sport mapping layer: convert template sport to player sport
@@ -110,10 +111,10 @@ function deriveRosterConfigFromStrategy(strategyKey, tierDef = null) {
 
     return baseConfig;
   } catch (err) {
-    // Error in strategy lookup or rosterConfig() call
-    console.error(
-      `[entryRosterService] Failed to derive roster config for strategy '${strategyKey}':`,
-      err.message
+    // Contract violation: strategy lookup or rosterConfig() call failed
+    logError(
+      `[CRITICAL] Failed to derive roster config for strategy '${strategyKey}'`,
+      { error: err.message }
     );
 
     // Return PGA defaults (safe fallback for most contests)
@@ -291,17 +292,6 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
     // Use normalized IDs for validation
     const validationResult = validateRoster(normalizedPlayerIds, rosterConfig, validatedField);
 
-    // DEBUG: Log field validation for audit trail
-    console.log('[FIELD_CONSTRAINT_DEBUG]', {
-      contestInstanceId,
-      userId,
-      submitted_player_ids_count: normalizedPlayerIds.length,
-      field_primary_ids_count: validatedField.length,
-      validation_passed: validationResult.valid,
-      validation_errors: validationResult.errors,
-      timestamp: new Date().toISOString()
-    });
-
     if (!validationResult.valid) {
       // Extract field membership violations specifically
       const fieldMembershipError = validationResult.errors.find(e =>
@@ -309,14 +299,8 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
       );
 
       if (fieldMembershipError) {
-        console.warn('[INVARIANT_VIOLATION] Field membership constraint failed', {
-          contestInstanceId,
-          userId,
-          violation_type: 'ROSTER_IDS_NOT_IN_FIELD',
-          field_size: validatedField.length,
-          roster_size: normalizedPlayerIds.length,
-          error: fieldMembershipError,
-          timestamp: new Date().toISOString()
+        logWarn('[INVARIANT_VIOLATION] Field membership constraint failed', {
+          violation_type: 'ROSTER_IDS_NOT_IN_FIELD'
         });
       }
 
@@ -338,29 +322,8 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
     const existingCount = existingRoster?.player_ids?.length ?? 0;
     const incomingCount = normalizedPlayerIds.length;
 
-    console.log('[PICKS_SERVICE_DEBUG]', {
-      contestInstanceId,
-      userId,
-      hasExistingRoster: !!existingRoster,
-      existingPlayerCount: existingRoster?.player_ids?.length ?? null,
-      existingUpdatedAt: existingRoster?.updated_at ?? null,
-      expectedUpdatedAt
-    });
-
     // REGRESSION DETECTION: Incoming count < existing count AND NOT explicitly allowed
     if (existingRoster && incomingCount < existingCount && !allowRegression) {
-      console.warn('[ROSTER_MUTATION_AUDIT] REGRESSION BLOCKED (no explicit intent)', {
-        source: 'API:submitPicks',
-        operation: 'UPDATE',
-        contest_instance_id: contestInstanceId,
-        user_id: userId,
-        old_player_ids_count: existingCount,
-        incoming_player_ids_count: incomingCount,
-        allow_regression: allowRegression,
-        reason: 'regression_blocked_no_intent',
-        timestamp: new Date().toISOString()
-      });
-
       // Graceful response: return existing roster, ignore incoming
       // This prevents accidental data loss when user didn't intend to reduce roster
       await client.query('COMMIT');
@@ -399,17 +362,6 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
         [contestInstanceId, userId, normalizedPlayerIds]
       );
 
-      console.info('[ROSTER_MUTATION_AUDIT] FIRST SUBMISSION SUCCESS', {
-        source: 'API:submitPicks',
-        operation: existingRoster ? 'UPSERT_EMPTY' : 'INSERT',
-        contest_instance_id: contestInstanceId,
-        user_id: userId,
-        new_player_ids: normalizedPlayerIds,
-        new_player_ids_count: normalizedPlayerIds.length,
-        new_updated_at: new Date(upsertResult.rows[0].updated_at).toISOString(),
-        timestamp: new Date().toISOString()
-      });
-
       await client.query('COMMIT');
 
       return {
@@ -444,19 +396,6 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
 
     // If no rows updated, timestamp mismatch = concurrent modification
     if (updateResult.rows.length === 0) {
-      console.warn('[ROSTER_MUTATION_AUDIT] UPDATE CONFLICT: version mismatch', {
-        source: 'API:submitPicks',
-        operation: 'UPDATE',
-        contest_instance_id: contestInstanceId,
-        user_id: userId,
-        old_player_ids_count: existingRoster.player_ids?.length || 0,
-        incoming_player_ids_count: normalizedPlayerIds.length,
-        expected_updated_at: expectedUpdatedAt,
-        actual_updated_at: existingRoster.updated_at,
-        reason: 'version_mismatch',
-        timestamp: new Date().toISOString()
-      });
-
       await client.query('COMMIT');
       return {
         success: false,
@@ -467,21 +406,6 @@ async function submitPicks(pool, contestInstanceId, userId, playerIds, allowRegr
     }
 
     // Success: UPDATE succeeded with matching timestamp
-    console.info('[ROSTER_MUTATION_AUDIT] UPDATE SUCCESS', {
-      source: 'API:submitPicks',
-      operation: 'UPDATE',
-      contest_instance_id: contestInstanceId,
-      user_id: userId,
-      old_player_ids: existingRoster.player_ids,
-      new_player_ids: normalizedPlayerIds,
-      old_player_ids_count: existingRoster.player_ids?.length || 0,
-      new_player_ids_count: normalizedPlayerIds.length,
-      allow_regression: allowRegression,
-      old_updated_at: existingRoster.updated_at,
-      new_updated_at: new Date(updateResult.rows[0].updated_at).toISOString(),
-      timestamp: new Date().toISOString()
-    });
-
     await client.query('COMMIT');
     return {
       success: true,
@@ -604,9 +528,6 @@ async function getMyEntry(pool, contestInstanceId, userId) {
     }
     if (!Array.isArray(selection_json.primary)) {
       throw new Error('[AUDIT] field_selections.selection_json.primary is not an array');
-    }
-    if (selection_json.primary.length === 0) {
-      console.log('[AUDIT] field_selections.primary is empty array (streaming state)');
     }
   }
 
@@ -748,10 +669,10 @@ async function getMyEntry(pool, contestInstanceId, userId) {
             );
           }
         } catch (err) {
-          console.warn(
-            `[entryRosterService] Failed to lazy-create field_selections for contest ${contestInstanceId}:`,
-            err.message
-          );
+          logWarn('[entryRosterService] Failed to lazy-create field_selections', {
+            contestInstanceId,
+            error: err.message
+          });
         }
       }
     }

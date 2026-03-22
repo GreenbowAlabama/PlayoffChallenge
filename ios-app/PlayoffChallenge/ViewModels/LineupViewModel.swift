@@ -124,15 +124,12 @@ final class LineupViewModel: ObservableObject {
             currentWeek = settings.currentPlayoffWeek
             playoffStartWeek = settings.playoffStartWeek
 
-            print("DEBUG SETTINGS: currentPlayoffWeek = \(currentWeek), playoffStartWeek = \(playoffStartWeek), selectedWeek = \(selectedWeek)")
-
             // Default to current week if not yet initialized or out of valid range
             let validWeekRange = playoffStartWeek...(playoffStartWeek + 3)
             if selectedWeek == 0 || !validWeekRange.contains(selectedWeek) {
                 selectedWeek = playoffStartWeek
             }
         } catch {
-            print("Failed to load current week: \(error)")
             currentWeek = 0
             playoffStartWeek = 0
         }
@@ -216,29 +213,20 @@ final class LineupViewModel: ObservableObject {
         // GUARD: Do not reload slots while submitPGAPicks is in progress
         // This prevents the refresh from overwriting the user's intended roster
         if isSaving {
-            print("[MYLINEUP][vm] loadData called while isSaving=true, skipping slots reload but updating versioning")
             // Still refresh versioning info, but don't replace slots
             await refreshVersioningOnly(userId: userId)
             return
         }
 
         self.userId = userId
-        print("[MYLINEUP][vm] loadData start contestId=\(contestId) userId=\(userId)")
         isLoading = true
-        print("[MYLINEUP][vm] isLoading=true")
-
-        // DEFENSIVE ROUTING: Log sport to catch routing bugs
-        print("contest.sport = \(contest.sport.rawValue)")
 
         // GOVERNANCE: GOLF contests do not use NFL week logic.
         // Use /api/custom-contests/{id}/my-entry to load user's picks.
         if contest.sport == .golf {
-            print("Loading GOLF entry")
             do {
                 // Load user's entry and contest context from /api/custom-contests/{id}/my-entry
-                print("[MYLINEUP][vm] calling getMyEntry for GOLF contest")
                 let entryResponse = try await APIService.shared.getMyEntry(contestId: contestId)
-                print("[MYLINEUP][vm] myEntry OK canEdit=\(entryResponse.canEdit) playerIds=\(entryResponse.playerIds.count) avail=\(entryResponse.availablePlayers?.count ?? 0)")
 
                 // Extract lineup size from rosterConfig dictionary with numeric decoding
                 guard
@@ -259,19 +247,10 @@ final class LineupViewModel: ObservableObject {
                     throw APIError.decodingError
                 }
 
-                print("[MYLINEUP][vm] lineupSize=\(lineupSize)")
-
                 // INTENT TRACKING: Store server-backed baseline for regression detection
                 // This is what user last successfully saved on server
                 self.lastSavedPlayerIds = entryResponse.playerIds
                 self.lastSavedUpdatedAt = entryResponse.updatedAt
-                print("[MYLINEUP][vm] lastSavedPlayerIds updated to: \(entryResponse.playerIds.count) players")
-                print("[MYLINEUP][vm] lastSavedUpdatedAt updated to: \(entryResponse.updatedAt ?? "nil")")
-
-                // DEBUG: Log API response
-                print("MY_ENTRY roster_size:", lineupSize)
-                print("MY_ENTRY player_ids:", entryResponse.playerIds)
-                print("MY_ENTRY available_players_count:", entryResponse.availablePlayers?.count ?? 0)
 
                 // Convert PlayerInfoContract → Player domain model
                 // CRITICAL: Handle null vs empty array differently
@@ -279,16 +258,11 @@ final class LineupViewModel: ObservableObject {
                 // [] = roster loaded but empty (allow lineup flow)
                 guard let availablePlayers = entryResponse.availablePlayers else {
                     // API returned null - roster version not ready yet
-                    print("[MYLINEUP][vm] availablePlayers is nil - roster not ready, deferring allPlayers update")
-                    print("[MYLINEUP][vm] done isLocked=\(self.isLocked) isLoading=\(self.isLoading) showError=\(self.showError)")
                     isLoading = false
                     return
                 }
 
                 // API returned [] or [players] - roster IS ready
-                // DEBUG: Log actual player IDs from API response
-                let firstPlayerIds = availablePlayers.prefix(5).map { $0.playerId }
-                print("[DEBUG][PGA] first player ids from API:", firstPlayerIds)
 
                 var playersById: [String: Player] = [:]
 
@@ -310,24 +284,15 @@ final class LineupViewModel: ObservableObject {
                     )
                     playersById[playerInfo.playerId] = player
                 }
-                print("[MYLINEUP][vm] Player image URLs: \(withImages)/\(availablePlayers.count) have imageUrl set")
-
-                print("[MYLINEUP][vm] playersById=\(playersById.count)")
 
                 // Preserve backend ordering by mapping availablePlayers
                 // availablePlayers is now guaranteed to be non-nil ([] is valid, means empty roster)
                 self.allPlayers = availablePlayers.compactMap { playersById[$0.playerId] }
                 hasLoadedPlayersOnce = true
 
-                print("[MYLINEUP][vm] allPlayers set count=\(self.allPlayers.count) hasLoadedPlayersOnce=\(hasLoadedPlayersOnce)")
-
-                // DEBUG: Log mapping results
-                print("LINEUP players loaded:", self.allPlayers.count)
-
                 // Extract entry_fields from roster_config for tier-based lineup
                 let entryFieldsValue = entryResponse.rosterConfig["entry_fields"]
                 let entryFieldsArray = entryFieldsValue?.value as? [String] ?? []
-                print("[DEBUG] rosterConfig.entry_fields = \(entryFieldsArray)")
 
                 // Build tier_id mapping from tier_definition (SOURCE OF TRUTH)
                 // CRITICAL: Map by field_name, NOT index (zero coupling)
@@ -336,10 +301,14 @@ final class LineupViewModel: ObservableObject {
                     for tier in tierDef.tiers {
                         // field_name is the explicit key (e.g., "tier_1", "tier_2")
                         tierIdMap[tier.fieldName] = tier.id
-                        print("[DEBUG] Mapped \(tier.fieldName) → \(tier.id)")
                     }
                 }
                 self.tierIdByFieldName = tierIdMap
+
+                // CRITICAL: Detect mapping failures
+                if tierIdMap.isEmpty && !entryFieldsArray.isEmpty {
+                    Log.error("❌ Tier mapping failed: entry_fields present but no tierId map")
+                }
 
                 // Pre-allocate slots based on entry_fields (tier mode) or lineup size (legacy mode)
                 var loadedSlots: [PickV2Slot] = []
@@ -349,11 +318,8 @@ final class LineupViewModel: ObservableObject {
                     ? Array(repeating: golfPosition, count: lineupSize)
                     : entryFieldsArray
 
-                if !entryFieldsArray.isEmpty {
-                    print("[DEBUG] USING TIER MODE: \(entryFieldsArray)")
-                } else {
-                    print("[DEBUG] USING LEGACY MODE")
-                }
+                let isTierMode = !entryFieldsArray.isEmpty
+                Log.info("mode=\(isTierMode ? "tier" : "position")", scope: "lineup")
 
                 for (index, fieldName) in fieldNames.enumerated() {
                     if index < entryResponse.playerIds.count {
@@ -388,29 +354,19 @@ final class LineupViewModel: ObservableObject {
 
                 self.slots = loadedSlots
 
-                print("[MYLINEUP][vm] slots created=\(loadedSlots.count) entryFieldsCount=\(entryFieldsArray.count) lineupSize=\(lineupSize)")
-                print("[MYLINEUP][vm] slots set count=\(self.slots.count)")
-
-                // DEBUG: Log slot creation
-                print("LINEUP slots created:", loadedSlots.count)
-
                 // Set edit capability from entry response
                 self.isLocked = !entryResponse.canEdit
-                print("[MYLINEUP][vm] done isLocked=\(self.isLocked) isLoading=\(self.isLoading) showError=\(self.showError)")
 
             } catch {
                 if error is CancellationError || (error as? URLError)?.code == .cancelled {
-                    print("[MYLINEUP][vm] CANCELLED")
                     isLoading = false
                     return
                 }
-                print("[MYLINEUP][vm] ERROR \(error)")
                 errorMessage = "Failed to load lineup: \(error.localizedDescription)"
                 showError = true
             }
 
             isLoading = false
-            print("[MYLINEUP][vm] isLoading=false")
             return
         }
 
@@ -423,8 +379,6 @@ final class LineupViewModel: ObservableObject {
         }
 
         // NFL: Use existing week-based logic
-        print("Loading NFL lineup")
-        print("DEBUG: Loading v2 data for week \(selectedWeek)")
 
         do {
             // Load settings for lock status
@@ -433,14 +387,10 @@ final class LineupViewModel: ObservableObject {
             // Only load players once (for player picker)
             if !hasLoadedPlayersOnce {
                 do {
-                    print("Loading NFL players from /api/players...")
                     let response = try await APIService.shared.getPlayers(sport: "NFL", limit: 500)
                     self.allPlayers = response.players
                     hasLoadedPlayersOnce = true
-                    print("DEBUG: loaded players count = \(self.allPlayers.count)")
-                    print("DEBUG: player positions = \(Set(self.allPlayers.map { $0.position }))")
                 } catch {
-                    print("Failed to load players: \(error)")
                     self.allPlayers = []
                 }
             }
@@ -459,8 +409,6 @@ final class LineupViewModel: ObservableObject {
                 def: lineupState.positionLimits.def
             )
 
-            print("DEBUG: Loaded \(self.slots.count) slots for week \(selectedWeek)")
-
             // Check lock status
             // Only the CURRENT week can be edited (when active)
             // Past weeks and future weeks are always read-only
@@ -473,25 +421,20 @@ final class LineupViewModel: ObservableObject {
 
             if selectedWeek < effectiveCurrentWeek {
                 self.isLocked = true
-                print("DEBUG: Week \(selectedWeek) is locked (past week, effective=\(effectiveCurrentWeek))")
             } else if selectedWeek == effectiveCurrentWeek {
                 self.isLocked = !(settings.isWeekActive ?? true)
-                print("DEBUG: Week \(selectedWeek) locked: \(self.isLocked) (effective=\(effectiveCurrentWeek))")
             } else {
                 // Future weeks are read-only - users cannot add picks ahead of time
                 self.isLocked = true
-                print("DEBUG: Week \(selectedWeek) is locked (future week, effective=\(effectiveCurrentWeek))")
             }
 
         } catch {
             // Silently ignore cancellation - this is expected when pull-to-refresh
             // or navigation triggers a new load while one is in progress
             if error is CancellationError || (error as? URLError)?.code == .cancelled {
-                print("DEBUG: Load cancelled (expected during refresh)")
                 isLoading = false
                 return
             }
-            print("ERROR loading v2 data: \(error)")
             errorMessage = "Failed to load data: \(error.localizedDescription)"
             showError = true
         }
@@ -555,9 +498,6 @@ final class LineupViewModel: ObservableObject {
                 slots[emptyIndex] = filledSlot
             }
 
-            // SAFETY LOG: Show how many players are currently selected
-            let selectedCount = slots.filter { !$0.isEmpty }.count
-            print("SUBMIT ROSTER COUNT: \(selectedCount) (not auto-submitting)")
             return
         }
 
@@ -618,9 +558,6 @@ final class LineupViewModel: ObservableObject {
                 slots[slotIndex] = clearedSlot
             }
 
-            // SAFETY LOG: Show how many players are currently selected
-            let selectedCount = slots.filter { !$0.isEmpty }.count
-            print("SUBMIT ROSTER COUNT: \(selectedCount) (not auto-submitting)")
             return
         }
 
@@ -657,7 +594,6 @@ final class LineupViewModel: ObservableObject {
     /// Does NOT reload slots or overwrite user intent
     /// Used during 409 retry to get fresh timestamps without losing state
     private func refreshVersioningOnly(userId: UUID) async {
-        print("[MYLINEUP][refreshVersioningOnly] start")
         do {
             let entryResponse = try await APIService.shared.getMyEntry(contestId: contestId)
 
@@ -665,14 +601,10 @@ final class LineupViewModel: ObservableObject {
             self.lastSavedPlayerIds = entryResponse.playerIds
             self.lastSavedUpdatedAt = entryResponse.updatedAt
 
-            print("[MYLINEUP][refreshVersioningOnly] version synced")
-            print("[MYLINEUP][refreshVersioningOnly] server player_ids: \(entryResponse.playerIds)")
-            print("[MYLINEUP][refreshVersioningOnly] lastSavedUpdatedAt: \(entryResponse.updatedAt ?? "nil")")
-
             // NOTE: Intentionally NOT updating slots, canEdit, allPlayers, etc
             // Those remain as-is so user's intended roster is preserved
         } catch {
-            print("[MYLINEUP][refreshVersioningOnly] failed: \(error)")
+            // Silent failure - versioning update is not critical
         }
     }
 
@@ -697,22 +629,10 @@ final class LineupViewModel: ObservableObject {
             let currentCount = intendedPlayerIds.count
             let lastSavedCount = lastSavedPlayerIds.count
 
-            // SAFETY LOG: Always log submission and intent
-            print("SUBMIT ROSTER COUNT: \(currentCount)")
-            print("[PGA][submit] INTENDED player_ids: \(intendedPlayerIds)")
-            print("[PGA][submit] count: \(currentCount)")
-            print("[MYLINEUP][submitPGAPicks] submitting \(currentCount) picks")
-
             // INTENT TRACKING: Detect if user explicitly reduced roster
             // Compare current count vs LAST SAVED count (not current UI state)
             // This is the ground truth for what user last successfully saved on server
             let allowRegression = currentCount < lastSavedCount
-
-            if allowRegression {
-                print("[PGA][submit] User explicitly reduced roster from last saved \(lastSavedCount) to \(currentCount)")
-            } else if currentCount >= lastSavedCount {
-                print("[PGA][submit] User maintained or increased roster from last saved \(lastSavedCount) to \(currentCount)")
-            }
 
             let response = try await APIService.shared.submitPicks(
                 contestId: contestId,
@@ -725,32 +645,21 @@ final class LineupViewModel: ObservableObject {
             // This becomes the baseline for next comparison
             self.lastSavedPlayerIds = response.playerIds
             self.lastSavedUpdatedAt = response.updatedAt
-            print("[MYLINEUP][submitPGAPicks] baseline updated to: \(response.playerIds.count) players")
-            print("[MYLINEUP][submitPGAPicks] version updated to: \(response.updatedAt)")
-
-            print("[MYLINEUP][submitPGAPicks] success, updated_at=\(response.updatedAt)")
 
             // Show success feedback briefly
             errorMessage = "Lineup saved!"
             showError = false
 
         } catch APIError.serverError(let message) where message.contains("409") {
-            print("[PGA][submit] Conflict → retrying once")
-            print("[PGA][submit] intendedPlayerIds before retry refresh: \(intendedPlayerIds)")
-
             // STEP 1: Lightweight refresh - update ONLY versioning info, not slots
             // This prevents overwriting the user's intended roster
             if let userId = currentUserId {
                 await refreshVersioningOnly(userId: userId)
 
-                print("[PGA][submit] After refresh - intendedPlayerIds: \(intendedPlayerIds), slots count: \(slots.filter { !$0.isEmpty }.count)")
-
                 do {
                     // STEP 2: Retry with INTENDED player IDs, not refreshed slots
                     // Use the captured intent, not what loadData() returned
                     let retryAllowRegression = intendedPlayerIds.count < lastSavedPlayerIds.count
-
-                    print("[PGA][submit] Retrying with intendedPlayerIds: \(intendedPlayerIds), allowRegression: \(retryAllowRegression)")
 
                     let retryResponse = try await APIService.shared.submitPicks(
                         contestId: contestId,
@@ -763,20 +672,16 @@ final class LineupViewModel: ObservableObject {
                     self.lastSavedUpdatedAt = retryResponse.updatedAt
                     errorMessage = "Lineup saved!"
                     showError = false
-                    print("[MYLINEUP][submitPGAPicks] success on retry with fresh version")
 
                 } catch {
-                    print("[PGA][submit] retry failed: \(error)")
                     errorMessage = "Failed to save lineup after retry: \(error.localizedDescription)"
                     showError = true
                 }
             }
 
         } catch {
-            print("[PGA][submit] error: \(error)")
             errorMessage = "Failed to save lineup: \(error.localizedDescription)"
             showError = true
-            print("[MYLINEUP][submitPGAPicks] error: \(error)")
         }
 
         isSaving = false
