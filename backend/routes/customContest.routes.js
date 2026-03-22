@@ -842,6 +842,11 @@ router.get('/:id/my-entry', extractUserId, asyncHandler(async (req, res) => {
 
   try {
     const result = await entryRosterService.getMyEntry(pool, id, userId);
+
+    // DEBUG: Log roster_config.entry_fields to verify tier mapping
+    console.log(`[DEBUG my-entry] entry_fields for contest ${id}:`);
+    console.log(JSON.stringify(result.roster_config.entry_fields, null, 2));
+
     res.json(result);
   } catch (err) {
     const errorCode = err.code || 'INTERNAL_ERROR';
