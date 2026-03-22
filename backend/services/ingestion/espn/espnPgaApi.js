@@ -251,28 +251,22 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
 
   const cacheKey = `leaderboard_${eventId}`;
 
-  // CACHE BYPASS ENABLED (TEMPORARY DEBUG)
   // Check cache — may hold a Promise (in-flight) or resolved Promise (completed)
-  // if (requestCache.has(cacheKey)) {
-  //   const entry = requestCache.get(cacheKey);
+  if (requestCache.has(cacheKey)) {
+    const entry = requestCache.get(cacheKey);
 
-  //   // If entry has TTL metadata (empty response), check expiry
-  //   if (entry._emptyResponseAt) {
-  //     const age = Date.now() - entry._emptyResponseAt;
-  //     if (age > EMPTY_RESPONSE_TTL_MS) {
-  //       logger.debug(`[CACHE EXPIRED] key=${cacheKey} age=${age}ms`);
-  //       requestCache.delete(cacheKey);
-  //     } else {
-  //       logger.debug(`[CACHE HIT] key=${cacheKey}`);
-  //       return entry;
-  //     }
-  //   } else {
-  //     logger.debug(`[CACHE HIT] key=${cacheKey}`);
-  //     return entry;
-  //   }
-  // }
-
-  logger.debug(`[CACHE BYPASS] key=${cacheKey} - FORCING FRESH FETCH (DEBUG MODE)`);
+    // If entry has TTL metadata (empty response), check expiry
+    if (entry._emptyResponseAt) {
+      const age = Date.now() - entry._emptyResponseAt;
+      if (age > EMPTY_RESPONSE_TTL_MS) {
+        requestCache.delete(cacheKey);
+      } else {
+        return entry;
+      }
+    } else {
+      return entry;
+    }
+  }
 
   const promise = (async () => {
     const result = await withRetry(async () => {
@@ -307,7 +301,6 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
         const emptyResponse = { events: [] };
         emptyResponse._emptyResponseAt = Date.now();
         requestCache.set(cacheKey, Promise.resolve(emptyResponse));
-        logger.debug(`[CACHE STORE] key=${cacheKey} (empty, TTL=${EMPTY_RESPONSE_TTL_MS}ms)`);
         return emptyResponse;
       }
 
@@ -316,7 +309,6 @@ async function fetchLeaderboard({ eventId, timeout = 15000 }) {
       const filteredResponse = { events: [targetEvent] };
       // Replace in-flight promise with resolved value
       requestCache.set(cacheKey, Promise.resolve(filteredResponse));
-      logger.debug(`[CACHE STORE] key=${cacheKey}`);
       return filteredResponse;
     }, 3);
 
@@ -358,11 +350,9 @@ async function fetchEventMetadata({ eventId, timeout = 5000 }) {
   const cacheKey = `metadata_${eventId}`;
 
   if (requestCache.has(cacheKey)) {
-    logger.debug(`[CACHE HIT] key=${cacheKey}`);
     return requestCache.get(cacheKey);
   }
 
-  logger.debug(`[CACHE MISS] key=${cacheKey}`);
 
   const promise = (async () => {
     const data = await withRetry(async () => {
@@ -385,7 +375,6 @@ async function fetchEventMetadata({ eventId, timeout = 5000 }) {
 
       // Replace in-flight promise with resolved value
       requestCache.set(cacheKey, Promise.resolve(response.data));
-      logger.debug(`[CACHE STORE] key=${cacheKey}`);
       return response.data;
     }, 3);
 
