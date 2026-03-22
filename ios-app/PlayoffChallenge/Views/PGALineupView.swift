@@ -38,6 +38,28 @@ struct PGALineupView: View {
         placeholder?.rosterConfig?.dropLowest ?? true
     }
 
+    // Detect if tier mode is active
+    private var isTierMode: Bool {
+        guard let entryFields = placeholder?.rosterConfig?.entryFields,
+              !entryFields.isEmpty else {
+            return false
+        }
+        // Check if entry_fields have tier metadata
+        if let tierData = entryFields.first as? [String: Any] {
+            return tierData["tier_id"] != nil
+        }
+        return false
+    }
+
+    // Get entry fields for tier display
+    private var tierFields: [[String: Any]]? {
+        guard isTierMode,
+              let entryFields = placeholder?.rosterConfig?.entryFields else {
+            return nil
+        }
+        return entryFields.compactMap { $0 as? [String: Any] }
+    }
+
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
@@ -59,30 +81,75 @@ struct PGALineupView: View {
                                 dropLowest: dropLowest
                             )
 
-                            // Golfer lineup slots
-                            VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                                Text("My Golfers")
-                                    .font(.headline)
-                                    .foregroundColor(.primary)
-                                    .padding(.horizontal)
+                            if isTierMode, let tierFields = tierFields {
+                                // TIER-BASED UI
+                                VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+                                    Text("Select One Golfer Per Tier")
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                        .padding(.horizontal)
 
-                                VStack(spacing: DesignTokens.Spacing.md) {
-                                    ForEach(0..<lineupSize, id: \.self) { slotIndex in
-                                        if slotIndex < viewModel.slots.count && !viewModel.slots[slotIndex].isEmpty {
-                                            PGAGolferSlotRow(
-                                                slot: viewModel.slots[slotIndex],
-                                                slotNumber: slotIndex + 1,
-                                                viewModel: viewModel
-                                            )
-                                        } else {
-                                            PGAEmptySlotButton(
-                                                slotNumber: slotIndex + 1,
-                                                viewModel: viewModel
-                                            )
+                                    VStack(spacing: DesignTokens.Spacing.md) {
+                                        ForEach(Array(tierFields.enumerated()), id: \.offset) { index, tierField in
+                                            if let fieldName = tierField["field_name"] as? String,
+                                               let rankMin = tierField["tier_rank_min"] as? Int,
+                                               let rankMax = tierField["tier_rank_max"] as? Int {
+
+                                                // Use index as tier slot
+                                                let tierSlotIndex = index
+
+                                                VStack(alignment: .leading, spacing: 6) {
+                                                    Text("\(fieldName.prefix(1).uppercased())\(fieldName.dropFirst()) (Ranks \(rankMin)–\(rankMax))")
+                                                        .font(.subheadline)
+                                                        .fontWeight(.semibold)
+                                                        .foregroundColor(.secondary)
+                                                        .padding(.horizontal)
+
+                                                    if tierSlotIndex < viewModel.slots.count && !viewModel.slots[tierSlotIndex].isEmpty {
+                                                        PGAGolferSlotRow(
+                                                            slot: viewModel.slots[tierSlotIndex],
+                                                            slotNumber: tierSlotIndex + 1,
+                                                            viewModel: viewModel
+                                                        )
+                                                    } else {
+                                                        PGAEmptySlotButton(
+                                                            slotNumber: tierSlotIndex + 1,
+                                                            viewModel: viewModel,
+                                                            tierFieldName: fieldName
+                                                        )
+                                                    }
+                                                }
+                                                .padding(.horizontal)
+                                            }
                                         }
                                     }
                                 }
-                                .padding(.horizontal)
+                            } else {
+                                // POSITION-BASED UI (NFL fallback)
+                                VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+                                    Text("My Golfers")
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                        .padding(.horizontal)
+
+                                    VStack(spacing: DesignTokens.Spacing.md) {
+                                        ForEach(0..<lineupSize, id: \.self) { slotIndex in
+                                            if slotIndex < viewModel.slots.count && !viewModel.slots[slotIndex].isEmpty {
+                                                PGAGolferSlotRow(
+                                                    slot: viewModel.slots[slotIndex],
+                                                    slotNumber: slotIndex + 1,
+                                                    viewModel: viewModel
+                                                )
+                                            } else {
+                                                PGAEmptySlotButton(
+                                                    slotNumber: slotIndex + 1,
+                                                    viewModel: viewModel
+                                                )
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal)
+                                }
                             }
                         }
                     }
@@ -258,11 +325,14 @@ struct PGAGolferSlotRow: View {
 struct PGAEmptySlotButton: View {
     let slotNumber: Int
     @ObservedObject var viewModel: LineupViewModel
+    var tierFieldName: String? = nil  // For tier mode: field_name like "tier_1"
 
     var body: some View {
         Button(action: {
             if !viewModel.isLocked {
-                viewModel.openPlayerPicker(for: "G")
+                // For tier mode: use field_name; for position mode: use "G"
+                let position = tierFieldName ?? "G"
+                viewModel.openPlayerPicker(for: position)
             }
         }) {
             HStack(spacing: DesignTokens.Spacing.md) {

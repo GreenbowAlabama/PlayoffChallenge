@@ -127,7 +127,7 @@ function mapContestToApiResponse(contestRow, { currentTimestamp, settlementRecor
     authenticatedUserId
   );
   const payout_table = derivePayoutTable(contestRow.payout_structure);
-  const roster_config = deriveRosterConfig(contestRow.template_id);
+  const roster_config = deriveRosterConfig(contestRow.template_id, contestRow.scoring_strategy_key, contestRow.tier_definition);
 
   // Derive sport deterministically from template_type (backend authoritative)
   const sport = deriveSportFromTemplateType(contestRow.template_type);
@@ -264,7 +264,7 @@ function mapContestToApiResponseForList(contestRow, { currentTimestamp, settleme
     authenticatedUserId
   );
   const payout_table = derivePayoutTable(contestRow.payout_structure);
-  const roster_config = deriveRosterConfig(contestRow.template_id);
+  const roster_config = deriveRosterConfig(contestRow.template_id, contestRow.scoring_strategy_key, contestRow.tier_definition);
 
   // Derive sport deterministically from template_type (backend authoritative)
   const sport = deriveSportFromTemplateType(contestRow.template_type);

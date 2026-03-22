@@ -856,10 +856,12 @@ async function getContestInstance(pool, instanceId, requestingUserId = null) {
       cct.template_type AS template_type,
       cct.scoring_strategy_key AS scoring_strategy_key,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
-      ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered
+      ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered,
+      tc.tier_definition
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
+    LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
     WHERE ci.id = $1`,
     requestingUserId ? [instanceId, requestingUserId] : [instanceId]
   );
@@ -926,10 +928,12 @@ async function getContestInstanceByToken(pool, token, requestingUserId = null) {
       cct.template_type AS template_type,
       cct.scoring_strategy_key AS scoring_strategy_key,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
-      ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered
+      ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered,
+      tc.tier_definition
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
+    LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
     WHERE ci.join_token = $1`,
     requestingUserId ? [token, requestingUserId] : [token]
   );
@@ -1178,11 +1182,14 @@ async function getContestInstancesForOrganizer(pool, organizerId, requestingUser
       cct.name AS template_name,
       cct.sport AS template_sport,
       cct.template_type AS template_type,
+      cct.scoring_strategy_key,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
-      ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered
+      ${requestingUserId ? `EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $2)` : 'FALSE'} AS user_has_entered,
+      tc.tier_definition
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
+    LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
     WHERE ci.organizer_id = $1
       OR EXISTS (
         SELECT 1
@@ -2011,14 +2018,17 @@ async function getAvailableContestInstances(pool, userId) {
       cct.name AS template_name,
       cct.sport AS template_sport,
       cct.template_type AS template_type,
+      cct.scoring_strategy_key,
       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_instance_id = ci.id)::int as entry_count,
       CASE
         WHEN $1::uuid IS NULL THEN false
         ELSE EXISTS(SELECT 1 FROM contest_participants WHERE contest_instance_id = ci.id AND user_id = $1)
-      END AS user_has_entered
+      END AS user_has_entered,
+      tc.tier_definition
     FROM contest_instances ci
     LEFT JOIN users u ON u.id = ci.organizer_id
     LEFT JOIN contest_templates cct ON cct.id = ci.template_id
+    LEFT JOIN tournament_configs tc ON tc.contest_instance_id = ci.id
     WHERE ci.status = 'SCHEDULED'
     AND ci.join_token IS NOT NULL
     ORDER BY ci.is_platform_owned DESC, ci.created_at DESC`,

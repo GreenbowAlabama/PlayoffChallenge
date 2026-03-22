@@ -561,24 +561,75 @@ struct EmptySlotButton: View {
 
 // MARK: - Lineup Player Picker Sheet V2
 // Polished styling to match overall app visual language
+// Supports both tier-based (golf) and position-based (NFL) filtering
 struct LineupPlayerPickerSheetV2: View {
     let position: String
     @ObservedObject var viewModel: LineupViewModel
     @Environment(\.dismiss) var dismiss
     @State private var searchText = ""
 
-    var filteredPlayers: [Player] {
-        var filtered = viewModel.availablePlayers.filter { $0.position == position }
-
-        // GOVERNANCE: If position filter empties the list but allPlayers has data,
-        // fallback to allPlayers (may happen if API position values differ from expected)
-        if filtered.isEmpty && !viewModel.allPlayers.isEmpty {
-            print("WARNING: No players with position '\(position)' in availablePlayers, using fallback to allPlayers")
-            filtered = viewModel.availablePlayers  // Use all available (not filtered by position)
+    // Detect if tier mode is active
+    private var isTierMode: Bool {
+        guard let entryFields = viewModel.contest.rosterConfig?.entryFields,
+              !entryFields.isEmpty else {
+            return false
         }
+        // Check if first entry_field has tier metadata (tier_id, tier_rank_min, tier_rank_max)
+        if let tierData = entryFields.first as? [String: Any] {
+            return tierData["tier_id"] != nil
+        }
+        return false
+    }
 
-        print("[MYLINEUP][picker] filteredPlayers count=\(filtered.count) position=\(position)")
-        print("DEBUG: filteredPlayers count = \(filtered.count) for position '\(position)'")
+    // Extract tier_id from position (position = "tier_1", "tier_2", etc. for golf)
+    private var currentTierId: String? {
+        guard isTierMode else { return nil }
+        // Position format for tiers: "tier_1" → extract tier_id "t1"
+        // OR position is already the field_name from entry_fields
+        if let entryFields = viewModel.contest.rosterConfig?.entryFields {
+            // Find matching entry_field by field_name
+            if let tierField = entryFields.first(where: { field in
+                (field as? [String: Any])?["field_name"] as? String == position
+            }) as? [String: Any] {
+                return tierField["tier_id"] as? String
+            }
+        }
+        return nil
+    }
+
+    var filteredPlayers: [Player] {
+        var filtered: [Player] = []
+
+        if isTierMode, let tierId = currentTierId {
+            // TIER-BASED FILTERING: Filter by tier_id
+            filtered = viewModel.availablePlayers.filter { $0.tierId == tierId }
+
+            print("🎯 TIER FILTERING:")
+            print("  Mode: TIER-BASED")
+            print("  Current tier: \(position) (tier_id: \(tierId))")
+            print("  Filtered count: \(filtered.count)")
+            for (idx, player) in filtered.prefix(3).enumerated() {
+                print("    Player \(idx + 1): \(player.fullName) [tier_id: \(player.tierId ?? "nil")]")
+            }
+            if filtered.isEmpty {
+                print("  ⚠️  No players in tier \(position)")
+            }
+        } else {
+            // POSITION-BASED FILTERING: Fallback for NFL
+            filtered = viewModel.availablePlayers.filter { $0.position == position }
+
+            // GOVERNANCE: If position filter empties the list but allPlayers has data,
+            // fallback to allPlayers (may happen if API position values differ from expected)
+            if filtered.isEmpty && !viewModel.allPlayers.isEmpty {
+                print("WARNING: No players with position '\(position)' in availablePlayers, using fallback to allPlayers")
+                filtered = viewModel.availablePlayers
+            }
+
+            print("🏈 POSITION FILTERING:")
+            print("  Mode: POSITION-BASED")
+            print("  Position: \(position)")
+            print("  Filtered count: \(filtered.count)")
+        }
 
         if searchText.isEmpty {
             return filtered

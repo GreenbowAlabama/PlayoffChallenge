@@ -298,8 +298,18 @@ function derivePayoutTable(payoutStructureJson) {
  * @param {Object|null} templateRow - Contest template database row with scoring_strategy_key
  * @returns {Object} Roster configuration object with entry_fields, roster_size, validation_rules
  */
-function deriveRosterConfig(templateRow) {
-  if (!templateRow || !templateRow.scoring_strategy_key) {
+/**
+ * Derive roster config from scoring strategy.
+ * Falls back to PGA defaults if strategy not found (with warning).
+ * Optionally populates entry_fields from tier definition if present.
+ *
+ * @param {string} templateId - Template ID (unused, kept for compatibility)
+ * @param {string} strategyKey - Scoring strategy key, e.g. 'pga_standard_v1'
+ * @param {Object} tierDef - Optional tier definition for building entry_fields
+ * @returns {Object} Complete roster config with all required fields
+ */
+function deriveRosterConfig(templateId, strategyKey, tierDef = null) {
+  if (!strategyKey) {
     return {
       entry_fields: [],
       validation_rules: {}
@@ -307,14 +317,55 @@ function deriveRosterConfig(templateRow) {
   }
 
   try {
-    const strategy = getStrategy(templateRow.scoring_strategy_key);
-    return strategy.rosterConfig();
+    const strategy = getStrategy(strategyKey);
+    const baseConfig = strategy.rosterConfig();
+
+    // If tier definition exists, override entry_fields with tier-based fields
+    if (tierDef && tierDef.tiers && Array.isArray(tierDef.tiers) && tierDef.tiers.length > 0) {
+      const tierFields = tierDef.tiers.map((tier, idx) => ({
+        field_name: `tier_${idx + 1}`,
+        tier_id: tier.id,
+        tier_rank_min: tier.rank_min,
+        tier_rank_max: tier.rank_max
+      }));
+      if (tierFields.length > 0) {
+        baseConfig.entry_fields = tierFields;
+        console.log(`[deriveRosterConfig] ✅ Populated entry_fields with ${tierFields.length} tiers`);
+      }
+    }
+
+    return baseConfig;
   } catch (err) {
-    // If strategy unknown, return stub config
-    return {
-      entry_fields: [],
-      validation_rules: {}
+    console.error(`[deriveRosterConfig] Failed to derive roster config for strategy '${strategyKey}':`, err.message);
+
+    // Return PGA defaults (safe fallback for most contests)
+    const defaultConfig = {
+      roster_size: 7,
+      lineup_size: 7,
+      scoring_count: 6,
+      drop_lowest: true,
+      entry_fields: ['player_ids'],
+      validation_rules: {
+        no_duplicates: true,
+        must_be_in_field: true
+      }
     };
+
+    // If tier definition exists, override entry_fields
+    if (tierDef && tierDef.tiers && Array.isArray(tierDef.tiers) && tierDef.tiers.length > 0) {
+      const tierFields = tierDef.tiers.map((tier, idx) => ({
+        field_name: `tier_${idx + 1}`,
+        tier_id: tier.id,
+        tier_rank_min: tier.rank_min,
+        tier_rank_max: tier.rank_max
+      }));
+      if (tierFields.length > 0) {
+        defaultConfig.entry_fields = tierFields;
+        console.log(`[deriveRosterConfig] ✅ Populated entry_fields with ${tierFields.length} tiers (fallback)`);
+      }
+    }
+
+    return defaultConfig;
   }
 }
 

@@ -125,6 +125,7 @@ struct Player: Codable, Identifiable {
     let isActive: Bool?
     let gameTime: String?
     let imageUrl: String?
+    let tierId: String?  // Tier assignment from backend (e.g., "t1", "t2")
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -135,6 +136,7 @@ struct Player: Codable, Identifiable {
         case isActive = "is_active"
         case gameTime = "game_time"
         case imageUrl = "image_url"
+        case tierId = "tier_id"
     }
 }
 

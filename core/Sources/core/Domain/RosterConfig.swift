@@ -34,6 +34,12 @@ public struct RosterConfig: Codable, Hashable, Equatable, Sendable {
         config["drop_lowest"]?.value as? Bool
     }
 
+    /// Entry fields for tier-based or position-based roster config.
+    /// Returns array of tier/position definitions with metadata.
+    public var entryFields: [Any]? {
+        config["entry_fields"]?.value as? [Any]
+    }
+
     // MARK: - Mapping
     /// Initialize from contract type.
     /// Contract is already [String: AnyCodable], so direct passthrough.
