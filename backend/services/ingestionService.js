@@ -15,6 +15,7 @@
 
 'use strict';
 
+const crypto = require('crypto');
 const ingestionRegistry = require('./ingestionRegistry');
 const { resolveStrategyKey } = require('./ingestionStrategyResolver');
 const { selectField } = require('./golfEngine/selectField');
@@ -201,7 +202,6 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
       `[PGA INGESTION] REFUSING_EMPTY_FIELD contest=${contestInstanceId} players_available=${players.length} primary_count=0`
     );
   }
-  console.log(`[PGA INGESTION] contest=${contestInstanceId} players=${players.length} primary=${fieldSelection.primary.length} alternates=${fieldSelection.alternates.length}`);
 
   // Enhance field selection with player details (including image_url from playerImageMap)
   // For tier-based contests, resolve tier_id for each player based on rank (deterministic)
@@ -235,23 +235,41 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
     })
   };
 
-  // Update field_selections with new selection_json
-  const updateResult = await executeQuery(
+  // Fetch current field_selections to compare hashes (skip no-op writes)
+  const currentResult = await executeQuery(
     dbClient,
-    `UPDATE field_selections
-     SET selection_json = $1
-     WHERE contest_instance_id = $2
-     RETURNING id`,
-    [JSON.stringify(enhancedField), contestInstanceId],
+    `SELECT selection_json FROM field_selections WHERE contest_instance_id = $1`,
+    [contestInstanceId],
     { contestInstanceId }
   );
 
-  if (updateResult.rows.length === 0) {
-    console.warn(`[ingestionService] FIELD_SELECTION_ROW_MISSING: field_selections row does not exist for contest_instance_id ${contestInstanceId}, skipping field population. This row must be created during contest publish.`);
+  if (currentResult.rows.length === 0) {
     return;
   }
 
-  console.log(`[ingestionService] Updated field_selections for ${contestInstanceId}: ${players.length} players (${fieldSelection.primary.length} primary, ${fieldSelection.alternates.length} alternates)`);
+  // Hash comparison: skip write if payload unchanged
+  const currentHash = crypto.createHash('sha256')
+    .update(JSON.stringify(currentResult.rows[0].selection_json))
+    .digest('hex');
+
+  const newHash = crypto.createHash('sha256')
+    .update(JSON.stringify(enhancedField))
+    .digest('hex');
+
+  if (currentHash === newHash) {
+    // Payload unchanged, skip write
+    return;
+  }
+
+  // Update field_selections with new selection_json (only if hash differs)
+  await executeQuery(
+    dbClient,
+    `UPDATE field_selections
+     SET selection_json = $1
+     WHERE contest_instance_id = $2`,
+    [JSON.stringify(enhancedField), contestInstanceId],
+    { contestInstanceId }
+  );
 }
 
 /**
@@ -366,10 +384,6 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
 
     // ── Phase-specific status gating ──────────────────────────────────────────
     if (phase === 'SCORING' && row.status === 'SCHEDULED') {
-      console.log(
-        `[Ingestion] Skipped SCORING phase for SCHEDULED contest ${contestInstanceId}: scoring data unavailable in SCHEDULED status`
-      );
-
       await client.query('ROLLBACK');
 
       return {
@@ -524,20 +538,6 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       try {
         const normalizedScores = await adapter.ingestWorkUnit(ctx, enrichedUnit);
 
-        // [SCORING DEBUG] Step 1: Check adapter output
-        console.log(
-          "[SCORING DEBUG] normalizedScores length:",
-          normalizedScores ? normalizedScores.length : "NULL",
-          "| phase:",
-          enrichedUnit.phase || "UNKNOWN"
-        );
-
-        // [SCORING DEBUG] Step 2: Before database write
-        console.log(
-          "[SCORING DEBUG] About to write scores:",
-          normalizedScores ? normalizedScores.length : 0
-        );
-
         await adapter.upsertScores(ctx, normalizedScores);
 
         await executeQuery(
@@ -570,10 +570,7 @@ async function run(contestInstanceId, pool, workUnits = null, options = null) {
       }
     }
 
-    // ── Log batch summary of skipped work units ──────────────────────────────
-    if (skippedWorkUnits.length > 0) {
-      console.log(`[ingestionService] Skipped ${skippedWorkUnits.length} duplicate work units (${phase})`);
-    }
+    // Duplicate work unit detection is silent by default
 
     // ── Populate field_selections for GOLF contests ────────────────────────────
     // On first run: ingestedPlayerIds contains newly ingested players.
@@ -921,9 +918,7 @@ async function refreshAllScheduledContestFields(pool, sport) {
     }
   }
 
-  if (refreshedCount > 0) {
-    console.log(`[ingestionService] Refreshed field_selections for ${refreshedCount} SCHEDULED ${sport} contests`);
-  }
+  // Field selection updates are silent by default
 }
 
 /**

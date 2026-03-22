@@ -1228,11 +1228,8 @@ async function ingestWorkUnit(ctx, unit) {
   // If insert returned zero rows, payload was already processed.
   // Continue scoring parse anyway — scores may have changed during the round.
   if (result.rows.length === 0) {
-    console.debug(
-      `[pgaEspnIngestion] Duplicate payload detected for contest ${contestInstanceId}, continuing scoring parse`
-    );
     // DO NOT return here
-    // Continue execution so scoring parser still runs
+    // Continue execution so scoring parser still runs (silently)
   }
 
   // ── Step 9: Parse scores from leaderboard and return ──────────────────────
@@ -1333,11 +1330,6 @@ async function upsertScores(ctx, normalizedScores) {
       total_points = EXCLUDED.total_points
   `, values);
 
-  logger.info('[SCORING] Upserted scores', {
-    contest_instance_id: contestInstanceId,
-    score_count: normalizedScores.length
-  });
-
   // ── DYNAMIC ROUND CLEANUP: BEFORE ROSTER SCORING (CRITICAL ORDERING) ─────────
   // Compute valid rounds from the current ingestion payload
   // This ensures roster scoring only reads rounds that were actually scored in this cycle
@@ -1389,10 +1381,6 @@ async function upsertScores(ctx, normalizedScores) {
     const contests = await dbClient.query(
       `SELECT id FROM contest_instances WHERE provider_event_id = $1 AND status IN ('LIVE','LOCKED')`,
       [providerEventId]
-    );
-
-    console.info(
-      `[ROSTER_SCORING] Running roster scoring for ${contests.rows.length} contests for event ${providerEventId}`
     );
 
     for (const row of contests.rows) {

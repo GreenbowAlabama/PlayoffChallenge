@@ -16,7 +16,17 @@
 
 const axios = require('axios');
 
-const logger = console; // TODO: Replace with structured logger
+// Cache debug logging is OFF by default (prod mode)
+const DEBUG = process.env.ESPN_CACHE_DEBUG === 'true';
+
+const logger = {
+  debug: (msg) => {
+    if (DEBUG) console.debug(msg);
+  },
+  error: (msg) => console.error(msg),
+  info: (msg) => console.info(msg),
+  warn: (msg) => console.warn(msg)
+};
 
 const httpsAgent = require('../../../utils/httpAgent');
 
