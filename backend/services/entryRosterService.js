@@ -63,17 +63,52 @@ function normalizePlayerId(playerId) {
 }
 
 /**
+ * Build entry fields from tier definition.
+ * Converts tier data into entry_fields array with metadata for client grouping.
+ *
+ * @param {Object} tierDef - Tier definition from tournament_configs
+ * @returns {Array} Entry fields with tier metadata, e.g. [
+ *   { field_name: 'tier_1', tier_id: 't1', tier_rank_min: 1, tier_rank_max: 10 },
+ *   { field_name: 'tier_2', tier_id: 't2', tier_rank_min: 11, tier_rank_max: 30 },
+ *   ...
+ * ]
+ */
+function buildTierEntryFields(tierDef) {
+  if (!tierDef || !Array.isArray(tierDef.tiers) || tierDef.tiers.length === 0) {
+    return null;
+  }
+
+  return tierDef.tiers.map((tier, idx) => ({
+    field_name: `tier_${idx + 1}`,
+    tier_id: tier.id,
+    tier_rank_min: tier.rank_min,
+    tier_rank_max: tier.rank_max
+  }));
+}
+
+/**
  * Derive roster config from scoring strategy.
  * Falls back to PGA defaults if strategy not found (with warning).
  * MUST return complete config matching OpenAPI RosterConfig schema.
  *
  * @param {string} strategyKey - e.g. 'pga_standard_v1'
+ * @param {Object} tierDef - Optional tier definition for building entry_fields
  * @returns {Object} Complete roster config with all required fields
  */
-function deriveRosterConfigFromStrategy(strategyKey) {
+function deriveRosterConfigFromStrategy(strategyKey, tierDef = null) {
   try {
     const strategy = getStrategy(strategyKey);
-    return strategy.rosterConfig();
+    const baseConfig = strategy.rosterConfig();
+
+    // If tier definition exists, override entry_fields with tier-based fields
+    if (tierDef && tierDef.tiers && tierDef.tiers.length > 0) {
+      const tierFields = buildTierEntryFields(tierDef);
+      if (tierFields) {
+        baseConfig.entry_fields = tierFields;
+      }
+    }
+
+    return baseConfig;
   } catch (err) {
     // Error in strategy lookup or rosterConfig() call
     console.error(
@@ -83,7 +118,7 @@ function deriveRosterConfigFromStrategy(strategyKey) {
 
     // Return PGA defaults (safe fallback for most contests)
     // GOVERNANCE: Must match OpenAPI RosterConfig schema
-    return {
+    const defaultConfig = {
       roster_size: 7,
       lineup_size: 7,
       scoring_count: 6,
@@ -94,6 +129,16 @@ function deriveRosterConfigFromStrategy(strategyKey) {
         must_be_in_field: true
       }
     };
+
+    // If tier definition exists, override entry_fields
+    if (tierDef && tierDef.tiers && tierDef.tiers.length > 0) {
+      const tierFields = buildTierEntryFields(tierDef);
+      if (tierFields) {
+        defaultConfig.entry_fields = tierFields;
+      }
+    }
+
+    return defaultConfig;
   }
 }
 
@@ -504,8 +549,18 @@ async function getMyEntry(pool, contestInstanceId, userId) {
     contestRow.status === 'SCHEDULED' &&
     (lockTimeMs === null || now < lockTimeMs);
 
-  // Derive roster_config
-  const rosterConfig = deriveRosterConfigFromStrategy(contestRow.scoring_strategy_key);
+  // Fetch tier_definition from tournament_configs if present
+  let tierDefinition = null;
+  const tierDefResult = await pool.query(
+    `SELECT tier_definition FROM tournament_configs WHERE contest_instance_id = $1 LIMIT 1`,
+    [contestInstanceId]
+  );
+  if (tierDefResult.rows.length > 0 && tierDefResult.rows[0].tier_definition) {
+    tierDefinition = tierDefResult.rows[0].tier_definition;
+  }
+
+  // Derive roster_config (pass tier definition for entry_fields population)
+  const rosterConfig = deriveRosterConfigFromStrategy(contestRow.scoring_strategy_key, tierDefinition);
 
   // STATE A: Invalid contest - sport is null means template not initialized
   if (!contestRow.sport) {
