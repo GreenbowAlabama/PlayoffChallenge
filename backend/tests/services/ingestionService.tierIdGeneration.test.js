@@ -25,12 +25,25 @@ describe('Ingestion Service — Field Population with Tier ID Generation', () =>
   beforeEach(async () => {
     contestInstanceId = uuidv4();
     tournamentConfigId = uuidv4();
+    const organizerId = uuidv4();
 
-    // Setup: Create contest_instance
+    // Setup: Create test user (organizer)
     await pool.query(
-      `INSERT INTO contest_instances (id, template_id, organizer_id, status)
-       VALUES ($1, (SELECT id FROM contest_templates LIMIT 1), $2, 'SCHEDULED')`,
-      [contestInstanceId, uuidv4()]
+      `INSERT INTO users (id, username, email, is_admin) VALUES ($1, $2, $3, false)
+       ON CONFLICT (id) DO NOTHING`,
+      [organizerId, `test-organizer-${Date.now()}`, `test-${Date.now()}@example.com`]
+    );
+
+    // Setup: Create contest_instance with all required fields
+    await pool.query(
+      `INSERT INTO contest_instances (
+         id, template_id, organizer_id, entry_fee_cents, payout_structure, status,
+         contest_name, max_entries, is_platform_owned, is_primary_marketing, is_system_generated
+       ) VALUES (
+         $1, (SELECT id FROM contest_templates LIMIT 1), $2, 0, $3, 'SCHEDULED',
+         $4, 20, false, false, false
+       )`,
+      [contestInstanceId, organizerId, JSON.stringify({}), 'Test Contest']
     );
 
     // Setup: Create tournament_configs with tier_definition
@@ -43,12 +56,17 @@ describe('Ingestion Service — Field Population with Tier ID Generation', () =>
       ]
     };
 
+    const configHash = require('crypto')
+      .createHash('sha256')
+      .update(JSON.stringify(tierDefinition) + Date.now())
+      .digest('hex');
+
     await pool.query(
       `INSERT INTO tournament_configs
        (id, contest_instance_id, provider_event_id, ingestion_endpoint,
         event_start_date, event_end_date, round_count, cut_after_round,
-        leaderboard_schema_version, field_source, tier_definition)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        leaderboard_schema_version, field_source, tier_definition, published_at, is_active, hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), false, $12)`,
       [
         tournamentConfigId,
         contestInstanceId,
@@ -59,8 +77,9 @@ describe('Ingestion Service — Field Population with Tier ID Generation', () =>
         4,
         2,
         1,
-        'espn',
-        JSON.stringify(tierDefinition)
+        'provider_sync',
+        JSON.stringify(tierDefinition),
+        configHash
       ]
     );
 
@@ -87,29 +106,33 @@ describe('Ingestion Service — Field Population with Tier ID Generation', () =>
   });
 
   afterEach(async () => {
-    // Cleanup
-    await pool.query('DELETE FROM field_selections WHERE contest_instance_id = $1', [contestInstanceId]);
-    await pool.query('DELETE FROM tournament_configs WHERE contest_instance_id = $1', [contestInstanceId]);
-    await pool.query('DELETE FROM contest_instances WHERE id = $1', [contestInstanceId]);
+    // Cleanup in reverse dependency order
+    try {
+      await pool.query('DELETE FROM field_selections WHERE contest_instance_id = $1', [contestInstanceId]);
+      await pool.query('DELETE FROM tournament_configs WHERE contest_instance_id = $1', [contestInstanceId]);
+      await pool.query('DELETE FROM contest_instances WHERE id = $1', [contestInstanceId]);
+    } catch (err) {
+      // Ignore cleanup errors
+    }
   });
 
   afterAll(async () => {
     // Cleanup players created in test
     await pool.query(`DELETE FROM players WHERE id LIKE 'espn_10%'`);
-    if (pool) await pool.end();
+    // Note: Do NOT call pool.end() here - test infrastructure handles it
   });
 
-  it('FAILS: tier_id should be generated for each player based on rank', async () => {
+  it('tier_id generated from tier_definition with deterministic ranking', async () => {
     const { populateFieldSelections } = require('../../services/ingestionService');
 
     // Simulate selectField output: ordered list of players
-    // These will become rank 1, 2, 3, ... when mapped to tiers
     const playerIds = [
       'espn_1001', 'espn_1002', 'espn_1003', 'espn_1004', 'espn_1005',
       'espn_1006', 'espn_1007', 'espn_1008', 'espn_1009', 'espn_1010'
     ];
 
-    // Populate field selections (should generate tier_id for each player)
+    // Populate field selections with tier_definition
+    // tier_id should be generated based on deterministic rank (index + 1)
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -128,17 +151,32 @@ describe('Ingestion Service — Field Population with Tier ID Generation', () =>
     expect(result.rows.length).toBe(1);
     const { primary, alternates } = result.rows[0].selection_json;
 
-    // CRITICAL: tier_id must be GENERATED, not mocked
-    // Rank 1-5 → t1, Rank 6-10 → t2
-    expect(primary.length).toBeGreaterThan(0);
+    // Verify tier_id generated for each player based on rank
+    expect(primary.length).toBe(playerIds.length);
 
-    // Assert each player has tier_id generated correctly
     primary.forEach((player, index) => {
-      const rank = index + 1;  // 1-based rank
-      expect(player.tier_id).toBeDefined();
-      expect(player.tier_id).not.toBeNull();
+      const rank = index + 1;  // deterministic ranking
+      expect(player.player_id).toBeDefined();
+      expect(player.name).toBeDefined();
+      expect(player.espn_id).toBeDefined();
+      expect(player.image_url).toBeDefined();
 
-      // Verify tier_id matches tier_definition ranges
+      // tier_id should be generated based on tier_definition ranges
+      expect(player.tier_id).toBeDefined();
+      if (rank >= 1 && rank <= 5) {
+        expect(player.tier_id).toBe('t1');
+      } else if (rank >= 6 && rank <= 10) {
+        expect(player.tier_id).toBe('t2');
+      } else if (rank >= 11 && rank <= 15) {
+        expect(player.tier_id).toBe('t3');
+      }
+    });
+
+    // Verify alternates also have tier_id
+    alternates.forEach((player, index) => {
+      const primaryCount = primary.length;
+      const rank = primaryCount + index + 1;
+      expect(player.tier_id).toBeDefined();
       if (rank >= 1 && rank <= 5) {
         expect(player.tier_id).toBe('t1');
       } else if (rank >= 6 && rank <= 10) {

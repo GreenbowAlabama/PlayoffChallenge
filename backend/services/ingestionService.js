@@ -99,7 +99,25 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   }
 
   const tourConfig = configResult.rows[0];
-  const tierDefinition = tourConfig.tier_definition;
+  const tierDefinitionRaw = tourConfig.tier_definition;
+
+  // TEMP LOGGING: Diagnose tier_definition parsing
+  console.log('TIER DEF RAW:', tierDefinitionRaw);
+
+  // Fix: Parse tier_definition if it's a string
+  let tierDefinition;
+  if (typeof tierDefinitionRaw === 'string') {
+    try {
+      tierDefinition = JSON.parse(tierDefinitionRaw);
+      console.log('TIER DEF PARSED:', tierDefinition);
+    } catch (err) {
+      console.warn(`[ingestionService] Failed to parse tier_definition as JSON for ${contestInstanceId}, treating as null:`, err.message);
+      tierDefinition = null;
+    }
+  } else {
+    tierDefinition = tierDefinitionRaw;
+    console.log('TIER DEF PARSED:', tierDefinition);
+  }
 
   // Fetch all players that were ingested (by id, which includes espn_ prefix)
   const playersResult = await executeQuery(
@@ -149,29 +167,38 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   console.log(`[PGA INGESTION] contest=${contestInstanceId} players=${players.length} primary=${fieldSelection.primary.length} alternates=${fieldSelection.alternates.length}`);
 
   // Enhance field selection with player details (including image_url from playerImageMap)
-  // For tier-based contests, resolve tier_id for each player based on rank (1-based position)
+  // For tier-based contests, resolve tier_id for each player based on rank (deterministic)
+  const tierDef = tierDefinition || null;
+
   const enhancedField = {
     primary: fieldSelection.primary.map((p, index) => {
-      const rank = index + 1;  // 1-based rank (position in sorted field)
-      const tierId = resolveTier(rank, tierDefinition);
+      const rank = index + 1;  // deterministic ordering (1-based position)
+      const tierId = tierDef ? resolveTier(rank, tierDef) : null;
+
+      // TEMP LOGGING: Log first few ranks to verify tier resolution
+      if (index < 3) {
+        console.log('SAMPLE RANK + TIER:', { rank, tierId, playerName: p.name });
+      }
+
       return {
         player_id: p.player_id,
         name: p.name,
         espn_id: p.espn_id,
         image_url: playerImageMap.get(p.player_id) || null,
-        ...(tierId && { tier_id: tierId })  // Only include tier_id if tier_definition exists
+        ...(tierId && { tier_id: tierId })  // Only include tier_id if resolved
       };
     }),
     alternates: fieldSelection.alternates.map((p, index) => {
       const primaryCount = fieldSelection.primary.length;
       const rank = primaryCount + index + 1;  // Continue rank numbering after primary
-      const tierId = resolveTier(rank, tierDefinition);
+      const tierId = tierDef ? resolveTier(rank, tierDef) : null;
+
       return {
         player_id: p.player_id,
         name: p.name,
         espn_id: p.espn_id,
         image_url: playerImageMap.get(p.player_id) || null,
-        ...(tierId && { tier_id: tierId })  // Only include tier_id if tier_definition exists
+        ...(tierId && { tier_id: tierId })  // Only include tier_id if resolved
       };
     })
   };
