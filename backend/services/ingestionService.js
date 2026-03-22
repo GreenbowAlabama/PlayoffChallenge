@@ -18,6 +18,7 @@
 const ingestionRegistry = require('./ingestionRegistry');
 const { resolveStrategyKey } = require('./ingestionStrategyResolver');
 const { selectField } = require('./golfEngine/selectField');
+const { logError, logWarn } = require('./logger');
 const { resolveTier } = require('./tierResolutionService');
 
 /**
@@ -101,25 +102,58 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
   const tourConfig = configResult.rows[0];
   const tierDefinitionRaw = tourConfig.tier_definition;
 
-  // TODO: Remove excessive ingestion logging (currently hitting Railway 500 logs/sec limit)
-  // Remove: TIER DEF RAW, TIER DEF PARSED, scoring debug spam below
-  // TEMP LOGGING: Diagnose tier_definition parsing
-  console.log('TIER DEF RAW:', tierDefinitionRaw);
-
-  // Fix: Parse tier_definition if it's a string
+  // Parse tier_definition if it's a string
   let tierDefinition;
   if (typeof tierDefinitionRaw === 'string') {
     try {
       tierDefinition = JSON.parse(tierDefinitionRaw);
-      console.log('TIER DEF PARSED:', tierDefinition);
     } catch (err) {
-      console.warn(`[ingestionService] Failed to parse tier_definition as JSON for ${contestInstanceId}, treating as null:`, err.message);
+      logWarn(`Failed to parse tier_definition as JSON for ${contestInstanceId}`, { error: err.message });
       tierDefinition = null;
     }
   } else {
     tierDefinition = tierDefinitionRaw;
-    // TODO: Remove this debug log as part of ingestion spam cleanup
-    console.log('TIER DEF PARSED:', tierDefinition);
+  }
+
+  // GUARD: Missing or empty tier definition
+  if (!tierDefinition?.tiers || tierDefinition.tiers.length === 0) {
+    logError('[CRITICAL] Missing tier definition', { contestInstanceId });
+  }
+
+  // NORMALIZATION: Ensure deterministic tier order + detect duplicates
+  if (tierDefinition?.tiers) {
+    // Filter nulls, sort by rank_min, detect duplicates
+    const uniqueIds = new Set();
+    let hasDuplicates = false;
+    let hasOverlaps = false;
+
+    for (const tier of tierDefinition.tiers) {
+      if (uniqueIds.has(tier.id)) {
+        hasDuplicates = true;
+      }
+      uniqueIds.add(tier.id);
+    }
+
+    if (hasDuplicates) {
+      logWarn('[INVARIANT] Duplicate tier IDs detected', { contestInstanceId });
+    }
+
+    // Sort by rank_min (deterministic order)
+    tierDefinition.tiers = tierDefinition.tiers
+      .filter(Boolean)
+      .sort((a, b) => a.rank_min - b.rank_min);
+
+    // Check for overlaps
+    for (let i = 1; i < tierDefinition.tiers.length; i++) {
+      if (tierDefinition.tiers[i].rank_min <= tierDefinition.tiers[i - 1].rank_max) {
+        logError('[CRITICAL] Tier overlap detected', {
+          tier1: tierDefinition.tiers[i - 1].id,
+          tier2: tierDefinition.tiers[i].id,
+          contestInstanceId
+        });
+        hasOverlaps = true;
+      }
+    }
   }
 
   // Fetch all players that were ingested (by id, which includes espn_ prefix)
@@ -177,11 +211,6 @@ async function populateFieldSelections(dbClient, contestInstanceId, espnPlayerId
     primary: fieldSelection.primary.map((p, index) => {
       const rank = index + 1;  // deterministic ordering (1-based position)
       const tierId = tierDef ? resolveTier(rank, tierDef) : null;
-
-      // TEMP LOGGING: Log first few ranks to verify tier resolution
-      if (index < 3) {
-        console.log('SAMPLE RANK + TIER:', { rank, tierId, playerName: p.name });
-      }
 
       return {
         player_id: p.player_id,

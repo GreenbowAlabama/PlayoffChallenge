@@ -4,7 +4,11 @@
  * Provides deterministic tier assignment and validation for contest configurations.
  * Tiers enable contest-level grouping of players where user selects exactly 1 per tier.
  *
- * Backward compatible: tier_definition NULL = no tiers enforced
+ * INVARIANTS:
+ * - Tier definitions are received pre-normalized (sorted by rank_min)
+ * - No overlaps allowed (ingestionService validates this)
+ * - Every rank must map to exactly one tier
+ * - Backward compatible: tier_definition NULL = no tiers enforced
  */
 
 /**
@@ -13,20 +17,25 @@
  * Given a rank (1-based position) and tier configuration, returns the tier ID
  * that contains this rank, or null if rank is out of range or no tiers defined.
  *
+ * SAFETY: Assumes tiers are pre-sorted by rank_min (enforced by ingestionService)
+ *
  * @param {number} rank - 1-based player rank/position
- * @param {Object|null} tierDefinition - Tier config with tiers array
+ * @param {Object|null} tierDefinition - Tier config with tiers array (must be sorted)
  * @returns {string|null} Tier ID or null if no match
  */
 function resolveTier(rank, tierDefinition) {
-  if (!tierDefinition || !tierDefinition.tiers) {
+  if (!tierDefinition || !tierDefinition.tiers || tierDefinition.tiers.length === 0) {
     return null;
   }
 
-  const tier = tierDefinition.tiers.find(
-    t => rank >= t.rank_min && rank <= t.rank_max
-  );
+  // Tiers are pre-sorted by ingestionService, so iterate in order
+  for (const tier of tierDefinition.tiers) {
+    if (rank >= tier.rank_min && rank <= tier.rank_max) {
+      return tier.id;
+    }
+  }
 
-  return tier ? tier.id : null;
+  return null;
 }
 
 /**
