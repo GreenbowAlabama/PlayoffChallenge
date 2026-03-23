@@ -700,6 +700,100 @@ Where:
 
 All three categories must reconcile after ingestion completion.
 
+---
+
+## 4. Prize Payout Ledgerization (FROZEN)
+
+### Contract
+
+**PRIZE_PAYOUT entries MUST only be written upon confirmed transfer completion.**
+
+Entry types:
+- `PRIZE_PAYOUT` (CREDIT) — Successful payout to user wallet
+- `PRIZE_PAYOUT_REVERSAL` (DEBIT) — Correction for failed or reversed payout
+
+### Invariant
+
+The net payout amount must equal the sum of completed transfers, per contest:
+
+```
+SUM(PRIZE_PAYOUT credits - PRIZE_PAYOUT_REVERSAL debits) == SUM(completed payout_transfers)
+```
+
+**WHERE:**
+- PRIZE_PAYOUT has `entry_type = 'PRIZE_PAYOUT'` and `direction = 'CREDIT'`
+- PRIZE_PAYOUT_REVERSAL has `entry_type = 'PRIZE_PAYOUT_REVERSAL'` and `direction = 'DEBIT'`
+- Completed transfers have `payout_transfers.status = 'completed'`
+
+### Invariant Scope
+
+This invariant MUST hold at all times after payout execution.
+
+Temporary drift during in-flight processing is acceptable ONLY if:
+- `transfer.status != 'completed'`
+- AND no PRIZE_PAYOUT has been written
+
+Once a transfer is marked `'completed'`, the corresponding PRIZE_PAYOUT MUST exist.
+
+### Rules (Non-Negotiable)
+
+1. **Ledger is append-only.** PRIZE_PAYOUT rows are NEVER deleted or mutated.
+2. **Corrections use reversals.** If a payout must be corrected, insert PRIZE_PAYOUT_REVERSAL (DEBIT) to net the amount.
+3. **No early writes.** PRIZE_PAYOUT MUST NOT be written at settlement time. Only write on transfer completion.
+4. **Idempotency.** PRIZE_PAYOUT uses idempotency key: `payout:${transfer_id}` to prevent duplicates.
+
+### Implementation
+
+**File:** `backend/services/PayoutExecutionService.js` (executeTransfer function)
+
+When a payout_transfer completes successfully:
+
+```javascript
+// Only write PRIZE_PAYOUT on confirmed transfer completion
+await client.query(
+  `INSERT INTO ledger (
+     user_id, entry_type, direction, amount_cents,
+     reference_type, reference_id, idempotency_key, created_at
+   ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+   ON CONFLICT (idempotency_key) DO NOTHING`,
+  [
+    transfer.user_id,
+    'PRIZE_PAYOUT',
+    'CREDIT',
+    transfer.amount_cents,
+    'CONTEST',
+    transfer.contest_id,
+    `payout:${transferId}`
+  ]
+);
+```
+
+### Enforcement
+
+**Automated validation:** `backend/debug/validatePayoutLedgerInvariant.js`
+
+Runs every 5 minutes (cron). Detects:
+- OVERPAY: ledger > completed transfers (users credited without actual payout)
+- UNDERPAY: ledger < completed transfers (transfers executed but wallet not credited)
+- DRIFT: any mismatch
+
+**Exit codes:**
+- 0: All contests clean
+- 1: Drift detected (recoverable, requires manual reversal entry)
+- 2: OVERPAY detected (financial breach, immediate escalation required)
+
+### Test Evidence
+
+- `backend/tests/services/payoutExecutionLedger.test.js` — PRIZE_PAYOUT only on completion
+- `backend/tests/integration/pgaSettlement.invariants.integration.test.js` — Settlement isolation
+- Validation script runs automatically in production
+
+### References
+
+- `backend/services/PayoutExecutionService.js` — Implementation
+- `backend/debug/validatePayoutLedgerInvariant.js` — Validation (read-only)
+- `docs/governance/LEDGER_ARCHITECTURE_AND_RECONCILIATION.md` — Append-only ledger rules
+
 ### Test Evidence
 
 - `backend/tests/lifecycle/...` — payout authorization tests

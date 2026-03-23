@@ -109,6 +109,12 @@ async function executeTransfer(pool, transferId, getDestinationAccountFn) {
         stripeResult.transferId
       );
 
+      // Guard: Verify transfer is actually marked completed before writing ledger
+      // This prevents invariant violations from incomplete state transitions
+      if (updatedTransfer.status !== 'completed') {
+        throw new Error('Invariant violation: PRIZE_PAYOUT write attempted before transfer completion');
+      }
+
       // Write PRIZE_PAYOUT ledger entry for completed transfer
       // This credits the user's wallet for the payout.
       // Idempotency key is deterministic: payout:${transfer_id}
