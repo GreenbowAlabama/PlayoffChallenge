@@ -433,6 +433,121 @@ describe('Settlement Strategy', () => {
     });
   });
 
+  describe('allocatePayouts — Payout Compression (fewer participants than positions)', () => {
+    it('should compress 1 participant into 100% from [50, 30, 20] structure', () => {
+      const rankings = [
+        { user_id: 'user1', rank: 1, score: 100 }
+      ];
+      const payoutStructure = { '1': 50, '2': 30, '3': 20 };
+      const totalPoolCents = 10000; // $100
+
+      const { payouts, platformRemainderCents } = settlementStrategy.allocatePayouts(
+        rankings,
+        payoutStructure,
+        totalPoolCents
+      );
+
+      // Should allocate all 100% of pool to single participant
+      expect(payouts).toHaveLength(1);
+      expect(payouts[0]).toEqual({ user_id: 'user1', rank: 1, amount_cents: 10000 });
+      expect(platformRemainderCents).toBe(0);
+      expect(payouts[0].amount_cents + platformRemainderCents).toBe(totalPoolCents);
+    });
+
+    it('should compress 2 participants into normalized [62.5, 37.5] from [50, 30, 20]', () => {
+      const rankings = [
+        { user_id: 'user1', rank: 1, score: 100 },
+        { user_id: 'user2', rank: 2, score: 90 }
+      ];
+      const payoutStructure = { '1': 50, '2': 30, '3': 20 };
+      const totalPoolCents = 10000; // $100
+
+      const { payouts, platformRemainderCents } = settlementStrategy.allocatePayouts(
+        rankings,
+        payoutStructure,
+        totalPoolCents
+      );
+
+      // Should take [50, 30] and normalize to [62.5%, 37.5%]
+      expect(payouts).toHaveLength(2);
+      expect(payouts[0].amount_cents).toBe(6250); // 62.5%
+      expect(payouts[1].amount_cents).toBe(3750); // 37.5%
+
+      // CONSERVATION: payouts + remainder = total pool
+      const totalAllocated = payouts.reduce((sum, p) => sum + p.amount_cents, 0);
+      expect(totalAllocated + platformRemainderCents).toBe(totalPoolCents);
+    });
+
+    it('should not compress when participants >= positions', () => {
+      const rankings = [
+        { user_id: 'user1', rank: 1, score: 100 },
+        { user_id: 'user2', rank: 2, score: 90 },
+        { user_id: 'user3', rank: 3, score: 80 }
+      ];
+      const payoutStructure = { '1': 50, '2': 30, '3': 20 };
+      const totalPoolCents = 10000;
+
+      const { payouts, platformRemainderCents } = settlementStrategy.allocatePayouts(
+        rankings,
+        payoutStructure,
+        totalPoolCents
+      );
+
+      // Should use original percentages without compression
+      expect(payouts).toHaveLength(3);
+      expect(payouts[0].amount_cents).toBe(5000); // 50%
+      expect(payouts[1].amount_cents).toBe(3000); // 30%
+      expect(payouts[2].amount_cents).toBe(2000); // 20%
+
+      // CONSERVATION
+      const totalAllocated = payouts.reduce((sum, p) => sum + p.amount_cents, 0);
+      expect(totalAllocated + platformRemainderCents).toBe(totalPoolCents);
+    });
+
+    it('CONSERVATION: compression preserves invariant for 1 participant, odd pool', () => {
+      const rankings = [
+        { user_id: 'user1', rank: 1, score: 100 }
+      ];
+      const payoutStructure = { '1': 60, '2': 25, '3': 15 };
+      const totalPoolCents = 12345; // Odd amount to test rounding
+
+      const { payouts, platformRemainderCents } = settlementStrategy.allocatePayouts(
+        rankings,
+        payoutStructure,
+        totalPoolCents
+      );
+
+      // Core invariant: payouts + remainder = total pool (never violate conservation)
+      const totalAllocated = payouts.reduce((sum, p) => sum + p.amount_cents, 0);
+      expect(totalAllocated + platformRemainderCents).toBe(totalPoolCents);
+    });
+
+    it('CONSERVATION: compression preserves invariant for 2 participants, odd pool', () => {
+      const rankings = [
+        { user_id: 'user1', rank: 1, score: 100 },
+        { user_id: 'user2', rank: 2, score: 95 }
+      ];
+      const payoutStructure = { '1': 60, '2': 25, '3': 15 };
+      const totalPoolCents = 9876; // Odd amount
+
+      const { payouts, platformRemainderCents } = settlementStrategy.allocatePayouts(
+        rankings,
+        payoutStructure,
+        totalPoolCents
+      );
+
+      // Core invariant: conservation law must always hold
+      const totalAllocated = payouts.reduce((sum, p) => sum + p.amount_cents, 0);
+      expect(totalAllocated + platformRemainderCents).toBe(totalPoolCents);
+
+      // Verify normalized percentages sum to 100%
+      // After normalization: [60, 25] → [70.588..%, 29.411..%]
+      // Both users get allocated, no leftover
+      expect(payouts.length).toBe(2);
+      expect(payouts[0].amount_cents + payouts[1].amount_cents + platformRemainderCents).toBe(totalPoolCents);
+    });
+  });
+
   describe('calculateTotalPool', () => {
     it('should calculate total pool from entry fee and participant count', () => {
       const contestInstance = { entry_fee_cents: 1000 };

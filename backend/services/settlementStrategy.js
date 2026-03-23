@@ -114,6 +114,10 @@ function computeRankings(scores) {
  * For each rank group (tie), combine the payouts for all positions it occupies
  * and split equally among the tied users using canonical safe tie allocation.
  *
+ * Payout Compression: When participants < payout positions, compresses percentages
+ * to ensure all funds are distributed (conservation law).
+ * Example: 1 participant with [50, 30, 20] → normalizes to [100]
+ *
  * Example: ranks [1, 1, 3] with structure {"1": 70, "2": 20, "3": 10}
  * - Rank 1 (2 users) occupy positions 1-2 → combine 70 + 20 = 90%, split equally
  * - Rank 3 (1 user) occupies position 3 → 10%
@@ -157,7 +161,38 @@ function allocatePayouts(rankings, payoutStructure, totalPoolCents) {
 
   // Normalize payout structure: extract percentages object if nested
   // Handles both flat {"1": 50, "2": 30} and nested {"payout_percentages": {"1": 50, "2": 30}}
-  const percentages = payoutStructure.payout_percentages || payoutStructure;
+  let percentages = payoutStructure.payout_percentages || payoutStructure;
+
+  // PAYOUT COMPRESSION: When fewer participants than payout positions,
+  // take top N percentages and normalize to sum to 100%.
+  // This ensures conservation law: payouts + remainder = distributable pool.
+  const participantCount = rankings.length; // Total number of people, not unique ranks
+  const allPositions = Object.keys(percentages)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  if (participantCount < allPositions.length) {
+    // Take only top N percentages
+    const usedPositions = allPositions.slice(0, participantCount);
+    let sumUsedPercentages = 0;
+
+    // Sum the percentages we're using
+    usedPositions.forEach(pos => {
+      sumUsedPercentages += percentages[pos];
+    });
+
+    // Normalize to 100%
+    if (sumUsedPercentages > 0 && sumUsedPercentages !== 100) {
+      const compressedPercentages = {};
+      const normalizationFactor = 100 / sumUsedPercentages;
+
+      usedPositions.forEach(pos => {
+        compressedPercentages[pos] = percentages[pos] * normalizationFactor;
+      });
+
+      percentages = compressedPercentages;
+    }
+  }
 
   // Process each rank group in order
   sortedRanks.forEach(rank => {
