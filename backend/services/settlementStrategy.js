@@ -50,6 +50,36 @@ const crypto = require('crypto');
 // Strategy validity is enforced by the registry — see settlementRegistry.js
 
 /**
+ * Validate settlement invariants
+ *
+ * Pure function to validate financial invariants:
+ * 1. Zero-payout prevention: if pool > 0, payouts must be > 0
+ * 2. Conservation law: payouts + remainder = distributable
+ *
+ * @param {number} distributableCents - Distributable pool in cents
+ * @param {number} totalPayoutsCents - Sum of all payouts in cents
+ * @param {number} platformRemainderCents - Platform remainder in cents
+ * @throws {Error} If any invariant is violated
+ */
+function validateSettlementInvariants(distributableCents, totalPayoutsCents, platformRemainderCents) {
+  // INVARIANT 1: Zero-payout prevention
+  if (distributableCents > 0 && totalPayoutsCents === 0) {
+    throw new Error(
+      `INVALID_SETTLEMENT_ZERO_PAYOUTS: Pool (${distributableCents} cents) exists but all payouts = 0. Settlement has fatal flaw (likely payout structure misconfiguration). Settlement CANNOT proceed.`
+    );
+  }
+
+  // INVARIANT 2: Conservation law
+  const conservationCheck = totalPayoutsCents + platformRemainderCents;
+  if (conservationCheck !== distributableCents) {
+    throw new Error(
+      `INVALID_SETTLEMENT_CONSERVATION_MISMATCH: payouts (${totalPayoutsCents}) + remainder (${platformRemainderCents}) = ${conservationCheck}, expected ${distributableCents}. Settlement conservation law violated.`
+    );
+  }
+}
+
+
+/**
  * Compute rankings from scores using competition ranking
  *
  * Competition ranking: equal scores get same rank, next rank skips positions for ties.
@@ -125,6 +155,10 @@ function allocatePayouts(rankings, payoutStructure, totalPoolCents) {
   const payouts = [];
   let currentPosition = 1;
 
+  // Normalize payout structure: extract percentages object if nested
+  // Handles both flat {"1": 50, "2": 30} and nested {"payout_percentages": {"1": 50, "2": 30}}
+  const percentages = payoutStructure.payout_percentages || payoutStructure;
+
   // Process each rank group in order
   sortedRanks.forEach(rank => {
     const group = rankGroups[rank];
@@ -133,7 +167,7 @@ function allocatePayouts(rankings, payoutStructure, totalPoolCents) {
     // Calculate combined percentage for all positions occupied by this tie
     let combinedPercentage = 0;
     for (let p = currentPosition; p < currentPosition + tieSize; p++) {
-      combinedPercentage += (payoutStructure[p] || 0);
+      combinedPercentage += (percentages[p] || 0);
     }
 
     // Step 1: Calculate total payout for this tie group (round half-up once at block level)
@@ -217,6 +251,12 @@ function computeSettlement(strategyKey, contestInstance, scores, snapshotId, sna
   const allocationResult = allocatePayouts(rankings, contestInstance.payout_structure, distributableCents);
   const payouts = allocationResult.payouts;
   const platformRemainderCents = allocationResult.platformRemainderCents;
+
+  // INVARIANT ENFORCEMENT: Validate settlement invariants
+  // - Zero-payout prevention (if pool > 0, payouts must be > 0)
+  // - Conservation law (payouts + remainder = distributable)
+  const totalPayoutsCents = payouts.reduce((sum, p) => sum + p.amount_cents, 0);
+  validateSettlementInvariants(distributableCents, totalPayoutsCents, platformRemainderCents);
 
   // Build settlement plan with snapshot binding and platform remainder tracking
   const settlementPlan = {
@@ -501,6 +541,26 @@ async function executeSettlementTx({
     );
   }
 
+  // 9c-CRITICAL. INVARIANT ENFORCEMENT GUARD: Zero-payout prevention
+  // If there is a distributable pool but zero payouts, settlement has a fatal flaw.
+  // Do NOT allow contest to reach COMPLETE with orphaned funds.
+  // This prevents financial invariant violations: wallet_liability + contest_pools = deposits - withdrawals
+  if (settlementPlan.distributable_cents > 0 && totalPayouts === 0) {
+    throw new Error(
+      `INVALID_SETTLEMENT_ZERO_PAYOUTS: Pool (${settlementPlan.distributable_cents} cents) exists but payouts = 0. Settlement has fatal flaw (likely payout structure misconfiguration). Contest CANNOT advance to COMPLETE.`
+    );
+  }
+
+  // 9c-CRITICAL. INVARIANT ENFORCEMENT GUARD: Conservation law at transaction boundary
+  // Verify: payouts + platform_remainder = distributable_cents
+  // If this fails, there is a computational error in settlement plan generation.
+  const txConservationCheck = totalPayouts + settlementPlan.platform_remainder_cents;
+  if (txConservationCheck !== settlementPlan.distributable_cents) {
+    throw new Error(
+      `INVALID_SETTLEMENT_CONSERVATION_MISMATCH: payouts (${totalPayouts}) + remainder (${settlementPlan.platform_remainder_cents}) = ${txConservationCheck}, expected ${settlementPlan.distributable_cents}. Settlement conservation law violated at transaction boundary.`
+    );
+  }
+
   // 9d. INSERT PRIZE_PAYOUT ledger entries for each recipient
   for (const payout of settlementPlan.payouts) {
     const payoutIdempotencyKey = `payout:${contestInstanceId}:${payout.rank}:${payout.user_id}`;
@@ -696,6 +756,7 @@ module.exports = {
 
   // Validation
   isValidStrategy,
+  validateSettlementInvariants,
 
   // Settlement readiness check
   isReadyForSettlement
