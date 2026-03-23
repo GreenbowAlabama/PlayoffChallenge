@@ -48,7 +48,8 @@ const settlementRegistry = require('../services/settlementRegistry');
 // ============================================================================
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
-const REPAIR_OPERATOR_ID = '00000000-0000-0000-0000-000000000001';
+const REPAIR_OPERATOR_ID =
+  process.env.REPAIR_OPERATOR_ID || '00000000-0000-0000-0000-000000000001';
 
 // Hardcoded allowlist: EXACTLY these 5 contest IDs from Valspar Championship
 const ALLOWED_CONTEST_IDS = new Set([
@@ -187,14 +188,18 @@ async function loadContestData(pool, contestId) {
   }
 
   // Load existing PRIZE_PAYOUT ledger rows
+  // NOTE: Historical PRIZE_PAYOUT rows may be keyed by reference_type/reference_id, not contest_instance_id
   const existingPayoutsResult = await pool.query(
     `
     SELECT
       user_id,
       SUM(amount_cents)::bigint as total_amount_cents
     FROM ledger
-    WHERE contest_instance_id = $1
-      AND entry_type = 'PRIZE_PAYOUT'
+    WHERE entry_type = 'PRIZE_PAYOUT'
+      AND (
+        contest_instance_id = $1
+        OR (reference_type = 'CONTEST' AND reference_id = $1)
+      )
     GROUP BY user_id
     `,
     [contestId]
@@ -393,11 +398,45 @@ async function executeRepair(pool, contestData, repairPlan) {
   try {
     await client.query('BEGIN');
 
-    // Step 1: Insert compensating PRIZE_PAYOUT ledger entries
-    for (const entry of repairPlan.compensation_entries) {
-      const idempotencyKey = `repair:${contestData.contestId}:${entry.user_id}:${entry.amount_cents}:${contestData.snapshotHash}`;
+    // DIAGNOSTICS: Log database identity at start of repair
+    const identityResult = await client.query(
+      `SELECT current_database() as db, inet_server_addr() as addr, current_user as usr`
+    );
+    const identity = identityResult.rows[0];
+    console.log('[REPAIR] Database Identity:', {
+      database: identity.db,
+      server_address: identity.addr,
+      current_user: identity.usr
+    });
 
-      await client.query(
+    // Step 1: Insert compensating PRIZE_PAYOUT ledger entries
+    const insertedLedgerIds = [];
+    for (const entry of repairPlan.compensation_entries) {
+      // CRITICAL: Use delta amount, not original payout
+      const delta = repairPlan.deltas[entry.user_id].delta;
+
+      // Skip if delta is 0 or negative (safety check)
+      if (delta <= 0) {
+        console.warn(
+          '[REPAIR] Skipping entry for user',
+          entry.user_id,
+          'with delta',
+          delta
+        );
+        continue;
+      }
+
+      console.log('[REPAIR] inserting payout', { user_id: entry.user_id, delta });
+
+      // Use unique idempotency key to avoid collision with previous broken inserts
+      // Previous broken inserts had keys like: repair:contestId:userId:0:hash
+      // New corrected inserts use: repair_fix_2:contestId:userId:delta:hash
+      const idempotencyKey = `repair_fix_2:${contestData.contestId}:${entry.user_id}:${delta}:${contestData.snapshotHash}`;
+
+      console.log('[REPAIR] IDEMPOTENCY_KEY:', idempotencyKey);
+
+      // INSERT with explicit parameter order (no helpers, raw SQL)
+      const insertResult = await client.query(
         `
         INSERT INTO ledger (
           user_id,
@@ -413,12 +452,13 @@ async function executeRepair(pool, contestData, repairPlan) {
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
         ON CONFLICT (idempotency_key) DO NOTHING
+        RETURNING id, idempotency_key, amount_cents
         `,
         [
           entry.user_id,
           'PRIZE_PAYOUT',
           'CREDIT',
-          entry.amount_cents,
+          delta,
           'CONTEST',
           contestData.contestId,
           idempotencyKey,
@@ -426,6 +466,32 @@ async function executeRepair(pool, contestData, repairPlan) {
           contestData.snapshotHash,
         ]
       );
+
+      if (insertResult.rows.length > 0) {
+        const insertedRow = insertResult.rows[0];
+        console.log('[REPAIR] Insert succeeded:', insertedRow);
+        insertedLedgerIds.push(insertedRow.id);
+      } else {
+        console.log('[REPAIR] Insert was ON CONFLICT skipped (row already exists)');
+
+        // Verify the existing row
+        const verifyResult = await client.query(
+          `
+          SELECT id, user_id, entry_type, amount_cents, idempotency_key
+          FROM ledger
+          WHERE idempotency_key = $1
+          `,
+          [idempotencyKey]
+        );
+
+        if (verifyResult.rows.length > 0) {
+          const existingRow = verifyResult.rows[0];
+          console.log('[REPAIR] Existing row found:', existingRow);
+          insertedLedgerIds.push(existingRow.id);
+        } else {
+          console.warn('[REPAIR] ERROR: No row found with idempotency_key:', idempotencyKey);
+        }
+      }
     }
 
     // Step 2: Create payout_job if needed (idempotent via settlement_id UNIQUE)
@@ -478,7 +544,7 @@ async function executeRepair(pool, contestData, repairPlan) {
       );
     }
 
-    // Step 4: Insert admin audit record
+    // Step 4: Insert admin audit record (non-critical; continue if fails)
     const auditPayload = {
       repair_type: 'SETTLEMENT_REPAIR_ZERO_PAYOUT_BUG',
       recomputation_method: 'settlementStrategy.computeSettlement()',
@@ -489,31 +555,98 @@ async function executeRepair(pool, contestData, repairPlan) {
       snapshot_hash: contestData.snapshotHash,
     };
 
-    await client.query(
+    try {
+      await client.query(
+        `
+        INSERT INTO admin_contest_audit (
+          contest_instance_id,
+          admin_user_id,
+          action,
+          reason,
+          from_status,
+          to_status,
+          payload
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        [
+          contestData.contestId,
+          REPAIR_OPERATOR_ID,
+          'settlement_repair_execute',
+          'Repair zero-payout settlement bug (recomputed via settlementStrategy, append-only compensation entries)',
+          contestData.status,
+          contestData.status,
+          JSON.stringify(auditPayload),
+        ]
+      );
+    } catch (auditErr) {
+      console.warn('[REPAIR] Audit insert failed, continuing:', auditErr.message);
+    }
+
+    console.log('[REPAIR] COMMITTING TRANSACTION');
+    await client.query('COMMIT');
+    console.log('[REPAIR] COMMIT SUCCESS');
+
+    // VALIDATION 1: Query by returned IDs (most direct)
+    console.log('[REPAIR] VALIDATION 1: Querying by returned ledger IDs');
+    if (insertedLedgerIds.length > 0) {
+      const byIdResult = await client.query(
+        `
+        SELECT id, user_id, amount_cents, reference_type, reference_id, idempotency_key
+        FROM ledger
+        WHERE id = ANY($1::uuid[])
+        ORDER BY created_at DESC
+        `,
+        [insertedLedgerIds]
+      );
+      console.log('[REPAIR] By ID Result Count:', byIdResult.rows.length);
+      byIdResult.rows.forEach((row) => {
+        console.log('[REPAIR] Row by ID:', row);
+      });
+    } else {
+      console.log('[REPAIR] No inserted IDs to query (all were ON CONFLICT skipped)');
+    }
+
+    // VALIDATION 2: Query by idempotency_key LIKE pattern
+    console.log('[REPAIR] VALIDATION 2: Querying by idempotency_key LIKE repair_fix_2:%');
+    const validationResult = await client.query(
       `
-      INSERT INTO admin_contest_audit (
-        contest_instance_id,
-        admin_user_id,
-        action,
-        reason,
-        from_status,
-        to_status,
-        payload
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      SELECT COUNT(*)::int as count, SUM(amount_cents)::bigint as total_cents
+      FROM ledger
+      WHERE idempotency_key LIKE 'repair_fix_2:%'
+        AND reference_id = $1
       `,
-      [
-        contestData.contestId,
-        REPAIR_OPERATOR_ID,
-        'settlement_repair_execute',
-        'Repair zero-payout settlement bug (recomputed via settlementStrategy, append-only compensation entries)',
-        contestData.status,
-        contestData.status,
-        JSON.stringify(auditPayload),
-      ]
+      [contestData.contestId]
     );
 
-    await client.query('COMMIT');
+    const validationCount = validationResult.rows[0]?.count || 0;
+    const validationTotal = validationResult.rows[0]?.total_cents || 0;
+
+    console.log('[REPAIR] By idempotency_key LIKE:', {
+      rows_inserted: validationCount,
+      total_amount_cents: validationTotal
+    });
+
+    // VALIDATION 3: Comprehensive query with all three filters
+    console.log('[REPAIR] VALIDATION 3: Comprehensive query (all filters)');
+    const comprehensiveResult = await client.query(
+      `
+      SELECT id, user_id, amount_cents, reference_type, reference_id, contest_instance_id, idempotency_key, created_at
+      FROM ledger
+      WHERE entry_type = 'PRIZE_PAYOUT'
+        AND (
+          contest_instance_id = $1
+          OR (reference_type = 'CONTEST' AND reference_id = $1)
+          OR idempotency_key LIKE 'repair_fix_2:%'
+        )
+      ORDER BY created_at DESC
+      `,
+      [contestData.contestId]
+    );
+    console.log('[REPAIR] Comprehensive Result Count:', comprehensiveResult.rows.length);
+    comprehensiveResult.rows.forEach((row) => {
+      console.log('[REPAIR] Row (comprehensive):', row);
+    });
 
     return {
       status: 'repaired',

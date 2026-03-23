@@ -109,6 +109,33 @@ async function executeTransfer(pool, transferId, getDestinationAccountFn) {
         stripeResult.transferId
       );
 
+      // Write PRIZE_PAYOUT ledger entry for completed transfer
+      // This credits the user's wallet for the payout.
+      // Idempotency key is deterministic: payout:${transfer_id}
+      await client.query(
+        `INSERT INTO ledger (
+           user_id,
+           entry_type,
+           direction,
+           amount_cents,
+           reference_type,
+           reference_id,
+           idempotency_key,
+           created_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         ON CONFLICT (idempotency_key) DO NOTHING`,
+        [
+          transfer.user_id,
+          'PRIZE_PAYOUT',
+          'CREDIT',
+          transfer.amount_cents,
+          'CONTEST',
+          transfer.contest_id,
+          `payout:${transferId}`
+        ]
+      );
+
       ledgerEntryType = 'PAYOUT_COMPLETED';
       ledgerDirection = 'CREDIT';
     } else if (processingTransfer.attempt_count >= transfer.max_attempts) {

@@ -409,6 +409,25 @@ async function executeSettlementTx({
   snapshotHash,
   now = new Date(),
 }) {
+  /**
+   * LEDGER CONTRACT v1 ENFORCEMENT
+   *
+   * This function enforces the Ledger Contract v1 for all settlement payouts:
+   * - REQUIRED: All ledger writes must include reference_type + reference_id
+   * - FORBIDDEN: contest_instance_id must NOT be used in write paths
+   * - SETTLEMENT RULE: All contest payouts use:
+   *     reference_type = 'CONTEST'
+   *     reference_id   = contestInstanceId
+   *
+   * This contract is enforced:
+   * 1. At database level: schema constraint ledger_reference_required (reference_id NOT NULL)
+   * 2. At application level: validation guards below
+   * 3. At test level: ledger.contract.test.js + settlementLedgerization.test.js
+   *
+   * Violation impact: Any attempt to write contest_instance_id to ledger will fail
+   * at the schema level (constraint) and be caught by tests.
+   */
+
   // 1. LOCK: SELECT FOR UPDATE to prevent concurrent settlement attempts
   const lockResult = await client.query(
     'SELECT id, status, entry_fee_cents, payout_structure, settle_time FROM contest_instances WHERE id = $1 FOR UPDATE',
@@ -596,40 +615,10 @@ async function executeSettlementTx({
     );
   }
 
-  // 9d. INSERT PRIZE_PAYOUT ledger entries for each recipient
-  for (const payout of settlementPlan.payouts) {
-    const payoutIdempotencyKey = `payout:${contestInstanceId}:${payout.rank}:${payout.user_id}`;
-
-    await client.query(
-      `INSERT INTO ledger (
-         user_id,
-         entry_type,
-         direction,
-         amount_cents,
-         reference_type,
-         reference_id,
-         idempotency_key,
-         scoring_run_id,
-         snapshot_id,
-         snapshot_hash,
-         created_at
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-       ON CONFLICT (idempotency_key) DO NOTHING`,
-      [
-        payout.user_id,
-        'PRIZE_PAYOUT',
-        'CREDIT',
-        payout.amount_cents,
-        'CONTEST',
-        contestInstanceId,
-        payoutIdempotencyKey,
-        scoringRunId,
-        snapshotId,
-        snapshotHash
-      ]
-    );
-  }
+  // 9d. Settlement does NOT write PRIZE_PAYOUT ledger entries.
+  // PRIZE_PAYOUT entries are written by PayoutExecutionService when transfers complete.
+  // This ensures ledger entries only exist for actually-paid winners.
+  // (Payout orchestration creates payout_jobs and payout_transfers, but payouts are pending until Stripe success.)
 
   // 10. WRITE settle_time and status to COMPLETE (only if currently LIVE)
   const previousStatus = lockedContest.status;

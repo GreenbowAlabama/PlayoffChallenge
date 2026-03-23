@@ -678,10 +678,9 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
              currency,
              reference_type,
              reference_id,
-             contest_instance_id,
              idempotency_key,
              created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
            ON CONFLICT (idempotency_key) DO NOTHING`,
           [
             userId,
@@ -690,7 +689,6 @@ async function cancelContestInstance(pool, contestId, adminUserId, reason) {
             contest.entry_fee_cents,
             'USD',
             'CONTEST',
-            contestId,
             contestId,
             refundIdempotencyKey
           ]
@@ -1120,10 +1118,9 @@ async function adminRemoveUserFromContest(pool, contestId, userId, adminUserId, 
            currency,
            reference_type,
            reference_id,
-           contest_instance_id,
            idempotency_key,
            created_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
          ON CONFLICT (idempotency_key) DO NOTHING`,
         [
           userId,
@@ -1132,7 +1129,6 @@ async function adminRemoveUserFromContest(pool, contestId, userId, adminUserId, 
           contest.entry_fee_cents,
           'USD',
           'CONTEST',
-          contestId,
           contestId,
           refundIdempotencyKey
         ]

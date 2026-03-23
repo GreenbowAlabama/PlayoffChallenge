@@ -179,7 +179,6 @@ async function refundContest(pool, contestId, adminId, reason) {
         // Insert refund ledger entry (CREDIT)
         await client.query(
           `INSERT INTO ledger (
-             contest_instance_id,
              user_id,
              entry_type,
              direction,
@@ -190,9 +189,8 @@ async function refundContest(pool, contestId, adminId, reason) {
              idempotency_key,
              metadata_json,
              created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
           [
-            contestId,
             userId,
             'ENTRY_FEE_REFUND',
             'CREDIT',

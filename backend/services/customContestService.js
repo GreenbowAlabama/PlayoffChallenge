@@ -1425,14 +1425,13 @@ async function publishContestInstance(pool, instanceId, organizerId) {
              amount_cents,
              reference_type,
              reference_id,
-             contest_instance_id,
              idempotency_key,
              created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
            ON CONFLICT (idempotency_key) DO NOTHING
            RETURNING id, entry_type, direction, amount_cents, reference_type, reference_id,
-             contest_instance_id, idempotency_key`,
-          [organizerId, 'ENTRY_FEE', 'DEBIT', entryFeeCents, 'CONTEST', instanceId, instanceId, idempotencyKey]
+             idempotency_key`,
+          [organizerId, 'ENTRY_FEE', 'DEBIT', entryFeeCents, 'CONTEST', instanceId, idempotencyKey]
         );
 
         if (debitResult.rowCount === 0) {
@@ -1679,13 +1678,12 @@ async function joinContest(pool, contestInstanceId, userId, optionalToken = null
          amount_cents,
          reference_type,
          reference_id,
-         contest_instance_id,
          idempotency_key,
          created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        ON CONFLICT (idempotency_key) DO NOTHING
-       RETURNING id, entry_type, direction, amount_cents, reference_type, reference_id, contest_instance_id, idempotency_key`,
-      [userId, 'ENTRY_FEE', 'DEBIT', entryFeeCents, 'CONTEST', contestInstanceId, contestInstanceId, idempotencyKey]
+       RETURNING id, entry_type, direction, amount_cents, reference_type, reference_id, idempotency_key`,
+      [userId, 'ENTRY_FEE', 'DEBIT', entryFeeCents, 'CONTEST', contestInstanceId, idempotencyKey]
     );
 
     // If RETURNING row exists, entry fee was recorded successfully
@@ -2587,10 +2585,9 @@ async function deleteContestInstance(pool, contestId, organizerId) {
              currency,
              reference_type,
              reference_id,
-             contest_instance_id,
              idempotency_key,
              created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
            ON CONFLICT (idempotency_key) DO NOTHING`,
           [
             userId,
@@ -2599,7 +2596,6 @@ async function deleteContestInstance(pool, contestId, organizerId) {
             contest.entry_fee_cents,
             'USD',
             'CONTEST',
-            contestId,
             contestId,
             refundIdempotencyKey
           ]
@@ -2747,12 +2743,11 @@ async function unJoinContest(pool, contestId, userId) {
              amount_cents,
              reference_type,
              reference_id,
-             contest_instance_id,
              idempotency_key,
              created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
            ON CONFLICT (idempotency_key) DO NOTHING`,
-          [userId, 'ENTRY_FEE_REFUND', 'CREDIT', entryFeeCents, 'CONTEST', contestId, contestId, refundIdempotencyKey]
+          [userId, 'ENTRY_FEE_REFUND', 'CREDIT', entryFeeCents, 'CONTEST', contestId, refundIdempotencyKey]
         );
       }
     }

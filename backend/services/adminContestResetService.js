@@ -92,7 +92,6 @@ async function resetPGAContestEnvironment(pool) {
         const refundResult = await client.query(
           `INSERT INTO ledger (
              user_id,
-             contest_instance_id,
              entry_type,
              direction,
              amount_cents,
@@ -100,16 +99,15 @@ async function resetPGAContestEnvironment(pool) {
              reference_id,
              idempotency_key,
              created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
            ON CONFLICT (idempotency_key) DO NOTHING
            RETURNING id`,
           [
             participant.user_id,
-            contest.id,
             'ENTRY_FEE_REFUND',
             'CREDIT',
             contest.entry_fee_cents,
-            'CONTEST_INSTANCE',
+            'CONTEST',
             contest.id,
             idempotencyKey
           ]
